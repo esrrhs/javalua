@@ -1,21 +1,20 @@
 package fakescript;
 
-import java.util.HashMap;
+import java.util.Map;
 
 class binary
 {
 	private fake m_f;
-	
+
 	public binary(fake f)
 	{
 		m_f = f;
 	}
-	
+
 	public String dump()
 	{
 		String ret = "";
-		for (HashMap.Entry<variant, funcunion> e : m_f.fm.get_funcmap()
-				.entrySet())
+		for (Map.Entry<variant, funcunion> e : m_f.fm.get_funcmap().entrySet())
 		{
 			funcunion f = e.getValue();
 			if (f.m_havefb)
@@ -25,12 +24,12 @@ class binary
 		}
 		return ret;
 	}
-	
+
 	public String dump(String str)
 	{
 		variant funcv = new variant();
 		funcv.set_string(str);
-		
+
 		funcunion f = m_f.fm.get_func(funcv);
 		if (f != null && f.m_havefb)
 		{
@@ -41,7 +40,7 @@ class binary
 			return "not find " + str;
 		}
 	}
-	
+
 	public void add_func(variant name, func_binary bin)
 	{
 		funcunion f = m_f.fm.get_func(name);
@@ -55,7 +54,7 @@ class binary
 			types.log("[binary] add_func func %s add bin", name);
 			m_f.fm.add_func(name, bin);
 		}
-		
+
 		types.log("add func %s", name);
 	}
 }
