@@ -46,7 +46,7 @@ const hellomap = {1 : "a" 2 : "b" 3 : [1 2 3]}
 -- func1 comment
 func myfunc1(arg1, arg2)
 	
-	-- C函数和类成员函数的调用
+	-- Java静态函数和类成员函数的调用
 	arg3 := cfunc1(helloint) + arg2:memfunc1(arg1)
 	
 	-- 分支
