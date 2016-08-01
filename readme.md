@@ -51,7 +51,7 @@ const hellomap = {1 : "a" 2 : "b" 3 : [1 2 3]}
 -- func1 comment
 func myfunc1(arg1, arg2)
 	
-	-- C function calls and class member functions
+	-- Java static function calls and Java class member functions
 	arg3 := cfunc1(helloint) + arg2:memfunc1(arg1)
 	
 	-- Branch
