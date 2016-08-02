@@ -7,9 +7,6 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 
-import fakescript.bind.fakescript;
-import fakescript.bind.packagehelper;
-
 public class fk
 {
 	/**
@@ -31,7 +28,7 @@ public class fk
 		}
 		return f;
 	}
-	
+
 	/**
 	 * 绑定java函数
 	 * <p>
@@ -48,7 +45,7 @@ public class fk
 	 */
 	public static void reg(fake f, String packagename)
 	{
-		List<Class<?>> tmp = packagehelper.getClasses(packagename);
+		List<Class<?>> tmp = packagehelper.getClasses(f, packagename);
 		for (Class<?> c : tmp)
 		{
 			Method[] ms = c.getDeclaredMethods();
@@ -56,39 +53,92 @@ public class fk
 			{
 				if (m.isAnnotationPresent(fakescript.class))
 				{
-					fakescript fn = (fakescript) m
-							.getAnnotation(fakescript.class);
-					
+					fakescript fn = (fakescript) m.getAnnotation(fakescript.class);
+
 					String name = fn.name();
 					if (name.equals(""))
 					{
 						name = m.getName();
 					}
-					
+
 					fkfunctor fkf = new fkfunctor();
 					fkf.m_c = c;
 					fkf.m_m = m;
 					fkf.m_param = m.getParameterTypes();
 					fkf.m_ret = m.getReturnType();
 					fkf.m_is_staic = Modifier.isStatic(m.getModifiers());
-					
+
 					if (!fkf.m_is_staic)
 					{
 						name = c.getName() + name;
 					}
-					
+					else
+					{
+						name = c.getSimpleName() + "." + name;
+					}
+
 					variant v = new variant();
 					v.set_string(name);
-					
+
 					f.fm.add_func(v, fkf);
-					
-					types.log("fk reg %s %s", name, fkf);
+
+					types.log(f, "fk reg %s %s", name, fkf);
 				}
 			}
 		}
-		
+
 	}
-	
+
+	/**
+	 * 绑定java函数
+	 * <p>
+	 * 遍历package下所有类<br>
+	 * 绑定所有的函数
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @param packagename
+	 *            包的名字
+	 * 
+	 * @return 无
+	 */
+	public static void regall(fake f, String packagename)
+	{
+		List<Class<?>> tmp = packagehelper.getClasses(f, packagename);
+		for (Class<?> c : tmp)
+		{
+			Method[] ms = c.getDeclaredMethods();
+			for (Method m : ms)
+			{
+				String name = m.getName();
+
+				fkfunctor fkf = new fkfunctor();
+				fkf.m_c = c;
+				fkf.m_m = m;
+				fkf.m_param = m.getParameterTypes();
+				fkf.m_ret = m.getReturnType();
+				fkf.m_is_staic = Modifier.isStatic(m.getModifiers());
+
+				if (!fkf.m_is_staic)
+				{
+					name = c.getName() + name;
+				}
+				else
+				{
+					name = c.getSimpleName() + "." + name;
+				}
+
+				variant v = new variant();
+				v.set_string(name);
+
+				f.fm.add_func(v, fkf);
+
+				types.log(f, "fk reg %s %s", name, fkf);
+			}
+		}
+	}
+
 	/**
 	 * 设置回调函数
 	 * <p>
@@ -107,7 +157,7 @@ public class fk
 	{
 		f.cb = cb;
 	}
-	
+
 	/**
 	 * 解析文件
 	 * <p>
@@ -127,7 +177,27 @@ public class fk
 		f.pa.clear();
 		return f.pa.parse(filename);
 	}
-	
+
+	/**
+	 * 解析代码
+	 * <p>
+	 * 解析文本字符串代码<br>
+	 * 编译成字节码
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @param str
+	 *            文件名
+	 * 
+	 * @return 无
+	 */
+	public static boolean parsestr(fake f, String str)
+	{
+		f.pa.clear();
+		return f.pa.parsestr(str);
+	}
+
 	/**
 	 * 执行脚本
 	 * <p>
@@ -155,7 +225,7 @@ public class fk
 		runps(f, func);
 		return pspop(f);
 	}
-	
+
 	/**
 	 * 获取当前文件
 	 * <p>
@@ -174,7 +244,7 @@ public class fk
 		}
 		return "nil";
 	}
-	
+
 	/**
 	 * 获取当前文件行号
 	 * <p>
@@ -193,7 +263,7 @@ public class fk
 		}
 		return 0;
 	}
-	
+
 	/**
 	 * 获取当前函数
 	 * <p>
@@ -212,7 +282,7 @@ public class fk
 		}
 		return "nil";
 	}
-	
+
 	/**
 	 * 获取当前调用堆栈
 	 * <p>
@@ -227,12 +297,11 @@ public class fk
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_curroutine() != null)
 		{
-			return p.get_curroutine().get_interpreter()
-					.get_running_call_stack();
+			return p.get_curroutine().get_interpreter().get_running_call_stack();
 		}
 		return "nil";
 	}
-	
+
 	/**
 	 * 获取当前协程信息
 	 * <p>
@@ -251,7 +320,7 @@ public class fk
 		}
 		return "nil";
 	}
-	
+
 	/**
 	 * 打开基本的内置函数
 	 * <p>
@@ -265,7 +334,7 @@ public class fk
 	{
 		f.bif.openbasefunc();
 	}
-	
+
 	/**
 	 * 是否有某个函数
 	 * <p>
@@ -286,22 +355,22 @@ public class fk
 		funcv.set_string(name);
 		return f.fm.get_func(funcv) != null;
 	}
-	
+
 	protected static void psclear(fake f)
 	{
 		f.ps.clear();
 	}
-	
+
 	protected static void pspush(fake f, Object arg)
 	{
 		variant v = f.ps.push_and_get();
-		
+
 		if (arg == null)
 		{
 			v.set_nil();
 			return;
 		}
-		
+
 		Class<? extends Object> c = arg.getClass();
 		if (c == Byte.class)
 		{
@@ -348,14 +417,14 @@ public class fk
 			v.set_pointer(arg);
 		}
 	}
-	
+
 	protected static Object pspop(fake f)
 	{
 		if (f.ps.size() == 0)
 		{
 			return null;
 		}
-		
+
 		variant v = f.ps.pop_and_get();
 		if (v.m_type == variant_type.NIL)
 		{
@@ -385,11 +454,11 @@ public class fk
 			return null;
 		}
 	}
-	
+
 	protected static Object trans(Object src, Class<?> c)
 	{
 		Class<?> srcc = src.getClass();
-		
+
 		if (c == Byte.class || c == Byte.TYPE)
 		{
 			if (srcc == Byte.class)
@@ -707,24 +776,24 @@ public class fk
 			}
 		}
 	}
-	
+
 	protected static void runps(fake f, String func)
 	{
 		variant funcv = new variant();
 		funcv.set_string(func);
-		
+
 		processor pro = new processor(f);
-		
+
 		try
 		{
 			routine r = pro.start_routine(funcv, new ArrayList<Integer>());
-			
+
 			f.rn.push_pro(pro);
 			pro.run();
 			f.rn.pop_pro();
-			
+
 			variant ret = r.get_ret();
-			
+
 			variant v = f.ps.push_and_get();
 			v.copy_from(ret);
 		}
@@ -733,8 +802,7 @@ public class fk
 			StringWriter sw = new StringWriter();
 			PrintWriter pw = new PrintWriter(sw);
 			e.printStackTrace(pw);
-			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f),
-					e.toString() + "\n" + sw.toString());
+			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), e.toString() + "\n" + sw.toString());
 			pw.close();
 			f.ps.push_and_get();
 		}

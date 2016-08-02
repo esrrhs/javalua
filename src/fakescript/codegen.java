@@ -216,7 +216,7 @@ class codegen
 
 		bin.m_fresh++;
 
-		types.log("codegen out %s %d", name, m_maxstackpos);
+		types.log(m_f, "codegen out %s %d", name, m_maxstackpos);
 	}
 
 }

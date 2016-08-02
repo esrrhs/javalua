@@ -1,6 +1,11 @@
 -- main comment
 func main(arg, a)
-
+	
+	arg:aaa(1)
+	A.aaa2()
+	B.aaa2()
+	arg:aaa3():aaa3():aaa(1)
+	arg:aaa4()()()
 	var arg1 = 1
 	var arg2 = 2
 	

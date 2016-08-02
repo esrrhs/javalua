@@ -5,23 +5,25 @@ import java.util.Map.Entry;
 
 class types
 {
-	public static void seterror(fake f, String file, int lineno, String func,
-			String errorstr, Object... args)
+	public static void seterror(fake f, String file, int lineno, String func, String errorstr, Object... args)
 	{
 		f.errorstr = String.format(errorstr, args);
-		
+
 		if (f.cb != null)
 		{
 			f.cb.on_error(f, file, lineno, func, f.errorstr);
 		}
 	}
-	
-	public static void log(String str, Object... args)
+
+	public static void log(fake f, String str, Object... args)
 	{
-		System.out.printf(str, args);
-		System.out.println("");
+		if (f.cfg.open_debug_log != 0)
+		{
+			System.out.printf(str, args);
+			System.out.println("");
+		}
 	}
-	
+
 	public static String show_exception(Exception e)
 	{
 		String ret = "";
@@ -32,7 +34,7 @@ class types
 		ret += e.toString();
 		return ret;
 	}
-	
+
 	public static String gen_package_name(String p, String n)
 	{
 		if (p.isEmpty())
@@ -44,13 +46,13 @@ class types
 			return p + "." + n;
 		}
 	}
-	
+
 	public static boolean isint(double d)
 	{
 		long l = (long) d;
 		return l == d;
 	}
-	
+
 	public static String pointertoa(Object o)
 	{
 		if (o == null)
@@ -59,7 +61,7 @@ class types
 		}
 		return o.toString();
 	}
-	
+
 	public static String arraytoa(Object o)
 	{
 		variant_array va = (variant_array) o;
@@ -68,10 +70,10 @@ class types
 			return "ARRAY IN RECUR";
 		}
 		va.m_recur++;
-		
+
 		String ret = "";
 		ret += "[";
-		
+
 		for (int i = 0; i < va.m_va.size(); i++)
 		{
 			variant n = va.m_va.get(i);
@@ -85,14 +87,14 @@ class types
 			}
 			ret += ",";
 		}
-		
+
 		ret += "]";
-		
+
 		va.m_recur--;
-		
+
 		return ret;
 	}
-	
+
 	public static String maptoa(Object o)
 	{
 		variant_map vm = (variant_map) o;
@@ -101,7 +103,7 @@ class types
 			return "MAP IN RECUR";
 		}
 		vm.m_recur++;
-		
+
 		String ret = "";
 		ret += "{";
 		int i = 0;
@@ -119,20 +121,20 @@ class types
 			{
 				ret += ",(";
 			}
-			
+
 			ret += kv.toString();
 			ret += ",";
 			ret += vv.toString();
 			ret += ")";
-			
+
 			i++;
 		}
-		
+
 		vm.m_recur--;
-		
+
 		return ret;
 	}
-	
+
 	public static String dump_addr(int code)
 	{
 		String ret = "";
@@ -157,7 +159,7 @@ class types
 		ret += pos;
 		return ret;
 	}
-	
+
 	public static String OpCodeStr(int opcode)
 	{
 		switch (opcode)
@@ -241,5 +243,5 @@ class types
 		}
 		return "unknow";
 	}
-	
+
 }

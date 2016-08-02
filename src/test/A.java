@@ -1,6 +1,6 @@
 package test;
 
-import fakescript.bind.fakescript;
+import fakescript.fakescript;
 
 public class A
 {

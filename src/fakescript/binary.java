@@ -46,15 +46,15 @@ class binary
 		funcunion f = m_f.fm.get_func(name);
 		if (f != null && f.m_havefb && f.m_fb.m_use != 0)
 		{
-			types.log("[binary] add_func func %s add back bin", name);
+			types.log(m_f, "[binary] add_func func %s add back bin", name);
 			f.m_fb = bin;
 		}
 		else
 		{
-			types.log("[binary] add_func func %s add bin", name);
+			types.log(m_f, "[binary] add_func func %s add bin", name);
 			m_f.fm.add_func(name, bin);
 		}
 
-		types.log("add func %s", name);
+		types.log(m_f, "add func %s", name);
 	}
 }

@@ -151,7 +151,7 @@ body ::=
 function_declaration ::=
 	FUNC IDENTIFIER:e OPEN_BRACKET function_declaration_arguments:e1 CLOSE_BRACKET block:e2 END
 	{:
-		types.log("[CUP]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET block END");
+		types.log(m_mycup.get_fake(), "[CUP]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET block END");
 		func_desc_node p = new_node(func_desc_node.class);
 		p.m_funcname = e.toString();
 		p.m_arglist = (func_desc_arglist_node)e1;
@@ -162,7 +162,7 @@ function_declaration ::=
 	|
 	FUNC IDENTIFIER:e OPEN_BRACKET function_declaration_arguments:e1 CLOSE_BRACKET END
 	{:
-		types.log("[CUP]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET END");
+		types.log(m_mycup.get_fake(), "[CUP]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET END");
 		func_desc_node p = new_node(func_desc_node.class);
 		p.m_funcname = e.toString();
 		p.m_arglist = (func_desc_arglist_node)e1;
@@ -174,12 +174,12 @@ function_declaration ::=
 function_declaration_arguments ::=
 	/* empty */
 	{:
-		types.log("[CUP]: empty");
+		types.log(m_mycup.get_fake(), "[CUP]: empty");
 	:}
 	| 
 	function_declaration_arguments:e ARG_SPLITTER arg:e1 
 	{:
-		types.log("[CUP]: function_declaration_arguments ARG_SPLITTER arg ");
+		types.log(m_mycup.get_fake(), "[CUP]: function_declaration_arguments ARG_SPLITTER arg ");
 		func_desc_arglist_node p = (func_desc_arglist_node)e;
 		p.add_arg((syntree_node)e1);
 		RESULT = p;
@@ -187,7 +187,7 @@ function_declaration_arguments ::=
 	| 
 	arg:e
 	{:
-		types.log("[CUP]: arg");
+		types.log(m_mycup.get_fake(), "[CUP]: arg");
 		func_desc_arglist_node p = new_node(func_desc_arglist_node.class);
 		p.add_arg((syntree_node)e);
 		RESULT = p;
@@ -197,7 +197,7 @@ function_declaration_arguments ::=
 arg ::=
 	IDENTIFIER:e
 	{:
-		types.log("[CUP]: IDENTIFIER");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER");
 		identifier_node p = new_node(identifier_node.class);
 		p.m_str = e.toString();
 		RESULT = p;
@@ -208,7 +208,7 @@ arg ::=
 function_call ::=
 	IDENTIFIER:e OPEN_BRACKET function_call_arguments:e1 CLOSE_BRACKET 
 	{:
-		types.log("[CUP]: IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = new_node(function_call_node.class);
 		p.m_fuc = e.toString();
 		p.m_arglist = (function_call_arglist_node)e1;
@@ -219,7 +219,7 @@ function_call ::=
 	|
 	IDENTIFIER_DOT:e OPEN_BRACKET function_call_arguments:e1 CLOSE_BRACKET 
 	{:
-		types.log("[CUP]: IDENTIFIER_DOT OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER_DOT OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = new_node(function_call_node.class);
 		p.m_fuc = e.toString();
 		p.m_arglist = (function_call_arglist_node)e1;
@@ -228,9 +228,36 @@ function_call ::=
 		RESULT = p;
 	:} 
 	|
+	function_call:e OPEN_BRACKET function_call_arguments:e1 CLOSE_BRACKET 
+	{:
+		types.log(m_mycup.get_fake(), "[CUP]: function_call OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
+		function_call_node p = new_node(function_call_node.class);
+		p.m_prefuc = (syntree_node)e;
+		p.m_arglist = (function_call_arglist_node)e1;
+		p.m_fakecall = false;
+		p.m_classmem_call = false;
+		RESULT = p;
+	:} 
+	|
 	variable:e COLON IDENTIFIER:e1 OPEN_BRACKET function_call_arguments:e2 CLOSE_BRACKET 
 	{:
-		types.log("[CUP]: variable COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
+		types.log(m_mycup.get_fake(), "[CUP]: variable COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
+		function_call_node p = new_node(function_call_node.class);
+		p.m_fuc = e1.toString();
+		p.m_arglist = (function_call_arglist_node)e2;
+		if (p.m_arglist == null)
+		{
+			p.m_arglist = new_node(function_call_arglist_node.class);
+		}
+		p.m_arglist.add_arg((syntree_node)e);
+		p.m_fakecall = false;
+		p.m_classmem_call = true;
+		RESULT = p;
+	:} 
+	|
+	function_call:e COLON IDENTIFIER:e1 OPEN_BRACKET function_call_arguments:e2 CLOSE_BRACKET 
+	{:
+		types.log(m_mycup.get_fake(), "[CUP]: function_call COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = new_node(function_call_node.class);
 		p.m_fuc = e1.toString();
 		p.m_arglist = (function_call_arglist_node)e2;
@@ -248,12 +275,12 @@ function_call ::=
 function_call_arguments ::=
 	/* empty */
 	{:
-		types.log("[CUP]: empty ");
+		types.log(m_mycup.get_fake(), "[CUP]: empty ");
 	:}
 	| 
 	function_call_arguments:e ARG_SPLITTER arg_expr:e1
 	{:
-		types.log("[CUP]: function_call_arguments ARG_SPLITTER arg_expr ");
+		types.log(m_mycup.get_fake(), "[CUP]: function_call_arguments ARG_SPLITTER arg_expr ");
 		function_call_arglist_node p = (function_call_arglist_node)e;
 		p.add_arg((syntree_node)e1);
 		RESULT = p;
@@ -261,7 +288,7 @@ function_call_arguments ::=
 	| 
 	arg_expr:e
 	{:
-		types.log("[CUP]: arg_expr ");
+		types.log(m_mycup.get_fake(), "[CUP]: arg_expr ");
 		function_call_arglist_node p = new_node(function_call_arglist_node.class);
 		p.add_arg((syntree_node)e);
 		RESULT = p;
@@ -271,7 +298,7 @@ function_call_arguments ::=
 arg_expr ::=
 	expr_value:e
 	{:
-		types.log("[CUP]: expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value");
 		RESULT = e;
 	:}
 	;
@@ -281,7 +308,7 @@ arg_expr ::=
 block ::=
 	block:e stmt:e1
 	{:
-		types.log("[CUP]: block stmt ");
+		types.log(m_mycup.get_fake(), "[CUP]: block stmt ");
 		block_node p = (block_node)e;
 		p.add_stmt((syntree_node)e1);
 		RESULT = p;
@@ -289,7 +316,7 @@ block ::=
 	|
 	stmt:e
 	{:
-		types.log("[CUP]: stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: stmt");
 		block_node p = new_node(block_node.class);
 		p.add_stmt((syntree_node)e);
 		RESULT = p;
@@ -299,91 +326,91 @@ block ::=
 stmt ::=
 	while_stmt:e
 	{:
-		types.log("[CUP]: while_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: while_stmt");
 		RESULT = e;
 	:}
 	|
 	if_stmt:e
 	{:
-		types.log("[CUP]: if_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: if_stmt");
 		RESULT = e;
 	:}
 	|
 	return_stmt:e
 	{:
-		types.log("[CUP]: return_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: return_stmt");
 		RESULT = e;
 	:}
 	|
 	assign_stmt:e
 	{:
-		types.log("[CUP]: assign_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: assign_stmt");
 		RESULT = e;
 	:}
 	|
 	multi_assign_stmt:e
 	{:
-		types.log("[CUP]: multi_assign_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: multi_assign_stmt");
 		RESULT = e;
 	:}
 	|
 	break:e
 	{:
-		types.log("[CUP]: break");
+		types.log(m_mycup.get_fake(), "[CUP]: break");
 		RESULT = e;
 	:}
 	|
 	continue:e
 	{:
-		types.log("[CUP]: continue");
+		types.log(m_mycup.get_fake(), "[CUP]: continue");
 		RESULT = e;
 	:}
 	|
 	expr:e
 	{:
-		types.log("[CUP]: expr");
+		types.log(m_mycup.get_fake(), "[CUP]: expr");
 		RESULT = e;
 	:}
 	|
 	math_assign_stmt:e
 	{:
-		types.log("[CUP]: math_assign_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: math_assign_stmt");
 		RESULT = e;
 	:}
 	|
 	for_stmt:e
 	{:
-		types.log("[CUP]: for_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: for_stmt");
 		RESULT = e;
 	:}
 	|
 	for_loop_stmt:e
 	{:
-		types.log("[CUP]: for_loop_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: for_loop_stmt");
 		RESULT = e;
 	:}
 	|
 	fake_call_stmt:e
 	{:
-		types.log("[CUP]: fake_call_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: fake_call_stmt");
 		RESULT = e;
 	:}
 	|
 	sleep:e
 	{:
-		types.log("[CUP]: sleep_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: sleep_stmt");
 		RESULT = e;
 	:}
 	|
 	yield:e
 	{:
-		types.log("[CUP]: yield_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: yield_stmt");
 		RESULT = e;
 	:}
 	|
 	switch_stmt:e
 	{:
-		types.log("[CUP]: switch_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: switch_stmt");
 		RESULT = e;
 	:}
 	;
@@ -391,7 +418,7 @@ stmt ::=
 fake_call_stmt ::=
 	FAKE function_call:e
 	{:
-		types.log("[CUP]: FAKE function_call");
+		types.log(m_mycup.get_fake(), "[CUP]: FAKE function_call");
 		function_call_node p = (function_call_node)e;
 		p.m_fakecall = true;
 		RESULT = p;
@@ -401,7 +428,7 @@ fake_call_stmt ::=
 for_stmt ::=
 	FOR block:e ARG_SPLITTER cmp:e1 ARG_SPLITTER block:e2 THEN block:e3 END
 	{:
-		types.log("[CUP]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END");
+		types.log(m_mycup.get_fake(), "[CUP]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END");
 		for_stmt p = new_node(for_stmt.class);
 		p.m_cmp = (cmp_stmt)e1;
 		p.m_beginblock = (block_node)e;
@@ -412,7 +439,7 @@ for_stmt ::=
 	|
 	FOR block:e ARG_SPLITTER cmp:e1 ARG_SPLITTER block:e2 THEN END
 	{:
-		types.log("[CUP]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END");
+		types.log(m_mycup.get_fake(), "[CUP]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END");
 		for_stmt p = new_node(for_stmt.class);
 		p.m_cmp = (cmp_stmt)e1;
 		p.m_beginblock = (block_node)e;
@@ -425,7 +452,7 @@ for_stmt ::=
 for_loop_stmt ::=
 	FOR var:e ASSIGN assign_value:e1 RIGHT_POINTER cmp_value:e2 ARG_SPLITTER expr_value:e3 THEN block:e4 END
 	{:
-		types.log("[CUP]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END");
+		types.log(m_mycup.get_fake(), "[CUP]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END");
 		for_loop_stmt p = new_node(for_loop_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_begin = (syntree_node)e1;
@@ -437,7 +464,7 @@ for_loop_stmt ::=
 	|
 	FOR var:e ASSIGN assign_value:e1 RIGHT_POINTER cmp_value:e2 ARG_SPLITTER expr_value:e3 THEN END
 	{:
-		types.log("[CUP]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END");
+		types.log(m_mycup.get_fake(), "[CUP]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END");
 		for_loop_stmt p = new_node(for_loop_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_begin = (syntree_node)e1;
@@ -451,7 +478,7 @@ for_loop_stmt ::=
 while_stmt ::=
 	WHILE cmp:e THEN block:e1 END 
 	{:
-		types.log("[CUP]: WHILE cmp THEN block END ");
+		types.log(m_mycup.get_fake(), "[CUP]: WHILE cmp THEN block END ");
 		while_stmt p = new_node(while_stmt.class);
 		p.m_cmp = (cmp_stmt)e;
 		p.m_block = (block_node)e1;
@@ -460,7 +487,7 @@ while_stmt ::=
 	|
 	WHILE cmp:e THEN END 
 	{:
-		types.log("[CUP]: WHILE cmp THEN END ");
+		types.log(m_mycup.get_fake(), "[CUP]: WHILE cmp THEN END ");
 		while_stmt p = new_node(while_stmt.class);
 		p.m_cmp = (cmp_stmt)e;
 		p.m_block = null;
@@ -471,7 +498,7 @@ while_stmt ::=
 if_stmt ::=
 	IF cmp:e THEN block:e1 elseif_stmt_list:e2 else_stmt:e3 END
 	{:
-		types.log("[CUP]: IF cmp THEN block elseif_stmt_list else_stmt END");
+		types.log(m_mycup.get_fake(), "[CUP]: IF cmp THEN block elseif_stmt_list else_stmt END");
 		if_stmt p = new_node(if_stmt.class);
 		p.m_cmp = (cmp_stmt)e;
 		p.m_block = (block_node)e1;
@@ -482,7 +509,7 @@ if_stmt ::=
 	|
 	IF cmp:e THEN elseif_stmt_list:e1 else_stmt:e2 END
 	{:
-		types.log("[CUP]: IF cmp THEN elseif_stmt_list else_stmt END");
+		types.log(m_mycup.get_fake(), "[CUP]: IF cmp THEN elseif_stmt_list else_stmt END");
 		if_stmt p = new_node(if_stmt.class);
 		p.m_cmp = (cmp_stmt)e;
 		p.m_block = null;
@@ -495,13 +522,13 @@ if_stmt ::=
 elseif_stmt_list ::=
 	/* empty */
 	{:
-		types.log("[CUP]: empty");
+		types.log(m_mycup.get_fake(), "[CUP]: empty");
 		RESULT = null;
 	:}
 	| 
 	elseif_stmt_list:e elseif_stmt:e1
 	{:
-		types.log("[CUP]: elseif_stmt_list elseif_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: elseif_stmt_list elseif_stmt");
 		elseif_stmt_list p = (elseif_stmt_list)e;
 		p.add_stmt((syntree_node)e1);
 		RESULT = p;
@@ -509,7 +536,7 @@ elseif_stmt_list ::=
 	| 
 	elseif_stmt:e
 	{:
-		types.log("[CUP]: elseif_stmt");
+		types.log(m_mycup.get_fake(), "[CUP]: elseif_stmt");
 		elseif_stmt_list p = new_node(elseif_stmt_list.class);
 		p.add_stmt((syntree_node)e);
 		RESULT = p;
@@ -519,7 +546,7 @@ elseif_stmt_list ::=
 elseif_stmt ::=
 	ELSEIF cmp:e THEN block:e1
 	{:
-		types.log("[CUP]: ELSEIF cmp THEN block");
+		types.log(m_mycup.get_fake(), "[CUP]: ELSEIF cmp THEN block");
 		elseif_stmt p = new_node(elseif_stmt.class);
 		p.m_cmp = (cmp_stmt)e;
 		p.m_block = (syntree_node)e1;
@@ -528,7 +555,7 @@ elseif_stmt ::=
 	|
 	ELSEIF cmp:e THEN
 	{:
-		types.log("[CUP]: ELSEIF cmp THEN");
+		types.log(m_mycup.get_fake(), "[CUP]: ELSEIF cmp THEN");
 		elseif_stmt p = new_node(elseif_stmt.class);
 		p.m_cmp = (cmp_stmt)e;
 		p.m_block = null;
@@ -539,13 +566,13 @@ elseif_stmt ::=
 else_stmt ::=
 	/*empty*/
 	{:
-		types.log("[CUP]: empty");
+		types.log(m_mycup.get_fake(), "[CUP]: empty");
 		RESULT = null;
 	:}
 	|
 	ELSE block:e
 	{:
-		types.log("[CUP]: ELSE block");
+		types.log(m_mycup.get_fake(), "[CUP]: ELSE block");
 		else_stmt p = new_node(else_stmt.class);
 		p.m_block = (block_node)e;
 		RESULT = p;
@@ -553,7 +580,7 @@ else_stmt ::=
 	|
 	ELSE
 	{:
-		types.log("[CUP]: ELSE");
+		types.log(m_mycup.get_fake(), "[CUP]: ELSE");
 		else_stmt p = new_node(else_stmt.class);
 		p.m_block = null;
 		RESULT = p;
@@ -563,13 +590,13 @@ else_stmt ::=
 cmp ::=
 	OPEN_BRACKET cmp:e CLOSE_BRACKET
 	{:
-		types.log("[CUP]: OPEN_BRACKET cmp CLOSE_BRACKET");
+		types.log(m_mycup.get_fake(), "[CUP]: OPEN_BRACKET cmp CLOSE_BRACKET");
 		RESULT = e;
 	:}
 	|
 	cmp:e AND cmp:e1
 	{:
-		types.log("[CUP]: cmp AND cmp");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp AND cmp");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "&&";
 		p.m_left = (syntree_node)e;
@@ -579,7 +606,7 @@ cmp ::=
 	|
 	cmp:e OR cmp:e1
 	{:
-		types.log("[CUP]: cmp OR cmp");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp OR cmp");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "||";
 		p.m_left = (syntree_node)e;
@@ -589,7 +616,7 @@ cmp ::=
 	|
 	cmp_value:e LESS cmp_value:e1
 	{:
-		types.log("[CUP]: cmp_value LESS cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp_value LESS cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "<";
 		p.m_left = (syntree_node)e;
@@ -599,7 +626,7 @@ cmp ::=
 	|
 	cmp_value:e MORE cmp_value:e1
 	{:
-		types.log("[CUP]: cmp_value MORE cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp_value MORE cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = ">";
 		p.m_left = (syntree_node)e;
@@ -609,7 +636,7 @@ cmp ::=
 	|
 	cmp_value:e EQUAL cmp_value:e1
 	{:
-		types.log("[CUP]: cmp_value EQUAL cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp_value EQUAL cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "==";
 		p.m_left = (syntree_node)e;
@@ -619,7 +646,7 @@ cmp ::=
 	|
 	cmp_value:e MORE_OR_EQUAL cmp_value:e1
 	{:
-		types.log("[CUP]: cmp_value MORE_OR_EQUAL cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp_value MORE_OR_EQUAL cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = ">=";
 		p.m_left = (syntree_node)e;
@@ -629,7 +656,7 @@ cmp ::=
 	|
 	cmp_value:e LESS_OR_EQUAL cmp_value:e1
 	{:
-		types.log("[CUP]: cmp_value LESS_OR_EQUAL cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp_value LESS_OR_EQUAL cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "<=";
 		p.m_left = (syntree_node)e;
@@ -639,7 +666,7 @@ cmp ::=
 	|
 	cmp_value:e NOT_EQUAL cmp_value:e1
 	{:
-		types.log("[CUP]: cmp_value NOT_EQUAL cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: cmp_value NOT_EQUAL cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "!=";
 		p.m_left = (syntree_node)e;
@@ -649,7 +676,7 @@ cmp ::=
 	|
 	FTRUE
 	{:
-		types.log("[CUP]: FTRUE");
+		types.log(m_mycup.get_fake(), "[CUP]: FTRUE");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "true";
 		p.m_left = null;
@@ -659,7 +686,7 @@ cmp ::=
 	|
 	FFALSE
 	{:
-		types.log("[CUP]: FFALSE");
+		types.log(m_mycup.get_fake(), "[CUP]: FFALSE");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "false";
 		p.m_left = null;
@@ -669,7 +696,7 @@ cmp ::=
 	|
 	IS cmp_value:e
 	{:
-		types.log("[CUP]: IS cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: IS cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "is";
 		p.m_left = (syntree_node)e;
@@ -679,7 +706,7 @@ cmp ::=
 	|
 	NOT cmp_value:e
 	{:
-		types.log("[CUP]: NOT cmp_value");
+		types.log(m_mycup.get_fake(), "[CUP]: NOT cmp_value");
 		cmp_stmt p = new_node(cmp_stmt.class);
 		p.m_cmp = "not";
 		p.m_left = (syntree_node)e;
@@ -691,19 +718,19 @@ cmp ::=
 cmp_value ::=
 	explicit_value:e
 	{:
-		types.log("[CUP]: explicit_value");
+		types.log(m_mycup.get_fake(), "[CUP]: explicit_value");
 		RESULT = e;
 	:}
 	|
 	variable:e
 	{:
-		types.log("[CUP]: variable");
+		types.log(m_mycup.get_fake(), "[CUP]: variable");
 		RESULT = e;
 	:}
 	|
 	expr:e
 	{:
-		types.log("[CUP]: expr");
+		types.log(m_mycup.get_fake(), "[CUP]: expr");
 		RESULT = e;
 	:}
 	;
@@ -711,7 +738,7 @@ cmp_value ::=
 return_stmt ::=
 	RETURN return_value_list:e
 	{:
-		types.log("[CUP]: RETURN return_value_list");
+		types.log(m_mycup.get_fake(), "[CUP]: RETURN return_value_list");
 		return_stmt p = new_node(return_stmt.class);
 		p.m_returnlist = (return_value_list_node)e;
 		RESULT = p;
@@ -719,7 +746,7 @@ return_stmt ::=
 	|
 	RETURN
 	{:
-		types.log("[CUP]: RETURN");
+		types.log(m_mycup.get_fake(), "[CUP]: RETURN");
 		return_stmt p = new_node(return_stmt.class);
 		p.m_returnlist = null;
 		RESULT = p;
@@ -729,7 +756,7 @@ return_stmt ::=
 return_value_list ::=
 	return_value_list:e ARG_SPLITTER return_value:e1
 	{:
-		types.log("[CUP]: return_value_list ARG_SPLITTER return_value");
+		types.log(m_mycup.get_fake(), "[CUP]: return_value_list ARG_SPLITTER return_value");
 		return_value_list_node p = (return_value_list_node)e;
 		p.add_arg((syntree_node)e1);
 		RESULT = p;
@@ -737,7 +764,7 @@ return_value_list ::=
 	|
 	return_value:e
 	{:
-		types.log("[CUP]: return_value");
+		types.log(m_mycup.get_fake(), "[CUP]: return_value");
 		return_value_list_node p = new_node(return_value_list_node.class);
 		p.add_arg((syntree_node)e);
 		RESULT = p;
@@ -747,19 +774,19 @@ return_value_list ::=
 return_value ::=
 	explicit_value:e
 	{:
-		types.log("[CUP]: explicit_value");
+		types.log(m_mycup.get_fake(), "[CUP]: explicit_value");
 		RESULT = e;
 	:}
 	|
 	variable:e
 	{:
-		types.log("[CUP]: variable");
+		types.log(m_mycup.get_fake(), "[CUP]: variable");
 		RESULT = e;
 	:}
 	|
 	expr:e
 	{:
-		types.log("[CUP]: expr");
+		types.log(m_mycup.get_fake(), "[CUP]: expr");
 		RESULT = e;
 	:}
 	;
@@ -767,7 +794,7 @@ return_value ::=
 assign_stmt ::=
 	var:e ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: var ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: var ASSIGN assign_value");
 		assign_stmt p = new_node(assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_value = (syntree_node)e1;
@@ -777,7 +804,7 @@ assign_stmt ::=
 	|
 	var:e NEW_ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: var NEW_ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: var NEW_ASSIGN assign_value");
 		assign_stmt p = new_node(assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_value = (syntree_node)e1;
@@ -789,7 +816,7 @@ assign_stmt ::=
 multi_assign_stmt ::=
 	var_list:e ASSIGN function_call:e1
 	{:
-		types.log("[CUP]: var_list ASSIGN function_call");
+		types.log(m_mycup.get_fake(), "[CUP]: var_list ASSIGN function_call");
 		multi_assign_stmt p = new_node(multi_assign_stmt.class);
 		p.m_varlist = (var_list_node)e;
 		p.m_value = (syntree_node)e1;
@@ -799,7 +826,7 @@ multi_assign_stmt ::=
 	|
 	var_list:e NEW_ASSIGN function_call:e1
 	{:
-		types.log("[CUP]: var_list NEW_ASSIGN function_call");
+		types.log(m_mycup.get_fake(), "[CUP]: var_list NEW_ASSIGN function_call");
 		multi_assign_stmt p = new_node(multi_assign_stmt.class);
 		p.m_varlist = (var_list_node)e;
 		p.m_value = (syntree_node)e1;
@@ -811,7 +838,7 @@ multi_assign_stmt ::=
 var_list ::=
 	var_list:e ARG_SPLITTER var:e1
 	{:
-		types.log("[CUP]: var_list ARG_SPLITTER var");
+		types.log(m_mycup.get_fake(), "[CUP]: var_list ARG_SPLITTER var");
 		var_list_node p = (var_list_node)e;
 		p.add_arg((syntree_node)e1);
 		RESULT = p;
@@ -819,7 +846,7 @@ var_list ::=
 	|
 	var:e
 	{:
-		types.log("[CUP]: var");
+		types.log(m_mycup.get_fake(), "[CUP]: var");
 		var_list_node p = new_node(var_list_node.class);
 		p.add_arg((syntree_node)e);
 		RESULT = p;
@@ -829,19 +856,19 @@ var_list ::=
 assign_value ::=
 	explicit_value:e
 	{:
-		types.log("[CUP]: explicit_value");
+		types.log(m_mycup.get_fake(), "[CUP]: explicit_value");
 		RESULT = e;
 	:}
 	|
 	variable:e
 	{:
-		types.log("[CUP]: variable");
+		types.log(m_mycup.get_fake(), "[CUP]: variable");
 		RESULT = e;
 	:}
 	|
 	expr:e
 	{:
-		types.log("[CUP]: expr");
+		types.log(m_mycup.get_fake(), "[CUP]: expr");
 		RESULT = e;
 	:}
 	;
@@ -849,7 +876,7 @@ assign_value ::=
 math_assign_stmt ::=
 	variable:e PLUS_ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: variable PLUS_ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: variable PLUS_ASSIGN assign_value");
 		math_assign_stmt p = new_node(math_assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_oper = "+=";
@@ -859,7 +886,7 @@ math_assign_stmt ::=
 	|
 	variable:e MINUS_ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: variable MINUS_ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: variable MINUS_ASSIGN assign_value");
 		math_assign_stmt p = new_node(math_assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_oper = "-=";
@@ -869,7 +896,7 @@ math_assign_stmt ::=
 	|
 	variable:e DIVIDE_ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: variable DIVIDE_ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: variable DIVIDE_ASSIGN assign_value");
 		math_assign_stmt p = new_node(math_assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_oper = "/=";
@@ -879,7 +906,7 @@ math_assign_stmt ::=
 	|
 	variable:e MULTIPLY_ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: variable MULTIPLY_ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: variable MULTIPLY_ASSIGN assign_value");
 		math_assign_stmt p = new_node(math_assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_oper = "*=";
@@ -889,7 +916,7 @@ math_assign_stmt ::=
 	|
 	variable:e DIVIDE_MOD_ASSIGN assign_value:e1
 	{:
-		types.log("[CUP]: variable DIVIDE_MOD_ASSIGN assign_value");
+		types.log(m_mycup.get_fake(), "[CUP]: variable DIVIDE_MOD_ASSIGN assign_value");
 		math_assign_stmt p = new_node(math_assign_stmt.class);
 		p.m_var = (syntree_node)e;
 		p.m_oper = "%=";
@@ -899,7 +926,7 @@ math_assign_stmt ::=
 	|
 	variable:e INC
 	{:
-		types.log("[CUP]: variable INC");
+		types.log(m_mycup.get_fake(), "[CUP]: variable INC");
 		explicit_value_node pp = new_node(explicit_value_node.class);
 		pp.m_str = "1";
 		pp.m_type = explicit_value_type.EVT_NUM;
@@ -915,7 +942,7 @@ math_assign_stmt ::=
 var ::=
 	VAR_BEGIN IDENTIFIER:e
 	{:
-		types.log("[CUP]: VAR_BEGIN IDENTIFIER");
+		types.log(m_mycup.get_fake(), "[CUP]: VAR_BEGIN IDENTIFIER");
 		var_node p = new_node(var_node.class);
 		p.m_str = e.toString();
 		RESULT = p;
@@ -923,7 +950,7 @@ var ::=
 	|
 	variable:e
 	{:
-		types.log("[CUP]: variable");
+		types.log(m_mycup.get_fake(), "[CUP]: variable");
 		RESULT = e;
 	:}
 	;
@@ -931,7 +958,7 @@ var ::=
 variable ::=
 	IDENTIFIER:e
 	{:
-		types.log("[CUP]: IDENTIFIER");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER");
 		variable_node p = new_node(variable_node.class);
 		p.m_str = e.toString();
 		RESULT = p;
@@ -939,7 +966,7 @@ variable ::=
 	|
 	IDENTIFIER:e OPEN_SQUARE_BRACKET expr_value:e1 CLOSE_SQUARE_BRACKET
 	{:
-		types.log("[CUP]: IDENTIFIER OPEN_SQUARE_BRACKET expr_value CLOSE_SQUARE_BRACKET");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER OPEN_SQUARE_BRACKET expr_value CLOSE_SQUARE_BRACKET");
 		container_get_node p = new_node(container_get_node.class);
 		p.m_container = e.toString();
 		p.m_key = (syntree_node)e1;
@@ -948,7 +975,7 @@ variable ::=
 	|
 	IDENTIFIER_POINTER:e
 	{:
-		types.log("[CUP]: IDENTIFIER_POINTER");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER_POINTER");
 		struct_pointer_node p = new_node(struct_pointer_node.class);
 		p.m_str = e.toString();
 		RESULT = p;
@@ -956,7 +983,7 @@ variable ::=
 	|
 	IDENTIFIER_DOT:e
 	{:
-		types.log("[CUP]: IDENTIFIER_DOT");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER_DOT");
 		variable_node p = new_node(variable_node.class);
 		p.m_str = e.toString();
 		RESULT = p;
@@ -966,19 +993,19 @@ variable ::=
 expr ::=
 	OPEN_BRACKET expr:e CLOSE_BRACKET
 	{:
-		types.log("[CUP]: OPEN_BRACKET expr CLOSE_BRACKET");
+		types.log(m_mycup.get_fake(), "[CUP]: OPEN_BRACKET expr CLOSE_BRACKET");
 		RESULT = e;
 	:}
 	|
 	function_call:e
 	{:
-		types.log("[CUP]: function_call");
+		types.log(m_mycup.get_fake(), "[CUP]: function_call");
 		RESULT = e;
 	:}
 	|
 	math_expr:e
 	{:
-		types.log("[CUP]: math_expr");
+		types.log(m_mycup.get_fake(), "[CUP]: math_expr");
 		RESULT = e;
 	:}
 	;
@@ -986,13 +1013,13 @@ expr ::=
 math_expr ::=
 	OPEN_BRACKET math_expr:e CLOSE_BRACKET
 	{:
-		types.log("[CUP]: OPEN_BRACKET math_expr CLOSE_BRACKET");
+		types.log(m_mycup.get_fake(), "[CUP]: OPEN_BRACKET math_expr CLOSE_BRACKET");
 		RESULT = e;
 	:}
 	|
 	expr_value:e PLUS expr_value:e1
 	{:
-		types.log("[CUP]: expr_value PLUS expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value PLUS expr_value");
 		math_expr_node p = new_node(math_expr_node.class);
 		p.m_oper = "+";
 		p.m_left = (syntree_node)e;
@@ -1002,7 +1029,7 @@ math_expr ::=
 	|
 	expr_value:e MINUS expr_value:e1
 	{:
-		types.log("[CUP]: expr_value MINUS expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value MINUS expr_value");
 		math_expr_node p = new_node(math_expr_node.class);
 		p.m_oper = "-";
 		p.m_left = (syntree_node)e;
@@ -1012,7 +1039,7 @@ math_expr ::=
 	|
 	expr_value:e MULTIPLY expr_value:e1
 	{:
-		types.log("[CUP]: expr_value MULTIPLY expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value MULTIPLY expr_value");
 		math_expr_node p = new_node(math_expr_node.class);
 		p.m_oper = "*";
 		p.m_left = (syntree_node)e;
@@ -1022,7 +1049,7 @@ math_expr ::=
 	|
 	expr_value:e DIVIDE expr_value:e1
 	{:
-		types.log("[CUP]: expr_value DIVIDE expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value DIVIDE expr_value");
 		math_expr_node p = new_node(math_expr_node.class);
 		p.m_oper = "/";
 		p.m_left = (syntree_node)e;
@@ -1032,7 +1059,7 @@ math_expr ::=
 	|
 	expr_value:e DIVIDE_MOD expr_value:e1
 	{:
-		types.log("[CUP]: expr_value DIVIDE_MOD expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value DIVIDE_MOD expr_value");
 		math_expr_node p = new_node(math_expr_node.class);
 		p.m_oper = "%";
 		p.m_left = (syntree_node)e;
@@ -1042,7 +1069,7 @@ math_expr ::=
 	|
 	expr_value:e STRING_CAT expr_value:e1
 	{:
-		types.log("[CUP]: expr_value STRING_CAT expr_value");
+		types.log(m_mycup.get_fake(), "[CUP]: expr_value STRING_CAT expr_value");
 		math_expr_node p = new_node(math_expr_node.class);
 		p.m_oper = "..";
 		p.m_left = (syntree_node)e;
@@ -1054,25 +1081,25 @@ math_expr ::=
 expr_value ::=
 	math_expr:e
 	{:
-		types.log("[CUP]: math_expr");
+		types.log(m_mycup.get_fake(), "[CUP]: math_expr");
 		RESULT = e;
 	:}
 	|
 	explicit_value:e
 	{:
-		types.log("[CUP]: explicit_value");
+		types.log(m_mycup.get_fake(), "[CUP]: explicit_value");
 		RESULT = e;
 	:}
 	|
 	function_call:e
 	{:
-		types.log("[CUP]: function_call");
+		types.log(m_mycup.get_fake(), "[CUP]: function_call");
 		RESULT = e;
 	:}
 	|
 	variable:e
 	{:
-		types.log("[CUP]: variable");
+		types.log(m_mycup.get_fake(), "[CUP]: variable");
 		RESULT = e;
 	:}
 	;
@@ -1080,7 +1107,7 @@ expr_value ::=
 break ::=
 	BREAK 
 	{:
-		types.log("[CUP]: BREAK");
+		types.log(m_mycup.get_fake(), "[CUP]: BREAK");
 		break_stmt p = new_node(break_stmt.class);
 		RESULT = p;
 	:}
@@ -1089,7 +1116,7 @@ break ::=
 continue ::=
 	CONTINUE 
 	{:
-		types.log("[CUP]: CONTINUE");
+		types.log(m_mycup.get_fake(), "[CUP]: CONTINUE");
 		continue_stmt p = new_node(continue_stmt.class);
 		RESULT = p;
 	:}
@@ -1098,7 +1125,7 @@ continue ::=
 sleep ::=
 	SLEEP expr_value:e
 	{:
-		types.log("[CUP]: SLEEP");
+		types.log(m_mycup.get_fake(), "[CUP]: SLEEP");
 		sleep_stmt p = new_node(sleep_stmt.class);
 		p.m_time = (syntree_node)e;
 		RESULT = p;
@@ -1108,7 +1135,7 @@ sleep ::=
 yield ::=
 	YIELD expr_value:e
 	{:
-		types.log("[CUP]: YIELD");
+		types.log(m_mycup.get_fake(), "[CUP]: YIELD");
 		yield_stmt p = new_node(yield_stmt.class);
 		p.m_time = (syntree_node)e;
 		RESULT = p;
@@ -1118,7 +1145,7 @@ yield ::=
 switch_stmt ::=
 	SWITCH cmp_value:e switch_case_list:e1 DEFAULT block:e2 END
 	{:
-		types.log("[CUP]: SWITCH cmp_value switch_case_list DEFAULT block END");
+		types.log(m_mycup.get_fake(), "[CUP]: SWITCH cmp_value switch_case_list DEFAULT block END");
 		switch_stmt p = new_node(switch_stmt.class);
 		p.m_cmp = (syntree_node)e;
 		p.m_caselist = (syntree_node)e1;
@@ -1128,7 +1155,7 @@ switch_stmt ::=
 	|
 	SWITCH cmp_value:e switch_case_list:e1 DEFAULT END
 	{:
-		types.log("[CUP]: SWITCH cmp_value switch_case_list DEFAULT END");
+		types.log(m_mycup.get_fake(), "[CUP]: SWITCH cmp_value switch_case_list DEFAULT END");
 		switch_stmt p = new_node(switch_stmt.class);
 		p.m_cmp = (syntree_node)e;
 		p.m_caselist = (syntree_node)e1;
@@ -1140,7 +1167,7 @@ switch_stmt ::=
 switch_case_list ::=
 	switch_case_define:e
 	{:
-		types.log("[CUP]: switch_case_define");
+		types.log(m_mycup.get_fake(), "[CUP]: switch_case_define");
 		switch_caselist_node p = new_node(switch_caselist_node.class);
 		p.add_case((syntree_node)e);
 		RESULT = p;
@@ -1148,7 +1175,7 @@ switch_case_list ::=
 	|
 	switch_case_list:e switch_case_define:e1
 	{:
-		types.log("[CUP]: switch_case_list switch_case_define");
+		types.log(m_mycup.get_fake(), "[CUP]: switch_case_list switch_case_define");
 		switch_caselist_node p = (switch_caselist_node)e;
 		p.add_case((syntree_node)e1);
 		RESULT = p;
@@ -1158,7 +1185,7 @@ switch_case_list ::=
 switch_case_define ::=
 	CASE cmp_value:e THEN block:e1
 	{:
-		types.log("[CUP]: CASE cmp_value THEN block");
+		types.log(m_mycup.get_fake(), "[CUP]: CASE cmp_value THEN block");
 		switch_case_node p = new_node(switch_case_node.class);
 		p.m_cmp = (syntree_node)e;
 		p.m_block = (syntree_node)e1;
@@ -1167,7 +1194,7 @@ switch_case_define ::=
 	|
 	CASE cmp_value:e THEN
 	{:
-		types.log("[CUP]: CASE cmp_value THEN");
+		types.log(m_mycup.get_fake(), "[CUP]: CASE cmp_value THEN");
 		switch_case_node p = new_node(switch_case_node.class);
 		p.m_cmp = (syntree_node)e;
 		p.m_block = null;
@@ -1182,13 +1209,13 @@ package_head ::=
 	|
 	PACKAGE IDENTIFIER:e
 	{:
-		types.log("[CUP]: PACKAGE IDENTIFIER ");
+		types.log(m_mycup.get_fake(), "[CUP]: PACKAGE IDENTIFIER ");
 		m_mycup.set_package(e.toString());
 	:}
 	|
 	PACKAGE IDENTIFIER_DOT:e
 	{:
-		types.log("[CUP]: PACKAGE IDENTIFIER_DOT ");
+		types.log(m_mycup.get_fake(), "[CUP]: PACKAGE IDENTIFIER_DOT ");
 		m_mycup.set_package(e.toString());
 	:}
 	;
@@ -1206,7 +1233,7 @@ include_head ::=
 include_define ::=
 	INCLUDE STRING_DEFINITION:e
 	{:
-		types.log("[CUP]: INCLUDE STRING_DEFINITION ");
+		types.log(m_mycup.get_fake(), "[CUP]: INCLUDE STRING_DEFINITION ");
 		m_mycup.add_include(e.toString());
 	:}
 	;
@@ -1224,7 +1251,7 @@ struct_head ::=
 struct_define ::=
 	STRUCT IDENTIFIER:e struct_mem_declaration END
 	{:
-		types.log("[CUP]: STRUCT IDENTIFIER struct_mem_declaration END ");
+		types.log(m_mycup.get_fake(), "[CUP]: STRUCT IDENTIFIER struct_mem_declaration END ");
 		m_mycup.add_struct_desc(e.toString());
 	:}
 	;
@@ -1232,12 +1259,12 @@ struct_define ::=
 struct_mem_declaration ::=
 	struct_mem_declaration IDENTIFIER:e
 	{:
-		types.log("[CUP]: struct_mem_declaration IDENTIFIER ");
+		types.log(m_mycup.get_fake(), "[CUP]: struct_mem_declaration IDENTIFIER ");
 	:}
 	| 
 	IDENTIFIER:e
 	{:
-		types.log("[CUP]: IDENTIFIER ");
+		types.log(m_mycup.get_fake(), "[CUP]: IDENTIFIER ");
 	:}
 	;
 
@@ -1254,7 +1281,7 @@ const_head ::=
 const_define ::=
 	FCONST IDENTIFIER:e ASSIGN explicit_value:e1
 	{:
-		types.log("[CUP]: FCONST IDENTIFIER ASSIGN explicit_value ");
+		types.log(m_mycup.get_fake(), "[CUP]: FCONST IDENTIFIER ASSIGN explicit_value ");
 		m_mycup.add_const_desc(e.toString(), (syntree_node)e1);
 	:}
 	;
@@ -1262,7 +1289,7 @@ const_define ::=
 explicit_value ::=
 	FTRUE:e
 	{:
-		types.log("[CUP]: FTRUE ");
+		types.log(m_mycup.get_fake(), "[CUP]: FTRUE ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_type = explicit_value_type.EVT_TRUE;
 		RESULT = p;
@@ -1270,7 +1297,7 @@ explicit_value ::=
 	|
 	FFALSE:e
 	{:
-		types.log("[CUP]: FFALSE ");
+		types.log(m_mycup.get_fake(), "[CUP]: FFALSE ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_type = explicit_value_type.EVT_FALSE;
 		RESULT = p;
@@ -1278,7 +1305,7 @@ explicit_value ::=
 	|
 	NUMBER:e 
 	{:
-		types.log("[CUP]: NUMBER ");
+		types.log(m_mycup.get_fake(), "[CUP]: NUMBER ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_str = e.toString();
 		p.m_type = explicit_value_type.EVT_NUM;
@@ -1287,7 +1314,7 @@ explicit_value ::=
 	|
 	FKUUID:e
 	{:
-		types.log("[CUP]: FKUUID ");
+		types.log(m_mycup.get_fake(), "[CUP]: FKUUID ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_str = e.toString();
 		p.m_type = explicit_value_type.EVT_UUID;
@@ -1296,7 +1323,7 @@ explicit_value ::=
 	|
 	STRING_DEFINITION:e 
 	{:
-		types.log("[CUP]: STRING_DEFINITION ");
+		types.log(m_mycup.get_fake(), "[CUP]: STRING_DEFINITION ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_str = e.toString();
 		p.m_type = explicit_value_type.EVT_STR;
@@ -1305,7 +1332,7 @@ explicit_value ::=
 	|
 	FKFLOAT:e
 	{:
-		types.log("[CUP]: FKFLOAT ");
+		types.log(m_mycup.get_fake(), "[CUP]: FKFLOAT ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_str = e.toString();
 		p.m_type = explicit_value_type.EVT_FLOAT;
@@ -1314,7 +1341,7 @@ explicit_value ::=
 	|
 	OPEN_BIG_BRACKET const_map_list_value:e CLOSE_BIG_BRACKET
 	{:
-		types.log("[CUP]: OPEN_BIG_BRACKET const_map_list_value CLOSE_BIG_BRACKET ");
+		types.log(m_mycup.get_fake(), "[CUP]: OPEN_BIG_BRACKET const_map_list_value CLOSE_BIG_BRACKET ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_type = explicit_value_type.EVT_MAP;
 		p.m_v = (const_map_list_value_node)e;
@@ -1323,7 +1350,7 @@ explicit_value ::=
 	|
 	OPEN_SQUARE_BRACKET const_array_list_value:e CLOSE_SQUARE_BRACKET
 	{:
-		types.log("[CUP]: OPEN_BIG_BRACKET const_array_list_value CLOSE_BIG_BRACKET ");
+		types.log(m_mycup.get_fake(), "[CUP]: OPEN_BIG_BRACKET const_array_list_value CLOSE_BIG_BRACKET ");
 		explicit_value_node p = new_node(explicit_value_node.class);
 		p.m_type = explicit_value_type.EVT_ARRAY;
 		p.m_v = (const_array_list_value_node)e;
@@ -1335,14 +1362,14 @@ explicit_value ::=
 const_map_list_value ::=
 	/* empty */
 	{:
-		types.log("[CUP]: empty ");
+		types.log(m_mycup.get_fake(), "[CUP]: empty ");
 		const_map_list_value_node p = new_node(const_map_list_value_node.class);
 		RESULT = p;
 	:}
 	|
 	const_map_value:e
 	{:
-		types.log("[CUP]: const_map_value ");
+		types.log(m_mycup.get_fake(), "[CUP]: const_map_value ");
 		const_map_list_value_node p = new_node(const_map_list_value_node.class);
 		p.add_ele((const_map_value_node)e);
 		RESULT = p;
@@ -1350,7 +1377,7 @@ const_map_list_value ::=
 	|
 	const_map_list_value:e const_map_value:e1
 	{:
-		types.log("[CUP]: const_map_list_value const_map_value ");
+		types.log(m_mycup.get_fake(), "[CUP]: const_map_list_value const_map_value ");
 		const_map_list_value_node p = (const_map_list_value_node)e;
 		p.add_ele((const_map_value_node)e1);
 		RESULT = p;
@@ -1361,7 +1388,7 @@ const_map_list_value ::=
 const_map_value ::=
 	explicit_value:e COLON explicit_value:e1
 	{:
-		types.log("[CUP]: explicit_value COLON explicit_value ");
+		types.log(m_mycup.get_fake(), "[CUP]: explicit_value COLON explicit_value ");
 		const_map_value_node p = new_node(const_map_value_node.class);
 		p.m_k = (syntree_node)e;
 		p.m_v = (syntree_node)e1;
@@ -1372,14 +1399,14 @@ const_map_value ::=
 const_array_list_value ::=
 	/* empty */
 	{:
-		types.log("[CUP]: empty ");
+		types.log(m_mycup.get_fake(), "[CUP]: empty ");
 		const_array_list_value_node p = new_node(const_array_list_value_node.class);
 		RESULT = p;
 	:}
 	|
 	explicit_value:e
 	{:
-		types.log("[CUP]: explicit_value ");
+		types.log(m_mycup.get_fake(), "[CUP]: explicit_value ");
 		const_array_list_value_node p = new_node(const_array_list_value_node.class);
 		p.add_ele((explicit_value_node)e);
 		RESULT = p;
@@ -1387,7 +1414,7 @@ const_array_list_value ::=
 	|
 	const_array_list_value:e explicit_value:e1
 	{:
-		types.log("[CUP]: const_array_list_value explicit_value ");
+		types.log(m_mycup.get_fake(), "[CUP]: const_array_list_value explicit_value ");
 		const_array_list_value_node p = (const_array_list_value_node)e;
 		p.add_ele((explicit_value_node)e1);
 		RESULT = p;

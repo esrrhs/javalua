@@ -6,7 +6,8 @@ public class function_call_node extends syntree_node
 	public boolean m_classmem_call;
 	public String m_fuc;
 	public function_call_arglist_node m_arglist;
-	
+	public syntree_node m_prefuc;
+
 	@Override
 	public esyntreetype gettype()
 	{
@@ -30,7 +31,14 @@ public class function_call_node extends syntree_node
 		{
 			ret += "[func_call]:";
 		}
-		ret += m_fuc;
+		if (m_prefuc != null)
+		{
+			ret += m_prefuc.dump(1);
+		}
+		else
+		{
+			ret += m_fuc;
+		}
 		ret += "\n";
 		if (m_arglist != null)
 		{

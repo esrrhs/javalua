@@ -382,15 +382,22 @@ public class jflex implements sym, java_cup.runtime.Scanner {
   private int zzFinalHighSurrogate = 0;
 
   /* user code: */
+  fake m_f;
+
   StringBuilder string = new StringBuilder();
   
+  public void set_fake(fake f)
+  {
+	m_f = f;
+  }
+  
   private Symbol symbol(int type) {
-	types.log("[JFLEX]: " + sym.terminalNames[type]);
+	types.log(m_f, "[JFLEX]: " + sym.terminalNames[type]);
     return new javasymbol(type, yyline+1, yycolumn+1);
   }
 
   private Symbol symbol(int type, Object value) {
-	types.log("[JFLEX]: " + sym.terminalNames[type] + "(" + value.toString() + ")");
+	types.log(m_f, "[JFLEX]: " + sym.terminalNames[type] + "(" + value.toString() + ")");
     return new javasymbol(type, yyline+1, yycolumn+1, value);
   }
   
