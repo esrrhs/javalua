@@ -24,6 +24,7 @@ class buildinfunc
 		reg_func("dumpallfunc", "buildin_dumpallfunc");
 		reg_func("dumpfunc", "buildin_dumpfunc");
 		reg_func("dofile", "buildin_dofile");
+		reg_func("dostring", "buildin_dostring");
 		reg_func("getcurfile", "buildin_getcurfile");
 		reg_func("getcurline", "buildin_getcurline");
 		reg_func("getcurfunc", "buildin_getcurfunc");
@@ -129,6 +130,15 @@ class buildinfunc
 
 		String file = (String) fk.pspop(f);
 		boolean ret = fk.parse(f, file);
+		fk.pspush(f, ret);
+	}
+
+	public static void buildin_dostring(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		String str = (String) fk.pspop(f);
+		boolean ret = fk.parsestr(f, str);
 		fk.pspush(f, ret);
 	}
 

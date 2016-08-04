@@ -35,22 +35,31 @@ public class test
 			System.out.println("parse fail");
 			return;
 		}
-		b = fk.parsestr(f, "func test() print(\"haha\") return \"hehe\" end");
-		b &= fk.parsestr(f, "func hehe() print(\"hehe\") end");
+		b = fk.parsestr(f, "func test() test1()()() return \"test1\" end");
+		b &= fk.parsestr(f, "func test1() return \"test2\" end");
+		b &= fk.parsestr(f, "func test2() return \"test3\" end");
+		b &= fk.parsestr(f, "func test3() end");
 		if (!b)
 		{
 			System.out.println("parse str fail");
 			return;
 		}
-		fk.run(f, "test");
+
+		long begin = System.currentTimeMillis();
+		for (int i = 0; i < 9000000; i++)
+		{
+			fk.run(f, "test");
+		}
+		long end = System.currentTimeMillis();
+		System.out.println("" + (end - begin));
 
 		b = fk.isfunc(f, "test.Aaaa");
 
-		long begin = System.currentTimeMillis();
+		begin = System.currentTimeMillis();
 		int ret = 0;
 		A a = new B();
 		ret = (int) (double) fk.run(f, "main", a, 1);
-		long end = System.currentTimeMillis();
+		end = System.currentTimeMillis();
 		System.out.println("run ret " + ret + " " + (end - begin));
 	}
 }
