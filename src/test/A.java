@@ -6,25 +6,31 @@ public class A
 {
 	public A()
 	{
-		
+
 	}
-	
+
 	@fakescript
-	public void aaa(int a)
+	public void a1(int a)
 	{
-		System.out.println("aaa" + a);
+		System.out.println("a1 " + a);
 	}
-	
-	@fakescript (name = "bbb")
-	public int aaa1()
+
+	@fakescript(name = "a2ex")
+	public double a2()
 	{
-		System.out.println("aaa1");
-		return 1;
+		System.out.println("a2");
+		return 0.2;
 	}
-	
+
 	@fakescript
-	public static void aaa2()
+	public static void a3()
 	{
-		System.out.println("aaa2");
+		System.out.println("a3");
 	}
+
+	public long a4(long uid)
+	{
+		return uid;
+	}
+
 }

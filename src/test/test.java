@@ -9,8 +9,13 @@ public class test
 	public static void main(String[] args)
 	{
 		fake f = fk.newfake(null);
+
+		// 多种绑定
 		fk.reg(f, "test");
 		fk.regall(f, "test");
+		fk.regclass(f, A.class);
+		fk.regclass(f, B.class);
+
 		fk.openbaselib(f);
 		fk.set_callback(f, new callback() {
 			@Override
@@ -35,31 +40,19 @@ public class test
 			System.out.println("parse fail");
 			return;
 		}
-		b = fk.parsestr(f, "func test() test1()()() return \"test1\" end");
-		b &= fk.parsestr(f, "func test1() return \"test2\" end");
-		b &= fk.parsestr(f, "func test2() return \"test3\" end");
-		b &= fk.parsestr(f, "func test3() end");
-		if (!b)
-		{
-			System.out.println("parse str fail");
-			return;
-		}
+
+		A a = new A();
+		int ret = (int) (double) fk.run(f, "testA", a);
+		System.out.println("run testA ret " + ret);
+
+		a = new B();
+		ret = (int) (double) fk.run(f, "testB", a);
+
+		System.out.println("run testB ret " + ret);
 
 		long begin = System.currentTimeMillis();
-		for (int i = 0; i < 9000000; i++)
-		{
-			fk.run(f, "test");
-		}
-		long end = System.currentTimeMillis();
-		System.out.println("" + (end - begin));
+		ret = (int) (double) fk.run(f, "test_prime");
+		System.out.println("run test_prime ret " + ret + " " + (System.currentTimeMillis() - begin));
 
-		b = fk.isfunc(f, "test.Aaaa");
-
-		begin = System.currentTimeMillis();
-		int ret = 0;
-		A a = new B();
-		ret = (int) (double) fk.run(f, "main", a, 1);
-		end = System.currentTimeMillis();
-		System.out.println("run ret " + ret + " " + (end - begin));
 	}
 }

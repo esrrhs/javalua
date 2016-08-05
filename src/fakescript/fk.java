@@ -108,34 +108,61 @@ public class fk
 		List<Class<?>> tmp = packagehelper.getClasses(f, packagename);
 		for (Class<?> c : tmp)
 		{
-			Method[] ms = c.getDeclaredMethods();
-			for (Method m : ms)
+			regclass(f, c);
+		}
+	}
+
+	/**
+	 * 绑定java函数
+	 * <p>
+	 * 遍历类下所有函数<br>
+	 * 绑定类所有的函数
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @param packagename
+	 *            包的名字
+	 * 
+	 * @return 无
+	 */
+	public static void regclass(fake f, Class<?> c)
+	{
+		Method[] ms = c.getDeclaredMethods();
+		for (Method m : ms)
+		{
+			String name = m.getName();
+			if (m.isAnnotationPresent(fakescript.class))
 			{
-				String name = m.getName();
-
-				fkfunctor fkf = new fkfunctor();
-				fkf.m_c = c;
-				fkf.m_m = m;
-				fkf.m_param = m.getParameterTypes();
-				fkf.m_ret = m.getReturnType();
-				fkf.m_is_staic = Modifier.isStatic(m.getModifiers());
-
-				if (!fkf.m_is_staic)
+				fakescript fn = (fakescript) m.getAnnotation(fakescript.class);
+				if (fn != null && !fn.name().isEmpty())
 				{
-					name = c.getName() + name;
+					name = fn.name();
 				}
-				else
-				{
-					name = c.getSimpleName() + "." + name;
-				}
-
-				variant v = new variant();
-				v.set_string(name);
-
-				f.fm.add_func(v, fkf);
-
-				types.log(f, "fk reg %s %s", name, fkf);
 			}
+
+			fkfunctor fkf = new fkfunctor();
+			fkf.m_c = c;
+			fkf.m_m = m;
+			fkf.m_param = m.getParameterTypes();
+			fkf.m_ret = m.getReturnType();
+			fkf.m_is_staic = Modifier.isStatic(m.getModifiers());
+
+			if (!fkf.m_is_staic)
+			{
+				name = c.getName() + name;
+			}
+			else
+			{
+				name = c.getSimpleName() + "." + name;
+			}
+
+			variant v = new variant();
+			v.set_string(name);
+
+			f.fm.add_func(v, fkf);
+
+			types.log(f, "fk reg %s %s", name, fkf);
 		}
 	}
 

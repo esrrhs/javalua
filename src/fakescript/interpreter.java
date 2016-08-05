@@ -1250,7 +1250,7 @@ class interpreter
 						variant time = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						long sleeptime = (long) time.get_real();
+						long sleeptime = (long) (double) time.get_real();
 
 						m_wakeuptime = System.currentTimeMillis() + sleeptime;
 						m_sleeping = true;

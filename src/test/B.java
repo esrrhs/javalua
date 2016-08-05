@@ -1,38 +1,20 @@
 package test;
 
-import fakescript.fakescript;
-
 public class B extends A
 {
-	@fakescript
 	@Override
-	public void aaa(int a)
+	public void a1(int a)
 	{
-		System.out.println("bbb" + a);
+		System.out.println("b1 " + a);
 	}
 
-	@fakescript(name = "bbb")
-	@Override
-	public int aaa1()
+	public static void a3()
 	{
-		System.out.println("bbb1");
-		return 1;
+		System.out.println("b3");
 	}
 
-	@fakescript
-	public static void aaa2()
-	{
-		System.out.println("bbb2");
-	}
-
-	@fakescript
-	public A aaa3()
+	public B b1()
 	{
 		return this;
-	}
-
-	public String aaa4()
-	{
-		return "test";
 	}
 }

@@ -1,23 +1,57 @@
--- main comment
-func main(arg, a)
+
+func testA(arg)
 	
-	arg:aaa(1)
-	A.aaa2()
-	B.aaa2()
-	arg:aaa3():aaa3():aaa(1)
-	arg:aaa4()()()
-	var arg1 = 1
-	var arg2 = 2
+	arg:a1(1)
+	A.a3()
+	B.a3()
+	print(arg:a2ex())
+	print(arg:a4(112421421541251251u))
+
+	sleep 1000
 	
-	while arg1 < arg2 + 10 then
+	return 1
 	
-		arg1 += 1
+end
+
+func testB(arg)
 	
+	arg:a1(1)
+	A.a3()
+	B.a3()
+	arg:b1():b1():a1(1)
+	
+	sleep 1000
+	
+	return 1
+	
+end
+
+func test_prime()
+
+	var a = primes(10 * 10000)
+	print(a)
+
+	return a
+ 
+end
+
+func isprime(n)
+	nn := n - 1
+	for var i = 2 -> nn, 1 then
+		if not (n % i) then
+			return false
+		end
 	end
-	
-	dostring("func testdostring() return \"testdostring\" end")
-	print(testdostring())
-	
-	return arg1
-	
+	return true
+end
+
+
+func primes(n)
+	var count = 0
+	for var i = 2 -> n, 1 then
+		if is isprime(i) then
+			count++
+		end
+	end
+	return count
 end
