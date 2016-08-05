@@ -10,6 +10,11 @@ import java.util.List;
 public class fk
 {
 	/**
+	 * 版本号
+	 */
+	public static final String version = "0.1";
+
+	/**
 	 * 创建fake对象
 	 * <p>
 	 * fake为上下文环境<br>

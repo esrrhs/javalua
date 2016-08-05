@@ -8,6 +8,7 @@ public class test
 {
 	public static void main(String[] args)
 	{
+		System.out.println("fakescript " + fk.version);
 		fake f = fk.newfake(null);
 
 		// 多种绑定
