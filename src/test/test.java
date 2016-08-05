@@ -48,8 +48,12 @@ public class test
 
 		a = new B();
 		ret = (int) (double) fk.run(f, "testB", a);
-
 		System.out.println("run testB ret " + ret);
+
+		fk.run(f, "testHotUpdate");
+		System.out.println("run testHotUpdate");
+		fk.run(f, "testHotUpdate");
+		System.out.println("run testHotUpdate");
 
 		long begin = System.currentTimeMillis();
 		ret = (int) (double) fk.run(f, "test_prime");
