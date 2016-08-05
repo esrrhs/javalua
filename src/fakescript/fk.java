@@ -388,6 +388,48 @@ public class fk
 		return f.fm.get_func(funcv) != null;
 	}
 
+	/**
+	 * 打开性能监控
+	 * <p>
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @return 无
+	 */
+	public static void openprofile(fake f)
+	{
+		f.pf.open();
+	}
+
+	/**
+	 * 关闭性能监控
+	 * <p>
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @return 无
+	 */
+	public static void closeprofile(fake f)
+	{
+		f.pf.close();
+	}
+
+	/**
+	 * 打印性能监控数据
+	 * <p>
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @return 无
+	 */
+	public static String dumpprofile(fake f)
+	{
+		return f.pf.dump();
+	}
+
 	protected static void psclear(fake f)
 	{
 		f.ps.clear();

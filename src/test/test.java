@@ -17,6 +17,7 @@ public class test
 		fk.regclass(f, A.class);
 		fk.regclass(f, B.class);
 
+		fk.openprofile(f);
 		fk.openbaselib(f);
 		fk.set_callback(f, new callback() {
 			@Override
@@ -59,5 +60,6 @@ public class test
 		ret = (int) (double) fk.run(f, "test_prime");
 		System.out.println("run test_prime ret " + ret + " " + (System.currentTimeMillis() - begin));
 
+		System.out.println(fk.dumpprofile(f));
 	}
 }

@@ -18,6 +18,16 @@ class profile
 		m_f = f;
 	}
 
+	public void open()
+	{
+		m_isopen = true;
+	}
+
+	public void close()
+	{
+		m_isopen = false;
+	}
+
 	public boolean isopen()
 	{
 		return m_isopen;
@@ -52,7 +62,7 @@ class profile
 			{
 				Long a0 = arg0.getValue().m_calltime;
 				Long a1 = arg1.getValue().m_calltime;
-				return a0.compareTo(a1);
+				return a1.compareTo(a0);
 			}
 		});
 
