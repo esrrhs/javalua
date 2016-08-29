@@ -1,0 +1,17 @@
+
+func testHotUpdate()
+
+	print("old")
+	fake hotupdate("testHotUpdate", "func testHotUpdate() print(\"new\") end")
+	
+end
+
+func hotupdate(funcname, code)
+	
+	dostring(code)
+	
+	funcname()
+	
+end
+
+

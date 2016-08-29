@@ -37,7 +37,7 @@ class fkfunctor
 
 		// 参数
 		Object[] param = new Object[m_param.length];
-		for (int i = 0; i < m_param.length; i++)
+		for (int i = m_param.length - 1; i >= 0; i--)
 		{
 			param[i] = fk.trans(fk.pspop(f), m_param[i]);
 		}

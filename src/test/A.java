@@ -28,7 +28,7 @@ public class A
 		System.out.println("a3");
 	}
 
-	public long a4(long uid)
+	public long a4(long uid, String aa)
 	{
 		return uid;
 	}

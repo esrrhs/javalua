@@ -1,3 +1,4 @@
+include "testex.fk"
 
 func testA(arg)
 	
@@ -5,7 +6,7 @@ func testA(arg)
 	A.a3()
 	B.a3()
 	print(arg:a2ex())
-	print(arg:a4(112421421541251251u))
+	print(arg:a4(112421421541251251u, "123"))
 
 	sleep 1000
 	
@@ -55,21 +56,4 @@ func primes(n)
 	end
 	return count
 end
-
-
-func testHotUpdate()
-
-	print("old")
-	fake hotupdate("testHotUpdate", "func testHotUpdate() print(\"new\") end")
-	
-end
-
-func hotupdate(funcname, code)
-	
-	dostring(code)
-	
-	funcname()
-	
-end
-
 

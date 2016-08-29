@@ -60,6 +60,11 @@ public class mycup
 		m_includelist.add(includefile);
 	}
 
+	public ArrayList<String> get_include_list()
+	{
+		return m_includelist;
+	}
+
 	public void add_struct_desc(String structname)
 	{
 		m_struct_list.add(structname);

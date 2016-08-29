@@ -137,6 +137,16 @@ class parser
 			return false;
 		}
 
+		// 解析前置文件
+		for (int i = 0; i < (int) mcp.get_include_list().size(); i++)
+		{
+			String name = mcp.get_include_list().get(i);
+			if (!parse_include(filename, name))
+			{
+				return false;
+			}
+		}
+
 		// 编译
 		try
 		{
@@ -219,4 +229,29 @@ class parser
 		}
 		return ret;
 	}
+
+	private boolean parse_include(String srcname, String includename)
+	{
+		// 拼include的名字
+		String dir = srcname;
+		dir = dir.replace('\\', '/');
+		int pos = dir.lastIndexOf('/');
+		if (pos == -1)
+		{
+			dir = "";
+		}
+		else
+		{
+			dir = dir.substring(0, pos + 1);
+		}
+		dir += includename;
+
+		// 解析
+		if (!parse(dir))
+		{
+			return false;
+		}
+		return true;
+	}
+
 }
