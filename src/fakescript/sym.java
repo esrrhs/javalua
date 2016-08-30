@@ -48,6 +48,7 @@ public interface sym {
   public static final int error = 1;
   public static final int INCLUDE = 49;
   public static final int OPEN_SQUARE_BRACKET = 45;
+  public static final int NULL = 67;
   public static final int DIVIDE_MOD_ASSIGN = 39;
   public static final int STRING_CAT = 64;
   public static final int NUMBER = 15;
@@ -142,7 +143,8 @@ public interface sym {
   "RIGHT_POINTER",
   "STRING_CAT",
   "OPEN_BIG_BRACKET",
-  "CLOSE_BIG_BRACKET"
+  "CLOSE_BIG_BRACKET",
+  "NULL"
   };
 }
 

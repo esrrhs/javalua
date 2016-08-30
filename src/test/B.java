@@ -1,5 +1,7 @@
 package test;
 
+import java.util.ArrayList;
+
 public class B extends A
 {
 	@Override
@@ -16,5 +18,20 @@ public class B extends A
 	public B b1()
 	{
 		return this;
+	}
+
+	public <T> T b2()
+	{
+		return (T) "b2";
+	}
+
+	public <T> void b3(T t)
+	{
+		System.out.println(t);
+	}
+
+	public ArrayList<String> b4()
+	{
+		return new ArrayList<String>();
 	}
 }

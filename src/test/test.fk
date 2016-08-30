@@ -10,7 +10,7 @@ func testA(arg)
 
 	sleep 1000
 	
-	return 1
+	return null
 	
 end
 
@@ -20,6 +20,17 @@ func testB(arg)
 	A.a3()
 	B.a3()
 	arg:b1():b1():a1(1)
+	
+	print(arg:b2())
+	arg:b3("asd")
+	
+	var list = arg:b4()
+	print(list:size())
+	list:add("1")
+	list:add("2")
+	list:add("3")
+	print(list:size())
+	print(list)
 	
 	sleep 1000
 	

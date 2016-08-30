@@ -33,4 +33,8 @@ public class A
 		return uid;
 	}
 
+	public A a5()
+	{
+		return null;
+	}
 }

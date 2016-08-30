@@ -16,6 +16,7 @@ public class test
 		fk.regall(f, "test");
 		fk.regclass(f, A.class);
 		fk.regclass(f, B.class);
+		fk.regclass(f, java.util.ArrayList.class);
 
 		fk.openprofile(f);
 		fk.openbaselib(f);
@@ -44,11 +45,11 @@ public class test
 		}
 
 		A a = new A();
-		int ret = (int) (double) fk.run(f, "testA", a);
-		System.out.println("run testA ret " + ret);
+		a = (A) fk.run(f, "testA", a);
+		System.out.println("run testA ret " + a);
 
 		a = new B();
-		ret = (int) (double) fk.run(f, "testB", a);
+		int ret = (int) (double) fk.run(f, "testB", a);
 		System.out.println("run testB ret " + ret);
 
 		fk.run(f, "testHotUpdate");

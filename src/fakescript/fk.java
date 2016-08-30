@@ -531,6 +531,11 @@ public class fk
 
 	protected static Object trans(Object src, Class<?> c)
 	{
+		if (src == null)
+		{
+			return null;
+		}
+
 		Class<?> srcc = src.getClass();
 
 		if (c == Byte.class || c == Byte.TYPE)
@@ -810,6 +815,12 @@ public class fk
 		{
 			return String.valueOf(src);
 		}
+		// 这种一般是模板，直接转过去
+		else if (c == Object.class)
+		{
+			return src;
+		}
+		// 这些就是特定的类型了
 		else
 		{
 			if (srcc == Byte.class)

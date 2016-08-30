@@ -140,6 +140,10 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return symbol(PACKAGE);
 }
 
+"null" {
+	return symbol(NULL);
+}
+
 "include" {
 	return symbol(INCLUDE);
 }

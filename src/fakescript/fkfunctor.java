@@ -51,13 +51,6 @@ class fkfunctor
 					+ ret.getClass().toString());
 		}
 
-		if (ret != null)
-		{
-			fk.pspush(f, ret);
-		}
-		else
-		{
-			fk.pspush(f, 0);
-		}
+		fk.pspush(f, ret);
 	}
 }

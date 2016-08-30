@@ -427,6 +427,9 @@ class compiler
 		variant v = new variant();
 		switch (ev.m_type)
 		{
+			case EVT_NULL:
+				v.set_pointer(null);
+				break;
 			case EVT_TRUE:
 				v.set_real(1);
 				break;

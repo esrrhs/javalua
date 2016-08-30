@@ -76,6 +76,7 @@ terminal RIGHT_POINTER;
 terminal STRING_CAT;
 terminal OPEN_BIG_BRACKET;
 terminal CLOSE_BIG_BRACKET;
+terminal NULL;
 
 /* Non-terminals */
 non terminal program;
@@ -1287,6 +1288,14 @@ const_define ::=
 	;
 
 explicit_value ::=
+	NULL:e
+	{:
+		types.log(m_mycup.get_fake(), "[CUP]: NULL ");
+		explicit_value_node p = new_node(explicit_value_node.class);
+		p.m_type = explicit_value_type.EVT_NULL;
+		RESULT = p;
+	:}
+	|
 	FTRUE:e
 	{:
 		types.log(m_mycup.get_fake(), "[CUP]: FTRUE ");
