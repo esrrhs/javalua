@@ -441,7 +441,7 @@ public class fk
 
 		if (arg == null)
 		{
-			v.set_nil();
+			v.set_pointer(null);
 			return;
 		}
 

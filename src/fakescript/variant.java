@@ -159,7 +159,8 @@ class variant
 	{
 		if (m_type != variant_type.REAL && m_type != variant_type.NIL)
 		{
-			throw new Exception("variant can not calculate, the variant is " + m_type.toString() + m_data.toString());
+			throw new Exception("variant can not calculate, the variant is " + m_type.toString() + " "
+					+ (m_data != null ? m_data.toString() : "null"));
 		}
 	}
 
@@ -167,7 +168,8 @@ class variant
 	{
 		if (((double) m_data) == 0)
 		{
-			throw new Exception("variant can not be divide, the variant is " + m_type.toString() + m_data.toString());
+			throw new Exception(
+					"variant can not be divide, the variant is " + m_type.toString() + " " + m_data.toString());
 		}
 	}
 
@@ -252,9 +254,7 @@ class variant
 
 	public void equal(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
-		m_data = (double) l.m_data == (double) r.m_data ? (double) 1 : (double) 0;
+		m_data = l.equals(r) ? (double) 1 : (double) 0;
 		m_type = variant_type.REAL;
 	}
 
@@ -276,9 +276,7 @@ class variant
 
 	public void not_equal(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
-		m_data = (double) l.m_data != (double) r.m_data ? (double) 1 : (double) 0;
+		m_data = l.equals(r) ? (double) 0 : (double) 1;
 		m_type = variant_type.REAL;
 	}
 
@@ -318,9 +316,7 @@ class variant
 
 	public static boolean equal_jne(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
-		return ((double) l.m_data) == ((double) r.m_data);
+		return l.equals(r);
 	}
 
 	public static boolean more_equal_jne(variant l, variant r) throws Exception
@@ -339,9 +335,7 @@ class variant
 
 	public static boolean not_equal_jne(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
-		return ((double) l.m_data) != ((double) r.m_data);
+		return !l.equals(r);
 	}
 
 	public static boolean not_jne(variant r) throws Exception

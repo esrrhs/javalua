@@ -568,8 +568,10 @@ class compiler
 	{
 		int startpos = 0;
 		int jnepos = 0;
+		int continuepos = 0;
 
 		m_loop_break_pos_stack.add(new ArrayList<Integer>());
+		m_continue_end_pos_stack.add(new ArrayList<Integer>());
 
 		// 开始语句，这个作用域是全for都有效的
 		cg.push_stack_identifiers();
@@ -582,7 +584,8 @@ class compiler
 		}
 
 		startpos = cg.byte_code_size();
-		m_loop_continue_pos_stack.add(startpos);
+		// 需要continue end
+		m_loop_continue_pos_stack.add(-1);
 
 		// 条件
 		cg.push_stack_identifiers();
@@ -619,6 +622,8 @@ class compiler
 			cg.pop_stack_identifiers();
 		}
 
+		continuepos = cg.byte_code_size();
+
 		// 结束
 		if (fs.m_endblock != null)
 		{
@@ -644,6 +649,14 @@ class compiler
 			cg.set(bplist.get(i), command.MAKE_POS(cg.byte_code_size()));
 		}
 		m_loop_break_pos_stack.remove(m_loop_break_pos_stack.size() - 1);
+
+		// 替换掉continue
+		ArrayList<Integer> cplist = m_continue_end_pos_stack.get(m_continue_end_pos_stack.size() - 1);
+		for (int i = 0; i < (int) cplist.size(); i++)
+		{
+			cg.set(cplist.get(i), command.MAKE_POS(continuepos));
+		}
+		m_continue_end_pos_stack.remove(m_continue_end_pos_stack.size() - 1);
 
 		m_loop_continue_pos_stack.remove(m_loop_continue_pos_stack.size() - 1);
 

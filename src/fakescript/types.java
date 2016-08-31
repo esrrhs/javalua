@@ -19,8 +19,15 @@ class types
 	{
 		if (f.cfg.open_debug_log != 0)
 		{
-			System.out.printf(str, args);
-			System.out.println("");
+			if (args.length == 0)
+			{
+				System.out.println(str);
+			}
+			else
+			{
+				System.out.printf(str, args);
+				System.out.println("");
+			}
 		}
 	}
 
