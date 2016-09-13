@@ -22,6 +22,7 @@ Lightweight embedded scripting language
 * Support const definitions
 * Support Package
 * Support struct
+* Support byte code optimize
 
 
 
