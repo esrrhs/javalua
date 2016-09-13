@@ -3,13 +3,16 @@ package test;
 import fakescript.callback;
 import fakescript.fake;
 import fakescript.fk;
+import fakescript.fkconfig;
 
 public class test
 {
 	public static void main(String[] args)
 	{
 		System.out.println("fakescript " + fk.version);
-		fake f = fk.newfake(null);
+		fkconfig config = new fkconfig();
+		config.open_debug_log = 1;
+		fake f = fk.newfake(config);
 
 		// 多种绑定
 		fk.reg(f, "test");
@@ -20,6 +23,8 @@ public class test
 
 		fk.openprofile(f);
 		fk.openbaselib(f);
+		fk.openbaselib(f);
+		fk.openoptimize(f);
 		fk.set_callback(f, new callback() {
 			@Override
 			public void on_error(fake f, String file, int lineno, String func, String str)
@@ -37,7 +42,17 @@ public class test
 			}
 		});
 
-		boolean b = fk.parse(f, "./src/test/test.fk");
+		boolean b = fk.parse(f, "./src/test/testop.fk");
+		if (!b)
+		{
+			System.out.println("parse fail");
+			return;
+		}
+
+		int ret = (int) (double) fk.run(f, "test");
+		System.out.println("run test ret " + ret);
+
+		b = fk.parse(f, "./src/test/test.fk");
 		if (!b)
 		{
 			System.out.println("parse fail");
@@ -49,7 +64,7 @@ public class test
 		System.out.println("run testA ret " + a);
 
 		a = new B();
-		int ret = (int) (double) fk.run(f, "testB", a);
+		ret = (int) (double) fk.run(f, "testB", a);
 		System.out.println("run testB ret " + ret);
 
 		fk.run(f, "testHotUpdate");

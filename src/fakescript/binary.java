@@ -19,13 +19,13 @@ class binary
 			funcunion f = e.getValue();
 			if (f.m_havefb)
 			{
-				ret += f.m_fb.dump();
+				ret += f.m_fb.dump(-1);
 			}
 		}
 		return ret;
 	}
 
-	public String dump(String str)
+	public String dump(String str, int pos)
 	{
 		variant funcv = new variant();
 		funcv.set_string(str);
@@ -33,7 +33,7 @@ class binary
 		funcunion f = m_f.fm.get_func(funcv);
 		if (f != null && f.m_havefb)
 		{
-			return f.m_fb.dump();
+			return f.m_fb.dump(pos);
 		}
 		else
 		{

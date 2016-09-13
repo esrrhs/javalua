@@ -176,6 +176,9 @@ class compiler
 		String funcname = types.gen_package_name(m_mcp.get_package(), funcnode.m_funcname);
 		cg.output(m_mcp.get_filename(), m_mcp.get_package(), funcname, bin);
 
+		// 优化
+		m_f.opt.optimize(bin);
+
 		// 看立即更新还是延迟更新
 		variant fv = new variant();
 		fv.set_string(funcname);

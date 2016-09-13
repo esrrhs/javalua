@@ -1,10 +1,15 @@
 package fakescript;
 
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.Reader;
 import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public class fk
@@ -13,6 +18,11 @@ public class fk
 	 * 版本号
 	 */
 	public static final String version = "0.1";
+
+	// 节省内存
+	protected static final HashMap<String, variant> regName = new HashMap<String, variant>();
+	protected static final HashMap<String, fkfunctor> regFunctor = new HashMap<String, fkfunctor>();
+	protected static final HashMap<String, bifunc> regBindFunc = new HashMap<String, bifunc>();
 
 	/**
 	 * 创建fake对象
@@ -66,28 +76,7 @@ public class fk
 						name = m.getName();
 					}
 
-					fkfunctor fkf = new fkfunctor();
-					fkf.m_c = c;
-					fkf.m_m = m;
-					fkf.m_param = m.getParameterTypes();
-					fkf.m_ret = m.getReturnType();
-					fkf.m_is_staic = Modifier.isStatic(m.getModifiers());
-
-					if (!fkf.m_is_staic)
-					{
-						name = c.getName() + name;
-					}
-					else
-					{
-						name = c.getSimpleName() + "." + name;
-					}
-
-					variant v = new variant();
-					v.set_string(name);
-
-					f.fm.add_func(v, fkf);
-
-					types.log(f, "fk reg %s %s", name, fkf);
+					reg_method(f, name, c, m);
 				}
 			}
 		}
@@ -146,28 +135,7 @@ public class fk
 				}
 			}
 
-			fkfunctor fkf = new fkfunctor();
-			fkf.m_c = c;
-			fkf.m_m = m;
-			fkf.m_param = m.getParameterTypes();
-			fkf.m_ret = m.getReturnType();
-			fkf.m_is_staic = Modifier.isStatic(m.getModifiers());
-
-			if (!fkf.m_is_staic)
-			{
-				name = c.getName() + name;
-			}
-			else
-			{
-				name = c.getSimpleName() + "." + name;
-			}
-
-			variant v = new variant();
-			v.set_string(name);
-
-			f.fm.add_func(v, fkf);
-
-			types.log(f, "fk reg %s %s", name, fkf);
+			reg_method(f, name, c, m);
 		}
 	}
 
@@ -256,6 +224,29 @@ public class fk
 		}
 		runps(f, func);
 		return pspop(f);
+	}
+
+	public static Object debugrun(fake f, String func, Object... args)
+	{
+		psclear(f);
+		for (Object arg : args)
+		{
+			pspush(f, arg);
+		}
+		openstepmod(f);
+		rundebugps(f, func);
+		closestepmod(f);
+		return pspop(f);
+	}
+
+	public static void openstepmod(fake f)
+	{
+		f.rn.set_stepmod(true);
+	}
+
+	public static void closestepmod(fake f)
+	{
+		f.rn.set_stepmod(false);
 	}
 
 	/**
@@ -353,6 +344,249 @@ public class fk
 		return "nil";
 	}
 
+	public static int getcurroutineid(fake f)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_curroutine() != null)
+		{
+			return p.get_curroutine().get_id();
+		}
+		return 0;
+	}
+
+	public static String getcurvaiantbyroutinebyframe(fake f, int rid, int frame, String name, int line)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			warper ret = new warper(new String());
+			warper retline = new warper(new Integer(0));
+			p.get_routine_by_id(rid).get_interpreter().get_running_vaiant(frame, name, line, ret, retline);
+			return (String) ret.d;
+		}
+		return "";
+	}
+
+	public static void setcurvaiantbyroutinebyframe(fake f, int rid, int frame, String name, String value, int line)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			p.get_routine_by_id(rid).get_interpreter().set_running_vaiant(frame, name, line, value);
+		}
+	}
+
+	public static String getcurfuncbyroutinebyframe(fake f, int rid, int frame)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			warper stackinfo = new warper(new String());
+			warper func = new warper(new String());
+			warper file = new warper(new String());
+			warper line = new warper(new Integer(0));
+			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
+					line);
+			return (String) func.d;
+		}
+		return "nil";
+	}
+
+	public static String getcurroutinebyid(fake f, int rid)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null)
+		{
+			return p.get_routine_info_by_id(rid);
+		}
+		return "";
+	}
+
+	public static int getcurcallstacklength(fake f)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_curroutine() != null)
+		{
+			return p.get_curroutine().get_interpreter().get_running_call_stack_length();
+		}
+		return 0;
+	}
+
+	public static String getcurfilebyroutinebyframe(fake f, int rid, int frame)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			warper stackinfo = new warper(new String());
+			warper func = new warper(new String());
+			warper file = new warper(new String());
+			warper line = new warper(new Integer(0));
+			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
+					line);
+			return (String) file.d;
+		}
+		return "nil";
+	}
+
+	public static int getcurlinebyroutinebyframe(fake f, int rid, int frame)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			warper stackinfo = new warper(new String());
+			warper func = new warper(new String());
+			warper file = new warper(new String());
+			warper line = new warper(new Integer(0));
+			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
+					line);
+			return (int) line.d;
+		}
+		return 0;
+	}
+
+	public static String getcurcallstackbyroutinebyframe(fake f, int rid, int frame)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			warper stackinfo = new warper(new String());
+			warper func = new warper(new String());
+			warper file = new warper(new String());
+			warper line = new warper(new Integer(0));
+			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
+					line);
+			return (String) stackinfo.d;
+		}
+		return "nil";
+	}
+
+	public static String getfuncfile(fake f, String func)
+	{
+		variant funcv = new variant();
+		funcv.set_string(func);
+		funcunion ff = f.fm.get_func(funcv);
+		if (ff != null && ff.m_havefb)
+		{
+			return ff.m_fb.m_filename;
+		}
+		return "";
+	}
+
+	public static int getfuncstartline(fake f, String func)
+	{
+		variant funcv = new variant();
+		funcv.set_string(func);
+		funcunion ff = f.fm.get_func(funcv);
+		if (ff != null && ff.m_havefb)
+		{
+			return ff.m_fb.get_binary_lineno(0);
+		}
+		return 0;
+	}
+
+	public static int getcurroutinenum(fake f)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null)
+		{
+			return p.get_routine_num();
+		}
+		return 0;
+	}
+
+	public static int getroutineidbyindex(fake f, int index)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_index(index) != null)
+		{
+			return p.get_routine_by_index(index).get_id();
+		}
+		return 0;
+	}
+
+	public static String getcurroutinebyindex(fake f, int index)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null)
+		{
+			return p.get_routine_info_by_index(index);
+		}
+		return "";
+	}
+
+	public static int getcurcallstacklengthbyroutine(fake f, int rid)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			return p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_length();
+		}
+		return 0;
+	}
+
+	public static int getcurbytecodeposbyroutine(fake f, int rid)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null && p.get_routine_by_id(rid) != null)
+		{
+			return p.get_routine_by_id(rid).get_interpreter().get_running_bytecode_pos();
+		}
+		return -1;
+	}
+
+	public static String dumpfunc(fake f, String func, int pos)
+	{
+		return f.bin.dump(func, pos);
+	}
+
+	public static boolean ishaveroutine(fake f, int rid)
+	{
+		processor p = f.rn.cur_pro();
+		if (p != null)
+		{
+			return p.get_routine_by_id(rid) != null;
+		}
+		return false;
+	}
+
+	public static String getfilecode(fake f, String filename, int line)
+	{
+		if (filename.isEmpty() || line <= 0)
+		{
+			return "";
+		}
+
+		try
+		{
+			String encoding = "utf-8";
+			Reader reader = new InputStreamReader(new FileInputStream(filename), encoding);
+			BufferedReader bufferedReader = new BufferedReader(reader);
+
+			int i = 0;
+			String ret = "";
+			while (true)
+			{
+				String str = bufferedReader.readLine();
+				if (str == null)
+				{
+					break;
+				}
+
+				i++;
+				if (i >= line)
+				{
+					ret = str;
+					break;
+				}
+			}
+			return ret;
+		}
+		catch (Exception e)
+		{
+			return e.getMessage();
+		}
+	}
+
 	/**
 	 * 打开基本的内置函数
 	 * <p>
@@ -414,6 +648,34 @@ public class fk
 	public static void closeprofile(fake f)
 	{
 		f.pf.close();
+	}
+
+	/**
+	 * 打开优化
+	 * <p>
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @return 无
+	 */
+	public static void openoptimize(fake f)
+	{
+		f.opt.open();
+	}
+
+	/**
+	 * 关闭优化
+	 * <p>
+	 * 
+	 * @param f
+	 *            上下文环境
+	 * 
+	 * @return 无
+	 */
+	public static void closeoptimize(fake f)
+	{
+		f.opt.close();
 	}
 
 	/**
@@ -862,7 +1124,33 @@ public class fk
 		}
 	}
 
-	protected static void runps(fake f, String func)
+	private static void rundebugps(fake f, String func)
+	{
+		variant funcv = new variant();
+		funcv.set_string(func);
+
+		processor pro = new processor(f);
+
+		try
+		{
+			routine r = pro.start_routine(funcv, new ArrayList<Integer>());
+
+			f.rn.push_pro(pro);
+
+			f.dbg.debug();
+		}
+		catch (Exception e)
+		{
+			StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), e.toString() + "\n" + sw.toString());
+			pw.close();
+			f.ps.push_and_get();
+		}
+	}
+
+	private static void runps(fake f, String func)
 	{
 		variant funcv = new variant();
 		funcv.set_string(func);
@@ -891,5 +1179,109 @@ public class fk
 			pw.close();
 			f.ps.push_and_get();
 		}
+	}
+
+	private static void reg_method(fake f, String name, Class<?> c, Method m)
+	{
+		boolean isstatic = Modifier.isStatic(m.getModifiers());
+		if (!isstatic)
+		{
+			name = c.getName() + name;
+		}
+		else
+		{
+			name = c.getSimpleName() + "." + name;
+		}
+
+		synchronized (fk.class)
+		{
+			variant v = null;
+			fkfunctor fkf = null;
+
+			if (regName.get(name) != null)
+			{
+				v = regName.get(name);
+				fkf = regFunctor.get(name);
+
+				for (fkmethod fm : fkf.m_ms)
+				{
+					if (fm.m_param.length == m.getParameterTypes().length)
+					{
+						f.fm.add_func(v, fkf);
+						types.log(f, "fk reg %s %s from cache", name, fkf);
+						return;
+					}
+				}
+			}
+			else
+			{
+				v = new variant();
+				v.set_string(name);
+
+				fkf = new fkfunctor();
+				fkf.m_c = c.getName();
+				fkf.m_is_staic = isstatic;
+
+				f.fm.add_func(v, fkf);
+
+				regName.put(name, v);
+				regFunctor.put(name, fkf);
+			}
+
+			fkmethod fm = new fkmethod();
+			fm.m_m = m;
+			fm.m_param = m.getParameterTypes();
+			fm.m_ret = m.getReturnType();
+
+			if (fkf.m_ms == null)
+			{
+				fkf.m_ms = new fkmethod[1];
+				fkf.m_ms[0] = fm;
+			}
+			else
+			{
+				fkmethod[] newarray = new fkmethod[fkf.m_ms.length + 1];
+				for (int i = 0; i < fkf.m_ms.length; i++)
+				{
+					newarray[i] = fkf.m_ms[i];
+				}
+				newarray[fkf.m_ms.length] = fm;
+				fkf.m_ms = newarray;
+			}
+
+			types.log(f, "fk reg %s %s", name, fkf);
+		}
+	}
+
+	protected static boolean resumeps(fake f, boolean isend) throws Exception
+	{
+		isend = false;
+
+		// 上次的processor
+		processor pro = f.rn.cur_pro();
+		if (pro == null)
+		{
+			variant ret = f.ps.push_and_get();
+			ret.set_nil();
+			return isend;
+		}
+
+		pro.run();
+		if (pro.get_routine_num() != 0)
+		{
+			variant ret = f.ps.push_and_get();
+			ret.set_nil();
+			return isend;
+		}
+
+		// 结束了
+		variant ret = f.ps.push_and_get();
+		ret.copy_from(pro.get_entrycurroutine().get_ret());
+
+		f.rn.pop_pro();
+
+		isend = true;
+
+		return isend;
 	}
 }

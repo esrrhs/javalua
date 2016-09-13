@@ -10,9 +10,17 @@ public class A
 	}
 
 	@fakescript
-	public void a1(int a)
+	public int a0(int a)
+	{
+		System.out.println("a0 " + a);
+		return 0;
+	}
+
+	@fakescript
+	public int a1(int a)
 	{
 		System.out.println("a1 " + a);
+		return 0;
 	}
 
 	@fakescript(name = "a2ex")

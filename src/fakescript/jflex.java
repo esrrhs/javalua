@@ -2,7 +2,9 @@
 
 package fakescript;
 
-import java_cup.runtime.*;
+import java_cup.runtime.ComplexSymbolFactory;
+import java_cup.runtime.ComplexSymbolFactory.Location;
+import java_cup.runtime.Symbol;
 
 
 /**
@@ -386,6 +388,7 @@ public class jflex implements sym, java_cup.runtime.Scanner {
 
   /* user code: */
   fake m_f;
+  ComplexSymbolFactory m_complexSymbolFactory;
 
   StringBuilder string = new StringBuilder();
   
@@ -394,14 +397,21 @@ public class jflex implements sym, java_cup.runtime.Scanner {
 	m_f = f;
   }
   
+  public void set_complexSymbolFactory(ComplexSymbolFactory complexSymbolFactory)
+  {
+	m_complexSymbolFactory = complexSymbolFactory;
+  }
+  
   private Symbol symbol(int type) {
 	types.log(m_f, "[JFLEX]: " + sym.terminalNames[type]);
-    return new javasymbol(type, yyline+1, yycolumn+1);
+	return m_complexSymbolFactory.newSymbol(sym.terminalNames[type], type, new Location(yyline + 1, yycolumn + 1),
+			new Location(yyline + 1, yycolumn + 1));
   }
 
   private Symbol symbol(int type, Object value) {
 	types.log(m_f, "[JFLEX]: " + sym.terminalNames[type] + "(" + value.toString() + ")");
-    return new javasymbol(type, yyline+1, yycolumn+1, value);
+	return m_complexSymbolFactory.newSymbol(sym.terminalNames[type], type, new Location(yyline + 1, yycolumn + 1),
+			new Location(yyline + 1, yycolumn + 1), value);
   }
   
   public int get_line()

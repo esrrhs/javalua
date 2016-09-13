@@ -31,21 +31,21 @@ class func_binary
 	public func_binary m_backup;
 	// 新标记
 	public int m_fresh;
-	
-	public String dump()
+
+	public String dump(int pos)
 	{
 		String ret = "";
-		
+
 		// 名字
 		ret += "\n[";
 		ret += m_name;
 		ret += "]\n";
-		
+
 		// 最大栈
 		ret += "\tmaxstack:\t";
 		ret += m_maxstack;
 		ret += "\n\n";
-		
+
 		// 常量表
 		ret += "\t////// const define ";
 		ret += m_const_list.length;
@@ -60,7 +60,7 @@ class func_binary
 			ret += m_const_list[i].toString();
 			ret += "\n";
 		}
-		
+
 		// 容器地址表
 		ret += "\n\t////// container addr ";
 		ret += m_container_addr_list.length;
@@ -80,7 +80,7 @@ class func_binary
 			ret += types.dump_addr(keycode);
 			ret += "\n";
 		}
-		
+
 		// 变量地址
 		ret += "\n\t////// stack variant addr ";
 		ret += m_debug_stack_variant_info.length;
@@ -96,7 +96,7 @@ class func_binary
 			ret += info.m_line;
 			ret += "\n";
 		}
-		
+
 		ret += "\n\t////// byte code ";
 		ret += m_buff.length;
 		ret += " //////\n";
@@ -106,6 +106,10 @@ class func_binary
 			long cmd = m_buff[i];
 			int type = command.COMMAND_TYPE(cmd);
 			int code = command.COMMAND_CODE(cmd);
+			if (i == pos)
+			{
+				ret += "->";
+			}
 			ret += "\t[";
 			ret += i;
 			ret += "]";
@@ -146,14 +150,13 @@ class func_binary
 		ret += "\n";
 		return ret;
 	}
-	
+
 	public int get_binary_lineno(int pos)
 	{
-		return (pos >= 0 && pos < (int) m_lineno_buff.length)
-				? m_lineno_buff[pos]
+		return (pos >= 0 && pos < (int) m_lineno_buff.length) ? m_lineno_buff[pos]
 				: (m_lineno_buff.length > 0 ? m_end_lineno : 0);
 	}
-	
+
 	public void backup_move()
 	{
 		// 最大栈空间
@@ -183,7 +186,7 @@ class func_binary
 		m_use = m_backup.m_use;
 		// 新标记
 		m_fresh = m_backup.m_fresh;
-		
+
 		// 备份
 		m_backup = null;
 	}

@@ -5,9 +5,10 @@ import java.util.ArrayList;
 public class B extends A
 {
 	@Override
-	public void a1(int a)
+	public int a1(int a)
 	{
 		System.out.println("b1 " + a);
+		return 0;
 	}
 
 	public static void a3()

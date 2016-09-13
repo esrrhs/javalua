@@ -14,7 +14,8 @@ class variant_array
 
 		if (i >= m_va.size())
 		{
-			for (int j = 0; j < i - m_va.size() + 1; j++)
+			int num = i - m_va.size() + 1;
+			for (int j = 0; j < num; j++)
 			{
 				m_va.add(null);
 			}

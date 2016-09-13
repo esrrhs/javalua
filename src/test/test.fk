@@ -56,6 +56,8 @@ func testB(arg)
 	list:add("3")
 	print(list:size())
 	print(list)
+	list:add(0, "4")
+	print(list)
 	
 	sleep 1000
 	

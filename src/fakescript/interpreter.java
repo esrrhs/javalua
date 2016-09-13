@@ -2,6 +2,16 @@ package fakescript;
 
 import java.util.ArrayList;
 
+class warper
+{
+	public Object d;
+
+	public warper(Object d)
+	{
+		this.d = d;
+	}
+}
+
 class interpreter
 {
 	public static final String MAP_FUNC_NAME = "map";
@@ -39,6 +49,11 @@ class interpreter
 	public void set_processor(processor pro)
 	{
 		m_processor = pro;
+	}
+
+	public int get_running_bytecode_pos()
+	{
+		return m_fb != null ? m_ip : -1;
 	}
 
 	public void call(variant func, ArrayList<Integer> retpos) throws Exception
@@ -310,6 +325,11 @@ class interpreter
 		return (int) v.m_data;
 	}
 
+	public boolean CHECK_DST_POS(func_binary fb, int ip)
+	{
+		return CHECK_STACK_POS(fb, ip) | CHECK_CONTAINER_POS(fb, ip);
+	}
+
 	public boolean CHECK_STACK_POS(func_binary fb, int ip)
 	{
 		return command.ADDR_TYPE(command.COMMAND_CODE(fb.m_buff[ip])) == command.ADDR_STACK;
@@ -437,7 +457,7 @@ class interpreter
 					case command.OPCODE_ASSIGN:
 					{
 						// 赋值dest，必须为栈上或容器内
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception("interpreter assign error, dest is not stack or container, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -467,7 +487,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -486,7 +506,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -505,7 +525,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -524,7 +544,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -543,7 +563,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -562,7 +582,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -581,7 +601,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -600,7 +620,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -619,7 +639,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -638,7 +658,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -657,7 +677,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -676,7 +696,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -695,7 +715,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -714,7 +734,7 @@ class interpreter
 						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -731,7 +751,7 @@ class interpreter
 						m_ip++;
 
 						;
-						if (!(CHECK_STACK_POS(m_fb, m_ip)))
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
 						{
 							throw new Exception("interpreter math oper error, dest is not stack, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -952,7 +972,7 @@ class interpreter
 						break;
 					case command.OPCODE_PLUS_ASSIGN:
 					{
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception(
 									"interpreter math assign oper error, dest is not stack or container, type "
@@ -973,7 +993,7 @@ class interpreter
 						break;
 					case command.OPCODE_MINUS_ASSIGN:
 					{
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception(
 									"interpreter math assign oper error, dest is not stack or container, type "
@@ -994,7 +1014,7 @@ class interpreter
 						break;
 					case command.OPCODE_MULTIPLY_ASSIGN:
 					{
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception(
 									"interpreter math assign oper error, dest is not stack or container, type "
@@ -1015,7 +1035,7 @@ class interpreter
 						break;
 					case command.OPCODE_DIVIDE_ASSIGN:
 					{
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception(
 									"interpreter math assign oper error, dest is not stack or container, type "
@@ -1036,7 +1056,7 @@ class interpreter
 						break;
 					case command.OPCODE_DIVIDE_MOD_ASSIGN:
 					{
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception(
 									"interpreter math assign oper error, dest is not stack or container, type "
@@ -1159,7 +1179,7 @@ class interpreter
 					case command.OPCODE_FORBEGIN:
 					{
 						// 赋值dest，必须为栈上或容器内
-						if (!(CHECK_STACK_POS(m_fb, m_ip) || CHECK_CONTAINER_POS(m_fb, m_ip)))
+						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
 							throw new Exception("interpreter assign error, dest is not stack or container, type "
 									+ POS_TYPE_NAME(m_fb, m_ip));
@@ -1405,6 +1425,233 @@ class interpreter
 		}
 
 		return cur_runinginfo;
+	}
+
+	public void get_running_vaiant(int frame, String name, int line, warper value, warper outline)
+	{
+		String valueret = "";
+
+		if (m_fb == null)
+		{
+			return;
+		}
+
+		// const define
+		variant gcv = m_f.pa.get_const_define(name);
+		if (gcv != null)
+		{
+			if (gcv.m_type == variant_type.STRING)
+			{
+				valueret += "\"";
+				valueret += gcv.toString();
+				valueret += "\"";
+			}
+			else
+			{
+				valueret += gcv.toString();
+			}
+			value.d = valueret;
+			outline.d = m_f.pa.get_const_define_lineno(name);
+			return;
+		}
+
+		int deps = 0;
+
+		int bp = m_bp;
+		func_binary fb = m_fb;
+
+		while (bp != 0)
+		{
+			if (deps >= frame)
+			{
+				for (int i = 0; i < fb.m_debug_stack_variant_info.length; i++)
+				{
+					stack_variant_info info = fb.m_debug_stack_variant_info[i];
+					if ((line != -1 && info.m_name.equals(name) && info.m_line == line)
+							|| (line == -1 && info.m_name.equals(name)))
+					{
+						variant v = m_stack.get(bp + info.m_pos);
+						if (v.m_type == variant_type.STRING)
+						{
+							valueret += "\"";
+							valueret += v.toString();
+							valueret += "\"";
+						}
+						else
+						{
+							valueret += v.toString();
+						}
+
+						value.d = valueret;
+						outline.d = info.m_line;
+						return;
+					}
+				}
+				break;
+			}
+
+			fb = BP_GET_FB(bp);
+			int callbp = 0;
+			callbp = BP_GET_BP(bp);
+			bp = callbp;
+			if (bp == 0)
+			{
+				break;
+			}
+
+			deps++;
+		}
+
+		return;
+	}
+
+	public void get_running_call_stack_frame_info(int frame, warper stackinfo, warper func, warper file, warper line)
+	{
+		String valueret = "";
+
+		if (m_fb == null)
+		{
+			return;
+		}
+
+		int deps = 0;
+
+		int ip = m_ip;
+		int bp = m_bp;
+		func_binary fb = m_fb;
+
+		while (bp != 0)
+		{
+			if (deps >= frame)
+			{
+				func.d = fb != null ? fb.m_name : "";
+				file.d = fb != null ? fb.m_filename : "";
+				line.d = fb != null ? fb.get_binary_lineno(ip) : 0;
+
+				valueret += "#";
+				valueret += deps;
+				valueret += "	";
+				valueret += func;
+				valueret += " at ";
+				valueret += file;
+				valueret += ":";
+				valueret += line;
+				valueret += "\n";
+
+				stackinfo.d = valueret;
+
+				return;
+			}
+
+			fb = BP_GET_FB(bp);
+			ip = BP_GET_IP(bp);
+			int callbp = 0;
+			callbp = BP_GET_BP(bp);
+			bp = callbp;
+			if (bp == 0)
+			{
+				break;
+			}
+
+			deps++;
+		}
+
+	}
+
+	public int get_running_call_stack_length()
+	{
+		if (m_fb == null)
+		{
+			return 0;
+		}
+
+		int deps = 0;
+
+		int bp = m_bp;
+
+		while (bp != 0)
+		{
+			deps++;
+			int callbp = 0;
+			callbp = BP_GET_BP(bp);
+			bp = callbp;
+			if (bp == 0)
+			{
+				break;
+			}
+		}
+
+		return deps;
+	}
+
+	public void set_running_vaiant(int frame, String name, int line, String value)
+	{
+		fake f = m_f;
+
+		if (m_fb == null)
+		{
+			return;
+		}
+
+		// const define
+		variant gcv = m_f.pa.get_const_define(name);
+		if (gcv != null)
+		{
+			// can not change
+			return;
+		}
+
+		int deps = 0;
+
+		int bp = m_bp;
+		func_binary fb = m_fb;
+
+		while (bp != 0)
+		{
+			if (deps >= frame)
+			{
+				for (int i = 0; i < fb.m_debug_stack_variant_info.length; i++)
+				{
+					stack_variant_info info = fb.m_debug_stack_variant_info[i];
+					if ((line != -1 && info.m_name.equals(name) && info.m_line == line)
+							|| (line == -1 && info.m_name.equals(name)))
+					{
+						variant v = m_stack.get(bp + info.m_pos);
+
+						String valuestr = value;
+						if (valuestr.isEmpty())
+						{
+							return;
+						}
+
+						if (valuestr.startsWith("\""))
+						{
+							valuestr = valuestr.substring(1, valuestr.length() - 1);
+							v.set_string(valuestr);
+						}
+						else
+						{
+							v.set_real(Integer.parseInt(value));
+						}
+
+						return;
+					}
+				}
+				break;
+			}
+
+			fb = BP_GET_FB(bp);
+			int callbp = 0;
+			callbp = BP_GET_BP(bp);
+			bp = callbp;
+			if (bp == 0)
+			{
+				break;
+			}
+
+			deps++;
+		}
+
 	}
 
 }

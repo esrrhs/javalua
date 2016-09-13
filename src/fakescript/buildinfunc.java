@@ -147,7 +147,7 @@ class buildinfunc
 		BIF_CHECK_ARG_NUM(f, 1);
 
 		String func = (String) fk.pspop(f);
-		String str = f.bin.dump(func);
+		String str = f.bin.dump(func, -1);
 		fk.pspush(f, str);
 	}
 
@@ -335,20 +335,36 @@ class buildinfunc
 
 	public void reg_func(String regname, String funcname)
 	{
-		variant v = new variant();
-		v.set_string(regname);
-
-		bifunc bif = new bifunc();
-
-		try
+		synchronized (fk.class)
 		{
-			bif.m_m = this.getClass().getDeclaredMethod(funcname, fake.class, interpreter.class);
+			variant v = null;
+			bifunc bif = null;
+			if (fk.regName.get(regname) != null)
+			{
+				v = fk.regName.get(regname);
+				bif = fk.regBindFunc.get(regname);
+			}
+			else
+			{
+				v = new variant();
+				v.set_string(regname);
+
+				bif = new bifunc();
+
+				try
+				{
+					bif.m_m = this.getClass().getDeclaredMethod(funcname, fake.class, interpreter.class);
+				}
+				catch (Exception e)
+				{
+					System.out.println(e);
+				}
+
+				fk.regName.put(regname, v);
+				fk.regBindFunc.put(regname, bif);
+			}
 
 			m_f.fm.add_func(v, bif);
-		}
-		catch (Exception e)
-		{
-			System.out.println(e);
 		}
 	}
 

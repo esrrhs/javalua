@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 
+import java_cup.runtime.ComplexSymbolFactory;
+
 class parser
 {
 	private fake m_f;
@@ -49,9 +51,13 @@ class parser
 	{
 		// 解析语法
 		java.io.Reader reader = new java.io.StringReader(str);
-		cup yyp = new cup();
+		ComplexSymbolFactory complexSymbolFactory = new ComplexSymbolFactory();
 		jflex f = new jflex(reader);
 		f.set_fake(m_f);
+		f.set_complexSymbolFactory(complexSymbolFactory);
+
+		cup yyp = new cup(f, complexSymbolFactory);
+
 		yyp.setScanner(f);
 		mycup mcp = new mycup(m_f, f);
 		mcp.set_filename("");
@@ -119,9 +125,13 @@ class parser
 
 		// 解析语法
 		java.io.Reader reader = new java.io.StringReader(content);
-		cup yyp = new cup();
+		ComplexSymbolFactory complexSymbolFactory = new ComplexSymbolFactory();
 		jflex f = new jflex(reader);
 		f.set_fake(m_f);
+		f.set_complexSymbolFactory(complexSymbolFactory);
+
+		cup yyp = new cup(f, complexSymbolFactory);
+
 		yyp.setScanner(f);
 		mycup mcp = new mycup(m_f, f);
 		mcp.set_filename(filename);
