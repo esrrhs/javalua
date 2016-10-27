@@ -15,6 +15,7 @@ class warper
 class interpreter
 {
 	public static final String MAP_FUNC_NAME = "map";
+	public static final String GMAP_FUNC_NAME = "_G";
 
 	private fake m_f;
 	private boolean m_isend;

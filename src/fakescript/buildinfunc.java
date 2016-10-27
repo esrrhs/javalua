@@ -18,6 +18,7 @@ class buildinfunc
 		reg_func("format", "buildin_format");
 		reg_func("array", "buildin_array");
 		reg_func(interpreter.MAP_FUNC_NAME, "buildin_map");
+		reg_func(interpreter.GMAP_FUNC_NAME, "buildin_gmap");
 		reg_func("size", "buildin_size");
 		reg_func("range", "buildin_range");
 		reg_func("typeof", "buildin_typeof");
@@ -257,6 +258,13 @@ class buildinfunc
 	public static void buildin_map(fake f, interpreter inter)
 	{
 		variant_map m = new variant_map();
+		variant v = f.ps.push_and_get();
+		v.set_map(m);
+	}
+
+	public static void buildin_gmap(fake f, interpreter inter)
+	{
+		variant_map m = f.rn.get_gmap();
 		variant v = f.ps.push_and_get();
 		v.set_map(m);
 	}

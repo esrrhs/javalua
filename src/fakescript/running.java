@@ -6,7 +6,8 @@ class running
 {
 	private fake m_f;
 	private ArrayList<processor> m_processes = new ArrayList<processor>();
-	private boolean stepmod;
+	private boolean m_stepmod;
+	private variant_map m_gmap = new variant_map();
 
 	public running(fake f)
 	{
@@ -30,12 +31,16 @@ class running
 
 	public boolean is_stepmod()
 	{
-		return stepmod;
+		return m_stepmod;
 	}
 
 	public void set_stepmod(boolean stepmod)
 	{
-		this.stepmod = stepmod;
+		this.m_stepmod = stepmod;
 	}
 
+	public variant_map get_gmap()
+	{
+		return m_gmap;
+	}
 }

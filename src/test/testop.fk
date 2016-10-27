@@ -1,8 +1,114 @@
 
-func test()
+const ct_pass = 0
+const ct_single = 1
+const ct_double = 2
+const ct_three = 3
+const ct_boom = 4
+const ct_three_plus_one = 5
+const ct_three_plus_two = 6
+const ct_four_plus_two = 7
+const ct_four_plus_two_double = 8
+const ct_continue = 9
+const ct_double_continue = 10
+const ct_double_three = 11
+const ct_double_three_plus_one = 12
+const ct_double_three_plus_two = 13
+const ct_double_king = 14
 
-	var a = 1
-	var b = a * 2
-	return b
+const XIAO_WANG_NUM = 13
+const DA_WANG_NUM = 14
+const ER_NUM = 12
+const A_NUM = 11
+const K_NUM = 10
+
+func test(player, table)
+
+	-- 先出别人要不起的小牌
+	ok, ret := get_min_max_chupai_type(player, table)
+	if is ok then
+		return ret
+	end
+	
+	-- 出顺子
+	var sz = AIScript.getPaixingSize(player, ct_continue)
+	if is sz then
+		return ct_continue
+	end
+	
+	-- 出飞机
+	sz = AIScript.getPaixingSize(player, ct_double_three)
+	if is sz then
+	
+		var pokeInfoList = AIScript.getPaixingPoke(player, ct_double_three)
+		var pokeInfo = pokeInfoList:get(0)
+		
+		var needSize = pokeInfo:getPai():size() / 3
+		
+		-- 不带2以上的
+		var fone = AIScript.getPaixingSizeSmallerThan(player, ct_single, ER_NUM)
+		var ftwo = AIScript.getPaixingSizeSmallerThan(player, ct_double, ER_NUM)
+	
+		if fone >= needSize then
+			return ct_double_three_plus_one
+		end
+		if (fone + ftwo * 2) >= needSize and (needSize - fone) % 2 == 0 then
+			return ct_double_three_plus_one
+		end
+		if needSize % 2 == 0 and ftwo * 2 >= needSize then
+			return ct_double_three_plus_one
+		end
+		if ftwo >= needSize then
+			return ct_double_three_plus_two
+		end
+		
+		return ct_double_three
+		
+	end
+	
+	-- 出连对
+	sz = AIScript.getPaixingSize(player, ct_double_continue)
+	if is sz then
+		return ct_double_continue
+	end
+	
+	-- 出3张
+	sz = AIScript.getPaixingSize(player, ct_three)
+	if is sz then
+	
+		var pokeInfoList = AIScript.getPaixingPoke(player, ct_three)
+		var pokeInfo = pokeInfoList:get(0)
+		var maxpai = pokeInfo:getMaxPai()
+	
+		-- 最多只打3个Q
+		if maxpai < K_NUM then
+			
+			-- 不带2以上的
+			var fone = AIScript.getPaixingSizeSmallerThan(player, ct_single, ER_NUM)
+			var ftwo = AIScript.getPaixingSizeSmallerThan(player, ct_double, ER_NUM)
+			
+			if fone >= 1 then						
+				return ct_three_plus_one;
+			end
+			if ftwo >= 1 then
+				return ct_three_plus_two;
+			end
+			return ct_three;
+		end
+	
+	end
+	
+	-- 比较对子和单牌的数量，优先出数量多的，如果数量一致，优先出最小牌小的
+	var sigle = AIScript.getPaixingSize(player, ct_single)
+	var doub = AIScript.getPaixingSize(player, ct_double)
+	
+	if sigle > doub then
+		return ct_single
+	end
+	
+	if sigle < doub then
+		return ct_double
+	end
+	 
+	return player:getSplitPokeInfoList():get(0):getPaixing()
 	
 end

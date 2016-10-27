@@ -11,7 +11,7 @@ public class test
 	{
 		System.out.println("fakescript " + fk.version);
 		fkconfig config = new fkconfig();
-		config.open_debug_log = 1;
+		config.open_debug_log = 0;
 		fake f = fk.newfake(config);
 
 		// 多种绑定
@@ -49,8 +49,7 @@ public class test
 			return;
 		}
 
-		int ret = (int) (double) fk.run(f, "test");
-		System.out.println("run test ret " + ret);
+		int ret = 0;
 
 		b = fk.parse(f, "./src/test/test.fk");
 		if (!b)

@@ -23,6 +23,7 @@ Lightweight embedded scripting language
 * Support Package
 * Support struct
 * Support byte code optimize
+* Support global map
 
 
 

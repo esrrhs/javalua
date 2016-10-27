@@ -35,6 +35,9 @@ func testA(arg)
 		end
 	end
 	
+	var g = _G()
+	g["a"] = 123
+	
 	return arg:a5()
 	
 end
@@ -60,6 +63,9 @@ func testB(arg)
 	print(list)
 	
 	sleep 1000
+	
+	var g = _G()
+	print("_G "..g["a"])
 	
 	return 1
 	
