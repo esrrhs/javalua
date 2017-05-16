@@ -1163,7 +1163,6 @@ public class fk
 
 			f.rn.push_pro(pro);
 			pro.run();
-			f.rn.pop_pro();
 
 			variant ret = r.get_ret();
 
@@ -1178,6 +1177,10 @@ public class fk
 			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), e.toString() + "\n" + sw.toString());
 			pw.close();
 			f.ps.push_and_get();
+		}
+		finally
+		{
+			f.rn.pop_pro();
 		}
 	}
 
