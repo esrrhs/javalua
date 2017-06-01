@@ -34,4 +34,22 @@ public class fake
 
 	// 优化
 	protected optimizer opt = new optimizer(this);
+
+	protected fake clonef()
+	{
+		fake nf = new fake();
+
+		nf.cfg = this.cfg;
+		nf.pa = this.pa.clonef(this);
+		nf.ps = new paramstack(this);
+		nf.bin = new binary(this);
+		nf.fm = this.fm.clonef(this);
+		nf.pf = new profile(this);
+		nf.bif = new buildinfunc(this);
+		nf.rn = new running(this);
+		nf.dbg = new debuging(this);
+		nf.opt = new optimizer(this);
+
+		return nf;
+	}
 }

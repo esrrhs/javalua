@@ -45,6 +45,21 @@ public class fk
 	}
 
 	/**
+	 * 复制fake对象
+	 * <p>
+	 * fake为上下文环境<br>
+	 * 所有接口在fake中执行
+	 *
+	 * @param f
+	 *            fake对象
+	 * @return fake对象
+	 */
+	public static fake newfake(fake f)
+	{
+		return f.clonef();
+	}
+
+	/**
 	 * 绑定java函数
 	 * <p>
 	 * 遍历package下所有类<br>

@@ -25,6 +25,14 @@ class parser
 		m_f = f;
 	}
 
+	public parser clonef(fake f)
+	{
+		parser ret = new parser(f);
+		ret.m_constv_map = (HashMap<String, variant>) this.m_constv_map.clone();
+		ret.m_constline_map = (HashMap<String, Integer>) this.m_constline_map.clone();
+		return ret;
+	}
+
 	public void clear()
 	{
 		m_parse_dep = 0;
