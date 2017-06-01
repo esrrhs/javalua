@@ -54,7 +54,7 @@ public class fk
 	 *            fake对象
 	 * @return fake对象
 	 */
-	public static fake newfake(fake f)
+	public static fake clone(fake f)
 	{
 		return f.clonef();
 	}
