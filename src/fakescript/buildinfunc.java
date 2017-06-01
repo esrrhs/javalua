@@ -343,37 +343,61 @@ class buildinfunc
 
 	public void reg_func(String regname, String funcname)
 	{
-		synchronized (fk.class)
+		variant v;
+		if (fk.regName.get(regname) != null)
 		{
-			variant v = null;
-			bifunc bif = null;
-			if (fk.regName.get(regname) != null)
-			{
-				v = fk.regName.get(regname);
-				bif = fk.regBindFunc.get(regname);
-			}
-			else
-			{
-				v = new variant();
-				v.set_string(regname);
-
-				bif = new bifunc();
-
-				try
-				{
-					bif.m_m = this.getClass().getDeclaredMethod(funcname, fake.class, interpreter.class);
-				}
-				catch (Exception e)
-				{
-					System.out.println(e);
-				}
-
-				fk.regName.put(regname, v);
-				fk.regBindFunc.put(regname, bif);
-			}
-
-			m_f.fm.add_func(v, bif);
+			v = fk.regName.get(regname);
 		}
+		else
+		{
+			synchronized (fk.regName)
+			{
+				if (fk.regName.get(regname) != null)
+				{
+					v = fk.regName.get(regname);
+				}
+				else
+				{
+					v = new variant();
+					v.set_string(regname);
+
+					fk.regName.put(regname, v);
+				}
+			}
+		}
+
+		bifunc bif;
+		if (fk.regBindFunc.get(regname) != null)
+		{
+			bif = fk.regBindFunc.get(regname);
+		}
+		else
+		{
+			synchronized (fk.regBindFunc)
+			{
+				if (fk.regBindFunc.get(regname) != null)
+				{
+					bif = fk.regBindFunc.get(regname);
+				}
+				else
+				{
+					bif = new bifunc();
+
+					try
+					{
+						bif.m_m = this.getClass().getDeclaredMethod(funcname, fake.class, interpreter.class);
+					}
+					catch (Exception e)
+					{
+						System.out.println(e);
+					}
+
+					fk.regBindFunc.put(regname, bif);
+				}
+			}
+		}
+
+		m_f.fm.add_func(v, bif);
 	}
 
 }
