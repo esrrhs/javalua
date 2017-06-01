@@ -9,8 +9,8 @@ import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class fk
 {
@@ -20,9 +20,9 @@ public class fk
 	public static final String version = "0.1";
 
 	// 节省内存
-	protected static final ConcurrentHashMap<String, variant> regName = new ConcurrentHashMap<>();
-	protected static final ConcurrentHashMap<String, fkfunctor> regFunctor = new ConcurrentHashMap<>();
-	protected static final ConcurrentHashMap<String, bifunc> regBindFunc = new ConcurrentHashMap<>();
+	protected static final HashMap<String, variant> regName = new HashMap<String, variant>();
+	protected static final HashMap<String, fkfunctor> regFunctor = new HashMap<String, fkfunctor>();
+	protected static final HashMap<String, bifunc> regBindFunc = new HashMap<String, bifunc>();
 
 	/**
 	 * 创建fake对象
@@ -115,7 +115,7 @@ public class fk
 	 * @param f
 	 *            上下文环境
 	 * 
-	 * @param c
+	 * @param packagename
 	 *            包的名字
 	 * 
 	 * @return 无
@@ -1196,35 +1196,16 @@ public class fk
 			name = c.getSimpleName() + "." + name;
 		}
 
-		variant v;
-		if (fk.regName.get(name) != null)
+		synchronized (fk.class)
 		{
-			v = fk.regName.get(name);
-		}
-		else
-		{
-			synchronized (fk.regName)
-			{
-				if (fk.regName.get(name) != null)
-				{
-					v = fk.regName.get(name);
-				}
-				else
-				{
-					v = new variant();
-					v.set_string(name);
+			variant v = null;
+			fkfunctor fkf = null;
 
-					fk.regName.put(name, v);
-				}
-			}
-		}
-
-		fkfunctor fkf;
-		if (regFunctor.get(name) != null)
-		{
-			fkf = regFunctor.get(name);
-			synchronized (fkf)
+			if (regName.get(name) != null)
 			{
+				v = regName.get(name);
+				fkf = regFunctor.get(name);
+
 				for (fkmethod fm : fkf.m_ms)
 				{
 					if (fm.m_param.length == m.getParameterTypes().length)
@@ -1235,47 +1216,26 @@ public class fk
 					}
 				}
 			}
-		}
-		else
-		{
-			synchronized (regFunctor)
+			else
 			{
-				if (regFunctor.get(name) != null)
-				{
-					fkf = regFunctor.get(name);
-					synchronized (fkf)
-					{
-						for (fkmethod fm : fkf.m_ms)
-						{
-							if (fm.m_param.length == m.getParameterTypes().length)
-							{
-								f.fm.add_func(v, fkf);
-								types.log(f, "fk reg %s %s from cache", name, fkf);
-								return;
-							}
-						}
-					}
-				}
-				else
-				{
-					fkf = new fkfunctor();
-					fkf.m_c = c.getName();
-					fkf.m_is_staic = isstatic;
+				v = new variant();
+				v.set_string(name);
 
-					f.fm.add_func(v, fkf);
+				fkf = new fkfunctor();
+				fkf.m_c = c.getName();
+				fkf.m_is_staic = isstatic;
 
-					regFunctor.put(name, fkf);
-				}
+				f.fm.add_func(v, fkf);
+
+				regName.put(name, v);
+				regFunctor.put(name, fkf);
 			}
-		}
 
-		fkmethod fm = new fkmethod();
-		fm.m_m = m;
-		fm.m_param = m.getParameterTypes();
-		fm.m_ret = m.getReturnType();
+			fkmethod fm = new fkmethod();
+			fm.m_m = m;
+			fm.m_param = m.getParameterTypes();
+			fm.m_ret = m.getReturnType();
 
-		synchronized (fkf)
-		{
 			if (fkf.m_ms == null)
 			{
 				fkf.m_ms = new fkmethod[1];
@@ -1291,9 +1251,9 @@ public class fk
 				newarray[fkf.m_ms.length] = fm;
 				fkf.m_ms = newarray;
 			}
-		}
 
-		types.log(f, "fk reg %s %s", name, fkf);
+			types.log(f, "fk reg %s %s", name, fkf);
+		}
 	}
 
 	protected static boolean resumeps(fake f, boolean isend) throws Exception
