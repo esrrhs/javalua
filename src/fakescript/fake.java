@@ -40,6 +40,7 @@ public class fake
 		fake nf = new fake();
 
 		nf.cfg = this.cfg;
+		nf.cb = this.cb;
 		nf.pa = this.pa.clonef(this);
 		nf.ps = new paramstack(this);
 		nf.bin = new binary(this);
