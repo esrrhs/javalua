@@ -26,7 +26,10 @@ class running
 
 	public void pop_pro()
 	{
-		m_processes.remove(m_processes.size() - 1);
+		if (!m_processes.isEmpty())
+		{
+			m_processes.remove(m_processes.size() - 1);
+		}
 	}
 
 	public boolean is_stepmod()
