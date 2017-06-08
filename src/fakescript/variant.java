@@ -370,6 +370,12 @@ class variant
 
 		variant r = (variant) o;
 
+		if ((m_type == variant_type.NIL && r.m_type == variant_type.POINTER && r.m_data == null)
+				|| (m_type == variant_type.POINTER && m_data == null && r.m_type == variant_type.NIL))
+		{
+			return true;
+		}
+
 		if (m_type != r.m_type)
 		{
 			return false;

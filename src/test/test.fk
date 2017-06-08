@@ -1,7 +1,15 @@
 include "testex.fk"
 
 func testA(arg)
-	
+
+	var t = map()
+
+	print(t->subtest)
+
+	if t->subtest == null then
+		print("aj")
+	end
+
 	arg:a1(1)
 	A.a3()
 	B.a3()
