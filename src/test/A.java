@@ -4,6 +4,20 @@ import fakescript.fakescript;
 
 public class A
 {
+	public static class AA
+	{
+		public static AA aa0()
+		{
+			System.out.println("aa0");
+			return new AA();
+		}
+
+		public void aa1()
+		{
+			System.out.println("aa1");
+		}
+	}
+
 	public A()
 	{
 

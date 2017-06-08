@@ -2,6 +2,9 @@ include "testex.fk"
 
 func testA(arg)
 
+	var aa = AA.aa0()
+	aa:aa1()
+
 	var t = map()
 
 	print(t->subtest)

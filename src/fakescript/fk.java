@@ -137,6 +137,12 @@ public class fk
 	 */
 	public static void regclass(fake f, Class<?> c)
 	{
+		Class<?>[] cs = c.getDeclaredClasses();
+		for (Class<?> cc : cs)
+		{
+			regclass(f, cc);
+		}
+
 		Method[] ms = c.getDeclaredMethods();
 		for (Method m : ms)
 		{
