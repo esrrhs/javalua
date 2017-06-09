@@ -23,14 +23,30 @@ class func_binary
 	public container_addr[] m_container_addr_list;
 	// 调试信息，栈变量
 	public stack_variant_info[] m_debug_stack_variant_info;
-	// 序列
-	public int m_pos;
 	// 占用标记
 	public int m_use;
 	// 备份
 	public func_binary m_backup;
 	// 新标记
 	public int m_fresh;
+
+	public func_binary clonef()
+	{
+		func_binary fb = new func_binary();
+
+		fb.m_maxstack = this.m_maxstack;
+		fb.m_paramnum = this.m_paramnum;
+		fb.m_name = this.m_name;
+		fb.m_filename = this.m_filename;
+		fb.m_packagename = this.m_packagename;
+		fb.m_buff = this.m_buff;
+		fb.m_lineno_buff = this.m_lineno_buff;
+		fb.m_end_lineno = this.m_end_lineno;
+		fb.m_const_list = this.m_const_list;
+		fb.m_container_addr_list = this.m_container_addr_list;
+		fb.m_debug_stack_variant_info = this.m_debug_stack_variant_info;
+		return fb;
+	}
 
 	public String dump(int pos)
 	{
@@ -180,8 +196,6 @@ class func_binary
 		m_container_addr_list = m_backup.m_container_addr_list;
 		// 调试信息，栈变量
 		m_debug_stack_variant_info = m_backup.m_debug_stack_variant_info;
-		// 序列
-		m_pos = m_backup.m_pos;
 		// 占用标记
 		m_use = m_backup.m_use;
 		// 新标记

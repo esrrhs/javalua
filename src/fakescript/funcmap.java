@@ -1,6 +1,7 @@
 package fakescript;
 
 import java.util.HashMap;
+import java.util.Map;
 
 class funcmap
 {
@@ -15,7 +16,12 @@ class funcmap
 	public funcmap clonef(fake f)
 	{
 		funcmap ret = new funcmap(f);
-		ret.m_funcmap = (HashMap<variant, funcunion>) this.m_funcmap.clone();
+		ret.m_funcmap = new HashMap<>();
+		for (Map.Entry<variant, funcunion> e : this.m_funcmap.entrySet())
+		{
+			funcunion fc = e.getValue();
+			ret.m_funcmap.put(e.getKey(), fc.clonef());
+		}
 		return ret;
 	}
 
