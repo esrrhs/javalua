@@ -1,6 +1,10 @@
 include "testex.fk"
 
+const test = ["a" "b" "c"]
+
 func testA(arg)
+
+	print(test)
 
 	var aa = AA.aa0()
 	aa:aa1()

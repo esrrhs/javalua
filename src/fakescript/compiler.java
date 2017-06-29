@@ -41,7 +41,7 @@ import fakescript.syntree.yield_stmt;
 class compiler
 {
 	private fake m_f;
-	private mycup m_mcp;
+	private mybison m_mbs;
 	private String m_cur_compile_func;
 	private ArrayList<ArrayList<Integer>> m_loop_break_pos_stack = new ArrayList<ArrayList<Integer>>();
 	private ArrayList<Integer> m_loop_continue_pos_stack = new ArrayList<Integer>();
@@ -53,10 +53,10 @@ class compiler
 	private boolean m_new_var;
 	private int m_func_ret_num = 1;
 
-	public compiler(fake f, mycup mcp)
+	public compiler(fake f, mybison mbs)
 	{
 		m_f = f;
-		m_mcp = mcp;
+		m_mbs = mbs;
 	}
 
 	public boolean compile() throws Exception
@@ -79,7 +79,7 @@ class compiler
 		types.log(m_f, "[compiler] compile_const_head");
 
 		// 注册全局常量表
-		HashMap<String, syntree_node> evm = m_mcp.get_const_map();
+		HashMap<String, syntree_node> evm = m_mbs.get_const_map();
 		Iterator<Entry<String, syntree_node>> it = evm.entrySet().iterator();
 		while (it.hasNext())
 		{
@@ -94,7 +94,7 @@ class compiler
 				return false;
 			}
 
-			String constname = types.gen_package_name(m_mcp.get_package(), name);
+			String constname = types.gen_package_name(m_mbs.get_package(), name);
 
 			m_f.pa.reg_const_define(constname, v, ev.lineno());
 
@@ -106,7 +106,7 @@ class compiler
 
 	public boolean compile_body() throws Exception
 	{
-		for (func_desc_node funcnode : m_mcp.get_func_list())
+		for (func_desc_node funcnode : m_mbs.get_func_list())
 		{
 			if (!compile_func(funcnode))
 			{
@@ -115,7 +115,7 @@ class compiler
 			}
 		}
 
-		types.log(m_f, "[compiler] compile_body funclist %d ok dump \n%s", m_mcp.get_func_list().size(),
+		types.log(m_f, "[compiler] compile_body funclist %d ok dump \n%s", m_mbs.get_func_list().size(),
 				m_f.bin.dump());
 
 		types.log(m_f, "[compiler] compile_body funcmap %d ok dump \n%s", m_f.fm.size(), m_f.fm.dump());
@@ -126,7 +126,7 @@ class compiler
 	public void compile_seterror(syntree_node node, String formatstr, Object... args)
 	{
 		String str = String.format(formatstr, args);
-		types.seterror(m_f, m_mcp.get_filename(), node.lineno(), m_cur_compile_func, str);
+		types.seterror(m_f, m_mbs.get_filename(), node.lineno(), m_cur_compile_func, str);
 	}
 
 	public boolean compile_func(func_desc_node funcnode) throws Exception
@@ -173,8 +173,8 @@ class compiler
 		}
 
 		// 编译成功
-		String funcname = types.gen_package_name(m_mcp.get_package(), funcnode.m_funcname);
-		cg.output(m_mcp.get_filename(), m_mcp.get_package(), funcname, bin);
+		String funcname = types.gen_package_name(m_mbs.get_package(), funcnode.m_funcname);
+		cg.output(m_mbs.get_filename(), m_mbs.get_package(), funcname, bin);
 
 		// 优化
 		m_f.opt.optimize(bin);
@@ -1136,7 +1136,7 @@ class compiler
 	public boolean compile_variable_node(codegen cg, variable_node vn) throws Exception
 	{
 		// 看看是否是全局常量定义
-		String constname = types.gen_package_name(m_mcp.get_package(), vn.m_str);
+		String constname = types.gen_package_name(m_mbs.get_package(), vn.m_str);
 		variant gcv = m_f.pa.get_const_define(constname);
 		if (gcv != null)
 		{
@@ -1178,7 +1178,7 @@ class compiler
 		}
 
 		// 看看是否是常量定义
-		HashMap<String, syntree_node> evm = m_mcp.get_const_map();
+		HashMap<String, syntree_node> evm = m_mbs.get_const_map();
 		if (evm.get(vn.m_str) != null)
 		{
 			compile_seterror(vn, "variable %s has defined const", vn.m_str);
@@ -1238,7 +1238,7 @@ class compiler
 				callpos = command.MAKE_ADDR(command.ADDR_STACK, pos);
 			}
 			// 2 检查struct
-			else if (m_mcp.is_have_struct(func))
+			else if (m_mbs.is_have_struct(func))
 			{
 				// 直接替换成map
 				variant v = new variant();
@@ -1247,12 +1247,12 @@ class compiler
 				callpos = command.MAKE_ADDR(command.ADDR_CONST, pos);
 			}
 			// 3 检查本地函数
-			else if (m_mcp.is_have_func(func))
+			else if (m_mbs.is_have_func(func))
 			{
 				// 申请字符串变量
 				variant v = new variant();
 				// 拼上包名
-				String pname = types.gen_package_name(m_mcp.get_package(), func);
+				String pname = types.gen_package_name(m_mbs.get_package(), func);
 				v.set_string(pname);
 				pos = cg.getconst(v);
 				callpos = command.MAKE_ADDR(command.ADDR_CONST, pos);

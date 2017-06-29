@@ -42,14 +42,15 @@ public class test
 			}
 		});
 
-		boolean b = fk.parse(f, "./src/test/testop.fk");
+		boolean b = false;
+		int ret = 0;
+
+		b = fk.parse(f, "./src/test/testop.fk");
 		if (!b)
 		{
 			System.out.println("parse fail");
 			return;
 		}
-
-		int ret = 0;
 
 		b = fk.parse(f, "./src/test/test.fk");
 		if (!b)

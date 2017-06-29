@@ -9,8 +9,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 
-import java_cup.runtime.ComplexSymbolFactory;
-
 class parser
 {
 	private fake m_f;
@@ -59,20 +57,17 @@ class parser
 	{
 		// 解析语法
 		java.io.Reader reader = new java.io.StringReader(str);
-		ComplexSymbolFactory complexSymbolFactory = new ComplexSymbolFactory();
-		jflex f = new jflex(reader);
-		f.set_fake(m_f);
-		f.set_complexSymbolFactory(complexSymbolFactory);
 
-		cup yyp = new cup(f, complexSymbolFactory);
+		Yylex yylexer = new Yylex(reader);
+		yylexer.set_fake(m_f);
+		mybison mbs = new mybison(m_f, yylexer);
+		yylexer.set_mybison(mbs);
 
-		yyp.setScanner(f);
-		mycup mcp = new mycup(m_f, f);
-		mcp.set_filename("");
-		yyp.set_mycup(mcp);
+		YYParser yyparser = new YYParser(yylexer);
+
 		try
 		{
-			yyp.parse();
+			yyparser.parse();
 		}
 		catch (Exception e)
 		{
@@ -84,7 +79,7 @@ class parser
 		// 编译
 		try
 		{
-			compiler mc = new compiler(m_f, mcp);
+			compiler mc = new compiler(m_f, mbs);
 			if (!mc.compile())
 			{
 				return false;
@@ -133,32 +128,29 @@ class parser
 
 		// 解析语法
 		java.io.Reader reader = new java.io.StringReader(content);
-		ComplexSymbolFactory complexSymbolFactory = new ComplexSymbolFactory();
-		jflex f = new jflex(reader);
-		f.set_fake(m_f);
-		f.set_complexSymbolFactory(complexSymbolFactory);
 
-		cup yyp = new cup(f, complexSymbolFactory);
+		Yylex yylexer = new Yylex(reader);
+		yylexer.set_fake(m_f);
+		mybison mbs = new mybison(m_f, yylexer);
+		yylexer.set_mybison(mbs);
 
-		yyp.setScanner(f);
-		mycup mcp = new mycup(m_f, f);
-		mcp.set_filename(filename);
-		yyp.set_mycup(mcp);
+		YYParser yyparser = new YYParser(yylexer);
+
 		try
 		{
-			yyp.parse();
+			yyparser.parse();
 		}
 		catch (Exception e)
 		{
-			types.seterror(m_f, filename, f.get_line() + 1, fk.getcurfunc(m_f),
+			types.seterror(m_f, filename, yylexer.get_line() + 1, fk.getcurfunc(m_f),
 					"parse " + filename + " fail " + types.show_exception(e));
 			return false;
 		}
 
 		// 解析前置文件
-		for (int i = 0; i < (int) mcp.get_include_list().size(); i++)
+		for (int i = 0; i < (int) mbs.get_include_list().size(); i++)
 		{
-			String name = mcp.get_include_list().get(i);
+			String name = mbs.get_include_list().get(i);
 			if (!parse_include(filename, name))
 			{
 				return false;
@@ -168,7 +160,7 @@ class parser
 		// 编译
 		try
 		{
-			compiler mc = new compiler(m_f, mcp);
+			compiler mc = new compiler(m_f, mbs);
 			if (!mc.compile())
 			{
 				return false;

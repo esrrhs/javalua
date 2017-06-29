@@ -1,11 +1,10 @@
 #! /bin/sh
 
-cd jflexcup
+cd jflexbison
 jflex jflex.flex
-mv jflex.java ../src/fakescript/jflex.java -f
+mv Yylex.java ../src/fakescript/Yylex.java -f
 
-java -jar ../lib/java-cup-11b.jar -locations -interface -expect 55 -parser cup cup.cup
-mv sym.java ../src/fakescript/sym.java -f
-mv cup.java ../src/fakescript/cup.java -f
+bison -L JAVA YYParser.y
+mv YYParser.java ../src/fakescript/YYParser.java -f
 
 

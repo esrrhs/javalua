@@ -2,9 +2,7 @@
 
 package fakescript;
 
-import java_cup.runtime.ComplexSymbolFactory;
-import java_cup.runtime.ComplexSymbolFactory.Location;
-import java_cup.runtime.Symbol;
+import fakescript.syntree.*;
 
 
 /**
@@ -12,7 +10,7 @@ import java_cup.runtime.Symbol;
  * <a href="http://www.jflex.de/">JFlex</a> 1.6.1
  * from the specification file <tt>jflex.flex</tt>
  */
-public class jflex implements sym, java_cup.runtime.Scanner {
+class Yylex implements YYParser.Lexer {
 
   /** This character denotes the end of file */
   public static final int YYEOF = -1;
@@ -388,53 +386,64 @@ public class jflex implements sym, java_cup.runtime.Scanner {
 
   /* user code: */
   fake m_f;
-  ComplexSymbolFactory m_complexSymbolFactory;
-
   StringBuilder string = new StringBuilder();
+  /* store a reference to the YYParser object */
+  private YYParser yyparser;
+  
+  private ParserVal yylval;
+  
+  private mybison m_mybison;
+  
+  public fake get_fake()
+  {
+	return m_f;
+  }
   
   public void set_fake(fake f)
   {
 	m_f = f;
   }
   
-  public void set_complexSymbolFactory(ComplexSymbolFactory complexSymbolFactory)
+  public void set_mybison(mybison mb)
   {
-	m_complexSymbolFactory = complexSymbolFactory;
+	m_mybison = mb;
   }
   
-  private Symbol symbol(int type) {
-	types.log(m_f, "[JFLEX]: " + sym.terminalNames[type]);
-	return m_complexSymbolFactory.newSymbol(sym.terminalNames[type], type, new Location(yyline + 1, yycolumn + 1),
-			new Location(yyline + 1, yycolumn + 1));
+  public mybison get_mybison()
+  {
+	return m_mybison;
+  }
+  
+  public <T> T new_node(Class<? extends syntree_node> c, int lineno)
+  {
+	try
+	{
+		syntree_node t = null;
+		t = c.newInstance();
+		t.m_lno = lineno;
+		return (T) t;
+	}
+	catch (Exception e)
+	{
+	  return null;
+	}
   }
 
-  private Symbol symbol(int type, Object value) {
-	types.log(m_f, "[JFLEX]: " + sym.terminalNames[type] + "(" + value.toString() + ")");
-	return m_complexSymbolFactory.newSymbol(sym.terminalNames[type], type, new Location(yyline + 1, yycolumn + 1),
-			new Location(yyline + 1, yycolumn + 1), value);
-  }
-  
   public int get_line()
   {
 	return yyline;
   }
 
-  /** 
-   * assumes correct representation of a long value for 
-   * specified radix in scanner buffer from <code>start</code> 
-   * to <code>end</code> 
-   */
-  private long parseLong(int start, int end, int radix) {
-    long result = 0;
-    long digit;
+  @Override
+  public Object getLVal() 
+  {
+    return yylval;
+  }
 
-    for (int i = start; i < end; i++) {
-      digit  = Character.digit(yycharat(i),radix);
-      result*= radix;
-      result+= digit;
-    }
-
-    return result;
+  @Override
+  public void yyerror(String s)
+  {
+    // TODO
   }
 
 
@@ -443,7 +452,7 @@ public class jflex implements sym, java_cup.runtime.Scanner {
    *
    * @param   in  the java.io.Reader to read input from.
    */
-  public jflex(java.io.Reader in) {
+  Yylex(java.io.Reader in) {
     this.zzReader = in;
   }
 
@@ -680,7 +689,7 @@ public class jflex implements sym, java_cup.runtime.Scanner {
    * @return      the next token
    * @exception   java.io.IOException  if any I/O-Error occurs
    */
-  public java_cup.runtime.Symbol next_token() throws java.io.IOException {
+  public int yylex() throws java.io.IOException {
     int zzInput;
     int zzAction;
 
@@ -819,12 +828,12 @@ public class jflex implements sym, java_cup.runtime.Scanner {
             zzDoEOF();
             switch (zzLexicalState) {
             case YYINITIAL: {
-              return symbol(EOF);
+              return YYParser.EOF;
             }
             case 178: break;
             default:
               {
-                return symbol(EOF);
+                return YYParser.EOF;
               }
         }
       }
@@ -835,7 +844,7 @@ public class jflex implements sym, java_cup.runtime.Scanner {
             }
           case 78: break;
           case 2: 
-            { return symbol(MINUS);
+            { return YYParser.MINUS;
             }
           case 79: break;
           case 3: 
@@ -843,71 +852,75 @@ public class jflex implements sym, java_cup.runtime.Scanner {
             }
           case 80: break;
           case 4: 
-            { return symbol(IDENTIFIER, yytext());
+            { yylval = new ParserVal(yytext());
+	yylval.ival = yyline;
+	return YYParser.IDENTIFIER;
             }
           case 81: break;
           case 5: 
-            { return symbol(NUMBER, yytext());
+            { yylval = new ParserVal(yytext());
+	yylval.ival = yyline;
+	return YYParser.NUMBER;
             }
           case 82: break;
           case 6: 
-            { return symbol(MORE);
+            { return YYParser.MORE;
             }
           case 83: break;
           case 7: 
-            { return symbol(DIVIDE_MOD);
+            { return YYParser.DIVIDE_MOD;
             }
           case 84: break;
           case 8: 
-            { return symbol(ARG_SPLITTER);
+            { return YYParser.ARG_SPLITTER;
             }
           case 85: break;
           case 9: 
-            { return symbol(PLUS);
+            { return YYParser.PLUS;
             }
           case 86: break;
           case 10: 
-            { return symbol(DIVIDE);
+            { return YYParser.DIVIDE;
             }
           case 87: break;
           case 11: 
-            { return symbol(MULTIPLY);
+            { return YYParser.MULTIPLY;
             }
           case 88: break;
           case 12: 
-            { return symbol(COLON);
+            { return YYParser.COLON;
             }
           case 89: break;
           case 13: 
-            { return symbol(ASSIGN);
+            { return YYParser.ASSIGN;
             }
           case 90: break;
           case 14: 
-            { return symbol(LESS);
+            { return YYParser.LESS;
             }
           case 91: break;
           case 15: 
-            { return symbol(OPEN_BRACKET);
+            { return YYParser.OPEN_BRACKET;
             }
           case 92: break;
           case 16: 
-            { return symbol(CLOSE_BRACKET);
+            { return YYParser.CLOSE_BRACKET;
             }
           case 93: break;
           case 17: 
-            { return symbol(OPEN_SQUARE_BRACKET);
+            { return YYParser.OPEN_SQUARE_BRACKET;
             }
           case 94: break;
           case 18: 
-            { return symbol(CLOSE_SQUARE_BRACKET);
+            { return YYParser.CLOSE_SQUARE_BRACKET;
             }
           case 95: break;
           case 19: 
-            { return symbol(OPEN_BIG_BRACKET);
+            { return YYParser.OPEN_BIG_BRACKET;
             }
           case 96: break;
           case 20: 
-            { return symbol(CLOSE_BIG_BRACKET);
+            { return YYParser.CLOSE_BIG_BRACKET;
             }
           case 97: break;
           case 21: 
@@ -915,7 +928,10 @@ public class jflex implements sym, java_cup.runtime.Scanner {
             }
           case 98: break;
           case 22: 
-            { yybegin(YYINITIAL); return symbol(STRING_DEFINITION, string);
+            { yybegin(YYINITIAL); 
+									yylval = new ParserVal(string.toString()); 
+									yylval.ival = yyline;
+									return YYParser.STRING_DEFINITION;
             }
           case 99: break;
           case 23: 
@@ -923,71 +939,73 @@ public class jflex implements sym, java_cup.runtime.Scanner {
             }
           case 100: break;
           case 24: 
-            { return symbol(RIGHT_POINTER);
+            { return YYParser.RIGHT_POINTER;
             }
           case 101: break;
           case 25: 
-            { return symbol(MINUS_ASSIGN);
+            { return YYParser.MINUS_ASSIGN;
             }
           case 102: break;
           case 26: 
-            { return symbol(IF);
+            { return YYParser.IF;
             }
           case 103: break;
           case 27: 
-            { return symbol(IS);
+            { return YYParser.IS;
             }
           case 104: break;
           case 28: 
-            { return symbol(OR);
+            { return YYParser.OR;
             }
           case 105: break;
           case 29: 
-            { return symbol(FKUUID, yytext());
+            { yylval = new ParserVal(yytext());
+	yylval.ival = yyline;
+	return YYParser.FKUUID;
             }
           case 106: break;
           case 30: 
-            { return symbol(STRING_CAT);
+            { return YYParser.STRING_CAT;
             }
           case 107: break;
           case 31: 
-            { return symbol(MORE_OR_EQUAL);
+            { return YYParser.MORE_OR_EQUAL;
             }
           case 108: break;
           case 32: 
-            { return symbol(DIVIDE_MOD_ASSIGN);
+            { return YYParser.DIVIDE_MOD_ASSIGN;
             }
           case 109: break;
           case 33: 
-            { return symbol(INC);
+            { return YYParser.INC;
             }
           case 110: break;
           case 34: 
-            { return symbol(PLUS_ASSIGN);
+            { return YYParser.PLUS_ASSIGN;
             }
           case 111: break;
           case 35: 
-            { return symbol(DIVIDE_ASSIGN);
+            { return YYParser.DIVIDE_ASSIGN;
             }
           case 112: break;
           case 36: 
-            { return symbol(MULTIPLY_ASSIGN);
+            { return YYParser.MULTIPLY_ASSIGN;
             }
           case 113: break;
           case 37: 
-            { return symbol(NEW_ASSIGN);
+            { return YYParser.NEW_ASSIGN;
             }
           case 114: break;
           case 38: 
-            { return symbol(EQUAL);
+            { return YYParser.EQUAL;
             }
           case 115: break;
           case 39: 
-            { return symbol(LESS_OR_EQUAL);
+            { return YYParser.LESS_OR_EQUAL;
             }
           case 116: break;
           case 40: 
-            { return symbol(NOT_EQUAL);
+            { return YYParser.NOT_EQUAL;
             }
           case 117: break;
           case 41: 
@@ -1023,206 +1041,129 @@ public class jflex implements sym, java_cup.runtime.Scanner {
             }
           case 125: break;
           case 49: 
-            { return symbol(VAR_BEGIN);
+            { return YYParser.VAR_BEGIN;
             }
           case 126: break;
           case 50: 
-            { return symbol(IDENTIFIER_DOT, yytext());
+            { yylval = new ParserVal(yytext());
+	yylval.ival = yyline;
+	return YYParser.IDENTIFIER_DOT;
             }
           case 127: break;
           case 51: 
-            { return symbol(AND);
+            { return YYParser.AND;
             }
           case 128: break;
           case 52: 
-            { return symbol(END);
+            { return YYParser.END;
             }
           case 129: break;
           case 53: 
-            { return symbol(NOT);
+            { return YYParser.NOT;
             }
           case 130: break;
           case 54: 
-            { return symbol(FOR);
+            { return YYParser.FOR;
             }
           case 131: break;
           case 55: 
-            { return symbol(FKFLOAT, yytext());
+            { yylval = new ParserVal(yytext());
+	yylval.ival = yyline;
+	return YYParser.FKFLOAT;
             }
           case 132: break;
           case 56: 
-            { return symbol(IDENTIFIER_POINTER, yytext());
+            { yylval = new ParserVal(yytext());
+	yylval.ival = yyline;
+	return YYParser.IDENTIFIER_POINTER;
             }
           case 133: break;
           case 57: 
-            { return symbol(ELSE);
+            { return YYParser.ELSE;
             }
           case 134: break;
           case 58: 
-            { return symbol(FTRUE);
+            { return YYParser.FTRUE;
             }
           case 135: break;
           case 59: 
-            { return symbol(THEN);
+            { return YYParser.THEN;
             }
           case 136: break;
           case 60: 
-            { return symbol(NULL);
+            { return YYParser.NULL;
             }
           case 137: break;
           case 61: 
-            { return symbol(FAKE);
+            { return YYParser.FAKE;
             }
           case 138: break;
           case 62: 
-            { return symbol(FUNC);
+            { return YYParser.FUNC;
             }
           case 139: break;
           case 63: 
-            { return symbol(CASE);
+            { return YYParser.CASE;
             }
           case 140: break;
           case 64: 
-            { return symbol(BREAK);
+            { return YYParser.BREAK;
             }
           case 141: break;
           case 65: 
-            { return symbol(FFALSE);
+            { return YYParser.FFALSE;
             }
           case 142: break;
           case 66: 
-            { return symbol(FCONST);
+            { return YYParser.FCONST;
             }
           case 143: break;
           case 67: 
-            { return symbol(WHILE);
+            { return YYParser.WHILE;
             }
           case 144: break;
           case 68: 
-            { return symbol(SLEEP);
+            { return YYParser.SLEEP;
             }
           case 145: break;
           case 69: 
-            { return symbol(YIELD);
+            { return YYParser.YIELD;
             }
           case 146: break;
           case 70: 
-            { return symbol(RETURN);
+            { return YYParser.RETURN;
             }
           case 147: break;
           case 71: 
-            { return symbol(ELSEIF);
+            { return YYParser.ELSEIF;
             }
           case 148: break;
           case 72: 
-            { return symbol(STRUCT);
+            { return YYParser.STRUCT;
             }
           case 149: break;
           case 73: 
-            { return symbol(SWITCH);
+            { return YYParser.SWITCH;
             }
           case 150: break;
           case 74: 
-            { return symbol(INCLUDE);
+            { return YYParser.INCLUDE;
             }
           case 151: break;
           case 75: 
-            { return symbol(DEFAULT);
+            { return YYParser.DEFAULT;
             }
           case 152: break;
           case 76: 
-            { return symbol(PACKAGE);
+            { return YYParser.PACKAGE;
             }
           case 153: break;
           case 77: 
-            { return symbol(CONTINUE);
+            { return YYParser.CONTINUE;
             }
           case 154: break;
           default:
             zzScanError(ZZ_NO_MATCH);
-        }
-      }
-    }
-  }
-
-  /**
-   * Converts an int token code into the name of the
-   * token by reflection on the cup symbol class/interface sym
-   *
-   * This code was contributed by Karl Meissner <meissnersd@yahoo.com>
-   */
-  private String getTokenName(int token) {
-    try {
-      java.lang.reflect.Field [] classFields = sym.class.getFields();
-      for (int i = 0; i < classFields.length; i++) {
-        if (classFields[i].getInt(null) == token) {
-          return classFields[i].getName();
-        }
-      }
-    } catch (Exception e) {
-      e.printStackTrace(System.err);
-    }
-
-    return "UNKNOWN TOKEN";
-  }
-
-  /**
-   * Same as next_token but also prints the token to standard out
-   * for debugging.
-   *
-   * This code was contributed by Karl Meissner <meissnersd@yahoo.com>
-   */
-  public java_cup.runtime.Symbol debug_next_token() throws java.io.IOException {
-    java_cup.runtime.Symbol s = next_token();
-    System.out.println( "line:" + (yyline+1) + " col:" + (yycolumn+1) + " --"+ yytext() + "--" + getTokenName(s.sym) + "--");
-    return s;
-  }
-
-  /**
-   * Runs the scanner on input files.
-   *
-   * This main method is the debugging routine for the scanner.
-   * It prints debugging information about each returned token to
-   * System.out until the end of file is reached, or an error occured.
-   *
-   * @param argv   the command line, contains the filenames to run
-   *               the scanner on.
-   */
-  public static void main(String argv[]) {
-    if (argv.length == 0) {
-      System.out.println("Usage : java jflex [ --encoding <name> ] <inputfile(s)>");
-    }
-    else {
-      int firstFilePos = 0;
-      String encodingName = "UTF-8";
-      if (argv[0].equals("--encoding")) {
-        firstFilePos = 2;
-        encodingName = argv[1];
-        try {
-          java.nio.charset.Charset.forName(encodingName); // Side-effect: is encodingName valid? 
-        } catch (Exception e) {
-          System.out.println("Invalid encoding '" + encodingName + "'");
-          return;
-        }
-      }
-      for (int i = firstFilePos; i < argv.length; i++) {
-        jflex scanner = null;
-        try {
-          java.io.FileInputStream stream = new java.io.FileInputStream(argv[i]);
-          java.io.Reader reader = new java.io.InputStreamReader(stream, encodingName);
-          scanner = new jflex(reader);
-          while ( !scanner.zzAtEOF ) scanner.debug_next_token();
-        }
-        catch (java.io.FileNotFoundException e) {
-          System.out.println("File not found : \""+argv[i]+"\"");
-        }
-        catch (java.io.IOException e) {
-          System.out.println("IO error scanning file \""+argv[i]+"\"");
-          System.out.println(e);
-        }
-        catch (Exception e) {
-          System.out.println("Unexpected exception:");
-          e.printStackTrace();
         }
       }
     }
