@@ -2,7 +2,7 @@
 轻量级嵌入式脚本语言
 
 ## 简介
-**fakescript**是一款轻量级的嵌入式脚本语言，使用Java语言编写，语法吸取自lua、golang、erlang，基于jflex、cup生成语法树，编译成字节码解释执行。
+**fakescript**是一款轻量级的嵌入式脚本语言，使用Java语言编写，语法吸取自lua、golang、erlang，基于jflex、bison生成语法树，编译成字节码解释执行。
 <a href="https://github.com/esrrhs/fakescript">C/C++版本fakescript</a>
 
 ## 脚本特性
