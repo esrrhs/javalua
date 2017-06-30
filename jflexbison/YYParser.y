@@ -843,7 +843,7 @@ return_value_list :
 	{
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_value_list ARG_SPLITTER return_value");
 		return_value_list_node p = (return_value_list_node)((ParserVal)$1).obj;
-		p.add_arg((syntree_node)((ParserVal)$2).obj);
+		p.add_arg((syntree_node)((ParserVal)$3).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
