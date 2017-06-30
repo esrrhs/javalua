@@ -61,6 +61,7 @@ class parser
 		Yylex yylexer = new Yylex(reader);
 		yylexer.set_fake(m_f);
 		mybison mbs = new mybison(m_f, yylexer);
+		mbs.set_filename("");
 		yylexer.set_mybison(mbs);
 
 		YYParser yyparser = new YYParser(yylexer);
@@ -137,6 +138,7 @@ class parser
 		Yylex yylexer = new Yylex(reader);
 		yylexer.set_fake(m_f);
 		mybison mbs = new mybison(m_f, yylexer);
+		mbs.set_filename(filename);
 		yylexer.set_mybison(mbs);
 
 		YYParser yyparser = new YYParser(yylexer);
