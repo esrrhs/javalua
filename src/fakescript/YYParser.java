@@ -2461,7 +2461,7 @@ class YYParser
 /* Line 1481 of "YYParser.y"  */
     {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NULL ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
 		p.m_type = explicit_value_type.EVT_NULL;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2478,7 +2478,7 @@ class YYParser
 /* Line 1492 of "YYParser.y"  */
     {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FTRUE ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
 		p.m_type = explicit_value_type.EVT_TRUE;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2495,7 +2495,7 @@ class YYParser
 /* Line 1503 of "YYParser.y"  */
     {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FFALSE ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
 		p.m_type = explicit_value_type.EVT_FALSE;
 		
 		ParserVal ret = new ParserVal(p);

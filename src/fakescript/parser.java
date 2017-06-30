@@ -67,7 +67,12 @@ class parser
 
 		try
 		{
-			yyparser.parse();
+			if (!yyparser.parse())
+			{
+				types.seterror(m_f, "", mbs.get_error_line(), "", "parse %s file fail for reason : %s", "",
+						mbs.get_error());
+				return false;
+			}
 		}
 		catch (Exception e)
 		{
@@ -138,7 +143,12 @@ class parser
 
 		try
 		{
-			yyparser.parse();
+			if (!yyparser.parse())
+			{
+				types.seterror(m_f, filename, yylexer.get_line() + 1, fk.getcurfunc(m_f),
+						"parse %s file fail for reason : %s", filename, mbs.get_error());
+				return false;
+			}
 		}
 		catch (Exception e)
 		{

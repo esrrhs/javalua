@@ -71,7 +71,7 @@ import fakescript.syntree.*;
   @Override
   public void yyerror(String s)
   {
-    // TODO
+	m_mybison.lexer_error(s, yyline, yytext());
   }
 %}
 
@@ -209,37 +209,37 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 
 [a-zA-Z_][a-zA-Z0-9_]* {
 	yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.IDENTIFIER;
 }
 
 [a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+ {
 	yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.IDENTIFIER_DOT;
 }
 
 [a-zA-Z_][a-zA-Z0-9_]*(\-\>[a-zA-Z_][a-zA-Z0-9_]*)+ {
 	yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.IDENTIFIER_POINTER;
 }
 
 [0-9]+u {
 	yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.FKUUID;
 }
 
 -?[0-9]+ {
 	yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.NUMBER;
 }
 
 -?[0-9]+\.[0-9]+([Ee]-?[0-9]+)? {
 	yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.FKFLOAT;
 }
 
@@ -370,7 +370,7 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 <STRING> {
   \"                             { yybegin(YYINITIAL); 
 									yylval = new ParserVal(string.toString()); 
-									yylval.ival = yyline;
+									yylval.ival = yyline + 1;
 									return YYParser.STRING_DEFINITION; }
   
   {StringCharacter}+             { string.append( yytext() ); }

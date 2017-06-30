@@ -17,6 +17,8 @@ public class mybison
 	private HashMap<String, syntree_node> m_constmap = new HashMap<String, syntree_node>();
 	private ArrayList<func_desc_node> m_funclist = new ArrayList<func_desc_node>();
 	private Yylex m_j;
+	private String m_error;
+	private int m_errorline;
 
 	public mybison(fake f, Yylex j)
 	{
@@ -27,6 +29,22 @@ public class mybison
 	public fake get_fake()
 	{
 		return m_f;
+	}
+
+	public String get_error()
+	{
+		return m_error;
+	}
+
+	public int get_error_line()
+	{
+		return m_errorline;
+	}
+
+	public void lexer_error(String msg, int lineno, String text)
+	{
+		m_error = String.format("%s at line(%d) near(%s)", msg, lineno, text);
+		m_errorline = lineno;
 	}
 
 	public Yylex get_jflex()

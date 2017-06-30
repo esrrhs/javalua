@@ -443,7 +443,7 @@ class Yylex implements YYParser.Lexer {
   @Override
   public void yyerror(String s)
   {
-    // TODO
+	m_mybison.lexer_error(s, yyline, yytext());
   }
 
 
@@ -853,13 +853,13 @@ class Yylex implements YYParser.Lexer {
           case 80: break;
           case 4: 
             { yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.IDENTIFIER;
             }
           case 81: break;
           case 5: 
             { yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.NUMBER;
             }
           case 82: break;
@@ -930,7 +930,7 @@ class Yylex implements YYParser.Lexer {
           case 22: 
             { yybegin(YYINITIAL); 
 									yylval = new ParserVal(string.toString()); 
-									yylval.ival = yyline;
+									yylval.ival = yyline + 1;
 									return YYParser.STRING_DEFINITION;
             }
           case 99: break;
@@ -960,7 +960,7 @@ class Yylex implements YYParser.Lexer {
           case 105: break;
           case 29: 
             { yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.FKUUID;
             }
           case 106: break;
@@ -1046,7 +1046,7 @@ class Yylex implements YYParser.Lexer {
           case 126: break;
           case 50: 
             { yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.IDENTIFIER_DOT;
             }
           case 127: break;
@@ -1068,13 +1068,13 @@ class Yylex implements YYParser.Lexer {
           case 131: break;
           case 55: 
             { yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.FKFLOAT;
             }
           case 132: break;
           case 56: 
             { yylval = new ParserVal(yytext());
-	yylval.ival = yyline;
+	yylval.ival = yyline + 1;
 	return YYParser.IDENTIFIER_POINTER;
             }
           case 133: break;
