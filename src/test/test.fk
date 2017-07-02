@@ -1,8 +1,11 @@
 include "testex.fk"
+include "testop.fk"
 
 const test = ["a" "b" "c"]
 
 func testA(arg)
+
+	print(" ", cttest.ct_pass)
 
 	coins := array()
 	coins[0] = 111111

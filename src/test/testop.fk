@@ -1,3 +1,6 @@
+package cttest
+
+include "testdefine.fk"
 
 const ct_pass = 0
 const ct_single = 1
@@ -20,6 +23,11 @@ const DA_WANG_NUM = 14
 const ER_NUM = 12
 const A_NUM = 11
 const K_NUM = 10
+
+func test1()
+	print("cttest.test1"..aaa_test)
+end
+
 
 func test(player, table)
 

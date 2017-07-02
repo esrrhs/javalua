@@ -59,6 +59,8 @@ public class test
 			return;
 		}
 
+		fk.run(f, "cttest.test1");
+
 		A a = new A();
 		a = (A) fk.run(f, "testA", a);
 		System.out.println("run testA ret " + a);

@@ -1146,6 +1146,15 @@ class compiler
 			return true;
 		}
 
+		gcv = m_f.pa.get_const_define(vn.m_str);
+		if (gcv != null)
+		{
+			int pos = cg.getconst(gcv);
+			m_cur_addr = command.MAKE_ADDR(command.ADDR_CONST, pos);
+
+			return true;
+		}
+
 		// 从当前堆栈往上找
 		int pos = cg.getvariable(vn.m_str);
 		if (pos == -1)
