@@ -4,6 +4,17 @@ const test = ["a" "b" "c"]
 
 func testA(arg)
 
+	coins := array()
+	coins[0] = 111111
+	coins[1] = 111
+	coins[2] = 11
+	coins[3] = 11111
+	coins[4] = 1
+
+	sort(coins)
+
+	print("coins ", coins)
+
 	print(test)
 
 	var aa = AA.aa0()
@@ -116,3 +127,25 @@ func primes(n)
 	return count
 end
 
+func sort(coins)
+
+	for var i = 1, i < size(coins), i++ then
+
+		if coins[i - 1] > coins[i] then
+
+			var temp = coins[i]
+			var j = i
+			while coins[j - 1] > temp then
+
+				coins[j] = coins[j - 1]
+				j -= 1
+				if j == 0 then
+					break
+				end
+			end
+			coins[j] = temp
+		end
+
+	end
+
+end

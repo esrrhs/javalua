@@ -12,6 +12,11 @@ class variant_array
 	{
 		int i = (int) kv.get_real();
 
+		if (i < 0)
+		{
+			throw new Exception("interpreter get array variant fail, index " + i);
+		}
+
 		if (i >= m_va.size())
 		{
 			int num = i - m_va.size() + 1;
