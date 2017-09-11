@@ -78,7 +78,7 @@ public class fk
 		List<Class<?>> tmp = packagehelper.getClasses(f, packagename);
 		for (Class<?> c : tmp)
 		{
-			Method[] ms = c.getDeclaredMethods();
+			Method[] ms = c.getMethods();
 			for (Method m : ms)
 			{
 				if (m.isAnnotationPresent(fakescript.class))
@@ -143,7 +143,7 @@ public class fk
 			regclass(f, cc);
 		}
 
-		Method[] ms = c.getDeclaredMethods();
+		Method[] ms = c.getMethods();
 		for (Method m : ms)
 		{
 			String name = m.getName();
