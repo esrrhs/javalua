@@ -33,6 +33,7 @@ class buildinfunc
 		reg_func("isfunc", "buildin_isfunc");
 		reg_func("tonumber", "buildin_tonumber");
 		reg_func("tostring", "buildin_tostring");
+		reg_func("tolong", "buildin_tolong");
 		reg_func("getconst", "buildin_getconst");
 	}
 
@@ -88,6 +89,27 @@ class buildinfunc
 		else if (v.m_type == variant_type.UUID)
 		{
 			ret = (double) v.m_data;
+		}
+		fk.pspush(f, ret);
+	}
+
+	public static void buildin_tolong(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		long ret = 0;
+		if (v.m_type == variant_type.STRING)
+		{
+			ret = Long.valueOf((String) v.m_data);
+		}
+		else if (v.m_type == variant_type.REAL)
+		{
+			ret = (long) v.m_data;
+		}
+		else if (v.m_type == variant_type.UUID)
+		{
+			ret = (long) v.m_data;
 		}
 		fk.pspush(f, ret);
 	}
