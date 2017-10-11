@@ -88,7 +88,7 @@ class buildinfunc
 		}
 		else if (v.m_type == variant_type.UUID)
 		{
-			ret = (double) v.m_data;
+			ret = (double) (long) v.m_data;
 		}
 		fk.pspush(f, ret);
 	}
@@ -105,7 +105,7 @@ class buildinfunc
 		}
 		else if (v.m_type == variant_type.REAL)
 		{
-			ret = (long) v.m_data;
+			ret = (long) (double) v.m_data;
 		}
 		else if (v.m_type == variant_type.UUID)
 		{
