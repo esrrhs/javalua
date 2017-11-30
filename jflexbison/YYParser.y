@@ -1,7 +1,7 @@
 %{
-package fakescript;
+package com.github.esrrhs.fakescript;
 
-import fakescript.syntree.*;
+import com.github.esrrhs.fakescript.syntree.*;
 import java.io.*;
 
 %}

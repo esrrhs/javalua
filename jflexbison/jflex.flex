@@ -1,6 +1,6 @@
-package fakescript;
+package com.github.esrrhs.fakescript;
 
-import fakescript.syntree.*;
+import com.github.esrrhs.fakescript.syntree.*;
 
 %%
 
@@ -62,13 +62,11 @@ import fakescript.syntree.*;
 	return yyline;
   }
 
-  @Override
   public Object getLVal() 
   {
     return yylval;
   }
 
-  @Override
   public void yyerror(String s)
   {
 	m_mybison.lexer_error(s, yyline, yytext());
