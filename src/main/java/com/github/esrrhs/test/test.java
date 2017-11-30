@@ -44,14 +44,14 @@ public class test
 		boolean b = false;
 		int ret = 0;
 
-		b = fk.parse(f, "./src/com/github/esrrhs/test/test.fk");
+		b = fk.parse(f, "./src/main/java/com/github/esrrhs/test/test.fk");
 		if (!b)
 		{
 			System.out.println("parse fail");
 			return;
 		}
 
-		b = fk.parse(f, "./src/com/github/esrrhs/test/testop.fk");
+		b = fk.parse(f, "./src/main/java/com/github/esrrhs/test/testop.fk");
 		if (!b)
 		{
 			System.out.println("parse fail");
