@@ -1,0 +1,154 @@
+include "testex.fk"
+include "testop.fk"
+
+const test = ["a" "b" "c"]
+
+func testA(arg)
+
+	print(" ", cttest.ct_pass)
+
+	coins := array()
+	coins[0] = 111111
+	coins[1] = 111
+	coins[2] = 11
+	coins[3] = 11111
+	coins[4] = 1
+
+	sort(coins)
+
+	print("coins ", coins)
+
+	print(test)
+
+	var aa = AA.aa0()
+	aa:aa1()
+
+	var t = map()
+
+	print(t->subtest)
+
+	if t->subtest == null then
+		print("aj")
+	end
+
+	arg:a1(1)
+	A.a3()
+	B.a3()
+	print(arg:a2ex())
+	print(arg:a4(112421421541251251u, "123"))
+
+	sleep 1000
+	
+	if arg:a5() == null then
+		print("a5 is null")
+	else
+		print("a5 not null")
+	end
+			
+	for var i = 0, i < 10, i++ then
+
+		if i == 5 then 
+			continue
+		end
+		
+		print("for i "..i)
+	
+		for var j = 0, j < i, j++ then
+
+			if j == 3 then 
+				break
+			end
+			
+			print("for j "..j)
+		
+		end
+	end
+	
+	var g = _G()
+	g["a"] = 123
+	
+	return arg:a5()
+	
+end
+
+func testB(arg)
+	
+	arg:a1(1)
+	A.a3()
+	B.a3()
+	arg:b1():b1():a1(1)
+	
+	print(arg:b2())
+	arg:b3("asd")
+	
+	var list = arg:b4()
+	print(list:size())
+	list:add("1")
+	list:add("2")
+	list:add("3")
+	print(list:size())
+	print(list)
+	list:add(0, "4")
+	print(list)
+	
+	sleep 1000
+	
+	var g = _G()
+	print("_G "..g["a"])
+	
+	return 1
+	
+end
+
+func test_prime()
+
+	var a = primes(10 * 10000)
+	print(a)
+
+	return a
+ 
+end
+
+func isprime(n)
+	nn := n - 1
+	for var i = 2 -> nn, 1 then
+		if not (n % i) then
+			return false
+		end
+	end
+	return true
+end
+
+
+func primes(n)
+	var count = 0
+	for var i = 2 -> n, 1 then
+		if is isprime(i) then
+			count++
+		end
+	end
+	return count
+end
+
+func sort(coins)
+
+	for var i = 1, i < size(coins), i++ then
+
+		if coins[i - 1] > coins[i] then
+
+			var temp = coins[i]
+			var j = i
+			while coins[j - 1] > temp then
+
+				coins[j] = coins[j - 1]
+				j -= 1
+				if j == 0 then
+					break
+				end
+			end
+			coins[j] = temp
+		end
+
+	end
+
+end
