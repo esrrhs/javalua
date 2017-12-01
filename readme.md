@@ -30,7 +30,6 @@ Lightweight embedded scripting language
 ## Sample
 
 ```
-#!lua
 
 
 -- Current package name
@@ -116,7 +115,6 @@ end
 # Java Sample #
 
 ```
-#!java
 // create instance
 fake f = fk.newfake(null);
 // regist all func marked with @fakescript in package
@@ -131,7 +129,6 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 ## How to use
 #### Maven
 ```
-#!xml
 <dependency>
      <groupId>com.github.esrrhs</groupId>
             <artifactId>fakescript-java</artifactId>

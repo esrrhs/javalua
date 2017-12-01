@@ -25,8 +25,6 @@
 ## 示例
 
 ```
-#!lua
-
 
 -- 当前包名
 package mypackage.test
@@ -111,7 +109,6 @@ end
 ## Java示例
 
 ```
-#!java
 // 创建一个实例
 fake f = fk.newfake(null);
 // 注册包里全部标记@fakescript的函数
@@ -126,7 +123,6 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 ## 使用
 #### Maven
 ```
-#!xml
 <dependency>
      <groupId>com.github.esrrhs</groupId>
             <artifactId>fakescript-java</artifactId>
