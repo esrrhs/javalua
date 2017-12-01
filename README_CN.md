@@ -1,4 +1,4 @@
-#fakescript 
+# fakescript 
 轻量级嵌入式脚本语言
 
 ## 简介
@@ -123,8 +123,30 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 
 ```
 
+## 使用
+#### Maven
+```
+#!xml
+<dependency>
+     <groupId>com.github.esrrhs</groupId>
+            <artifactId>fakescript-java</artifactId>
+            <version>1.0.0</version>
+</dependency>
+
+```
+
+
+## 调试环境
+* IDE
+
+![image](img/ide.png)
+
+* 命令行
+
+![image](img/debug.png)
+
 ## 欢迎捐赠
-![donation.png](https://bitbucket.org/repo/pAEqqM/images/2041212420-donation.png)
+![image](img/donate.png)
 
 欢迎使用支付宝手扫描上面的二维码，对该项目进行捐赠。捐赠款项将用于改进fakescript性能以及后续持续优化。
 

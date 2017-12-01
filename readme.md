@@ -1,4 +1,4 @@
-#fakescript
+# fakescript
 
 [![Author](https://img.shields.io/badge/author-errhrs-blue.svg?style=flat)](https://github.com/esrrhs/fakescript) [![Platform](https://img.shields.io/badge/platform-Linux,%20Windows-green.svg?style=flat)](https://github.com/esrrhs/fakescript)[![Script](https://img.shields.io/badge/embed-script-pink.svg?style=flat)](https://github.com/esrrhs/fakescript) [![License](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000?style=flat)](LICENSE)
 
@@ -128,7 +128,28 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 
 ```
 
+## How to use
+#### Maven
+```
+#!xml
+<dependency>
+     <groupId>com.github.esrrhs</groupId>
+            <artifactId>fakescript-java</artifactId>
+            <version>1.0.0</version>
+</dependency>
+
+```
+
+## Debugging environment
+* IDE
+
+![image](img/ide.png)
+
+* Command-line
+
+![image](img/debug.png)
+
 ## Welcome to donate 
-![donation.png](https://bitbucket.org/repo/pAEqqM/images/2041212420-donation.png)
+![image](img/donate.png)
 
 Donated money will be used to improve performance and subsequent continuous optimization fakescript
