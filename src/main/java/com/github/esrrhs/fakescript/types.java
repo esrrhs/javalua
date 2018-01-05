@@ -7,6 +7,7 @@ class types
 {
 	public static void seterror(fake f, String file, int lineno, String func, String errorstr, Object... args)
 	{
+		f.error = true;
 		f.errorstr = String.format(errorstr, args);
 
 		if (f.cb != null)
