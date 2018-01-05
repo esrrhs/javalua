@@ -2,6 +2,7 @@ package com.github.esrrhs.fakescript;
 
 public class fake
 {
+	protected boolean error = false;
 	protected String errorstr = "";
 	protected callback cb = null;
 
@@ -52,5 +53,11 @@ public class fake
 		nf.opt = new optimizer(this);
 
 		return nf;
+	}
+
+	public void clearerr()
+	{
+		error = false;
+		errorstr = "";
 	}
 }

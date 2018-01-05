@@ -12,7 +12,7 @@ public class fk
 	/**
 	 * 版本号
 	 */
-	public static final String version = "0.1";
+	public static final String version = "1.0.1";
 
 	// 节省内存
 	protected static final HashMap<String, variant> regName = new HashMap<String, variant>();
@@ -52,6 +52,21 @@ public class fk
 	public static fake clone(fake f)
 	{
 		return f.clonef();
+	}
+
+	/**
+	 * 上一次执行是否失败
+	 * <p>
+	 * fake为上下文环境<br>
+	 * 所有接口在fake中执行
+	 *
+	 * @param f
+	 *            fake对象
+	 * @return 是否失败
+	 */
+	boolean error(fake f)
+	{
+		return f.error;
 	}
 
 	/**
@@ -1171,6 +1186,7 @@ public class fk
 		variant funcv = new variant();
 		funcv.set_string(func);
 
+		f.clearerr();
 		processor pro = new processor(f);
 
 		try
