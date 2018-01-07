@@ -12,7 +12,7 @@ public class fk
 	/**
 	 * 版本号
 	 */
-	public static final String version = "1.0.2";
+	public static final String version = "1.0.3";
 
 	// 节省内存
 	protected static final HashMap<String, variant> regName = new HashMap<String, variant>();
@@ -64,7 +64,7 @@ public class fk
 	 *            fake对象
 	 * @return 是否失败
 	 */
-	boolean error(fake f)
+	public static boolean error(fake f)
 	{
 		return f.error;
 	}
