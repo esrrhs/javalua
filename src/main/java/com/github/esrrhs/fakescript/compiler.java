@@ -84,9 +84,11 @@ class compiler
 			}
 		}
 
-		types.log(m_f, "[compiler] compile_body funclist %d ok dump \n%s", m_mbs.get_func_list().size(),
-				m_f.bin.dump());
-
+		if (m_f.cfg.open_debug_log != 0)
+		{
+			types.log(m_f, "[compiler] compile_body funclist %d ok dump \n%s", m_mbs.get_func_list().size(),
+					m_f.bin.dump());
+		}
 		types.log(m_f, "[compiler] compile_body funcmap %d ok dump \n%s", m_f.fm.size(), m_f.fm.dump());
 
 		return true;
