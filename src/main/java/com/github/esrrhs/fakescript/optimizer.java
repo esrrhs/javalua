@@ -60,8 +60,10 @@ class optimizer
 			return;
 		}
 
-		types.log(m_f, "before %s", fb.dump(-1));
-
+		if (m_f.cfg.open_debug_log != 0)
+		{
+			types.log(m_f, "before %s", fb.dump(-1));
+		}
 		while (true)
 		{
 			isopt = false;
@@ -99,7 +101,10 @@ class optimizer
 
 			if (isopt)
 			{
-				types.log(m_f, "optimize %s", fb.dump(-1));
+				if (m_f.cfg.open_debug_log != 0)
+				{
+					types.log(m_f, "optimize %s", fb.dump(-1));
+				}
 			}
 			else
 			{
