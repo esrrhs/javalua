@@ -101,13 +101,19 @@ public class mybison
 	public void add_const_desc(String name, syntree_node node)
 	{
 		m_constmap.put(name, node);
-		types.log(m_f, "add_const_desc " + name + " " + node.dump(0));
+		if (m_f.cfg.open_debug_log != 0)
+		{
+			types.log(m_f, "add_const_desc " + name + " " + node.dump(0));
+		}
 	}
 
 	public void add_func_desc(func_desc_node p)
 	{
 		types.log(m_f, "add_func_desc " + p.m_funcname);
-		types.log(m_f, "func " + p.m_funcname + " dump " + p.dump(0));
+		if (m_f.cfg.open_debug_log != 0)
+		{
+			types.log(m_f, "func " + p.m_funcname + " dump " + p.dump(0));
+		}
 		m_funclist.add(p);
 	}
 
