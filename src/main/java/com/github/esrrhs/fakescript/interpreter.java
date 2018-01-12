@@ -1407,7 +1407,7 @@ class interpreter
 				cur_runinginfo += "\t[";
 				cur_runinginfo += j;
 				cur_runinginfo += "]\t";
-				variant v = m_stack.get(bp + j);
+				variant v = bp + j < m_stack.size() ? m_stack.get(bp + j) : new variant();
 				cur_runinginfo += v;
 				cur_runinginfo += "\n";
 			}
