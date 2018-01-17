@@ -80,10 +80,6 @@ class optimizer
 			}
 			if (!isopt)
 			{
-				optimize_assign_read(fb);
-			}
-			if (!isopt)
-			{
 				optimize_no_use_const(fb);
 			}
 			if (!isopt)
@@ -891,58 +887,6 @@ class optimizer
 
 		fb.m_buff = newbuff;
 		fb.m_lineno_buff = newlinenobuff;
-	}
-
-	private void optimize_assign_read(func_binary fb)
-	{
-		// eg.a=1 b=a c=a
-		// 唯一一次赋值后，并没有write，只有read，就替换这些read，container除外
-		for (int i = 0; i < inslist.size(); i++)
-		{
-			opt_ins ins = inslist.get(i);
-			if (ins.code == command.OPCODE_ASSIGN)
-			{
-				opt_ins_addr src = ins.src.get(0);
-				opt_ins_addr dst = ins.dst.get(0);
-
-				if (command.ADDR_TYPE(command.COMMAND_CODE(src.addr)) == command.ADDR_CONTAINER)
-				{
-					continue;
-				}
-
-				if (command.ADDR_TYPE(command.COMMAND_CODE(dst.addr)) == command.ADDR_CONTAINER)
-				{
-					continue;
-				}
-
-				if (get_assign_dst_ins_from(0, dst.addr) != ins || get_assign_dst_ins_from(i + 1, dst.addr) != null)
-				{
-					continue;
-				}
-
-				if (get_write_ins_from(0, dst.addr) != ins || get_write_ins_from(i + 1, dst.addr) != null)
-				{
-					continue;
-				}
-
-				for (int j = i + 1; j < inslist.size(); j++)
-				{
-					opt_ins replaceins = inslist.get(j);
-					for (int z = 0; z < replaceins.src.size(); z++)
-					{
-						opt_ins_addr replaceaddr = replaceins.src.get(z);
-						if (replaceaddr.addr == dst.addr)
-						{
-							replace_ins_addr(fb, replaceaddr, src);
-						}
-					}
-				}
-
-				remove_ins(fb, ins);
-				isopt = true;
-				return;
-			}
-		}
 	}
 
 	private void optimize_write_write(func_binary fb)
