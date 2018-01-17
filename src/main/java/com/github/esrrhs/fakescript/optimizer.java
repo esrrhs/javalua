@@ -1004,7 +1004,7 @@ class optimizer
 				opt_ins assign_ins = get_assign_src_ins_from(i + 1, addr.addr);
 				if (assign_ins != null && get_read_ins_from(i + 1, addr.addr) == assign_ins)
 				{
-					if (get_read_ins_from(i + 2, addr.addr) == null)
+					if (get_read_ins_from(0, addr.addr) == null)
 					{
 						opt_ins_addr assign_ins_addr = assign_ins.dst.get(0);
 						replace_ins_addr(fb, addr, assign_ins_addr);
