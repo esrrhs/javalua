@@ -112,7 +112,7 @@ func myfunc1(arg1, arg2)
 end
 ```
 
-# Java Sample #
+## Java Sample 
 
 ```
 // create instance
