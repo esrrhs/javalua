@@ -33,38 +33,23 @@ class fkfunctor
 			}
 		}
 
+		// 参数
+		Object[] param = new Object[f.ps.size()];
+
 		fkmethod dest = null;
 		for (fkmethod fm : m_ms)
 		{
 			if (f.ps.size() == fm.m_param.length)
 			{
-				dest = fm;
-				break;
-			}
-		}
+				for (int i = f.ps.size() - 1; i >= 0; i--)
+				{
+					param[i] = fk.trans(fk.psget(f, i), fm.m_param[i]);
+				}
 
-		// 检查param数目对不对
-		if (dest == null)
-		{
-			throw new Exception("call bind class " + m_c.toString() + " " + m_ms[0].toString()
-					+ ", param not match, give " + f.ps.size() + " need " + m_ms[0].m_param.length);
-		}
-
-		// 参数
-		Object[] param = new Object[dest.m_param.length];
-		for (int i = dest.m_param.length - 1; i >= 0; i--)
-		{
-			param[i] = fk.trans(fk.pspop(f), dest.m_param[i]);
-		}
-
-		for (fkmethod fm : m_ms)
-		{
-			if (param.length == fm.m_param.length)
-			{
 				boolean equal = true;
 				for (int i = 0; i < param.length; i++)
 				{
-					if (!fm.m_param[i].isInstance(param[i]) && param[i] != null)
+					if (!fm.m_param[i].isInstance(param[i]) && param[i] != null && !fm.m_param[i].isPrimitive())
 					{
 						equal = false;
 					}
@@ -78,16 +63,17 @@ class fkfunctor
 			}
 		}
 
-		// 检查type数目对不对
+		// 检查param数目对不对
 		if (dest == null)
 		{
 			String tmp = "";
-			for (Object o : param)
+			for (int i = f.ps.size() - 1; i >= 0; i--)
 			{
-				tmp += o != null ? o.getClass().getName() + " " : "null";
+				tmp += fk.psget(f, i) != null ? fk.psget(f, i).getClass().getName() + " " : "null";
 			}
 			throw new Exception(
-					"call bind class " + m_c.toString() + " " + m_ms[0].toString() + ", type not match, give " + tmp);
+					"call bind class " + m_c.toString() + " " + m_ms[0].toString() + ", param not match, give "
+							+ f.ps.size() + " need " + m_ms[0].m_param.length + ", give type " + tmp);
 		}
 
 		Object ret = dest.m_m.invoke(c, param);
