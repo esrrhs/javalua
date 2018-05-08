@@ -76,6 +76,8 @@ class fkfunctor
 							+ f.ps.size() + " need " + m_ms[0].m_param.length + ", give type " + tmp);
 		}
 
+		f.ps.clear();
+
 		Object ret = dest.m_m.invoke(c, param);
 
 		// 检查类型
