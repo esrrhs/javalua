@@ -35,6 +35,25 @@ class buildinfunc
 		reg_func("tostring", "buildin_tostring");
 		reg_func("tolong", "buildin_tolong");
 		reg_func("getconst", "buildin_getconst");
+		reg_func("new", "buildin_new");
+	}
+
+	public static void buildin_new(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		String str = (String) fk.pspop(f);
+
+		try
+		{
+			Class<?> c = Class.forName(str);
+			Object o = c.newInstance();
+			fk.pspush(f, o);
+		}
+		catch (Exception e)
+		{
+			fk.pspush(f, e.toString());
+		}
 	}
 
 	public static void buildin_getconst(fake f, interpreter inter) throws Exception
