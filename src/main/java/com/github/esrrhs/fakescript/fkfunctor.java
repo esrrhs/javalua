@@ -42,7 +42,8 @@ class fkfunctor
 				break;
 			}
 		}
-		// 检查返回值数目对不对
+
+		// 检查param数目对不对
 		if (dest == null)
 		{
 			throw new Exception("call bind class " + m_c.toString() + " " + m_ms[0].toString()
@@ -54,6 +55,39 @@ class fkfunctor
 		for (int i = dest.m_param.length - 1; i >= 0; i--)
 		{
 			param[i] = fk.trans(fk.pspop(f), dest.m_param[i]);
+		}
+
+		for (fkmethod fm : m_ms)
+		{
+			if (f.ps.size() == fm.m_param.length)
+			{
+				boolean equal = true;
+				for (int i = 0; i < param.length; i++)
+				{
+					if (!fm.m_param[i].isInstance(param[i]) && param[i] != null)
+					{
+						equal = false;
+					}
+				}
+
+				if (equal)
+				{
+					dest = fm;
+					break;
+				}
+			}
+		}
+
+		// 检查type数目对不对
+		if (dest == null)
+		{
+			String tmp = "";
+			for (Object o : param)
+			{
+				tmp += o != null ? o.getClass().getName() + " " : "null";
+			}
+			throw new Exception(
+					"call bind class " + m_c.toString() + " " + m_ms[0].toString() + ", type not match, give " + tmp);
 		}
 
 		Object ret = dest.m_m.invoke(c, param);
