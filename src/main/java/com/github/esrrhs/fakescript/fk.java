@@ -776,6 +776,43 @@ public class fk
 		}
 	}
 
+	protected static Object psget(fake f, int i)
+	{
+		if (f.ps.size() == 0)
+		{
+			return null;
+		}
+
+		variant v = f.ps.get(i);
+		if (v.m_type == variant_type.NIL)
+		{
+			return null;
+		}
+		else if (v.m_type == variant_type.REAL)
+		{
+			double b = (double) (Double) v.m_data;
+			return b;
+		}
+		else if (v.m_type == variant_type.STRING)
+		{
+			String b = (String) v.m_data;
+			return b;
+		}
+		else if (v.m_type == variant_type.POINTER)
+		{
+			return v.m_data;
+		}
+		else if (v.m_type == variant_type.UUID)
+		{
+			long b = (long) (Long) v.m_data;
+			return b;
+		}
+		else
+		{
+			return null;
+		}
+	}
+
 	protected static Object pspop(fake f)
 	{
 		if (f.ps.size() == 0)
