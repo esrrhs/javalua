@@ -59,7 +59,7 @@ class fkfunctor
 
 		for (fkmethod fm : m_ms)
 		{
-			if (f.ps.size() == fm.m_param.length)
+			if (param.length == fm.m_param.length)
 			{
 				boolean equal = true;
 				for (int i = 0; i < param.length; i++)
