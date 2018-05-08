@@ -1233,9 +1233,21 @@ public class fk
 				{
 					if (fm.m_param.length == m.getParameterTypes().length)
 					{
-						f.fm.add_func(v, fkf);
-						types.log(f, "fk reg %s %s from cache", name, fkf);
-						return;
+						boolean equal = true;
+						for (int i = 0; i < fm.m_param.length; i++)
+						{
+							if (fm.m_param[i] != m.getParameterTypes()[i])
+							{
+								equal = false;
+								break;
+							}
+						}
+						if (equal)
+						{
+							f.fm.add_func(v, fkf);
+							types.log(f, "fk reg %s %s from cache", name, fkf);
+							return;
+						}
 					}
 				}
 			}

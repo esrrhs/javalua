@@ -126,7 +126,7 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 <dependency>
     <groupId>com.github.esrrhs</groupId>
     <artifactId>fakescript-java</artifactId>
-    <version>1.0.10</version>
+    <version>1.0.11</version>
 </dependency>
 
 ```
