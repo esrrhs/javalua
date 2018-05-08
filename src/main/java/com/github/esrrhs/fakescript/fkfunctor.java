@@ -33,23 +33,15 @@ class fkfunctor
 			}
 		}
 
-		// 参数
-		Object[] param = new Object[f.ps.size()];
-
 		fkmethod dest = null;
 		for (fkmethod fm : m_ms)
 		{
 			if (f.ps.size() == fm.m_param.length)
 			{
-				for (int i = f.ps.size() - 1; i >= 0; i--)
-				{
-					param[i] = fk.trans(fk.psget(f, i), fm.m_param[i]);
-				}
-
 				boolean equal = true;
-				for (int i = 0; i < param.length; i++)
+				for (int i = 0; i < f.ps.size(); i++)
 				{
-					if (!fm.m_param[i].isInstance(param[i]) && param[i] != null && !fm.m_param[i].isPrimitive())
+					if (!fk.canTrans(fk.psget(f, i), fm.m_param[i]))
 					{
 						equal = false;
 					}
@@ -76,7 +68,12 @@ class fkfunctor
 							+ f.ps.size() + " need " + m_ms[0].m_param.length + ", give type " + tmp);
 		}
 
-		f.ps.clear();
+		// 参数
+		Object[] param = new Object[dest.m_param.length];
+		for (int i = dest.m_param.length - 1; i >= 0; i--)
+		{
+			param[i] = fk.trans(fk.pspop(f), dest.m_param[i]);
+		}
 
 		Object ret = dest.m_m.invoke(c, param);
 

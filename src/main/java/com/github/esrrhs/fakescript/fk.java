@@ -1183,6 +1183,80 @@ public class fk
 		}
 	}
 
+	protected static boolean canTrans(Object src, Class<?> c)
+	{
+		if (src == null)
+		{
+			return true;
+		}
+
+		Class<?> srcc = src.getClass();
+
+		if ((c == Byte.class || c == Byte.TYPE) || (c == Short.class || c == Short.TYPE)
+				|| (c == Integer.class || c == Integer.TYPE) || (c == Long.class || c == Long.TYPE)
+				|| (c == Float.class || c == Float.TYPE) || (c == Double.class || c == Double.TYPE)
+				|| (c == Boolean.class || c == Boolean.TYPE))
+		{
+			if (srcc == Byte.class)
+			{
+				return true;
+			}
+			else if (srcc == Short.class)
+			{
+				return true;
+			}
+			else if (srcc == Integer.class)
+			{
+				return true;
+			}
+			else if (srcc == Long.class)
+			{
+				return true;
+			}
+			else if (srcc == Float.class)
+			{
+				return true;
+			}
+			else if (srcc == Double.class)
+			{
+				return true;
+			}
+			else if (srcc == Boolean.class)
+			{
+				return true;
+			}
+			else if (srcc == String.class)
+			{
+				return false;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		else if (c == String.class)
+		{
+			if (srcc == String.class)
+			{
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		// 这种一般是模板，直接转过去
+		else if (c == Object.class)
+		{
+			return true;
+		}
+		// 这些就是特定的类型了
+		else
+		{
+			return c.isInstance(src);
+		}
+	}
+
 	private static void rundebugps(fake f, String func)
 	{
 		variant funcv = new variant();
