@@ -80,8 +80,7 @@ public class fk
 	 * 
 	 * @param packagename
 	 *            包的名字
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void reg(fake f, String packagename)
 	{
@@ -119,8 +118,7 @@ public class fk
 	 * 
 	 * @param packagename
 	 *            包的名字
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void regall(fake f, String packagename)
 	{
@@ -142,8 +140,7 @@ public class fk
 	 * 
 	 * @param c
 	 *            class
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void regclass(fake f, Class<?> c)
 	{
@@ -181,8 +178,7 @@ public class fk
 	 * 
 	 * @param cb
 	 *            回调类
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void set_callback(fake f, callback cb)
 	{
@@ -624,8 +620,7 @@ public class fk
 	 * 
 	 * @param f
 	 *            上下文环境
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void openbaselib(fake f)
 	{
@@ -659,8 +654,7 @@ public class fk
 	 * 
 	 * @param f
 	 *            上下文环境
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void openprofile(fake f)
 	{
@@ -673,8 +667,7 @@ public class fk
 	 * 
 	 * @param f
 	 *            上下文环境
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void closeprofile(fake f)
 	{
@@ -687,8 +680,7 @@ public class fk
 	 * 
 	 * @param f
 	 *            上下文环境
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void openoptimize(fake f)
 	{
@@ -701,8 +693,7 @@ public class fk
 	 * 
 	 * @param f
 	 *            上下文环境
-	 * 
-	 * @return 无
+	 *
 	 */
 	public static void closeoptimize(fake f)
 	{
@@ -716,7 +707,7 @@ public class fk
 	 * @param f
 	 *            上下文环境
 	 * 
-	 * @return 无
+	 * @return dump
 	 */
 	public static String dumpprofile(fake f)
 	{
