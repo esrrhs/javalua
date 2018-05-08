@@ -17,9 +17,6 @@ public class packagehelper
 {
 	/**
 	 * 从包package中获取所有的Class
-	 * 
-	 * @param pack
-	 * @return
 	 */
 	public static List<Class<?>> getClasses(fake f, String packageName)
 	{
@@ -134,11 +131,6 @@ public class packagehelper
 
 	/**
 	 * 以文件的形式来获取包下的所有Class
-	 * 
-	 * @param packageName
-	 * @param packagePath
-	 * @param recursive
-	 * @param classes
 	 */
 	public static void findAndAddClassesInPackageByFile(fake f, String packageName, String packagePath,
 			final boolean recursive, List<Class<?>> classes)
