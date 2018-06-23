@@ -13,8 +13,10 @@ class variant_map
 		variant vv = m_vm.get(kv);
 		if (vv == null)
 		{
+			variant newkv = new variant();
+			newkv.copy_from(kv);
 			vv = new variant();
-			m_vm.put(kv, vv);
+			m_vm.put(newkv, vv);
 		}
 		return vv;
 	}
