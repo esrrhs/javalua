@@ -1,7 +1,4 @@
 # fakejava
-
-[![Author](https://img.shields.io/badge/author-errhrs-blue.svg?style=flat)](https://github.com/esrrhs/fakescript) [![Platform](https://img.shields.io/badge/platform-Linux,%20Windows-green.svg?style=flat)](https://github.com/esrrhs/fake)[![Script](https://img.shields.io/badge/embed-script-pink.svg?style=flat)](https://github.com/esrrhs/fake) [![License](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000?style=flat)](LICENSE)
-
 Lightweight embedded scripting language
 
 ## Brief introduction
