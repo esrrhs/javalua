@@ -1,9 +1,9 @@
 # fakejava
 
-[<img src="https://img.shields.io/github/license/esrrhs/fakejava">]()
-[<img src="https://img.shields.io/github/languages/top/esrrhs/fakejava">]()
-[<img src="https://img.shields.io/maven-central/v/com.github.esrrhs/fakescript-java">]()
-[<img src="https://img.shields.io/github/workflow/status/esrrhs/fakejava/Java%20CI">]()
+[<img src="https://img.shields.io/github/license/esrrhs/fakejava">](https://github.com/esrrhs/fakejava)
+[<img src="https://img.shields.io/github/languages/top/esrrhs/fakejava">](https://github.com/esrrhs/fakejava)
+[<img src="https://img.shields.io/maven-central/v/com.github.esrrhs/fakescript-java">](https://github.com/esrrhs/fakejava)
+[<img src="https://img.shields.io/github/workflow/status/esrrhs/fakejava/Java%20CI">](https://github.com/esrrhs/fakejava/actions)
 
 轻量级嵌入式脚本语言
 
