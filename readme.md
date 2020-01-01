@@ -3,6 +3,7 @@
 [<img src="https://img.shields.io/github/license/esrrhs/fakejava">]()
 [<img src="https://img.shields.io/github/languages/top/esrrhs/fakejava">]()
 [<img src="https://img.shields.io/maven-central/v/com.github.esrrhs/fakescript-java">]()
+[<img src="https://img.shields.io/github/workflow/status/esrrhs/fakejava/Java CI">]()
 
 轻量级嵌入式脚本语言
 
