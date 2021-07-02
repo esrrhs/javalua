@@ -12,7 +12,10 @@
 
 ## 简介
 **fakejava**是一款轻量级的嵌入式脚本语言，使用Java语言编写，语法吸取自lua、golang、erlang，基于jflex、bison生成语法树，编译成字节码解释执行。
-<a href="https://github.com/esrrhs/fake">C/C++版本fake</a>
+
+[C/C++版本fake](https://github.com/esrrhs/fake)
+
+[Go版本fake](https://github.com/esrrhs/fakego)
 
 ## 脚本特性
 * 语法类似lua
