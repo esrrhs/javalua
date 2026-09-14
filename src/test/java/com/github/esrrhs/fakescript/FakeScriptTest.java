@@ -28,6 +28,11 @@ public class FakeScriptTest {
     }
 
     @Test
+    public void testVersion() {
+        assertEquals("1.0.14", fk.version);
+    }
+
+    @Test
     public void testBasicArithmeticAndReturn() throws Exception {
         String script = 
                 "func calc(a, b)\n" +
