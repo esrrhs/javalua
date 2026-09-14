@@ -143,7 +143,3 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 
 ```
 
-* 命令行
-
-![image](img/debug.png)
-
