@@ -69,6 +69,25 @@ jobs:
         gpg-agent --daemon || true
         echo "$GPG_PRIVATE_KEY" | gpg --batch --import --pinentry-mode loopback
 
+    - name: Configure Maven settings
+      if: steps.check_version.outputs.should_publish == 'true'
+      env:
+        MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+        MAVEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN }}
+      run: |
+        mkdir -p ~/.m2
+        cat << 'EOF' > ~/.m2/settings.xml
+        <settings>
+          <servers>
+            <server>
+              <id>central</id>
+              <username>${env.MAVEN_USERNAME}</username>
+              <password>${env.MAVEN_PASSWORD}</password>
+            </server>
+          </servers>
+        </settings>
+        EOF
+
     - name: Publish to Central Repository via Sonatype Portal
       if: steps.check_version.outputs.should_publish == 'true'
       env:
@@ -77,6 +96,4 @@ jobs:
       run: |
         ./mvnw -B clean deploy -Prelease \
           -DskipTests \
-          -Dgpg.passphrase="" \
-          -Dcentral.publishing.username="$MAVEN_USERNAME" \
-          -Dcentral.publishing.password="$MAVEN_PASSWORD"
+          -Dgpg.passphrase=""
