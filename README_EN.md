@@ -10,10 +10,6 @@ Lightweight embedded scripting language
 ## Brief introduction
 **fakejava** is a lightweight embedded scripting language , using Java language, grammar lessons from lua, golang, erlang, based on jflex, bison generative grammar tree , compiled into byte code interpreted.
 
-[fake for C/C++](https://github.com/esrrhs/fake)
-
-[fake for Go](https://github.com/esrrhs/fakego)
-
 ## Script feature
 * The syntax is similar to lua
 * All function
