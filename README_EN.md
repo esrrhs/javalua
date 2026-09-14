@@ -138,12 +138,3 @@ double ret = (double)fk.run(f, "myfunc1", 1, 2);
 </dependency>
 
 ```
-
-## Debugging environment
-* IDE
-
-![image](img/ide.png)
-
-* Command-line
-
-![image](img/debug.png)
