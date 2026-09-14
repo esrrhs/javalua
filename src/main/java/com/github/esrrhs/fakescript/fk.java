@@ -687,32 +687,6 @@ public class fk
 	}
 
 	/**
-	 * 打开优化
-	 * <p>
-	 * 
-	 * @param f
-	 *            上下文环境
-	 *
-	 */
-	public static void openoptimize(fake f)
-	{
-		f.opt.open();
-	}
-
-	/**
-	 * 关闭优化
-	 * <p>
-	 * 
-	 * @param f
-	 *            上下文环境
-	 *
-	 */
-	public static void closeoptimize(fake f)
-	{
-		f.opt.close();
-	}
-
-	/**
 	 * 打印性能监控数据
 	 * <p>
 	 * 
