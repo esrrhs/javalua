@@ -164,14 +164,14 @@ public class Main {
 <dependency>
     <groupId>com.github.esrrhs</groupId>
     <artifactId>fakescript-java</artifactId>
-    <version>1.0.13</version>
+    <version>1.0.14</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.github.esrrhs:fakescript-java:1.0.13'
+implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 ```
 
 ---
@@ -184,7 +184,3 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.13'
 ./mvnw clean test
 ./mvnw package
 ```
-
-## 许可证
-
-本项目遵循 [Apache Software License 2.0](http://www.apache.org/licenses/LICENSE-2.0.txt) 许可证。
