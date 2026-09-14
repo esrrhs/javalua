@@ -33,9 +33,6 @@ public class fake
 	// debug容器
 	protected debuging dbg = new debuging(this);
 
-	// 优化
-	protected optimizer opt = new optimizer(this);
-
 	protected fake clonef()
 	{
 		fake nf = new fake();
@@ -50,7 +47,6 @@ public class fake
 		nf.bif = new buildinfunc(this);
 		nf.rn = new running(this);
 		nf.dbg = new debuging(this);
-		nf.opt = new optimizer(this);
 
 		return nf;
 	}
