@@ -164,14 +164,14 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>com.github.esrrhs</groupId>
     <artifactId>fakescript-java</artifactId>
-    <version>1.0.13</version>
+    <version>1.0.14</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.github.esrrhs:fakescript-java:1.0.13'
+implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 ```
 
 ---
@@ -184,7 +184,3 @@ Build and run tests using the included Maven Wrapper:
 ./mvnw clean test
 ./mvnw package
 ```
-
-## License
-
-This project is licensed under the [Apache Software License 2.0](http://www.apache.org/licenses/LICENSE-2.0.txt).
