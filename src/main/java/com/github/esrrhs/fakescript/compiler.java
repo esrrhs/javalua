@@ -1288,7 +1288,7 @@ class compiler
 		int oldretsize = m_cur_addrs.size();
 		for (int i = 0; i < ret_num - oldretsize; i++)
 		{
-			m_cur_addrs.add(new Long(0));
+			m_cur_addrs.add(Long.valueOf(0));
 		}
 
 		// 返回值

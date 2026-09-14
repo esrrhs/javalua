@@ -70,6 +70,18 @@ public class fk
 	}
 
 	/**
+	 * 获取上一次错误信息
+	 * 
+	 * @param f
+	 *            fake对象
+	 * @return 错误信息
+	 */
+	public static String geterror(fake f)
+	{
+		return f.errorstr;
+	}
+
+	/**
 	 * 绑定java函数
 	 * <p>
 	 * 遍历package下所有类<br>
@@ -387,7 +399,7 @@ public class fk
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
 			warper ret = new warper(new String());
-			warper retline = new warper(new Integer(0));
+			warper retline = new warper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_vaiant(frame, name, line, ret, retline);
 			return (String) ret.d;
 		}
@@ -411,7 +423,7 @@ public class fk
 			warper stackinfo = new warper(new String());
 			warper func = new warper(new String());
 			warper file = new warper(new String());
-			warper line = new warper(new Integer(0));
+			warper line = new warper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (String) func.d;
@@ -447,7 +459,7 @@ public class fk
 			warper stackinfo = new warper(new String());
 			warper func = new warper(new String());
 			warper file = new warper(new String());
-			warper line = new warper(new Integer(0));
+			warper line = new warper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (String) file.d;
@@ -463,7 +475,7 @@ public class fk
 			warper stackinfo = new warper(new String());
 			warper func = new warper(new String());
 			warper file = new warper(new String());
-			warper line = new warper(new Integer(0));
+			warper line = new warper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (int) (Integer) line.d;
@@ -479,7 +491,7 @@ public class fk
 			warper stackinfo = new warper(new String());
 			warper func = new warper(new String());
 			warper file = new warper(new String());
-			warper line = new warper(new Integer(0));
+			warper line = new warper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (String) stackinfo.d;
