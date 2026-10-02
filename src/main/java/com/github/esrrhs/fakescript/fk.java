@@ -194,7 +194,14 @@ public class fk
 	 */
 	public static void set_callback(fake f, callback cb)
 	{
-		f.cb = cb;
+		if (cb == null)
+		{
+			f.cb = new fake.default_callback();
+		}
+		else
+		{
+			f.cb = cb;
+		}
 	}
 
 	/**
@@ -256,13 +263,59 @@ public class fk
 	 */
 	public static Object run(fake f, String func, Object... args)
 	{
+		Object[] ret = runmulti(f, func, args);
+		return ret.length > 0 ? ret[0] : null;
+	}
+
+	/**
+	 * 执行脚本,取回全部返回值
+	 * <p>
+	 * 脚本函数可以return多个值<br>
+	 * 结果按顺序通过Object数组返回<br>
+	 * 注意内部数值都是用double，所以转换时需要注意下
+	 *
+	 * @param f
+	 *            上下文环境
+	 *
+	 * @param func
+	 *            函数名
+	 *
+	 * @param args
+	 *            参数
+	 *
+	 * @return 返回值数组
+	 */
+	public static Object[] runmulti(fake f, String func, Object... args)
+	{
 		psclear(f);
 		for (Object arg : args)
 		{
 			pspush(f, arg);
 		}
 		runps(f, func);
-		return pspop(f);
+
+		int num = f.ps.size();
+		Object[] ret = new Object[num];
+		for (int i = 0; i < num; i++)
+		{
+			ret[i] = psget(f, i);
+		}
+		return ret;
+	}
+
+	/**
+	 * 停止脚本执行
+	 * <p>
+	 * 在下一条命令边界生效<br>
+	 * 当前run会以错误结束
+	 *
+	 * @param f
+	 *            上下文环境
+	 *
+	 */
+	public static void stop(fake f)
+	{
+		f.stopflag = true;
 	}
 
 	public static Object debugrun(fake f, String func, Object... args)
@@ -622,7 +675,8 @@ public class fk
 		}
 		catch (Exception e)
 		{
-			return e.getMessage();
+			types.log(f, "getfilecode %s:%d fail %s", filename, line, types.show_exception(e));
+			return "";
 		}
 	}
 
@@ -1275,6 +1329,7 @@ public class fk
 		funcv.set_string(func);
 
 		f.clearerr();
+		f.stopflag = false;
 		processor pro = new processor(f);
 
 		try
@@ -1284,17 +1339,34 @@ public class fk
 			f.rn.push_pro(pro);
 			pro.run();
 
-			variant ret = r.get_ret();
-
-			variant v = f.ps.push_and_get();
-			v.copy_from(ret);
+			ArrayList<variant> rets = r.get_interpreter().get_ret_all();
+			if (rets.isEmpty())
+			{
+				// 保持旧行为:无返回值时也压一个nil,保证pspop返回null
+				variant v = f.ps.push_and_get();
+				v.copy_from(r.get_ret());
+			}
+			else
+			{
+				for (int i = 0; i < rets.size(); i++)
+				{
+					variant v = f.ps.push_and_get();
+					v.copy_from(rets.get(i));
+				}
+			}
 		}
 		catch (Exception e)
 		{
 			StringWriter sw = new StringWriter();
 			PrintWriter pw = new PrintWriter(sw);
 			e.printStackTrace(pw);
-			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), e.toString() + "\n" + sw.toString());
+			String msg = e.toString() + "\n" + sw.toString();
+			String callstack = getcurcallstack(f);
+			if (!callstack.equals("nil"))
+			{
+				msg += "\ncall stack:\n" + callstack;
+			}
+			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), msg);
 			pw.close();
 			f.ps.push_and_get();
 		}
@@ -1390,15 +1462,13 @@ public class fk
 
 	protected static boolean resumeps(fake f, boolean isend) throws Exception
 	{
-		isend = false;
-
 		// 上次的processor
 		processor pro = f.rn.cur_pro();
 		if (pro == null)
 		{
 			variant ret = f.ps.push_and_get();
 			ret.set_nil();
-			return isend;
+			return false;
 		}
 
 		pro.run();
@@ -1406,7 +1476,7 @@ public class fk
 		{
 			variant ret = f.ps.push_and_get();
 			ret.set_nil();
-			return isend;
+			return false;
 		}
 
 		// 结束了
@@ -1415,8 +1485,6 @@ public class fk
 
 		f.rn.pop_pro();
 
-		isend = true;
-
-		return isend;
+		return true;
 	}
 }

@@ -298,7 +298,7 @@ class buildinfunc
 
 	public static void buildin_map(fake f, interpreter inter)
 	{
-		variant_map m = new variant_map();
+		variant_map m = new variant_map(f);
 		variant v = f.ps.push_and_get();
 		v.set_map(m);
 	}
@@ -312,7 +312,7 @@ class buildinfunc
 
 	public static void buildin_array(fake f, interpreter inter)
 	{
-		variant_array a = new variant_array();
+		variant_array a = new variant_array(f);
 		variant v = f.ps.push_and_get();
 		v.set_array(a);
 	}
@@ -325,48 +325,48 @@ class buildinfunc
 			formatstr = f.ps.get(0).toString();
 		}
 
-		String str = "";
+		StringBuilder sb = new StringBuilder();
 		int j = 1;
 		for (int i = 0; i < (int) formatstr.length(); i++)
 		{
-			if (formatstr.getBytes()[i] == '$')
+			if (formatstr.charAt(i) == '$')
 			{
-				if (i + 1 < (int) formatstr.length() && formatstr.getBytes()[i + 1] == '$')
+				if (i + 1 < (int) formatstr.length() && formatstr.charAt(i + 1) == '$')
 				{
-					str += formatstr.substring(i, i + 1);
+					sb.append('$');
 					i++;
 				}
 				else
 				{
 					if (j < (int) f.ps.size())
 					{
-						str += f.ps.get(j).toString();
+						sb.append(f.ps.get(j).toString());
 						j++;
 					}
 				}
 			}
 			else
 			{
-				str += formatstr.substring(i, i + 1);
+				sb.append(formatstr.charAt(i));
 			}
 		}
 
 		f.ps.clear();
 		// ret
-		fk.pspush(f, str);
+		fk.pspush(f, sb.toString());
 	}
 
 	public static void buildin_print(fake f, interpreter inter)
 	{
-		String str = "";
+		StringBuilder sb = new StringBuilder();
 
 		for (int i = 0; i < (int) f.ps.size(); i++)
 		{
-			str += f.ps.get(i).toString();
+			sb.append(f.ps.get(i).toString());
 		}
 
 		// printf
-		f.cb.on_print(f, str);
+		f.cb.on_print(f, sb.toString());
 
 		f.ps.clear();
 
@@ -406,7 +406,7 @@ class buildinfunc
 				}
 				catch (Exception e)
 				{
-					System.out.println(e);
+					types.seterror(m_f, "", 0, "", "reg buildin func %s fail %s", regname, types.show_exception(e));
 				}
 
 				fk.regName.put(regname, v);

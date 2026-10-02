@@ -4,9 +4,26 @@ on: [push]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: ['8', '11', '17', '21']
+    name: Build (JDK ${{ matrix.java }})
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up JDK ${{ matrix.java }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ matrix.java }}
+        distribution: 'temurin'
+        cache: 'maven'
+    - name: Build with Maven Wrapper
+      run: ./mvnw -B test package
 
+  grammar:
+    # 验证YYParser.java可以从语法文件重新生成(ubuntu自带bison 3.x)
+    runs-on: ubuntu-latest
+    name: Grammar regeneration
     steps:
     - uses: actions/checkout@v4
     - name: Set up JDK 17
@@ -15,5 +32,27 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Build with Maven Wrapper
-      run: ./mvnw -B test package
+    - name: Regenerate parser and test
+      run: ./mvnw -B clean test -Pgrammar
+
+  quality:
+    # spotbugs静态分析报告(报告模式,不阻断)
+    runs-on: ubuntu-latest
+    name: Static analysis
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'maven'
+    - name: SpotBugs
+      run: ./mvnw -B verify -Pquality -DskipTests
+    - name: Upload SpotBugs report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: spotbugs-report
+        path: target/spotbugsXml.xml
+        if-no-files-found: ignore

@@ -27,12 +27,18 @@ class funcmap
 
 	public String dump()
 	{
-		return "";
+		StringBuilder sb = new StringBuilder();
+		for (Map.Entry<variant, funcunion> e : this.m_funcmap.entrySet())
+		{
+			sb.append(e.getKey().toString());
+			sb.append("\n");
+		}
+		return sb.toString();
 	}
 
 	public int size()
 	{
-		return 0;
+		return m_funcmap.size();
 	}
 
 	public void add_func(variant name, func_binary fb)

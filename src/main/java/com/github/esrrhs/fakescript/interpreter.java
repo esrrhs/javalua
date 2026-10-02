@@ -47,6 +47,11 @@ class interpreter
 		return m_ret.isEmpty() ? new variant() : m_ret.get(0);
 	}
 
+	public ArrayList<variant> get_ret_all()
+	{
+		return m_ret;
+	}
+
 	public void set_processor(processor pro)
 	{
 		m_processor = pro;
@@ -221,6 +226,9 @@ class interpreter
 
 				ret.copy_from(cret);
 			}
+
+			// 消费掉内建函数压在ps上的返回值,避免残留到run结束
+			m_f.ps.clear();
 		}
 
 		if (m_f.pf.isopen())

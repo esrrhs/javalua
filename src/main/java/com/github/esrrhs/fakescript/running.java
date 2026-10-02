@@ -7,11 +7,12 @@ class running
 	private fake m_f;
 	private ArrayList<processor> m_processes = new ArrayList<processor>();
 	private boolean m_stepmod;
-	private variant_map m_gmap = new variant_map();
+	private variant_map m_gmap;
 
 	public running(fake f)
 	{
 		m_f = f;
+		m_gmap = new variant_map(f);
 	}
 
 	public processor cur_pro()
