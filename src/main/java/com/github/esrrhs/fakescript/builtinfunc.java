@@ -3,42 +3,42 @@ package com.github.esrrhs.fakescript;
 import java.util.Map;
 import java.util.Set;
 
-class buildinfunc
+class builtinfunc
 {
 	private fake m_f;
 
-	public buildinfunc(fake f)
+	public builtinfunc(fake f)
 	{
 		m_f = f;
 	}
 
 	public void openbasefunc()
 	{
-		reg_func("print", "buildin_print");
-		reg_func("format", "buildin_format");
-		reg_func("array", "buildin_array");
-		reg_func(interpreter.MAP_FUNC_NAME, "buildin_map");
-		reg_func(interpreter.GMAP_FUNC_NAME, "buildin_gmap");
-		reg_func("size", "buildin_size");
-		reg_func("range", "buildin_range");
-		reg_func("typeof", "buildin_typeof");
-		reg_func("dumpallfunc", "buildin_dumpallfunc");
-		reg_func("dumpfunc", "buildin_dumpfunc");
-		reg_func("dofile", "buildin_dofile");
-		reg_func("dostring", "buildin_dostring");
-		reg_func("getcurfile", "buildin_getcurfile");
-		reg_func("getcurline", "buildin_getcurline");
-		reg_func("getcurfunc", "buildin_getcurfunc");
-		reg_func("getcurcallstack", "buildin_getcurcallstack");
-		reg_func("isfunc", "buildin_isfunc");
-		reg_func("tonumber", "buildin_tonumber");
-		reg_func("tostring", "buildin_tostring");
-		reg_func("tolong", "buildin_tolong");
-		reg_func("getconst", "buildin_getconst");
-		reg_func("new", "buildin_new");
+		reg_func("print", "builtin_print");
+		reg_func("format", "builtin_format");
+		reg_func("array", "builtin_array");
+		reg_func(interpreter.MAP_FUNC_NAME, "builtin_map");
+		reg_func(interpreter.GMAP_FUNC_NAME, "builtin_gmap");
+		reg_func("size", "builtin_size");
+		reg_func("range", "builtin_range");
+		reg_func("typeof", "builtin_typeof");
+		reg_func("dumpallfunc", "builtin_dumpallfunc");
+		reg_func("dumpfunc", "builtin_dumpfunc");
+		reg_func("dofile", "builtin_dofile");
+		reg_func("dostring", "builtin_dostring");
+		reg_func("getcurfile", "builtin_getcurfile");
+		reg_func("getcurline", "builtin_getcurline");
+		reg_func("getcurfunc", "builtin_getcurfunc");
+		reg_func("getcurcallstack", "builtin_getcurcallstack");
+		reg_func("isfunc", "builtin_isfunc");
+		reg_func("tonumber", "builtin_tonumber");
+		reg_func("tostring", "builtin_tostring");
+		reg_func("tolong", "builtin_tolong");
+		reg_func("getconst", "builtin_getconst");
+		reg_func("new", "builtin_new");
 	}
 
-	public static void buildin_new(fake f, interpreter inter) throws Exception
+	public static void builtin_new(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -56,7 +56,7 @@ class buildinfunc
 		}
 	}
 
-	public static void buildin_getconst(fake f, interpreter inter) throws Exception
+	public static void builtin_getconst(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -75,7 +75,7 @@ class buildinfunc
 		}
 	}
 
-	public static void buildin_tostring(fake f, interpreter inter) throws Exception
+	public static void builtin_tostring(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -91,7 +91,7 @@ class buildinfunc
 		}
 	}
 
-	public static void buildin_tonumber(fake f, interpreter inter) throws Exception
+	public static void builtin_tonumber(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -112,7 +112,7 @@ class buildinfunc
 		fk.pspush(f, ret);
 	}
 
-	public static void buildin_tolong(fake f, interpreter inter) throws Exception
+	public static void builtin_tolong(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -133,7 +133,7 @@ class buildinfunc
 		fk.pspush(f, ret);
 	}
 
-	public static void buildin_isfunc(fake f, interpreter inter) throws Exception
+	public static void builtin_isfunc(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -142,31 +142,31 @@ class buildinfunc
 		fk.pspush(f, ret);
 	}
 
-	public static void buildin_getcurcallstack(fake f, interpreter inter)
+	public static void builtin_getcurcallstack(fake f, interpreter inter)
 	{
 		String str = fk.getcurcallstack(f);
 		fk.pspush(f, str);
 	}
 
-	public static void buildin_getcurfunc(fake f, interpreter inter)
+	public static void builtin_getcurfunc(fake f, interpreter inter)
 	{
 		String str = fk.getcurfunc(f);
 		fk.pspush(f, str);
 	}
 
-	public static void buildin_getcurline(fake f, interpreter inter)
+	public static void builtin_getcurline(fake f, interpreter inter)
 	{
 		int line = fk.getcurline(f);
 		fk.pspush(f, line);
 	}
 
-	public static void buildin_getcurfile(fake f, interpreter inter)
+	public static void builtin_getcurfile(fake f, interpreter inter)
 	{
 		String str = fk.getcurfile(f);
 		fk.pspush(f, str);
 	}
 
-	public static void buildin_dofile(fake f, interpreter inter) throws Exception
+	public static void builtin_dofile(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -175,7 +175,7 @@ class buildinfunc
 		fk.pspush(f, ret);
 	}
 
-	public static void buildin_dostring(fake f, interpreter inter) throws Exception
+	public static void builtin_dostring(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -184,7 +184,7 @@ class buildinfunc
 		fk.pspush(f, ret);
 	}
 
-	public static void buildin_dumpfunc(fake f, interpreter inter) throws Exception
+	public static void builtin_dumpfunc(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -193,13 +193,13 @@ class buildinfunc
 		fk.pspush(f, str);
 	}
 
-	public static void buildin_dumpallfunc(fake f, interpreter inter)
+	public static void builtin_dumpallfunc(fake f, interpreter inter)
 	{
 		String str = f.bin.dump();
 		fk.pspush(f, str);
 	}
 
-	public static void buildin_typeof(fake f, interpreter inter) throws Exception
+	public static void builtin_typeof(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -208,7 +208,7 @@ class buildinfunc
 		fk.pspush(f, name);
 	}
 
-	public static void buildin_range(fake f, interpreter inter) throws Exception
+	public static void builtin_range(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 2);
 
@@ -275,7 +275,7 @@ class buildinfunc
 		}
 	}
 
-	public static void buildin_size(fake f, interpreter inter) throws Exception
+	public static void builtin_size(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
@@ -296,28 +296,28 @@ class buildinfunc
 		fk.pspush(f, len);
 	}
 
-	public static void buildin_map(fake f, interpreter inter)
+	public static void builtin_map(fake f, interpreter inter)
 	{
 		variant_map m = new variant_map(f);
 		variant v = f.ps.push_and_get();
 		v.set_map(m);
 	}
 
-	public static void buildin_gmap(fake f, interpreter inter)
+	public static void builtin_gmap(fake f, interpreter inter)
 	{
 		variant_map m = f.rn.get_gmap();
 		variant v = f.ps.push_and_get();
 		v.set_map(m);
 	}
 
-	public static void buildin_array(fake f, interpreter inter)
+	public static void builtin_array(fake f, interpreter inter)
 	{
 		variant_array a = new variant_array(f);
 		variant v = f.ps.push_and_get();
 		v.set_array(a);
 	}
 
-	public static void buildin_format(fake f, interpreter inter)
+	public static void builtin_format(fake f, interpreter inter)
 	{
 		String formatstr = "";
 		if (f.ps.size() > 0)
@@ -356,7 +356,7 @@ class buildinfunc
 		fk.pspush(f, sb.toString());
 	}
 
-	public static void buildin_print(fake f, interpreter inter)
+	public static void builtin_print(fake f, interpreter inter)
 	{
 		StringBuilder sb = new StringBuilder();
 

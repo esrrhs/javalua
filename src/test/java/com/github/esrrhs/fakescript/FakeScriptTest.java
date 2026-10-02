@@ -417,4 +417,33 @@ public class FakeScriptTest {
         assertTrue(err.contains("call stack:"), err);
         assertTrue(err.contains("g"), err);
     }
+
+    @Test
+    public void testBoolVariantSemantics() {
+        variant rv = new variant();
+        rv.set_real(0);
+        assertFalse(rv.bool());
+        rv.set_real(3);
+        assertTrue(rv.bool());
+
+        variant nv = new variant();
+        nv.set_nil();
+        assertFalse(nv.bool());
+
+        variant sv = new variant();
+        sv.set_string("x");
+        assertFalse(sv.bool());
+    }
+
+    @Test
+    public void testParseClearsPreviousError() throws Exception {
+        boolean ok = fk.parsestr(f, "func f(\nend\n");
+        assertFalse(ok);
+        assertTrue(fk.error(f));
+        assertFalse(fk.geterror(f).isEmpty());
+
+        ok = fk.parsestr(f, "func g()\n    return 1\nend\n");
+        assertTrue(ok, fk.geterror(f));
+        assertFalse(fk.error(f), fk.geterror(f));
+    }
 }

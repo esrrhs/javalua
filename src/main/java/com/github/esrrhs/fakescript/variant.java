@@ -346,7 +346,12 @@ class variant
 
 	public boolean bool()
 	{
-		return ((double) (Double) m_data) != 0;
+		// NIL或其他非数值类型视为false,避免比较判断时对无效类型崩溃
+		if (m_data == null || !(m_data instanceof Double))
+		{
+			return false;
+		}
+		return (double) (Double) m_data != 0;
 	}
 
 	@Override

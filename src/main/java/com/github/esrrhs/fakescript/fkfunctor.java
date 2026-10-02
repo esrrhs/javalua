@@ -12,13 +12,13 @@ class fkmethod
 class fkfunctor
 {
 	String m_c;
-	boolean m_is_staic;
+	boolean m_is_static;
 	fkmethod[] m_ms;
 
 	public void call(fake f) throws Exception
 	{
 		Object c = null;
-		if (!m_is_staic)
+		if (!m_is_static)
 		{
 			c = fk.pspop(f);
 			if (c == null)

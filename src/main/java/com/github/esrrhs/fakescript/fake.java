@@ -28,13 +28,13 @@ public class fake
 	protected profile pf = new profile(this);
 
 	// 内建的函数集合
-	protected buildinfunc bif = new buildinfunc(this);
+	protected builtinfunc bif = new builtinfunc(this);
 
 	// 当前运行状态
 	protected running rn = new running(this);
 
 	// debug容器
-	protected debuging dbg = new debuging(this);
+	protected debugging dbg = new debugging(this);
 
 	protected fake clonef()
 	{
@@ -47,9 +47,9 @@ public class fake
 		nf.bin = new binary(this);
 		nf.fm = this.fm.clonef(this);
 		nf.pf = new profile(this);
-		nf.bif = new buildinfunc(this);
+		nf.bif = new builtinfunc(this);
 		nf.rn = new running(this);
-		nf.dbg = new debuging(this);
+		nf.dbg = new debugging(this);
 
 		return nf;
 	}

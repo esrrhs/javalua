@@ -1,7 +1,7 @@
 package com.github.esrrhs.fakescript;
 
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 
 class breakpoint
@@ -12,7 +12,7 @@ class breakpoint
 	int line;
 };
 
-class debuging
+class debugging
 {
 	fake m_f;
 	variant m_ret = new variant();
@@ -37,7 +37,7 @@ class debuging
 	static final int debug_disa = 17;
 	static final int debug_routine = 18;
 
-	public debuging(fake f)
+	public debugging(fake f)
 	{
 		m_f = f;
 	}
@@ -63,8 +63,8 @@ class debuging
 			if (!isgoto)
 			{
 				show_watch_variant(f, rid, frame, watchvec);
-				warper lastridw = new warper(lastrid);
-				warper lastfuncw = new warper(lastfunc);
+				wrapper lastridw = new wrapper(lastrid);
+				wrapper lastfuncw = new wrapper(lastfunc);
 				check_show_func_header(f, rid, frame, lastridw, lastfuncw);
 				lastrid = (int) (Integer) lastridw.d;
 				lastfunc = (String) lastfuncw.d;
@@ -455,7 +455,7 @@ class debuging
 					}
 
 					String name = paramvec.get(0);
-					System.out.printf("%s\n", fk.getcurvaiantbyroutinebyframe(f, rid, frame, name, -1));
+					System.out.printf("%s\n", fk.getcurvariantbyroutinebyframe(f, rid, frame, name, -1));
 				}
 					break;
 				case debug_set:
@@ -468,8 +468,8 @@ class debuging
 
 					String name = paramvec.get(0);
 					String value = paramvec.get(1);
-					fk.setcurvaiantbyroutinebyframe(f, rid, frame, name, value, -1);
-					System.out.printf("%s\n", fk.getcurvaiantbyroutinebyframe(f, rid, frame, name, -1));
+					fk.setcurvariantbyroutinebyframe(f, rid, frame, name, value, -1);
+					System.out.printf("%s\n", fk.getcurvariantbyroutinebyframe(f, rid, frame, name, -1));
 				}
 					break;
 				case debug_watch:
@@ -586,11 +586,11 @@ class debuging
 	{
 		for (int i = 0; i < (int) watchvec.size(); i++)
 		{
-			System.out.printf("%s\n", fk.getcurvaiantbyroutinebyframe(f, rid, frame, watchvec.get(i), -1));
+			System.out.printf("%s\n", fk.getcurvariantbyroutinebyframe(f, rid, frame, watchvec.get(i), -1));
 		}
 	}
 
-	void check_show_func_header(fake f, int rid, int frame, warper lastrid, warper lastfunc)
+	void check_show_func_header(fake f, int rid, int frame, wrapper lastrid, wrapper lastfunc)
 	{
 		String curfunc = fk.getcurfuncbyroutinebyframe(f, rid, frame);
 		if (rid != (int) (Integer) lastrid.d)
@@ -644,7 +644,7 @@ class debuging
 			String s = "";
 			try
 			{
-				DataInputStream in = new DataInputStream(new BufferedInputStream(System.in));
+				BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
 				s = in.readLine().trim();
 			}
 			catch (Exception e)

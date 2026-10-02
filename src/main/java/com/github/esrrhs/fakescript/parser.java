@@ -229,13 +229,13 @@ class parser
 
 	private String get_parsing_file_list()
 	{
-		String ret = "";
+		StringBuilder sb = new StringBuilder();
 		for (int i = 0; i < (int) m_parsing_file_list.size(); i++)
 		{
-			ret += m_parsing_file_list.get(i);
-			ret += "\n";
+			sb.append(m_parsing_file_list.get(i));
+			sb.append("\n");
 		}
-		return ret;
+		return sb.toString();
 	}
 
 	private boolean parse_include(String srcname, String includename)

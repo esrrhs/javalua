@@ -187,22 +187,14 @@ class processor
 
 			if (r.get_id() == id)
 			{
-				String ret = "";
+				StringBuilder sb = new StringBuilder();
 
-				ret += "#";
-				ret += j;
-				ret += "\tId:";
-				ret += id;
-				ret += "\t";
-				ret += r.get_interpreter().get_running_func_name();
-				ret += "(";
-				ret += r.get_interpreter().get_running_file_name();
-				ret += ":";
-				ret += r.get_interpreter().get_running_file_line();
-				ret += ")\t";
-				ret += r.is_end() ? "Dead" : "Alive";
-				ret += "\n";
-				return ret;
+				sb.append("#").append(j).append("\tId:").append(id).append("\t")
+						.append(r.get_interpreter().get_running_func_name()).append("(")
+						.append(r.get_interpreter().get_running_file_name()).append(":")
+						.append(r.get_interpreter().get_running_file_line()).append(")\t")
+						.append(r.is_end() ? "Dead" : "Alive").append("\n");
+				return sb.toString();
 			}
 			j++;
 		}
