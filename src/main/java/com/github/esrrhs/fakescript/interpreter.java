@@ -2,11 +2,11 @@ package com.github.esrrhs.fakescript;
 
 import java.util.ArrayList;
 
-class warper
+class wrapper
 {
 	public Object d;
 
-	public warper(Object d)
+	public wrapper(Object d)
 	{
 		this.d = d;
 	}
@@ -1435,7 +1435,7 @@ class interpreter
 		return cur_runinginfo;
 	}
 
-	public void get_running_vaiant(int frame, String name, int line, warper value, warper outline)
+	public void get_running_variant(int frame, String name, int line, wrapper value, wrapper outline)
 	{
 		String valueret = "";
 
@@ -1513,7 +1513,7 @@ class interpreter
 		return;
 	}
 
-	public void get_running_call_stack_frame_info(int frame, warper stackinfo, warper func, warper file, warper line)
+	public void get_running_call_stack_frame_info(int frame, wrapper stackinfo, wrapper func, wrapper file, wrapper line)
 	{
 		String valueret = "";
 
@@ -1592,7 +1592,7 @@ class interpreter
 		return deps;
 	}
 
-	public void set_running_vaiant(int frame, String name, int line, String value)
+	public void set_running_variant(int frame, String name, int line, String value)
 	{
 		fake f = m_f;
 
@@ -1639,7 +1639,27 @@ class interpreter
 						}
 						else
 						{
-							v.set_real(Integer.parseInt(value));
+							try
+							{
+								v.set_real(Double.parseDouble(valuestr));
+							}
+							catch (NumberFormatException e)
+							{
+								if (valuestr.equalsIgnoreCase("true"))
+								{
+									v.set_real(1);
+								}
+								else if (valuestr.equalsIgnoreCase("false"))
+								{
+									v.set_real(0);
+								}
+								else
+								{
+									types.seterror(f, "", 0, "", "debug set %s fail, cannot parse value %s", name,
+											valuestr);
+									return;
+								}
+							}
 						}
 
 						return;

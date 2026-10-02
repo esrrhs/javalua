@@ -220,6 +220,7 @@ public class fk
 	 */
 	public static boolean parse(fake f, String filename)
 	{
+		f.clearerr();
 		f.pa.clear();
 		return f.pa.parse(filename);
 	}
@@ -240,6 +241,7 @@ public class fk
 	 */
 	public static boolean parsestr(fake f, String str)
 	{
+		f.clearerr();
 		f.pa.clear();
 		return f.pa.parsestr(str);
 	}
@@ -446,26 +448,44 @@ public class fk
 		return 0;
 	}
 
-	public static String getcurvaiantbyroutinebyframe(fake f, int rid, int frame, String name, int line)
+	public static String getcurvariantbyroutinebyframe(fake f, int rid, int frame, String name, int line)
 	{
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
-			warper ret = new warper(new String());
-			warper retline = new warper(Integer.valueOf(0));
-			p.get_routine_by_id(rid).get_interpreter().get_running_vaiant(frame, name, line, ret, retline);
+			wrapper ret = new wrapper(new String());
+			wrapper retline = new wrapper(Integer.valueOf(0));
+			p.get_routine_by_id(rid).get_interpreter().get_running_variant(frame, name, line, ret, retline);
 			return (String) ret.d;
 		}
 		return "";
 	}
 
-	public static void setcurvaiantbyroutinebyframe(fake f, int rid, int frame, String name, String value, int line)
+	public static void setcurvariantbyroutinebyframe(fake f, int rid, int frame, String name, String value, int line)
 	{
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
-			p.get_routine_by_id(rid).get_interpreter().set_running_vaiant(frame, name, line, value);
+			p.get_routine_by_id(rid).get_interpreter().set_running_variant(frame, name, line, value);
 		}
+	}
+
+	/**
+	 * @deprecated 拼写错误,请使用{@link #getcurvariantbyroutinebyframe}
+	 */
+	@Deprecated
+	public static String getcurvaiantbyroutinebyframe(fake f, int rid, int frame, String name, int line)
+	{
+		return getcurvariantbyroutinebyframe(f, rid, frame, name, line);
+	}
+
+	/**
+	 * @deprecated 拼写错误,请使用{@link #setcurvariantbyroutinebyframe}
+	 */
+	@Deprecated
+	public static void setcurvaiantbyroutinebyframe(fake f, int rid, int frame, String name, String value, int line)
+	{
+		setcurvariantbyroutinebyframe(f, rid, frame, name, value, line);
 	}
 
 	public static String getcurfuncbyroutinebyframe(fake f, int rid, int frame)
@@ -473,10 +493,10 @@ public class fk
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
-			warper stackinfo = new warper(new String());
-			warper func = new warper(new String());
-			warper file = new warper(new String());
-			warper line = new warper(Integer.valueOf(0));
+			wrapper stackinfo = new wrapper(new String());
+			wrapper func = new wrapper(new String());
+			wrapper file = new wrapper(new String());
+			wrapper line = new wrapper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (String) func.d;
@@ -509,10 +529,10 @@ public class fk
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
-			warper stackinfo = new warper(new String());
-			warper func = new warper(new String());
-			warper file = new warper(new String());
-			warper line = new warper(Integer.valueOf(0));
+			wrapper stackinfo = new wrapper(new String());
+			wrapper func = new wrapper(new String());
+			wrapper file = new wrapper(new String());
+			wrapper line = new wrapper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (String) file.d;
@@ -525,10 +545,10 @@ public class fk
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
-			warper stackinfo = new warper(new String());
-			warper func = new warper(new String());
-			warper file = new warper(new String());
-			warper line = new warper(Integer.valueOf(0));
+			wrapper stackinfo = new wrapper(new String());
+			wrapper func = new wrapper(new String());
+			wrapper file = new wrapper(new String());
+			wrapper line = new wrapper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (int) (Integer) line.d;
@@ -541,10 +561,10 @@ public class fk
 		processor p = f.rn.cur_pro();
 		if (p != null && p.get_routine_by_id(rid) != null)
 		{
-			warper stackinfo = new warper(new String());
-			warper func = new warper(new String());
-			warper file = new warper(new String());
-			warper line = new warper(Integer.valueOf(0));
+			wrapper stackinfo = new wrapper(new String());
+			wrapper func = new wrapper(new String());
+			wrapper file = new wrapper(new String());
+			wrapper line = new wrapper(Integer.valueOf(0));
 			p.get_routine_by_id(rid).get_interpreter().get_running_call_stack_frame_info(frame, stackinfo, func, file,
 					line);
 			return (String) stackinfo.d;
@@ -816,27 +836,20 @@ public class fk
 		}
 	}
 
-	protected static Object psget(fake f, int i)
+	// variant转宿主Object:REAL转Double,UUID转Long,STRING/POINTER原样,其余为null
+	protected static Object variant_to_object(variant v)
 	{
-		if (f.ps.size() == 0)
-		{
-			return null;
-		}
-
-		variant v = f.ps.get(i);
 		if (v.m_type == variant_type.NIL)
 		{
 			return null;
 		}
 		else if (v.m_type == variant_type.REAL)
 		{
-			double b = (double) (Double) v.m_data;
-			return b;
+			return (double) (Double) v.m_data;
 		}
 		else if (v.m_type == variant_type.STRING)
 		{
-			String b = (String) v.m_data;
-			return b;
+			return v.m_data;
 		}
 		else if (v.m_type == variant_type.POINTER)
 		{
@@ -844,13 +857,22 @@ public class fk
 		}
 		else if (v.m_type == variant_type.UUID)
 		{
-			long b = (long) (Long) v.m_data;
-			return b;
+			return (long) (Long) v.m_data;
 		}
 		else
 		{
 			return null;
 		}
+	}
+
+	protected static Object psget(fake f, int i)
+	{
+		if (f.ps.size() == 0)
+		{
+			return null;
+		}
+
+		return variant_to_object(f.ps.get(i));
 	}
 
 	protected static Object pspop(fake f)
@@ -860,34 +882,7 @@ public class fk
 			return null;
 		}
 
-		variant v = f.ps.pop_and_get();
-		if (v.m_type == variant_type.NIL)
-		{
-			return null;
-		}
-		else if (v.m_type == variant_type.REAL)
-		{
-			double b = (double) (Double) v.m_data;
-			return b;
-		}
-		else if (v.m_type == variant_type.STRING)
-		{
-			String b = (String) v.m_data;
-			return b;
-		}
-		else if (v.m_type == variant_type.POINTER)
-		{
-			return v.m_data;
-		}
-		else if (v.m_type == variant_type.UUID)
-		{
-			long b = (long) (Long) v.m_data;
-			return b;
-		}
-		else
-		{
-			return null;
-		}
+		return variant_to_object(f.ps.pop_and_get());
 	}
 
 	protected static Object trans(Object src, Class<?> c)
@@ -1427,7 +1422,7 @@ public class fk
 
 				fkf = new fkfunctor();
 				fkf.m_c = c.getName();
-				fkf.m_is_staic = isstatic;
+				fkf.m_is_static = isstatic;
 
 				f.fm.add_func(v, fkf);
 
