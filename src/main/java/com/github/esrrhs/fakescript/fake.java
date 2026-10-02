@@ -1,5 +1,11 @@
 package com.github.esrrhs.fakescript;
 
+/**
+ * fake为上下文环境
+ * <p>
+ * 所有脚本接口在fake中执行:解析、编译、运行、调试都围绕它进行
+ * 不是线程安全的,请在单一线程中驱动同一个fake实例
+ */
 public class fake
 {
 	protected boolean error = false;

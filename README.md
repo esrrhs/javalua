@@ -185,6 +185,7 @@ fkconfig config = new fkconfig();
 config.max_run_cmd_num = 1000000;  // max total commands per run, 0 = unlimited
 config.run_timeout_ms = 1000;      // wall-clock limit per run (ms), 0 = unlimited
 config.container_max_size = 1000000; // max elements per array/map, 0 = unlimited
+config.new_class_white_list = new String[] { "com.example.script." }; // sandbox: classes new() may instantiate, null = unlimited
 
 fake f = fk.newfake(config);
 fk.openbaselib(f);
@@ -196,6 +197,23 @@ fk.stop(f); // cancels the current run at the next command boundary
 ```
 
 Runtime errors set the error flag on the fake; `fk.geterror(f)` returns the message, the Java stack trace, and the script-level call stack.
+
+## Coroutines & Frame-Sliced Execution
+
+Scripts spawn coroutines with `fake func(args)` and can `sleep` / `yield`. Two hosting styles:
+
+```java
+// Style 1: run() blocks until the entry function and all its coroutines finish
+Object ret = fk.run(f, "main");
+
+// Style 2: resume() executes at most per_frame_cmd_num commands per call,
+// returning null while unfinished - drive it from your game/framework loop
+Object[] rets = fk.resume(f, "main"); // call once per frame until non-null
+```
+
+`resume` returns `null` while any coroutine is still alive, and the full return-value array once finished. After it finishes, calling `resume` again with a new function name starts a fresh run.
+
+Note: a `fake` instance (and the objects obtained from it) is **not thread-safe** — drive it from a single thread.
 
 ---
 

@@ -185,6 +185,7 @@ fkconfig config = new fkconfig();
 config.max_run_cmd_num = 1000000;    // 单次run总命令数上限,0表示不限制
 config.run_timeout_ms = 1000;        // 单次run墙钟时间上限(毫秒),0表示不限制
 config.container_max_size = 1000000; // 单个容器(array/map)元素个数上限,0表示不限制
+config.new_class_white_list = new String[] { "com.example.script." }; // 沙箱:内置new()允许实例化的类名前缀,null表示不限制
 
 fake f = fk.newfake(config);
 fk.openbaselib(f);
@@ -196,6 +197,23 @@ fk.stop(f); // 在下一条命令边界取消当前run
 ```
 
 运行时错误会在fake上记录错误标记;`fk.geterror(f)` 返回错误信息、Java堆栈以及脚本级调用栈。
+
+## 协程与分帧执行
+
+脚本内用 `fake func(args)` 启动协程，用 `sleep`/`yield` 挂起。宿主有两种驱动方式：
+
+```java
+// 方式一:run()阻塞到入口函数及其所有协程结束
+Object ret = fk.run(f, "main");
+
+// 方式二:resume()每次最多执行per_frame_cmd_num条命令后返回,
+// 未结束返回null,适合游戏/框架主循环按帧驱动
+Object[] rets = fk.resume(f, "main"); // 每帧调用一次,直到返回非null
+```
+
+`resume` 在所有协程结束前返回 `null`，结束后返回完整的返回值数组。结束后再用新的函数名调用 `resume` 可以启动新一轮执行。
+
+注意:`fake` 实例(及从它获取的对象)**不是线程安全的**——请在单一线程中驱动。
 
 ---
 

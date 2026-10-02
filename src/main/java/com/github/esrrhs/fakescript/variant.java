@@ -1,5 +1,11 @@
 package com.github.esrrhs.fakescript;
 
+/**
+ * 脚本万能变量类型
+ * <p>
+ * 类似lua的Variant,通过m_type区分实际类型
+ * 内部数值统一用double存储,UUID类型用long
+ */
 class variant
 {
 	// type

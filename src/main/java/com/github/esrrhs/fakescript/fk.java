@@ -306,6 +306,104 @@ public class fk
 	}
 
 	/**
+	 * 分帧执行脚本
+	 * <p>
+	 * 与run不同,每次调用最多执行per_frame_cmd_num条命令后返回,适合宿主按帧调度的场景<br>
+	 * 首次调用自动启动指定脚本函数,后续调用继续执行,func与args被忽略<br>
+	 * 协程未全部结束时返回null;全部结束后返回返回值数组(与runmulti一致)<br>
+	 * 结束或出错后可以重新用新的func和args再次启动
+	 *
+	 * @param f
+	 *            上下文环境
+	 *
+	 * @param func
+	 *            函数名,仅在首次调用时生效
+	 *
+	 * @param args
+	 *            参数,仅在首次调用时生效
+	 *
+	 * @return 未结束返回null,结束返回返回值数组
+	 */
+	public static Object[] resume(fake f, String func, Object... args)
+	{
+		processor pro = f.rn.cur_pro();
+		if (pro == null)
+		{
+			// 启动
+			f.clearerr();
+			f.stopflag = false;
+			psclear(f);
+			for (Object arg : args)
+			{
+				pspush(f, arg);
+			}
+			variant funcv = new variant();
+			funcv.set_string(func);
+
+			pro = new processor(f);
+			pro.set_max_runcmd(f.cfg.per_frame_cmd_num);
+			try
+			{
+				pro.start_routine(funcv, new ArrayList<Integer>());
+				f.rn.push_pro(pro);
+			}
+			catch (Exception e)
+			{
+				StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+				types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), e.toString() + "\n" + sw.toString());
+				pw.close();
+				return new Object[] { null };
+			}
+		}
+
+		try
+		{
+			pro.run();
+
+			if (pro.get_routine_num() != 0)
+			{
+				// 未结束
+				return null;
+			}
+
+			// 结束了,取返回值
+			ArrayList<variant> rets = pro.get_entrycurroutine().get_interpreter().get_ret_all();
+			Object[] ret = new Object[rets.isEmpty() ? 1 : rets.size()];
+			if (rets.isEmpty())
+			{
+				ret[0] = null;
+			}
+			else
+			{
+				for (int i = 0; i < rets.size(); i++)
+				{
+					ret[i] = variant_to_object(rets.get(i));
+				}
+			}
+			f.rn.pop_pro();
+			return ret;
+		}
+		catch (Exception e)
+		{
+			StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+			String msg = e.toString() + "\n" + sw.toString();
+			String callstack = getcurcallstack(f);
+			if (!callstack.equals("nil"))
+			{
+				msg += "\ncall stack:\n" + callstack;
+			}
+			types.seterror(f, getcurfile(f), getcurline(f), getcurfunc(f), msg);
+			pw.close();
+			f.rn.pop_pro();
+			return new Object[] { null };
+		}
+	}
+
+	/**
 	 * 停止脚本执行
 	 * <p>
 	 * 在下一条命令边界生效<br>
@@ -885,6 +983,21 @@ public class fk
 		return variant_to_object(f.ps.pop_and_get());
 	}
 
+	/**
+	 * 把脚本侧的Object转换为绑定时要求的目标类型
+	 * <p>
+	 * 数值之间按目标类型窄化/加宽;布尔转数值为1/0,数值转布尔为非0即真<br>
+	 * 字符串按目标数值类型解析;字符串转布尔按整数解析<br>
+	 * 其他对象(如绑定的Java对象)对primitive目标转为零值,对特定类型目标直接透传
+	 *
+	 * @param src
+	 *            源对象
+	 *
+	 * @param c
+	 *            目标类型
+	 *
+	 * @return 转换结果
+	 */
 	protected static Object trans(Object src, Class<?> c)
 	{
 		if (src == null)
@@ -892,330 +1005,94 @@ public class fk
 			return null;
 		}
 
-		Class<?> srcc = src.getClass();
-
-		if (c == Byte.class || c == Byte.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (byte) (byte) (Byte) src;
-			}
-			else if (srcc == Short.class)
-			{
-				return (byte) (short) (Short) src;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (byte) (int) (Integer) src;
-			}
-			else if (srcc == Long.class)
-			{
-				return (byte) (long) (Long) src;
-			}
-			else if (srcc == Float.class)
-			{
-				return (byte) (float) (Float) src;
-			}
-			else if (srcc == Double.class)
-			{
-				return (byte) (double) (Double) src;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return (boolean) (Boolean) src ? (byte) 1 : (byte) 0;
-			}
-			else if (srcc == String.class)
-			{
-				return Byte.valueOf((String) src);
-			}
-			else
-			{
-				return (byte) 0;
-			}
-		}
-		else if (c == Short.class || c == Short.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (short) (byte) (Byte) src;
-			}
-			else if (srcc == Short.class)
-			{
-				return (short) (short) (Short) src;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (short) (int) (Integer) src;
-			}
-			else if (srcc == Long.class)
-			{
-				return (short) (long) (Long) src;
-			}
-			else if (srcc == Float.class)
-			{
-				return (short) (float) (Float) src;
-			}
-			else if (srcc == Double.class)
-			{
-				return (short) (double) (Double) src;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return (boolean) (Boolean) src ? (short) 1 : (short) 0;
-			}
-			else if (srcc == String.class)
-			{
-				return Short.valueOf((String) src);
-			}
-			else
-			{
-				return (short) 0;
-			}
-		}
-		else if (c == Integer.class || c == Integer.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (int) (byte) (Byte) src;
-			}
-			else if (srcc == Short.class)
-			{
-				return (int) (short) (Short) src;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (int) (int) (Integer) src;
-			}
-			else if (srcc == Long.class)
-			{
-				return (int) (long) (Long) src;
-			}
-			else if (srcc == Float.class)
-			{
-				return (int) (float) (Float) src;
-			}
-			else if (srcc == Double.class)
-			{
-				return (int) (double) (Double) src;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return (boolean) (Boolean) src ? (int) 1 : (int) 0;
-			}
-			else if (srcc == String.class)
-			{
-				return Integer.valueOf((String) src);
-			}
-			else
-			{
-				return (int) 0;
-			}
-		}
-		else if (c == Long.class || c == Long.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (long) (byte) (Byte) src;
-			}
-			else if (srcc == Short.class)
-			{
-				return (long) (short) (Short) src;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (long) (int) (Integer) src;
-			}
-			else if (srcc == Long.class)
-			{
-				return (long) (long) (Long) src;
-			}
-			else if (srcc == Float.class)
-			{
-				return (long) (float) (Float) src;
-			}
-			else if (srcc == Double.class)
-			{
-				return (long) (double) (Double) src;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return (boolean) (Boolean) src ? (long) 1 : (long) 0;
-			}
-			else if (srcc == String.class)
-			{
-				return Long.valueOf((String) src);
-			}
-			else
-			{
-				return (long) 0;
-			}
-		}
-		else if (c == Float.class || c == Float.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (float) (byte) (Byte) src;
-			}
-			else if (srcc == Short.class)
-			{
-				return (float) (short) (Short) src;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (float) (int) (Integer) src;
-			}
-			else if (srcc == Long.class)
-			{
-				return (float) (long) (Long) src;
-			}
-			else if (srcc == Float.class)
-			{
-				return (float) (float) (Float) src;
-			}
-			else if (srcc == Double.class)
-			{
-				return (float) (double) (Double) src;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return (boolean) (Boolean) src ? (float) 1 : (float) 0;
-			}
-			else if (srcc == String.class)
-			{
-				return Float.valueOf((String) src);
-			}
-			else
-			{
-				return (float) 0;
-			}
-		}
-		else if (c == Double.class || c == Double.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (double) (byte) (Byte) src;
-			}
-			else if (srcc == Short.class)
-			{
-				return (double) (short) (Short) src;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (double) (int) (Integer) src;
-			}
-			else if (srcc == Long.class)
-			{
-				return (double) (long) (Long) src;
-			}
-			else if (srcc == Float.class)
-			{
-				return (double) (float) (Float) src;
-			}
-			else if (srcc == Double.class)
-			{
-				return (double) (double) (Double) src;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return (boolean) (Boolean) src ? (double) 1 : (double) 0;
-			}
-			else if (srcc == String.class)
-			{
-				return Double.valueOf((String) src);
-			}
-			else
-			{
-				return (double) 0;
-			}
-		}
-		else if (c == Boolean.class || c == Boolean.TYPE)
-		{
-			if (srcc == Byte.class)
-			{
-				return (byte) (Byte) src != 0;
-			}
-			else if (srcc == Short.class)
-			{
-				return (short) (Short) src != 0;
-			}
-			else if (srcc == Integer.class)
-			{
-				return (int) (Integer) src != 0;
-			}
-			else if (srcc == Long.class)
-			{
-				return (long) (Long) src != 0;
-			}
-			else if (srcc == Float.class)
-			{
-				return (float) (Float) src != 0;
-			}
-			else if (srcc == Double.class)
-			{
-				return (double) (Double) src != 0;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return src;
-			}
-			else if (srcc == String.class)
-			{
-				return Integer.valueOf((String) src) != 0;
-			}
-			else
-			{
-				return false;
-			}
-		}
-		else if (c == String.class)
-		{
-			return String.valueOf(src);
-		}
 		// 这种一般是模板，直接转过去
-		else if (c == Object.class)
+		if (c == Object.class)
 		{
 			return src;
 		}
-		// 这些就是特定的类型了
-		else
+
+		if (c == String.class)
 		{
-			if (srcc == Byte.class)
-			{
-				return null;
-			}
-			else if (srcc == Short.class)
-			{
-				return null;
-			}
-			else if (srcc == Integer.class)
-			{
-				return null;
-			}
-			else if (srcc == Long.class)
-			{
-				return null;
-			}
-			else if (srcc == Float.class)
-			{
-				return null;
-			}
-			else if (srcc == Double.class)
-			{
-				return null;
-			}
-			else if (srcc == Boolean.class)
-			{
-				return null;
-			}
-			else if (srcc == String.class)
-			{
-				return null;
-			}
-			else
+			return String.valueOf(src);
+		}
+
+		if (c == Boolean.class || c == Boolean.TYPE)
+		{
+			if (src instanceof Boolean)
 			{
 				return src;
 			}
+			if (src instanceof Number)
+			{
+				return ((Number) src).doubleValue() != 0;
+			}
+			if (src instanceof String)
+			{
+				return Integer.valueOf((String) src) != 0;
+			}
+			return false;
 		}
+
+		if (c == Byte.class || c == Byte.TYPE)
+		{
+			if (src instanceof Number)
+			{
+				return ((Number) src).byteValue();
+			}
+			return (byte) 0;
+		}
+
+		if (c == Short.class || c == Short.TYPE)
+		{
+			if (src instanceof Number)
+			{
+				return ((Number) src).shortValue();
+			}
+			return (short) 0;
+		}
+
+		if (c == Integer.class || c == Integer.TYPE)
+		{
+			if (src instanceof Number)
+			{
+				return ((Number) src).intValue();
+			}
+			return (int) 0;
+		}
+
+		if (c == Long.class || c == Long.TYPE)
+		{
+			if (src instanceof Number)
+			{
+				return ((Number) src).longValue();
+			}
+			return (long) 0;
+		}
+
+		if (c == Float.class || c == Float.TYPE)
+		{
+			if (src instanceof Number)
+			{
+				return ((Number) src).floatValue();
+			}
+			return (float) 0;
+		}
+
+		if (c == Double.class || c == Double.TYPE)
+		{
+			if (src instanceof Number)
+			{
+				return ((Number) src).doubleValue();
+			}
+			return (double) 0;
+		}
+
+		// 这些就是特定的类型了
+		if (src instanceof Number || src instanceof Boolean || src instanceof String)
+		{
+			return null;
+		}
+		return src;
 	}
 
 	protected static boolean canTrans(Object src, Class<?> c)

@@ -44,6 +44,26 @@ class builtinfunc
 
 		String str = (String) fk.pspop(f);
 
+		// 沙箱:配置了白名单时,只允许实例化匹配前缀的类
+		String[] whitelist = f.cfg.new_class_white_list;
+		if (whitelist != null && whitelist.length > 0)
+		{
+			boolean allowed = false;
+			for (String prefix : whitelist)
+			{
+				if (prefix != null && !prefix.isEmpty() && str.startsWith(prefix))
+				{
+					allowed = true;
+					break;
+				}
+			}
+			if (!allowed)
+			{
+				fk.pspush(f, "class " + str + " not in new_class_white_list");
+				return;
+			}
+		}
+
 		try
 		{
 			Class<?> c = Class.forName(str);
