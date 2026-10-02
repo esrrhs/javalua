@@ -1,7 +1,5 @@
 package com.github.esrrhs.fakescript;
 
-import java.util.Iterator;
-import java.util.Map.Entry;
 
 class types
 {
@@ -69,91 +67,6 @@ class types
 			return "";
 		}
 		return o.toString();
-	}
-
-	public static String arraytoa(Object o)
-	{
-		variant_array va = (variant_array) o;
-		if (va.m_recur != 0)
-		{
-			return "ARRAY IN RECUR";
-		}
-		va.m_recur++;
-
-		try
-		{
-			StringBuilder sb = new StringBuilder();
-			sb.append("[");
-
-			for (int i = 0; i < va.m_va.size(); i++)
-			{
-				variant n = va.m_va.get(i);
-				if (n != null)
-				{
-					sb.append(n.toString());
-				}
-				else
-				{
-					sb.append(" ");
-				}
-				sb.append(",");
-			}
-
-			sb.append("]");
-
-			return sb.toString();
-		}
-		finally
-		{
-			va.m_recur--;
-		}
-	}
-
-	public static String maptoa(Object o)
-	{
-		variant_map vm = (variant_map) o;
-		if (vm.m_recur != 0)
-		{
-			return "MAP IN RECUR";
-		}
-		vm.m_recur++;
-
-		try
-		{
-			StringBuilder sb = new StringBuilder();
-			sb.append("{");
-			int i = 0;
-			Iterator<Entry<variant, variant>> it = vm.m_vm.entrySet().iterator();
-			while (it.hasNext())
-			{
-				Entry<variant, variant> entry = it.next();
-				variant kv = (variant) entry.getKey();
-				variant vv = (variant) entry.getValue();
-				if (i == 0)
-				{
-					sb.append("(");
-				}
-				else
-				{
-					sb.append(",(");
-				}
-
-				sb.append(kv.toString());
-				sb.append(",");
-				sb.append(vv.toString());
-				sb.append(")");
-
-				i++;
-			}
-
-			sb.append("}");
-
-			return sb.toString();
-		}
-		finally
-		{
-			vm.m_recur--;
-		}
 	}
 
 	public static String dump_addr(int code)

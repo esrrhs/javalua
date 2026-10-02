@@ -3,32 +3,113 @@ package com.github.esrrhs.fakescript;
 class func_binary
 {
 	// 最大栈空间
-	public int m_maxstack;
+	private int m_maxstack;
 	// 参数个数
-	public int m_paramnum;
+	private int m_paramnum;
 	// 名字
-	public String m_name;
+	private String m_name;
 	// 文件名
-	public String m_filename;
+	private String m_filename;
 	// 包名
-	public String m_packagename;
+	private String m_packagename;
 	// 二进制缓冲区
-	public long[] m_buff;
+	private long[] m_buff;
 	// 二进制行号缓冲区
-	public int[] m_lineno_buff;
-	public int m_end_lineno;
+	private int[] m_lineno_buff;
+	private int m_end_lineno;
 	// 常量
-	public variant[] m_const_list;
+	private variant[] m_const_list;
 	// container地址
-	public container_addr[] m_container_addr_list;
+	private container_addr[] m_container_addr_list;
 	// 调试信息，栈变量
-	public stack_variant_info[] m_debug_stack_variant_info;
+	private stack_variant_info[] m_debug_stack_variant_info;
 	// 占用标记
-	public int m_use;
-	// 备份
-	public func_binary m_backup;
-	// 新标记
-	public int m_fresh;
+	private int m_use;
+
+	public int get_maxstack()
+	{
+		return m_maxstack;
+	}
+
+	public int get_paramnum()
+	{
+		return m_paramnum;
+	}
+
+	public String get_name()
+	{
+		return m_name;
+	}
+
+	public String get_filename()
+	{
+		return m_filename;
+	}
+
+	public String get_packagename()
+	{
+		return m_packagename;
+	}
+
+	public long[] get_buff()
+	{
+		return m_buff;
+	}
+
+	public variant[] get_const_list()
+	{
+		return m_const_list;
+	}
+
+	public container_addr[] get_container_addr_list()
+	{
+		return m_container_addr_list;
+	}
+
+	public stack_variant_info[] get_debug_stack_variant_info()
+	{
+		return m_debug_stack_variant_info;
+	}
+
+	public int get_use()
+	{
+		return m_use;
+	}
+
+	public void inc_use()
+	{
+		m_use++;
+	}
+
+	public void dec_use()
+	{
+		m_use--;
+	}
+
+	public void set_end_lineno(int endlineno)
+	{
+		m_end_lineno = endlineno;
+	}
+
+	public void set_paramnum(int paramnum)
+	{
+		m_paramnum = paramnum;
+	}
+
+	// codegen编译完成后一次性填充
+	public void fill(String filename, String packagename, String name, int maxstack, long[] buff, int[] linenobuff,
+			variant[] constlist, container_addr[] containeraddrlist, stack_variant_info[] debugstackvariantinfo)
+	{
+		m_filename = filename;
+		m_packagename = packagename;
+		m_name = name;
+		m_maxstack = maxstack;
+		m_buff = buff;
+		m_lineno_buff = linenobuff;
+		m_const_list = constlist;
+		m_container_addr_list = containeraddrlist;
+		m_debug_stack_variant_info = debugstackvariantinfo;
+	}
 
 	public func_binary clonef()
 	{
@@ -71,7 +152,7 @@ class func_binary
 			ret += "\t[";
 			ret += i;
 			ret += "]\t";
-			ret += m_const_list[i].m_type;
+			ret += m_const_list[i].get_type();
 			ret += "\t";
 			ret += m_const_list[i].toString();
 			ret += "\n";
@@ -173,35 +254,4 @@ class func_binary
 				: (m_lineno_buff.length > 0 ? m_end_lineno : 0);
 	}
 
-	public void backup_move()
-	{
-		// 最大栈空间
-		m_maxstack = m_backup.m_maxstack;
-		// 参数个数
-		m_paramnum = m_backup.m_paramnum;
-		// 名字
-		m_name = m_backup.m_name;
-		// 文件名
-		m_filename = m_backup.m_filename;
-		// 包名
-		m_packagename = m_backup.m_packagename;
-		// 二进制缓冲区
-		m_buff = m_backup.m_buff;
-		// 二进制行号缓冲区
-		m_lineno_buff = m_backup.m_lineno_buff;
-		m_end_lineno = m_backup.m_end_lineno;
-		// 常量
-		m_const_list = m_backup.m_const_list;
-		// container地址
-		m_container_addr_list = m_backup.m_container_addr_list;
-		// 调试信息，栈变量
-		m_debug_stack_variant_info = m_backup.m_debug_stack_variant_info;
-		// 占用标记
-		m_use = m_backup.m_use;
-		// 新标记
-		m_fresh = m_backup.m_fresh;
-
-		// 备份
-		m_backup = null;
-	}
 }

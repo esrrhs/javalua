@@ -9,10 +9,22 @@ package com.github.esrrhs.fakescript;
 class variant
 {
 	// type
-	public variant_type m_type;
+	private variant_type m_type;
 
 	// data
-	public Object m_data;
+	private Object m_data;
+
+	// 类型
+	public variant_type get_type()
+	{
+		return m_type;
+	}
+
+	// 原始数据,调用方自行按类型转换
+	public Object get_data()
+	{
+		return m_data;
+	}
 
 	public variant()
 	{
@@ -48,11 +60,11 @@ class variant
 		}
 		else if (m_type == variant_type.ARRAY)
 		{
-			ss = types.arraytoa(m_data);
+			ss = ((variant_array) m_data).tostring();
 		}
 		else if (m_type == variant_type.MAP)
 		{
-			ss = types.maptoa(m_data);
+			ss = ((variant_map) m_data).tostring();
 		}
 		else if (m_type == variant_type.NIL)
 		{
@@ -69,6 +81,13 @@ class variant
 	{
 		m_type = variant_type.NIL;
 		m_data = null;
+	}
+
+	// 解释器把栈槽当原始存储复用时使用(ip/bp/fb等机器值),不构成脚本可见值
+	void set_slot(Object data)
+	{
+		m_type = variant_type.NIL;
+		m_data = data;
 	}
 
 	public void set_pointer(Object o)

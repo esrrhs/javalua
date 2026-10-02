@@ -163,43 +163,38 @@ class codegen
 
 	public void output(String filename, String packagename, String name, func_binary bin)
 	{
-		bin.m_filename = filename;
-		bin.m_packagename = packagename;
-		bin.m_name = name;
-
-		bin.m_maxstack = m_maxstackpos;
-
-		bin.m_buff = new long[m_byte_code_list.size()];
+		long[] buff = new long[m_byte_code_list.size()];
 		for (int i = 0; i < m_byte_code_list.size(); i++)
 		{
-			bin.m_buff[i] = m_byte_code_list.get(i);
+			buff[i] = m_byte_code_list.get(i);
 		}
 
-		bin.m_lineno_buff = new int[m_byte_lineno_list.size()];
+		int[] linenobuff = new int[m_byte_lineno_list.size()];
 		for (int i = 0; i < m_byte_lineno_list.size(); i++)
 		{
-			bin.m_lineno_buff[i] = m_byte_lineno_list.get(i);
+			linenobuff[i] = m_byte_lineno_list.get(i);
 		}
 
-		bin.m_const_list = new variant[m_const_list.size()];
+		variant[] constlist = new variant[m_const_list.size()];
 		for (int i = 0; i < m_const_list.size(); i++)
 		{
-			bin.m_const_list[i] = m_const_list.get(i);
+			constlist[i] = m_const_list.get(i);
 		}
 
-		bin.m_container_addr_list = new container_addr[m_containeraddr_list.size()];
+		container_addr[] containeraddrlist = new container_addr[m_containeraddr_list.size()];
 		for (int i = 0; i < m_containeraddr_list.size(); i++)
 		{
-			bin.m_container_addr_list[i] = m_containeraddr_list.get(i);
+			containeraddrlist[i] = m_containeraddr_list.get(i);
 		}
 
-		bin.m_debug_stack_variant_info = new stack_variant_info[m_debug_block_identifiers_list.size()];
+		stack_variant_info[] debugstackvariantinfo = new stack_variant_info[m_debug_block_identifiers_list.size()];
 		for (int i = 0; i < m_debug_block_identifiers_list.size(); i++)
 		{
-			bin.m_debug_stack_variant_info[i] = m_debug_block_identifiers_list.get(i);
+			debugstackvariantinfo[i] = m_debug_block_identifiers_list.get(i);
 		}
 
-		bin.m_fresh++;
+		bin.fill(filename, packagename, name, m_maxstackpos, buff, linenobuff, constlist, containeraddrlist,
+				debugstackvariantinfo);
 
 		types.log(m_f, "codegen out %s %d", name, m_maxstackpos);
 	}

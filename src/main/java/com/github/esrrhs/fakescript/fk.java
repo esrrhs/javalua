@@ -677,7 +677,7 @@ public class fk
 		funcunion ff = f.fm.get_func(funcv);
 		if (ff != null && ff.m_havefb)
 		{
-			return ff.m_fb.m_filename;
+			return ff.m_fb.get_filename();
 		}
 		return "";
 	}
@@ -937,25 +937,25 @@ public class fk
 	// variant转宿主Object:REAL转Double,UUID转Long,STRING/POINTER原样,其余为null
 	protected static Object variant_to_object(variant v)
 	{
-		if (v.m_type == variant_type.NIL)
+		if (v.get_type() == variant_type.NIL)
 		{
 			return null;
 		}
-		else if (v.m_type == variant_type.REAL)
+		else if (v.get_type() == variant_type.REAL)
 		{
-			return (double) (Double) v.m_data;
+			return (double) (Double) v.get_data();
 		}
-		else if (v.m_type == variant_type.STRING)
+		else if (v.get_type() == variant_type.STRING)
 		{
-			return v.m_data;
+			return v.get_data();
 		}
-		else if (v.m_type == variant_type.POINTER)
+		else if (v.get_type() == variant_type.POINTER)
 		{
-			return v.m_data;
+			return v.get_data();
 		}
-		else if (v.m_type == variant_type.UUID)
+		else if (v.get_type() == variant_type.UUID)
 		{
-			return (long) (Long) v.m_data;
+			return (long) (Long) v.get_data();
 		}
 		else
 		{
