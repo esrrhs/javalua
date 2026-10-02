@@ -106,7 +106,7 @@ class compiler
 
 		codegen cg = new codegen(m_f);
 		func_binary bin = new func_binary();
-		bin.m_end_lineno = funcnode.m_endline;
+		bin.set_end_lineno(funcnode.m_endline);
 
 		// 压栈
 		cg.push_stack_identifiers();
@@ -124,7 +124,7 @@ class compiler
 					return false;
 				}
 			}
-			bin.m_paramnum = arglist.size();
+			bin.set_paramnum(arglist.size());
 		}
 
 		// 编译函数体

@@ -4,9 +4,9 @@ import java.util.ArrayList;
 
 class variant_array
 {
-	public ArrayList<variant> m_va = new ArrayList<variant>();
-	public boolean m_isconst;
-	public int m_recur;
+	private ArrayList<variant> m_va = new ArrayList<variant>();
+	boolean m_isconst;
+	int m_recur;
 	private fake m_f;
 
 	public variant_array()
@@ -48,5 +48,57 @@ class variant_array
 			m_va.set(i, vv);
 		}
 		return vv;
+	}
+	// 元素个数,含稀疏生长出的空槽
+	public int size()
+	{
+		return m_va.size();
+	}
+
+	// 按下标取元素,越界返回null,稀疏空槽本身也为null
+	public variant get_by_index(int i)
+	{
+		if (i < 0 || i >= m_va.size())
+		{
+			return null;
+		}
+		return m_va.get(i);
+	}
+
+	public String tostring()
+	{
+		if (m_recur != 0)
+		{
+			return "ARRAY IN RECUR";
+		}
+		m_recur++;
+
+		try
+		{
+			StringBuilder sb = new StringBuilder();
+			sb.append("[");
+
+			for (int i = 0; i < m_va.size(); i++)
+			{
+				variant n = m_va.get(i);
+				if (n != null)
+				{
+					sb.append(n.toString());
+				}
+				else
+				{
+					sb.append(" ");
+				}
+				sb.append(",");
+			}
+
+			sb.append("]");
+
+			return sb.toString();
+		}
+		finally
+		{
+			m_recur--;
+		}
 	}
 }

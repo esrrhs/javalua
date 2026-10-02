@@ -117,17 +117,17 @@ class builtinfunc
 
 		variant v = f.ps.pop_and_get();
 		double ret = 0;
-		if (v.m_type == variant_type.STRING)
+		if (v.get_type() == variant_type.STRING)
 		{
-			ret = Double.valueOf((String) v.m_data);
+			ret = Double.valueOf((String) v.get_data());
 		}
-		else if (v.m_type == variant_type.REAL)
+		else if (v.get_type() == variant_type.REAL)
 		{
-			ret = (double) (Double) v.m_data;
+			ret = (double) (Double) v.get_data();
 		}
-		else if (v.m_type == variant_type.UUID)
+		else if (v.get_type() == variant_type.UUID)
 		{
-			ret = (double) (long) (Long) v.m_data;
+			ret = (double) (long) (Long) v.get_data();
 		}
 		fk.pspush(f, ret);
 	}
@@ -138,17 +138,17 @@ class builtinfunc
 
 		variant v = f.ps.pop_and_get();
 		long ret = 0;
-		if (v.m_type == variant_type.STRING)
+		if (v.get_type() == variant_type.STRING)
 		{
-			ret = Long.valueOf((String) v.m_data);
+			ret = Long.valueOf((String) v.get_data());
 		}
-		else if (v.m_type == variant_type.REAL)
+		else if (v.get_type() == variant_type.REAL)
 		{
-			ret = (long) (double) (Double) v.m_data;
+			ret = (long) (double) (Double) v.get_data();
 		}
-		else if (v.m_type == variant_type.UUID)
+		else if (v.get_type() == variant_type.UUID)
 		{
-			ret = (long) (Long) v.m_data;
+			ret = (long) (Long) v.get_data();
 		}
 		fk.pspush(f, ret);
 	}
@@ -224,7 +224,7 @@ class builtinfunc
 		BIF_CHECK_ARG_NUM(f, 1);
 
 		variant v = f.ps.pop_and_get();
-		String name = v.m_type.name();
+		String name = v.get_type().name();
 		fk.pspush(f, name);
 	}
 
@@ -238,7 +238,7 @@ class builtinfunc
 		// container
 		variant v = f.ps.pop_and_get();
 
-		if (v.m_type == variant_type.STRING)
+		if (v.get_type() == variant_type.STRING)
 		{
 			if (pos >= 0 && pos < v.get_string().length())
 			{
@@ -250,14 +250,15 @@ class builtinfunc
 				fk.pspush(f, "");
 			}
 		}
-		else if (v.m_type == variant_type.ARRAY)
+		else if (v.get_type() == variant_type.ARRAY)
 		{
-			if (pos >= 0 && pos < v.get_array().m_va.size())
+			variant ele = v.get_array().get_by_index(pos);
+			if (ele != null || (pos >= 0 && pos < v.get_array().size()))
 			{
 				variant ret = f.ps.push_and_get();
-				if (v.get_array().m_va.get(pos) != null)
+				if (ele != null)
 				{
-					ret.copy_from(v.get_array().m_va.get(pos));
+					ret.copy_from(ele);
 				}
 				else
 				{
@@ -269,17 +270,15 @@ class builtinfunc
 				fk.pspush(f, false);
 			}
 		}
-		else if (v.m_type == variant_type.MAP)
+		else if (v.get_type() == variant_type.MAP)
 		{
-			if (pos >= 0 && pos < v.get_map().m_vm.size())
+			Map.Entry<variant, variant> e = v.get_map().get_entry_by_index(pos);
+			if (e != null)
 			{
 				variant key = f.ps.push_and_get();
 
 				variant value = f.ps.push_and_get();
 
-				Set<Map.Entry<variant, variant>> set = v.get_map().m_vm.entrySet();
-
-				Map.Entry<variant, variant> e = (Map.Entry<variant, variant>) set.toArray()[pos];
 				key.copy_from(e.getKey());
 				value.copy_from(e.getValue());
 			}
@@ -301,17 +300,17 @@ class builtinfunc
 
 		variant v = f.ps.pop_and_get();
 		int len = 0;
-		if (v.m_type == variant_type.STRING)
+		if (v.get_type() == variant_type.STRING)
 		{
 			len = v.get_string().length();
 		}
-		else if (v.m_type == variant_type.ARRAY)
+		else if (v.get_type() == variant_type.ARRAY)
 		{
-			len = v.get_array().m_va.size();
+			len = v.get_array().size();
 		}
-		else if (v.m_type == variant_type.MAP)
+		else if (v.get_type() == variant_type.MAP)
 		{
-			len = v.get_map().m_vm.size();
+			len = v.get_map().size();
 		}
 		fk.pspush(f, len);
 	}

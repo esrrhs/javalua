@@ -44,7 +44,7 @@ class binary
 	public void add_func(variant name, func_binary bin)
 	{
 		funcunion f = m_f.fm.get_func(name);
-		if (f != null && f.m_havefb && f.m_fb.m_use != 0)
+		if (f != null && f.m_havefb && f.m_fb.get_use() != 0)
 		{
 			types.log(m_f, "[binary] add_func func %s add back bin", name);
 			f.m_fb = bin;

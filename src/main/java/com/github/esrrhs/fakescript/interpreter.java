@@ -76,7 +76,7 @@ class interpreter
 			variant v;
 
 			// 准备栈大小
-			int needsize = m_sp + BP_SIZE + retpos.size() + fb.m_maxstack;
+			int needsize = m_sp + BP_SIZE + retpos.size() + fb.get_maxstack();
 			if (needsize > m_stack.size())
 			{
 				int oldsize = m_stack.size();
@@ -94,56 +94,55 @@ class interpreter
 			for (int i = 0; i < retpos.size(); i++)
 			{
 				v = m_stack.get(m_bp);
-				v.m_type = variant_type.NIL;
-				v.m_data = retpos.get(i);
+				v.set_slot(retpos.get(i));
 				m_bp++;
 			}
 
 			// 记录返回值数目
 			v = m_stack.get(m_bp);
-			v.m_type = variant_type.NIL;
-			v.m_data = retpos.size();
+			v.set_slot(retpos.size());
 			m_bp++;
 
 			// 记录老的ip
 			v = m_stack.get(m_bp);
-			v.m_type = variant_type.NIL;
-			v.m_data = m_ip;
+			v.set_slot(m_ip);
 			m_bp++;
 
 			// 记录profile
 			if (m_f.pf.isopen())
 			{
 				v = m_stack.get(m_bp);
-				v.m_data = System.currentTimeMillis();
+				v.set_slot(System.currentTimeMillis());
 			}
-			v.m_type = variant_type.NIL;
+			else
+			{
+				v = m_stack.get(m_bp);
+				v.set_nil();
+			}
 			m_bp++;
 
 			// 记录老的fb
 			v = m_stack.get(m_bp);
-			v.m_type = variant_type.NIL;
-			v.m_data = m_fb;
+			v.set_slot(m_fb);
 			m_bp++;
 
 			// 记录老的bp
 			v = m_stack.get(m_bp);
-			v.m_type = variant_type.NIL;
-			v.m_data = oldbp;
+			v.set_slot(oldbp);
 			m_bp++;
 
 			// 设置sp
-			m_sp = m_bp + fb.m_maxstack;
+			m_sp = m_bp + fb.get_maxstack();
 
-			if (m_f.ps.size() != fb.m_paramnum)
+			if (m_f.ps.size() != fb.get_paramnum())
 			{
 				m_isend = true;
 				throw new Exception(
-						"call func " + func + " param not match, need " + fb.m_paramnum + " give " + m_f.ps.size());
+						"call func " + func + " param not match, need " + fb.get_paramnum() + " give " + m_f.ps.size());
 			}
 
 			// 分配入参
-			for (int i = 0; i < fb.m_paramnum; i++)
+			for (int i = 0; i < fb.get_paramnum(); i++)
 			{
 				v = m_stack.get(m_bp + i);
 				v.copy_from(m_f.ps.get(i));
@@ -161,7 +160,7 @@ class interpreter
 			}
 
 			// 标记
-			fb.m_use++;
+			fb.inc_use();
 
 			// 新函数
 			m_fb = fb;
@@ -240,7 +239,7 @@ class interpreter
 
 	public variant GET_VARIANT(func_binary fb, int bp, int pos) throws Exception
 	{
-		return GET_VARIANT_BY_CMD(fb, bp, fb.m_buff[pos]);
+		return GET_VARIANT_BY_CMD(fb, bp, fb.get_buff()[pos]);
 	}
 
 	public variant GET_VARIANT_BY_CMD(func_binary fb, int bp, long cmd) throws Exception
@@ -254,7 +253,7 @@ class interpreter
 		}
 		else if (v_addrtype == command.ADDR_CONST)
 		{
-			return fb.m_const_list[v_addrpos];
+			return fb.get_const_list()[v_addrpos];
 		}
 		else if (v_addrtype == command.ADDR_CONTAINER)
 		{
@@ -268,7 +267,7 @@ class interpreter
 
 	public variant get_container_variant(func_binary fb, int conpos) throws Exception
 	{
-		container_addr ca = fb.m_container_addr_list[conpos];
+		container_addr ca = fb.get_container_addr_list()[conpos];
 
 		variant conv = GET_VARIANT_BY_CMD(fb, m_bp, ca.m_con);
 		variant keyv = GET_VARIANT_BY_CMD(fb, m_bp, ca.m_key);
@@ -278,17 +277,17 @@ class interpreter
 			return null;
 		}
 
-		if (conv.m_type != variant_type.ARRAY && conv.m_type != variant_type.MAP)
+		if (conv.get_type() != variant_type.ARRAY && conv.get_type() != variant_type.MAP)
 		{
 			m_isend = true;
-			throw new Exception("interpreter get container variant fail, container type error, type " + conv.m_type);
+			throw new Exception("interpreter get container variant fail, container type error, type " + conv.get_type());
 		}
 
-		if (conv.m_type == variant_type.MAP)
+		if (conv.get_type() == variant_type.MAP)
 		{
 			return conv.get_map().con_map_get(keyv);
 		}
-		else if (conv.m_type == variant_type.ARRAY)
+		else if (conv.get_type() == variant_type.ARRAY)
 		{
 			return conv.get_array().con_array_get(keyv);
 		}
@@ -301,37 +300,37 @@ class interpreter
 	public long BP_GET_CALLTIME(int bp)
 	{
 		variant v = m_stack.get(bp - 3);
-		return (long) (Long) v.m_data;
+		return (long) (Long) v.get_data();
 	}
 
 	public int BP_GET_RETNUM(int bp)
 	{
 		variant v = m_stack.get(bp - 5);
-		return (int) (Integer) v.m_data;
+		return (int) (Integer) v.get_data();
 	}
 
 	public int BP_GET_BP(int bp)
 	{
 		variant v = m_stack.get(bp - 1);
-		return (int) (Integer) v.m_data;
+		return (int) (Integer) v.get_data();
 	}
 
 	public func_binary BP_GET_FB(int bp)
 	{
 		variant v = m_stack.get(bp - 2);
-		return (func_binary) v.m_data;
+		return (func_binary) v.get_data();
 	}
 
 	public int BP_GET_IP(int bp)
 	{
 		variant v = m_stack.get(bp - 4);
-		return (int) (Integer) v.m_data;
+		return (int) (Integer) v.get_data();
 	}
 
 	public int BP_GET_RETPOS(int bp, int retnum, int i)
 	{
 		variant v = m_stack.get(bp - 5 - retnum + i);
-		return (int) (Integer) v.m_data;
+		return (int) (Integer) v.get_data();
 	}
 
 	public boolean CHECK_DST_POS(func_binary fb, int ip)
@@ -341,27 +340,27 @@ class interpreter
 
 	public boolean CHECK_STACK_POS(func_binary fb, int ip)
 	{
-		return command.ADDR_TYPE(command.COMMAND_CODE(fb.m_buff[ip])) == command.ADDR_STACK;
+		return command.ADDR_TYPE(command.COMMAND_CODE(fb.get_buff()[ip])) == command.ADDR_STACK;
 	}
 
 	public boolean CHECK_CONTAINER_POS(func_binary fb, int ip)
 	{
-		return command.ADDR_TYPE(command.COMMAND_CODE(fb.m_buff[ip])) == command.ADDR_CONTAINER;
+		return command.ADDR_TYPE(command.COMMAND_CODE(fb.get_buff()[ip])) == command.ADDR_CONTAINER;
 	}
 
 	public boolean CHECK_CONST_MAP_POS(variant v) throws Exception
 	{
-		return (v.m_type == variant_type.MAP && v.get_map().m_isconst);
+		return (v.get_type() == variant_type.MAP && v.get_map().m_isconst);
 	}
 
 	public boolean CHECK_CONST_ARRAY_POS(variant v) throws Exception
 	{
-		return (v.m_type == variant_type.ARRAY && v.get_array().m_isconst);
+		return (v.get_type() == variant_type.ARRAY && v.get_array().m_isconst);
 	}
 
 	public String POS_TYPE_NAME(func_binary fb, int ip)
 	{
-		int index = (int) command.ADDR_TYPE(command.COMMAND_CODE(fb.m_buff[ip]));
+		int index = (int) command.ADDR_TYPE(command.COMMAND_CODE(fb.get_buff()[ip]));
 		return variant_type.values()[index].name();
 	}
 
@@ -404,23 +403,17 @@ class interpreter
 			try
 			{
 				// 当前函数走完
-				if (m_ip >= m_fb.m_buff.length)
+				if (m_ip >= m_fb.get_buff().length)
 				{
 					// 记录profile
 					if (m_f.pf.isopen())
 					{
 						long calltime = BP_GET_CALLTIME(m_bp);
-						m_f.pf.add_func_sample(m_fb.m_name, System.currentTimeMillis() - calltime);
+						m_f.pf.add_func_sample(m_fb.get_name(), System.currentTimeMillis() - calltime);
 					}
 
 					// 标记
-					m_fb.m_use--;
-
-					// 更新
-					if (m_fb.m_use == 0 && m_fb.m_backup != null)
-					{
-						m_fb.backup_move();
-					}
+					m_fb.dec_use();
 
 					// 出栈
 					int oldretnum = BP_GET_RETNUM(m_bp);
@@ -451,7 +444,7 @@ class interpreter
 					continue;
 				}
 
-				int code = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+				int code = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 
 				m_ip++;
 
@@ -780,7 +773,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.and_jne(left, right);
@@ -801,7 +794,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.or_jne(left, right);
@@ -822,7 +815,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.less_jne(left, right);
@@ -843,7 +836,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.more_jne(left, right);
@@ -864,7 +857,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.equal_jne(left, right);
@@ -885,7 +878,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.more_equal_jne(left, right);
@@ -906,7 +899,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.less_equal_jne(left, right);
@@ -927,7 +920,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.not_equal_jne(left, right);
@@ -945,7 +938,7 @@ class interpreter
 
 						/* dest */
 						m_ip++;
-						int destip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int destip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						boolean b = variant.not_jne(left);
@@ -961,7 +954,7 @@ class interpreter
 						variant cmp = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						int ip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int ip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						if (!cmp.bool())
@@ -972,7 +965,7 @@ class interpreter
 						break;
 					case command.OPCODE_JMP:
 					{
-						int ip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int ip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						m_ip = ip;
@@ -1085,13 +1078,13 @@ class interpreter
 						break;
 					case command.OPCODE_CALL:
 					{
-						int calltype = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int calltype = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						variant callpos = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						int retnum = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int retnum = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						ArrayList<Integer> retpos = new ArrayList<Integer>();
@@ -1102,7 +1095,7 @@ class interpreter
 							m_ip++;
 						}
 
-						int argnum = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int argnum = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						paramstack ps = m_f.ps;
@@ -1156,10 +1149,10 @@ class interpreter
 						break;
 					case command.OPCODE_RETURN:
 					{
-						int returnnum = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int returnnum = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						if (returnnum == 0)
 						{
-							m_ip = (m_fb).m_buff.length;
+							m_ip = (m_fb).get_buff().length;
 							break;
 						}
 						m_ip++;
@@ -1181,7 +1174,7 @@ class interpreter
 							m_ret.set(i, retv);
 						}
 
-						m_ip = (m_fb).m_buff.length;
+						m_ip = (m_fb).get_buff().length;
 					}
 						break;
 					case command.OPCODE_FORBEGIN:
@@ -1209,7 +1202,7 @@ class interpreter
 						variant addv = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						int jneip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int jneip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						// 赋值
@@ -1248,7 +1241,7 @@ class interpreter
 						variant addv = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
 
-						int continueip = command.COMMAND_CODE(m_fb.m_buff[m_ip]);
+						int continueip = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
 						// 赋值
@@ -1311,13 +1304,7 @@ class interpreter
 					while (bp != 0)
 					{
 						// 标记
-						fb.m_use--;
-
-						// 更新
-						if (fb.m_use == 0 && fb.m_backup != null)
-						{
-							fb.backup_move();
-						}
+						fb.dec_use();
 
 						fb = BP_GET_FB(bp);
 						ip = BP_GET_IP(bp);
@@ -1351,12 +1338,12 @@ class interpreter
 
 	public String get_running_file_name()
 	{
-		return m_fb != null ? m_fb.m_filename : "";
+		return m_fb != null ? m_fb.get_filename() : "";
 	}
 
 	public String get_running_func_name()
 	{
-		return m_fb != null ? m_fb.m_name : "";
+		return m_fb != null ? m_fb.get_name() : "";
 	}
 
 	public int get_running_file_line()
@@ -1384,20 +1371,20 @@ class interpreter
 			cur_runinginfo += "#";
 			cur_runinginfo += deps;
 			cur_runinginfo += "	";
-			cur_runinginfo += fb != null ? fb.m_name : "";
+			cur_runinginfo += fb != null ? fb.get_name() : "";
 			cur_runinginfo += " at ";
-			cur_runinginfo += fb != null ? fb.m_filename : "";
+			cur_runinginfo += fb != null ? fb.get_filename() : "";
 			cur_runinginfo += ":";
 			cur_runinginfo += fb != null ? fb.get_binary_lineno(ip) : 0;
 			cur_runinginfo += "\n";
-			for (int j = 0; fb != null && j < fb.m_maxstack; j++)
+			for (int j = 0; fb != null && j < fb.get_maxstack(); j++)
 			{
 				cur_runinginfo += "		";
 
 				String variant_name = "";
-				for (int i = 0; i < fb.m_debug_stack_variant_info.length; i++)
+				for (int i = 0; i < fb.get_debug_stack_variant_info().length; i++)
 				{
-					stack_variant_info info = fb.m_debug_stack_variant_info[i];
+					stack_variant_info info = fb.get_debug_stack_variant_info()[i];
 					if (info.m_pos == j)
 					{
 						variant_name += info.m_name;
@@ -1448,7 +1435,7 @@ class interpreter
 		variant gcv = m_f.pa.get_const_define(name);
 		if (gcv != null)
 		{
-			if (gcv.m_type == variant_type.STRING)
+			if (gcv.get_type() == variant_type.STRING)
 			{
 				valueret += "\"";
 				valueret += gcv.toString();
@@ -1472,14 +1459,14 @@ class interpreter
 		{
 			if (deps >= frame)
 			{
-				for (int i = 0; i < fb.m_debug_stack_variant_info.length; i++)
+				for (int i = 0; i < fb.get_debug_stack_variant_info().length; i++)
 				{
-					stack_variant_info info = fb.m_debug_stack_variant_info[i];
+					stack_variant_info info = fb.get_debug_stack_variant_info()[i];
 					if ((line != -1 && info.m_name.equals(name) && info.m_line == line)
 							|| (line == -1 && info.m_name.equals(name)))
 					{
 						variant v = m_stack.get(bp + info.m_pos);
-						if (v.m_type == variant_type.STRING)
+						if (v.get_type() == variant_type.STRING)
 						{
 							valueret += "\"";
 							valueret += v.toString();
@@ -1532,8 +1519,8 @@ class interpreter
 		{
 			if (deps >= frame)
 			{
-				func.d = fb != null ? fb.m_name : "";
-				file.d = fb != null ? fb.m_filename : "";
+				func.d = fb != null ? fb.get_name() : "";
+				file.d = fb != null ? fb.get_filename() : "";
 				line.d = fb != null ? fb.get_binary_lineno(ip) : 0;
 
 				valueret += "#";
@@ -1618,9 +1605,9 @@ class interpreter
 		{
 			if (deps >= frame)
 			{
-				for (int i = 0; i < fb.m_debug_stack_variant_info.length; i++)
+				for (int i = 0; i < fb.get_debug_stack_variant_info().length; i++)
 				{
-					stack_variant_info info = fb.m_debug_stack_variant_info[i];
+					stack_variant_info info = fb.get_debug_stack_variant_info()[i];
 					if ((line != -1 && info.m_name.equals(name) && info.m_line == line)
 							|| (line == -1 && info.m_name.equals(name)))
 					{
