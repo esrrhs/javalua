@@ -4,6 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # 项目支持JDK 8,JUnit 6需要Java 17,忽略其大版本升级
+    ignore:
+      - dependency-name: "org.junit.jupiter:*"
+        versions: [">=6"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
