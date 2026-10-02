@@ -1,12 +1,9 @@
 package com.github.esrrhs.fakescript;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 
 class parser
@@ -204,18 +201,7 @@ class parser
 
 		try
 		{
-			String ret = "";
-			String encoding = "utf-8";
-
-			Reader reader = new InputStreamReader(new FileInputStream(file), encoding);
-			BufferedReader bufferedReader = new BufferedReader(reader);
-			char[] readbuff = new char[10];
-			while (bufferedReader.read(readbuff) != -1)
-			{
-				ret += String.valueOf(readbuff);
-				Arrays.fill(readbuff, '\0');
-			}
-			reader.close();
+			String ret = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
 
 			types.log(m_f, ret);
 
@@ -233,7 +219,7 @@ class parser
 		boolean ret = false;
 		for (int i = 0; i < (int) m_parsing_file_list.size(); i++)
 		{
-			if (m_parsing_file_list.get(i) == filename)
+			if (m_parsing_file_list.get(i).equals(filename))
 			{
 				return true;
 			}

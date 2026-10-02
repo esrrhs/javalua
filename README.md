@@ -176,6 +176,29 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 
 ---
 
+## Runtime Safety & Control
+
+When embedding scripts, use `fkconfig` to cap runaway scripts and `fk.stop` to cancel execution:
+
+```java
+fkconfig config = new fkconfig();
+config.max_run_cmd_num = 1000000;  // max total commands per run, 0 = unlimited
+config.run_timeout_ms = 1000;      // wall-clock limit per run (ms), 0 = unlimited
+config.container_max_size = 1000000; // max elements per array/map, 0 = unlimited
+
+fake f = fk.newfake(config);
+fk.openbaselib(f);
+fk.parsestr(f, script);
+Object ret = fk.run(f, "funcname", args);       // returns the first return value
+Object[] rets = fk.runmulti(f, "funcname", args); // returns ALL return values
+
+fk.stop(f); // cancels the current run at the next command boundary
+```
+
+Runtime errors set the error flag on the fake; `fk.geterror(f)` returns the message, the Java stack trace, and the script-level call stack.
+
+---
+
 ## Building from Source
 
 Build and run tests using the included Maven Wrapper:
@@ -184,3 +207,12 @@ Build and run tests using the included Maven Wrapper:
 ./mvnw clean test
 ./mvnw package
 ```
+
+Additional build profiles:
+
+```bash
+./mvnw verify -Pquality -DskipTests   # SpotBugs static analysis report
+./mvnw clean test -Pgrammar           # regenerate YYParser.java (requires bison >= 3.0)
+```
+
+The lexer (`Yylex.java`) is regenerated from `jflexbison/jflex.flex` on every build via the JFlex Maven plugin. The parser (`YYParser.java`) is checked in; regenerate it with the `grammar` profile (or `build.sh`) when the grammar changes. Test coverage reports are generated under `target/site/jacoco/` on every `test` run.

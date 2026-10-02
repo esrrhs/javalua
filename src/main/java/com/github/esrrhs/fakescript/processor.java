@@ -98,14 +98,39 @@ class processor
 		}
 		else
 		{
+			long starttime = System.currentTimeMillis();
+			long totalcmd = 0;
 			while (!m_routines.isEmpty())
 			{
+				if (m_f.stopflag)
+				{
+					throw new Exception("run stopped by fk.stop");
+				}
+
+				if (m_f.cfg.max_run_cmd_num > 0 && totalcmd >= m_f.cfg.max_run_cmd_num)
+				{
+					throw new Exception("run exceed max_run_cmd_num " + m_f.cfg.max_run_cmd_num
+							+ ", maybe dead loop script");
+				}
+
+				if (m_f.cfg.run_timeout_ms > 0
+						&& System.currentTimeMillis() - starttime >= m_f.cfg.run_timeout_ms)
+				{
+					throw new Exception("run exceed run_timeout_ms " + m_f.cfg.run_timeout_ms
+							+ " ms, maybe dead loop script");
+				}
+
 				for (int i = 0; i < (int) m_routines.size(); i++)
 				{
 					routine r = m_routines.get(i);
 					m_curroutine = r;
 					// 注意:此函数内部可能会调用到add接口
-					r.run(m_f.cfg.per_frame_cmd_num);
+					int cmdnum = m_f.cfg.per_frame_cmd_num;
+					if (m_f.cfg.max_run_cmd_num > 0)
+					{
+						cmdnum = (int) Math.min(cmdnum, Math.max(1, m_f.cfg.max_run_cmd_num - totalcmd));
+					}
+					totalcmd += r.run(cmdnum);
 					if (r.is_end())
 					{
 						m_routines.remove(i);
@@ -117,26 +142,18 @@ class processor
 
 	public String get_routine_info()
 	{
-		String tmp = "";
+		StringBuilder sb = new StringBuilder();
 		for (int i = 0; i < m_routines.size(); i++)
 		{
 			routine r = m_routines.get(i);
 
-			tmp += "#";
-			tmp += i;
-			tmp += "\tId:";
-			tmp += r.get_id();
-			tmp += "\t";
-			tmp += r.get_interpreter().get_running_func_name();
-			tmp += "(";
-			tmp += r.get_interpreter().get_running_file_name();
-			tmp += ":";
-			tmp += r.get_interpreter().get_running_file_line();
-			tmp += ")\t";
-			tmp += r.is_end() ? "Dead" : "Alive";
-			tmp += "\n";
+			sb.append("#").append(i).append("\tId:").append(r.get_id()).append("\t")
+					.append(r.get_interpreter().get_running_func_name()).append("(")
+					.append(r.get_interpreter().get_running_file_name()).append(":")
+					.append(r.get_interpreter().get_running_file_line()).append(")\t")
+					.append(r.is_end() ? "Dead" : "Alive").append("\n");
 		}
-		return tmp;
+		return sb.toString();
 	}
 
 	public routine get_routine_by_id(int id)

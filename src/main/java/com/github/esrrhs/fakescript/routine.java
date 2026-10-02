@@ -44,9 +44,9 @@ class routine
 		m_interpreter.call(func, retpos);
 	}
 
-	public void run(int cmdnum) throws Exception
+	public int run(int cmdnum) throws Exception
 	{
-		m_interpreter.run(cmdnum);
+		return m_interpreter.run(cmdnum);
 	}
 
 	public boolean is_end()

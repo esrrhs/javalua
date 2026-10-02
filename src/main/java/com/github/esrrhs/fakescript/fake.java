@@ -4,10 +4,13 @@ public class fake
 {
 	protected boolean error = false;
 	protected String errorstr = "";
-	protected callback cb = null;
+	protected callback cb = new default_callback();
 
 	// 配置
 	protected fkconfig cfg = new fkconfig();
+
+	// 停止标记,由fk.stop设置,在下一个命令边界生效
+	protected volatile boolean stopflag = false;
 
 	// 解析
 	protected parser pa = new parser(this);
@@ -55,5 +58,20 @@ public class fake
 	{
 		error = false;
 		errorstr = "";
+	}
+
+	// 未通过fk.set_callback设置回调时的默认行为:print输出到stdout,错误只记录在errorstr中
+	static class default_callback implements callback
+	{
+		@Override
+		public void on_error(fake f, String file, int lineno, String func, String str)
+		{
+		}
+
+		@Override
+		public void on_print(fake f, String str)
+		{
+			System.out.print(str);
+		}
 	}
 }

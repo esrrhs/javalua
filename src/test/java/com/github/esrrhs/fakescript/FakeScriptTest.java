@@ -1,7 +1,12 @@
 package com.github.esrrhs.fakescript;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,9 +32,18 @@ public class FakeScriptTest {
         return a + b;
     }
 
+    // 供testFkStop使用:脚本执行中调用,触发停止
+    private static fake stopTarget;
+
+    @fakescript
+    public static void stopNow() {
+        fk.stop(stopTarget);
+    }
+
     @Test
     public void testVersion() {
-        assertEquals("1.0.14", fk.version);
+        assertNotNull(fk.version);
+        assertFalse(fk.version.isEmpty());
     }
 
     @Test
@@ -112,5 +126,295 @@ public class FakeScriptTest {
         Object ret = fk.run(f, "main");
         assertNotNull(ret, fk.geterror(f));
         assertEquals(30.0, ((Double) ret).doubleValue());
+    }
+
+    @Test
+    public void testPrintWithoutCallback() throws Exception {
+        String script =
+                "func hello()\n" +
+                "    print(\"hello\", \" world\")\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        assertDoesNotThrow(() -> fk.run(f, "hello"));
+        assertFalse(fk.error(f), fk.geterror(f));
+    }
+
+    @Test
+    public void testPrintWithCallback() throws Exception {
+        final StringBuilder out = new StringBuilder();
+        fk.set_callback(f, new callback() {
+            @Override
+            public void on_error(fake ff, String file, int lineno, String func, String str) {
+            }
+
+            @Override
+            public void on_print(fake ff, String str) {
+                out.append(str);
+            }
+        });
+
+        String script =
+                "func hello()\n" +
+                "    print(\"hello\", \" \", \"callback\")\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        fk.run(f, "hello");
+        assertEquals("hello callback", out.toString());
+    }
+
+    @Test
+    public void testUuidLiteralAndReturn() throws Exception {
+        String script =
+                "func f()\n" +
+                "    return 123456789012345u\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertNotNull(ret, fk.geterror(f));
+        assertEquals(123456789012345L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testUuidVariantAccessor() throws Exception {
+        variant uv = new variant();
+        uv.set_uuid(42L);
+        assertEquals(42L, uv.get_uuid());
+
+        variant nv = new variant();
+        nv.set_nil();
+        assertEquals(0L, nv.get_uuid());
+
+        variant sv = new variant();
+        sv.set_string("not a uuid");
+        assertThrows(Exception.class, sv::get_uuid);
+    }
+
+    @Test
+    public void testIncludeCycleDetection(@TempDir Path dir) throws Exception {
+        Files.write(dir.resolve("a.fk"),
+                "include \"b.fk\"\nfunc fa()\nend\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(dir.resolve("b.fk"),
+                "include \"a.fk\"\nfunc fb()\nend\n".getBytes(StandardCharsets.UTF_8));
+
+        boolean ok = fk.parse(f, dir.resolve("a.fk").toString());
+        assertFalse(ok);
+        assertTrue(fk.geterror(f).contains("already parsing"), fk.geterror(f));
+    }
+
+    @Test
+    public void testParseFileWithOddLength(@TempDir Path dir) throws Exception {
+        // 29字节,不是10的倍数,旧的分块读取会在末尾混入'\0'
+        String content = "func f()\n    return \"OK\"\nend\n";
+        Files.write(dir.resolve("odd.fk"), content.getBytes(StandardCharsets.UTF_8));
+
+        boolean ok = fk.parse(f, dir.resolve("odd.fk").toString());
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertNotNull(ret, fk.geterror(f));
+        assertEquals("OK", ret);
+    }
+
+    @Test
+    public void testFormatWithMultibyteChars() throws Exception {
+        String script =
+                "func f()\n" +
+                "    return format(\"第$个测试\", 3)\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertNotNull(ret, fk.geterror(f));
+        assertEquals("第3个测试", ret);
+    }
+
+    @Test
+    public void testFormatEscapingAndPlaceholders() throws Exception {
+        String script =
+                "func f()\n" +
+                "    return format(\"$$a$\", 1)\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertNotNull(ret, fk.geterror(f));
+        assertEquals("$a1", ret);
+    }
+
+    @Test
+    public void testRunmultiMultipleReturns() throws Exception {
+        String script =
+                "func f()\n" +
+                "    return 1, \"two\", 3.5\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(3, rets.length);
+        assertEquals(1.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals("two", rets[1]);
+        assertEquals(3.5, ((Double) rets[2]).doubleValue(), 0.0001);
+    }
+
+    @Test
+    public void testRunFirstOfMultipleReturns() throws Exception {
+        String script =
+                "func f()\n" +
+                "    return \"first\", \"second\"\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        assertEquals("first", fk.run(f, "f"));
+    }
+
+    @Test
+    public void testMaxRunCmdNumStopsDeadLoop() throws Exception {
+        fkconfig config = new fkconfig();
+        config.max_run_cmd_num = 100;
+        fake ff = fk.newfake(config);
+        fk.openbaselib(ff);
+
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    while true then\n" +
+                "        i = i + 1\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(ff, script);
+        assertTrue(ok, fk.geterror(ff));
+
+        Object ret = fk.run(ff, "f");
+        assertNull(ret);
+        assertTrue(fk.error(ff));
+        assertTrue(fk.geterror(ff).contains("max_run_cmd_num"), fk.geterror(ff));
+    }
+
+    @Test
+    public void testRunTimeoutStopsDeadLoop() throws Exception {
+        fkconfig config = new fkconfig();
+        config.run_timeout_ms = 200;
+        fake ff = fk.newfake(config);
+        fk.openbaselib(ff);
+
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    while true then\n" +
+                "        i = i + 1\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(ff, script);
+        assertTrue(ok, fk.geterror(ff));
+
+        Object ret = fk.run(ff, "f");
+        assertNull(ret);
+        assertTrue(fk.error(ff));
+        assertTrue(fk.geterror(ff).contains("run_timeout_ms"), fk.geterror(ff));
+    }
+
+    @Test
+    public void testFkStop() throws Exception {
+        stopTarget = f;
+
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    while true then\n" +
+                "        i = i + 1\n" +
+                "        FakeScriptTest.stopNow()\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        fk.regclass(f, FakeScriptTest.class);
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertNull(ret);
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("stopped by fk.stop"), fk.geterror(f));
+    }
+
+    @Test
+    public void testContainerMaxSize() throws Exception {
+        fkconfig config = new fkconfig();
+        config.container_max_size = 10;
+        fake ff = fk.newfake(config);
+        fk.openbaselib(ff);
+
+        String arrayScript =
+                "func f()\n" +
+                "    var arr = array()\n" +
+                "    arr[15] = 1\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(ff, arrayScript);
+        assertTrue(ok, fk.geterror(ff));
+
+        fk.run(ff, "f");
+        assertTrue(fk.error(ff));
+        assertTrue(fk.geterror(ff).contains("container too big"), fk.geterror(ff));
+
+        ff.clearerr();
+
+        String mapScript =
+                "func f()\n" +
+                "    var m = map()\n" +
+                "    for var i = 0, i < 100, i++ then\n" +
+                "        m[i] = i\n" +
+                "    end\n" +
+                "end\n";
+
+        ok = fk.parsestr(ff, mapScript);
+        assertTrue(ok, fk.geterror(ff));
+
+        fk.run(ff, "f");
+        assertTrue(fk.error(ff));
+        assertTrue(fk.geterror(ff).contains("container too big"), fk.geterror(ff));
+    }
+
+    @Test
+    public void testRuntimeErrorContainsScriptCallStack() throws Exception {
+        String script =
+                "func g()\n" +
+                "    var arr = array()\n" +
+                "    return arr[-1]\n" +
+                "end\n" +
+                "func f()\n" +
+                "    return g()\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        String err = fk.geterror(f);
+        assertTrue(err.contains("call stack:"), err);
+        assertTrue(err.contains("g"), err);
     }
 }

@@ -34,13 +34,14 @@ class types
 
 	public static String show_exception(Exception e)
 	{
-		String ret = "";
+		StringBuilder sb = new StringBuilder();
 		for (StackTraceElement se : e.getStackTrace())
 		{
-			ret += se.toString() + "\n";
+			sb.append(se.toString());
+			sb.append("\n");
 		}
-		ret += e.toString();
-		return ret;
+		sb.append(e.toString());
+		return sb.toString();
 	}
 
 	public static String gen_package_name(String p, String n)
@@ -79,28 +80,33 @@ class types
 		}
 		va.m_recur++;
 
-		String ret = "";
-		ret += "[";
-
-		for (int i = 0; i < va.m_va.size(); i++)
+		try
 		{
-			variant n = va.m_va.get(i);
-			if (n != null)
+			StringBuilder sb = new StringBuilder();
+			sb.append("[");
+
+			for (int i = 0; i < va.m_va.size(); i++)
 			{
-				ret += n.toString();
+				variant n = va.m_va.get(i);
+				if (n != null)
+				{
+					sb.append(n.toString());
+				}
+				else
+				{
+					sb.append(" ");
+				}
+				sb.append(",");
 			}
-			else
-			{
-				ret += " ";
-			}
-			ret += ",";
+
+			sb.append("]");
+
+			return sb.toString();
 		}
-
-		ret += "]";
-
-		va.m_recur--;
-
-		return ret;
+		finally
+		{
+			va.m_recur--;
+		}
 	}
 
 	public static String maptoa(Object o)
@@ -112,35 +118,42 @@ class types
 		}
 		vm.m_recur++;
 
-		String ret = "";
-		ret += "{";
-		int i = 0;
-		Iterator<Entry<variant, variant>> it = vm.m_vm.entrySet().iterator();
-		while (it.hasNext())
+		try
 		{
-			Entry<variant, variant> entry = it.next();
-			variant kv = (variant) entry.getKey();
-			variant vv = (variant) entry.getValue();
-			if (i == 0)
+			StringBuilder sb = new StringBuilder();
+			sb.append("{");
+			int i = 0;
+			Iterator<Entry<variant, variant>> it = vm.m_vm.entrySet().iterator();
+			while (it.hasNext())
 			{
-				ret += "(";
-			}
-			else
-			{
-				ret += ",(";
+				Entry<variant, variant> entry = it.next();
+				variant kv = (variant) entry.getKey();
+				variant vv = (variant) entry.getValue();
+				if (i == 0)
+				{
+					sb.append("(");
+				}
+				else
+				{
+					sb.append(",(");
+				}
+
+				sb.append(kv.toString());
+				sb.append(",");
+				sb.append(vv.toString());
+				sb.append(")");
+
+				i++;
 			}
 
-			ret += kv.toString();
-			ret += ",";
-			ret += vv.toString();
-			ret += ")";
+			sb.append("}");
 
-			i++;
+			return sb.toString();
 		}
-
-		vm.m_recur--;
-
-		return ret;
+		finally
+		{
+			vm.m_recur--;
+		}
 	}
 
 	public static String dump_addr(int code)
@@ -160,7 +173,7 @@ class types
 				ret += "CONTAINER";
 				break;
 			default:
-				ret += "unknow ";
+				ret += "unknown ";
 				ret += addrtype;
 		}
 		ret += "\t";
@@ -249,7 +262,7 @@ class types
 			case command.OPCODE_YIELD:
 				return "YIELD";
 		}
-		return "unknow";
+		return "unknown";
 	}
 
 }

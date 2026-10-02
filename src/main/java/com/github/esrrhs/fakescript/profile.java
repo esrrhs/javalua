@@ -66,42 +66,42 @@ class profile
 			}
 		});
 
-		String dumpstr = "";
+		StringBuilder dump = new StringBuilder();
 
 		int wraplen = 30;
 
-		dumpstr += "Call Func:\n";
-		dumpstr += "\t";
-		dumpstr += fix_string_wrap("Func", wraplen);
-		dumpstr += fix_string_wrap("Calls", wraplen);
-		dumpstr += fix_string_wrap("TotalTime(ms)", wraplen);
-		dumpstr += fix_string_wrap("PerCallTime(ms)", wraplen);
-		dumpstr += "\n";
+		dump.append("Call Func:\n");
+		dump.append("\t");
+		dump.append(fix_string_wrap("Func", wraplen));
+		dump.append(fix_string_wrap("Calls", wraplen));
+		dump.append(fix_string_wrap("TotalTime(ms)", wraplen));
+		dump.append(fix_string_wrap("PerCallTime(ms)", wraplen));
+		dump.append("\n");
 		for (int i = 0; i < (int) sortelevec.size(); i++)
 		{
 			profilefuncele ele = sortelevec.get(i).getValue();
-			dumpstr += "\t";
-			dumpstr += fix_string_wrap(sortelevec.get(i).getKey(), wraplen);
-			dumpstr += fix_string_wrap("" + ele.m_callnum, wraplen);
-			dumpstr += fix_string_wrap("" + ele.m_calltime, wraplen);
-			dumpstr += fix_string_wrap("" + (ele.m_callnum != 0 ? ele.m_calltime / ele.m_callnum : 0), wraplen);
-			dumpstr += "\n";
+			dump.append("\t");
+			dump.append(fix_string_wrap(sortelevec.get(i).getKey(), wraplen));
+			dump.append(fix_string_wrap("" + ele.m_callnum, wraplen));
+			dump.append(fix_string_wrap("" + ele.m_calltime, wraplen));
+			dump.append(fix_string_wrap("" + (ele.m_callnum != 0 ? ele.m_calltime / ele.m_callnum : 0), wraplen));
+			dump.append("\n");
 		}
 
-		dumpstr += "Code Num:\n";
+		dump.append("Code Num:\n");
 		for (int i = 0; i < command.OPCODE_MAX; i++)
 		{
-			dumpstr += "\t";
-			dumpstr += types.OpCodeStr(i);
+			dump.append("\t");
+			dump.append(types.OpCodeStr(i));
 			for (int j = 0; j < (int) (20 - types.OpCodeStr(i).length()); j++)
 			{
-				dumpstr += " ";
+				dump.append(" ");
 			}
-			dumpstr += m_codetype[i];
-			dumpstr += "\n";
+			dump.append(m_codetype[i]);
+			dump.append("\n");
 		}
 
-		return dumpstr;
+		return dump.toString();
 	}
 
 	public void add_code_sample(int code)

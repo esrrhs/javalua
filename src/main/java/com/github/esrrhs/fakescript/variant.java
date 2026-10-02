@@ -130,7 +130,7 @@ class variant
 
 	public long get_uuid() throws Exception
 	{
-		if (m_type != variant_type.STRING && m_type != variant_type.NIL)
+		if (m_type != variant_type.UUID && m_type != variant_type.NIL)
 		{
 			throw new Exception("variant get uuid fail, the variant is " + m_type.toString() + m_data.toString());
 		}
@@ -224,7 +224,7 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (((double) (Double) l.m_data != 0) & ((double) (Double) r.m_data != 0)) ? (double) 1 : (double) 0;
+		m_data = (((double) (Double) l.m_data != 0) && ((double) (Double) r.m_data != 0)) ? (double) 1 : (double) 0;
 		m_type = variant_type.REAL;
 	}
 
@@ -232,7 +232,7 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (((double) (Double) l.m_data != 0) | ((double) (Double) r.m_data != 0)) ? (double) 1 : (double) 0;
+		m_data = (((double) (Double) l.m_data != 0) || ((double) (Double) r.m_data != 0)) ? (double) 1 : (double) 0;
 		m_type = variant_type.REAL;
 	}
 
@@ -290,14 +290,14 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data != 0) & ((double) (Double) r.m_data != 0);
+		return ((double) (Double) l.m_data != 0) && ((double) (Double) r.m_data != 0);
 	}
 
 	public static boolean or_jne(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data != 0) | ((double) (Double) r.m_data != 0);
+		return ((double) (Double) l.m_data != 0) || ((double) (Double) r.m_data != 0);
 	}
 
 	public static boolean less_jne(variant l, variant r) throws Exception

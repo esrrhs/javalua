@@ -176,6 +176,29 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 
 ---
 
+## 运行时安全与控制
+
+嵌入脚本时，可以通过 `fkconfig` 限制失控脚本，并用 `fk.stop` 取消执行：
+
+```java
+fkconfig config = new fkconfig();
+config.max_run_cmd_num = 1000000;    // 单次run总命令数上限,0表示不限制
+config.run_timeout_ms = 1000;        // 单次run墙钟时间上限(毫秒),0表示不限制
+config.container_max_size = 1000000; // 单个容器(array/map)元素个数上限,0表示不限制
+
+fake f = fk.newfake(config);
+fk.openbaselib(f);
+fk.parsestr(f, script);
+Object ret = fk.run(f, "funcname", args);         // 返回第一个返回值
+Object[] rets = fk.runmulti(f, "funcname", args); // 返回全部返回值
+
+fk.stop(f); // 在下一条命令边界取消当前run
+```
+
+运行时错误会在fake上记录错误标记;`fk.geterror(f)` 返回错误信息、Java堆栈以及脚本级调用栈。
+
+---
+
 ## 源码构建
 
 使用自带的 Maven Wrapper 即可进行构建与测试：
@@ -184,3 +207,12 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 ./mvnw clean test
 ./mvnw package
 ```
+
+其他构建profile：
+
+```bash
+./mvnw verify -Pquality -DskipTests   # SpotBugs静态分析报告
+./mvnw clean test -Pgrammar           # 重新生成YYParser.java(需要bison >= 3.0)
+```
+
+词法分析器(`Yylex.java`)由JFlex Maven插件在每次构建时从 `jflexbison/jflex.flex` 自动生成。语法分析器(`YYParser.java`)提交在仓库中，语法变更后使用 `grammar` profile(或 `build.sh`)重新生成。每次 `test` 构建会在 `target/site/jacoco/` 下生成测试覆盖率报告。

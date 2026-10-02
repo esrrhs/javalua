@@ -422,7 +422,7 @@ class compiler
 			case EVT_MAP:
 			{
 				const_map_list_value_node cml = (const_map_list_value_node) ev.m_v;
-				variant_map vm = new variant_map();
+				variant_map vm = new variant_map(m_f);
 				vm.m_isconst = true;
 
 				for (int i = 0; i < cml.m_lists.size(); i++)
@@ -445,7 +445,7 @@ class compiler
 			case EVT_ARRAY:
 			{
 				const_array_list_value_node cal = (const_array_list_value_node) ev.m_v;
-				variant_array va = new variant_array();
+				variant_array va = new variant_array(m_f);
 				va.m_isconst = true;
 				for (int i = 0; i < cal.m_lists.size(); i++)
 				{
