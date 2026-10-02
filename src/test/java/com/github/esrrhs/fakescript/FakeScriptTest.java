@@ -40,6 +40,21 @@ public class FakeScriptTest {
         fk.stop(stopTarget);
     }
 
+    @fakescript
+    public static int toInt(int a) {
+        return a;
+    }
+
+    @fakescript
+    public static boolean toBool(boolean b) {
+        return b;
+    }
+
+    @fakescript
+    public static long toLong(long a) {
+        return a;
+    }
+
     @Test
     public void testVersion() {
         assertNotNull(fk.version);
@@ -445,5 +460,119 @@ public class FakeScriptTest {
         ok = fk.parsestr(f, "func g()\n    return 1\nend\n");
         assertTrue(ok, fk.geterror(f));
         assertFalse(fk.error(f), fk.geterror(f));
+    }
+
+    @Test
+    public void testTypeConversionThroughBinding() throws Exception {
+        fk.regclass(f, FakeScriptTest.class);
+
+        String script =
+                "func f()\n" +
+                "    var a = FakeScriptTest.toInt(3.7)\n" +
+                "    var b = FakeScriptTest.toBool(2.5)\n" +
+                "    var c = FakeScriptTest.toBool(0)\n" +
+                "    var d = FakeScriptTest.toLong(7.9)\n" +
+                "    return a, b, c, d\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(4, rets.length, fk.geterror(f));
+        assertEquals(3.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals(1.0, ((Double) rets[1]).doubleValue(), 0.0001);
+        assertEquals(0.0, ((Double) rets[2]).doubleValue(), 0.0001);
+        assertEquals(7L, ((Long) rets[3]).longValue());
+    }
+
+    @Test
+    public void testNewClassWhiteList() throws Exception {
+        fkconfig config = new fkconfig();
+        config.new_class_white_list = new String[] { "java.lang.Object" };
+        fake ff = fk.newfake(config);
+        fk.openbaselib(ff);
+
+        String script =
+                "func f()\n" +
+                "    var a = new(\"java.lang.Object\")\n" +
+                "    var b = new(\"java.io.File\")\n" +
+                "    return a, b\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(ff, script);
+        assertTrue(ok, fk.geterror(ff));
+
+        Object[] rets = fk.runmulti(ff, "f");
+        assertEquals(2, rets.length);
+        assertTrue(rets[0] instanceof Object);
+        assertEquals("java.lang.Object", rets[0].getClass().getName());
+        assertTrue(rets[1] instanceof String, rets[1].toString());
+        assertTrue(((String) rets[1]).contains("not in new_class_white_list"), rets[1].toString());
+    }
+
+    @Test
+    public void testResumeFrameSliced() throws Exception {
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    while i < 100 then\n" +
+                "        i = i + 1\n" +
+                "        yield 1\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = null;
+        int frames = 0;
+        while (frames < 10000)
+        {
+            Object[] r = fk.resume(f, "f");
+            if (r != null)
+            {
+                rets = r;
+                break;
+            }
+            frames++;
+        }
+
+        assertNotNull(rets, "resume did not finish in 10000 frames: " + fk.geterror(f));
+        assertTrue(frames > 10, "expected frame-sliced execution, finished in " + frames + " frames");
+        assertEquals(100.0, ((Double) rets[0]).doubleValue(), 0.0001);
+
+        // 结束后可以重新启动,同样按帧执行直到结束
+        Object[] again = null;
+        int restartFrames = 0;
+        while (restartFrames < 10000)
+        {
+            Object[] r = fk.resume(f, "f");
+            if (r != null)
+            {
+                again = r;
+                break;
+            }
+            restartFrames++;
+        }
+        assertNotNull(again, fk.geterror(f));
+        assertEquals(100.0, ((Double) again[0]).doubleValue(), 0.0001);
+    }
+
+    @Test
+    public void testResumeWithArgs() throws Exception {
+        String script =
+                "func f(a, b)\n" +
+                "    return a + b, a - b\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.resume(f, "f", 10, 4);
+        assertNotNull(rets, fk.geterror(f));
+        assertEquals(14.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals(6.0, ((Double) rets[1]).doubleValue(), 0.0001);
     }
 }

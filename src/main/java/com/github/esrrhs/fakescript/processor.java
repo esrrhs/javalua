@@ -11,10 +11,17 @@ class processor
 	private ArrayList<routine> m_routines = new ArrayList<routine>();
 	int m_lastroutine;
 	int m_lastroutine_runnum;
+	// 分帧执行上限,>0时run()执行满该命令数后返回,0表示执行到全部协程结束
+	private int m_maxruncmd;
 
 	public processor(fake f)
 	{
 		m_f = f;
+	}
+
+	public void set_max_runcmd(int maxruncmd)
+	{
+		m_maxruncmd = maxruncmd;
 	}
 
 	public routine get_curroutine()
@@ -120,6 +127,7 @@ class processor
 							+ " ms, maybe dead loop script");
 				}
 
+				long itercmd = 0;
 				for (int i = 0; i < (int) m_routines.size(); i++)
 				{
 					routine r = m_routines.get(i);
@@ -130,11 +138,19 @@ class processor
 					{
 						cmdnum = (int) Math.min(cmdnum, Math.max(1, m_f.cfg.max_run_cmd_num - totalcmd));
 					}
-					totalcmd += r.run(cmdnum);
+					itercmd += r.run(cmdnum);
 					if (r.is_end())
 					{
 						m_routines.remove(i);
 					}
+				}
+				totalcmd += itercmd;
+
+				// 分帧模式:执行满上限,或所有协程都在sleep等不可执行状态时返回,由宿主决定何时继续
+				if (m_maxruncmd > 0 && !m_routines.isEmpty()
+						&& (totalcmd >= m_maxruncmd || itercmd == 0))
+				{
+					return;
 				}
 			}
 		}
