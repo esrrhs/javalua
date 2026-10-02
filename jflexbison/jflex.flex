@@ -90,277 +90,277 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 \"                           { yybegin(STRING); string.setLength(0); }
 
 "var"	{
-	return YYParser.VAR_BEGIN;
+	return YYParser.Lexer.VAR_BEGIN;
 }
 
 "return"  {
-	return YYParser.RETURN;
+	return YYParser.Lexer.RETURN;
 }
 
 "break" {
-    return YYParser.BREAK;
+    return YYParser.Lexer.BREAK;
 }
 
 "func" {
-	return YYParser.FUNC;
+	return YYParser.Lexer.FUNC;
 }
 
 "fake" {
-	return YYParser.FAKE;
+	return YYParser.Lexer.FAKE;
 }
 
 "while" {
-	return YYParser.WHILE;
+	return YYParser.Lexer.WHILE;
 }
 
 "for" {
-	return YYParser.FOR;
+	return YYParser.Lexer.FOR;
 }
 
 "true" {
-  return YYParser.FTRUE;
+  return YYParser.Lexer.FTRUE;
 }
 
 "false" {
-  return YYParser.FFALSE;
+  return YYParser.Lexer.FFALSE;
 }
 
 "if" {
-	return YYParser.IF;
+	return YYParser.Lexer.IF;
 }
 
 "then" {
-	return YYParser.THEN;
+	return YYParser.Lexer.THEN;
 }
 
 "else" {
-	return YYParser.ELSE;
+	return YYParser.Lexer.ELSE;
 }
 
 "elseif" {
-	return YYParser.ELSEIF;
+	return YYParser.Lexer.ELSEIF;
 }
 
 "end" {
-	return YYParser.END;
+	return YYParser.Lexer.END;
 }
 
 "const" {
-	return YYParser.FCONST;
+	return YYParser.Lexer.FCONST;
 }
 
 "package" {
-	return YYParser.PACKAGE;
+	return YYParser.Lexer.PACKAGE;
 }
 
 "null" {
-	return YYParser.NULL;
+	return YYParser.Lexer.NULL;
 }
 
 "include" {
-	return YYParser.INCLUDE;
+	return YYParser.Lexer.INCLUDE;
 }
 
 "struct" {
-	return YYParser.STRUCT;
+	return YYParser.Lexer.STRUCT;
 }
 
 "and" {
-	return YYParser.AND;
+	return YYParser.Lexer.AND;
 }
 
 "or" {
-	return YYParser.OR;
+	return YYParser.Lexer.OR;
 }
 
 "is" {
-	return YYParser.IS;
+	return YYParser.Lexer.IS;
 }
 
 "not" {
-	return YYParser.NOT;
+	return YYParser.Lexer.NOT;
 }
 
 "continue" {
-	return YYParser.CONTINUE;
+	return YYParser.Lexer.CONTINUE;
 }
 
 "yield" {
-	return YYParser.YIELD;
+	return YYParser.Lexer.YIELD;
 }
 
 "sleep" {
-	return YYParser.SLEEP;
+	return YYParser.Lexer.SLEEP;
 }
 
 "switch" {
-	return YYParser.SWITCH;
+	return YYParser.Lexer.SWITCH;
 }
 
 "case" {
-	return YYParser.CASE;
+	return YYParser.Lexer.CASE;
 }
 
 "default" {
-	return YYParser.DEFAULT;
+	return YYParser.Lexer.DEFAULT;
 }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
-	return YYParser.IDENTIFIER;
+	return YYParser.Lexer.IDENTIFIER;
 }
 
 [a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
-	return YYParser.IDENTIFIER_DOT;
+	return YYParser.Lexer.IDENTIFIER_DOT;
 }
 
 [a-zA-Z_][a-zA-Z0-9_]*(\-\>[a-zA-Z_][a-zA-Z0-9_]*)+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
-	return YYParser.IDENTIFIER_POINTER;
+	return YYParser.Lexer.IDENTIFIER_POINTER;
 }
 
 [0-9]+u {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
-	return YYParser.FKUUID;
+	return YYParser.Lexer.FKUUID;
 }
 
 -?[0-9]+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
-	return YYParser.NUMBER;
+	return YYParser.Lexer.NUMBER;
 }
 
 -?[0-9]+\.[0-9]+([Ee]-?[0-9]+)? {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
-	return YYParser.FKFLOAT;
+	return YYParser.Lexer.FKFLOAT;
 }
 
 "%" {
-  return YYParser.DIVIDE_MOD;
+  return YYParser.Lexer.DIVIDE_MOD;
 }
 
 "," {
-	return YYParser.ARG_SPLITTER;
+	return YYParser.Lexer.ARG_SPLITTER;
 }
 
 "->" {
-	return YYParser.RIGHT_POINTER;
+	return YYParser.Lexer.RIGHT_POINTER;
 }
 
 "++" {
-	return YYParser.INC;
+	return YYParser.Lexer.INC;
 }
 
 "+" {
-	return YYParser.PLUS;
+	return YYParser.Lexer.PLUS;
 }
 
 "-" {
-	return YYParser.MINUS;
+	return YYParser.Lexer.MINUS;
 }
 
 "/" {
-	return YYParser.DIVIDE;
+	return YYParser.Lexer.DIVIDE;
 }
 
 "*" {
-	return YYParser.MULTIPLY;
+	return YYParser.Lexer.MULTIPLY;
 }
 
 ":=" {
-	return YYParser.NEW_ASSIGN;
+	return YYParser.Lexer.NEW_ASSIGN;
 }
 
 "+=" {
-	return YYParser.PLUS_ASSIGN;
+	return YYParser.Lexer.PLUS_ASSIGN;
 }
 
 "-=" {
-	return YYParser.MINUS_ASSIGN;
+	return YYParser.Lexer.MINUS_ASSIGN;
 }
 
 "/=" {
-	return YYParser.DIVIDE_ASSIGN;
+	return YYParser.Lexer.DIVIDE_ASSIGN;
 }
 
 "*=" {
-	return YYParser.MULTIPLY_ASSIGN;
+	return YYParser.Lexer.MULTIPLY_ASSIGN;
 }
 
 "%=" {
-  return YYParser.DIVIDE_MOD_ASSIGN;
+  return YYParser.Lexer.DIVIDE_MOD_ASSIGN;
 }
 
 "=" {
-	return YYParser.ASSIGN;
+	return YYParser.Lexer.ASSIGN;
 }
 
 ">" {
-	return YYParser.MORE;
+	return YYParser.Lexer.MORE;
 }
 
 "<" {
-	return YYParser.LESS;
+	return YYParser.Lexer.LESS;
 }
 
 ">=" {
-	return YYParser.MORE_OR_EQUAL;
+	return YYParser.Lexer.MORE_OR_EQUAL;
 }
 
 "<=" {
-	return YYParser.LESS_OR_EQUAL;
+	return YYParser.Lexer.LESS_OR_EQUAL;
 }
 
 "==" {
-	return YYParser.EQUAL;
+	return YYParser.Lexer.EQUAL;
 }
 
 "!=" {
-	return YYParser.NOT_EQUAL;
+	return YYParser.Lexer.NOT_EQUAL;
 }
 
 "(" {
-	return YYParser.OPEN_BRACKET;
+	return YYParser.Lexer.OPEN_BRACKET;
 }
 
 ")" {
-	return YYParser.CLOSE_BRACKET;
+	return YYParser.Lexer.CLOSE_BRACKET;
 }
 
 ":" {
-	return YYParser.COLON;
+	return YYParser.Lexer.COLON;
 }
 
 "[" {
-	return YYParser.OPEN_SQUARE_BRACKET;
+	return YYParser.Lexer.OPEN_SQUARE_BRACKET;
 }
 
 "]" {
-	return YYParser.CLOSE_SQUARE_BRACKET;
+	return YYParser.Lexer.CLOSE_SQUARE_BRACKET;
 }
 
 "{" {
-	return YYParser.OPEN_BIG_BRACKET;
+	return YYParser.Lexer.OPEN_BIG_BRACKET;
 }
 
 "}" {
-	return YYParser.CLOSE_BIG_BRACKET;
+	return YYParser.Lexer.CLOSE_BIG_BRACKET;
 }
 
 ".." {
-	return YYParser.STRING_CAT;
+	return YYParser.Lexer.STRING_CAT;
 }
 
 {WhiteSpace} { }
 
 <<EOF>> { 
-	return YYParser.EOF; 
+	return YYParser.Lexer.EOF; 
 }
 
 }
@@ -369,7 +369,7 @@ WhiteSpace = {LineTerminator} | [ \t\f]
   \"                             { yybegin(YYINITIAL); 
 									yylval = new ParserVal(string.toString()); 
 									yylval.ival = yyline + 1;
-									return YYParser.STRING_DEFINITION; }
+									return YYParser.Lexer.STRING_DEFINITION; }
   
   {StringCharacter}+             { string.append( yytext() ); }
   
@@ -387,4 +387,4 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 
 /* error fallback */
 [^]                              {  }
-<<EOF>>                          { return YYParser.EOF; }
+<<EOF>>                          { return YYParser.Lexer.EOF; }

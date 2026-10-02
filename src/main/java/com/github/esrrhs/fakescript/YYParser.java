@@ -1,22 +1,21 @@
-
-/* A Bison parser, made by GNU Bison 2.4.1.  */
+/* A Bison parser, made by GNU Bison 3.8.2.  */
 
 /* Skeleton implementation for Bison LALR(1) parsers in Java
-   
-      Copyright (C) 2007, 2008 Free Software Foundation, Inc.
-   
+
+   Copyright (C) 2007-2015, 2018-2021 Free Software Foundation, Inc.
+
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation, either version 3 of the License, or
    (at your option) any later version.
-   
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-   
+
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* As a special exception, you may create a larger work that contains
    part or all of the Bison parser skeleton and distribute that work
@@ -27,14 +26,17 @@
    special exception, which will cause the skeleton and the resulting
    Bison output files to be licensed under the GNU General Public
    License without this special exception.
-   
+
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
-/* First part of user declarations.  */
+/* DO NOT RELY ON FEATURES THAT ARE NOT DOCUMENTED in the manual,
+   especially those whose name start with YY_ or yy_.  They are
+   private implementation details that can be changed or removed.  */
 
-/* Line 32 of lalr1.java  */
-/* Line 1 of "YYParser.y"  */
+
+/* First part of user prologue.  */
+/* "jflexbison/YYParser.y":1  */
 
 package com.github.esrrhs.fakescript;
 
@@ -42,199 +44,551 @@ import com.github.esrrhs.fakescript.syntree.*;
 import java.io.*;
 
 
+/* "src/main/java/com/github/esrrhs/fakescript/YYParser.java":48  */
+
+
+import java.text.MessageFormat;
+import java.util.ArrayList;
 
 /**
- * A Bison parser, automatically generated from <tt>YYParser.y</tt>.
+ * A Bison parser, automatically generated from <tt>jflexbison/YYParser.y</tt>.
  *
  * @author LALR (1) parser skeleton written by Paolo Bonzini.
  */
 class YYParser
 {
-    /** Version number for the Bison executable that generated this parser.  */
-  public static final String bisonVersion = "2.4.1";
+  /** Version number for the Bison executable that generated this parser.  */
+  public static final String bisonVersion = "3.8.2";
 
   /** Name of the skeleton that generated this parser.  */
   public static final String bisonSkeleton = "lalr1.java";
 
 
-  /** True if verbose error messages are enabled.  */
-  public boolean errorVerbose = false;
 
 
 
-  /** Token returned by the scanner to signal the end of its input.  */
-  public static final int EOF = 0;
 
-/* Tokens.  */
-  /** Token number, to be returned by the scanner.  */
-  public static final int VAR_BEGIN = 258;
-  /** Token number, to be returned by the scanner.  */
-  public static final int RETURN = 259;
-  /** Token number, to be returned by the scanner.  */
-  public static final int BREAK = 260;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FUNC = 261;
-  /** Token number, to be returned by the scanner.  */
-  public static final int WHILE = 262;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FTRUE = 263;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FFALSE = 264;
-  /** Token number, to be returned by the scanner.  */
-  public static final int IF = 265;
-  /** Token number, to be returned by the scanner.  */
-  public static final int THEN = 266;
-  /** Token number, to be returned by the scanner.  */
-  public static final int ELSE = 267;
-  /** Token number, to be returned by the scanner.  */
-  public static final int END = 268;
-  /** Token number, to be returned by the scanner.  */
-  public static final int STRING_DEFINITION = 269;
-  /** Token number, to be returned by the scanner.  */
-  public static final int IDENTIFIER = 270;
-  /** Token number, to be returned by the scanner.  */
-  public static final int NUMBER = 271;
-  /** Token number, to be returned by the scanner.  */
-  public static final int SINGLE_LINE_COMMENT = 272;
-  /** Token number, to be returned by the scanner.  */
-  public static final int DIVIDE_MOD = 273;
-  /** Token number, to be returned by the scanner.  */
-  public static final int ARG_SPLITTER = 274;
-  /** Token number, to be returned by the scanner.  */
-  public static final int PLUS = 275;
-  /** Token number, to be returned by the scanner.  */
-  public static final int MINUS = 276;
-  /** Token number, to be returned by the scanner.  */
-  public static final int DIVIDE = 277;
-  /** Token number, to be returned by the scanner.  */
-  public static final int MULTIPLY = 278;
-  /** Token number, to be returned by the scanner.  */
-  public static final int ASSIGN = 279;
-  /** Token number, to be returned by the scanner.  */
-  public static final int MORE = 280;
-  /** Token number, to be returned by the scanner.  */
-  public static final int LESS = 281;
-  /** Token number, to be returned by the scanner.  */
-  public static final int MORE_OR_EQUAL = 282;
-  /** Token number, to be returned by the scanner.  */
-  public static final int LESS_OR_EQUAL = 283;
-  /** Token number, to be returned by the scanner.  */
-  public static final int EQUAL = 284;
-  /** Token number, to be returned by the scanner.  */
-  public static final int NOT_EQUAL = 285;
-  /** Token number, to be returned by the scanner.  */
-  public static final int OPEN_BRACKET = 286;
-  /** Token number, to be returned by the scanner.  */
-  public static final int CLOSE_BRACKET = 287;
-  /** Token number, to be returned by the scanner.  */
-  public static final int AND = 288;
-  /** Token number, to be returned by the scanner.  */
-  public static final int OR = 289;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FKFLOAT = 290;
-  /** Token number, to be returned by the scanner.  */
-  public static final int PLUS_ASSIGN = 291;
-  /** Token number, to be returned by the scanner.  */
-  public static final int MINUS_ASSIGN = 292;
-  /** Token number, to be returned by the scanner.  */
-  public static final int DIVIDE_ASSIGN = 293;
-  /** Token number, to be returned by the scanner.  */
-  public static final int MULTIPLY_ASSIGN = 294;
-  /** Token number, to be returned by the scanner.  */
-  public static final int DIVIDE_MOD_ASSIGN = 295;
-  /** Token number, to be returned by the scanner.  */
-  public static final int COLON = 296;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FOR = 297;
-  /** Token number, to be returned by the scanner.  */
-  public static final int INC = 298;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FAKE = 299;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FKUUID = 300;
-  /** Token number, to be returned by the scanner.  */
-  public static final int OPEN_SQUARE_BRACKET = 301;
-  /** Token number, to be returned by the scanner.  */
-  public static final int CLOSE_SQUARE_BRACKET = 302;
-  /** Token number, to be returned by the scanner.  */
-  public static final int FCONST = 303;
-  /** Token number, to be returned by the scanner.  */
-  public static final int PACKAGE = 304;
-  /** Token number, to be returned by the scanner.  */
-  public static final int INCLUDE = 305;
-  /** Token number, to be returned by the scanner.  */
-  public static final int IDENTIFIER_DOT = 306;
-  /** Token number, to be returned by the scanner.  */
-  public static final int IDENTIFIER_POINTER = 307;
-  /** Token number, to be returned by the scanner.  */
-  public static final int STRUCT = 308;
-  /** Token number, to be returned by the scanner.  */
-  public static final int IS = 309;
-  /** Token number, to be returned by the scanner.  */
-  public static final int NOT = 310;
-  /** Token number, to be returned by the scanner.  */
-  public static final int CONTINUE = 311;
-  /** Token number, to be returned by the scanner.  */
-  public static final int YIELD = 312;
-  /** Token number, to be returned by the scanner.  */
-  public static final int SLEEP = 313;
-  /** Token number, to be returned by the scanner.  */
-  public static final int SWITCH = 314;
-  /** Token number, to be returned by the scanner.  */
-  public static final int CASE = 315;
-  /** Token number, to be returned by the scanner.  */
-  public static final int DEFAULT = 316;
-  /** Token number, to be returned by the scanner.  */
-  public static final int NEW_ASSIGN = 317;
-  /** Token number, to be returned by the scanner.  */
-  public static final int ELSEIF = 318;
-  /** Token number, to be returned by the scanner.  */
-  public static final int RIGHT_POINTER = 319;
-  /** Token number, to be returned by the scanner.  */
-  public static final int STRING_CAT = 320;
-  /** Token number, to be returned by the scanner.  */
-  public static final int OPEN_BIG_BRACKET = 321;
-  /** Token number, to be returned by the scanner.  */
-  public static final int CLOSE_BIG_BRACKET = 322;
-  /** Token number, to be returned by the scanner.  */
-  public static final int NULL = 323;
+  public enum SymbolKind
+  {
+    S_YYEOF(0),                    /* "end of file"  */
+    S_YYerror(1),                  /* error  */
+    S_YYUNDEF(2),                  /* "invalid token"  */
+    S_VAR_BEGIN(3),                /* VAR_BEGIN  */
+    S_RETURN(4),                   /* RETURN  */
+    S_BREAK(5),                    /* BREAK  */
+    S_FUNC(6),                     /* FUNC  */
+    S_WHILE(7),                    /* WHILE  */
+    S_FTRUE(8),                    /* FTRUE  */
+    S_FFALSE(9),                   /* FFALSE  */
+    S_IF(10),                      /* IF  */
+    S_THEN(11),                    /* THEN  */
+    S_ELSE(12),                    /* ELSE  */
+    S_END(13),                     /* END  */
+    S_STRING_DEFINITION(14),       /* STRING_DEFINITION  */
+    S_IDENTIFIER(15),              /* IDENTIFIER  */
+    S_NUMBER(16),                  /* NUMBER  */
+    S_SINGLE_LINE_COMMENT(17),     /* SINGLE_LINE_COMMENT  */
+    S_DIVIDE_MOD(18),              /* DIVIDE_MOD  */
+    S_ARG_SPLITTER(19),            /* ARG_SPLITTER  */
+    S_PLUS(20),                    /* PLUS  */
+    S_MINUS(21),                   /* MINUS  */
+    S_DIVIDE(22),                  /* DIVIDE  */
+    S_MULTIPLY(23),                /* MULTIPLY  */
+    S_ASSIGN(24),                  /* ASSIGN  */
+    S_MORE(25),                    /* MORE  */
+    S_LESS(26),                    /* LESS  */
+    S_MORE_OR_EQUAL(27),           /* MORE_OR_EQUAL  */
+    S_LESS_OR_EQUAL(28),           /* LESS_OR_EQUAL  */
+    S_EQUAL(29),                   /* EQUAL  */
+    S_NOT_EQUAL(30),               /* NOT_EQUAL  */
+    S_OPEN_BRACKET(31),            /* OPEN_BRACKET  */
+    S_CLOSE_BRACKET(32),           /* CLOSE_BRACKET  */
+    S_AND(33),                     /* AND  */
+    S_OR(34),                      /* OR  */
+    S_FKFLOAT(35),                 /* FKFLOAT  */
+    S_PLUS_ASSIGN(36),             /* PLUS_ASSIGN  */
+    S_MINUS_ASSIGN(37),            /* MINUS_ASSIGN  */
+    S_DIVIDE_ASSIGN(38),           /* DIVIDE_ASSIGN  */
+    S_MULTIPLY_ASSIGN(39),         /* MULTIPLY_ASSIGN  */
+    S_DIVIDE_MOD_ASSIGN(40),       /* DIVIDE_MOD_ASSIGN  */
+    S_COLON(41),                   /* COLON  */
+    S_FOR(42),                     /* FOR  */
+    S_INC(43),                     /* INC  */
+    S_FAKE(44),                    /* FAKE  */
+    S_FKUUID(45),                  /* FKUUID  */
+    S_OPEN_SQUARE_BRACKET(46),     /* OPEN_SQUARE_BRACKET  */
+    S_CLOSE_SQUARE_BRACKET(47),    /* CLOSE_SQUARE_BRACKET  */
+    S_FCONST(48),                  /* FCONST  */
+    S_PACKAGE(49),                 /* PACKAGE  */
+    S_INCLUDE(50),                 /* INCLUDE  */
+    S_IDENTIFIER_DOT(51),          /* IDENTIFIER_DOT  */
+    S_IDENTIFIER_POINTER(52),      /* IDENTIFIER_POINTER  */
+    S_STRUCT(53),                  /* STRUCT  */
+    S_IS(54),                      /* IS  */
+    S_NOT(55),                     /* NOT  */
+    S_CONTINUE(56),                /* CONTINUE  */
+    S_YIELD(57),                   /* YIELD  */
+    S_SLEEP(58),                   /* SLEEP  */
+    S_SWITCH(59),                  /* SWITCH  */
+    S_CASE(60),                    /* CASE  */
+    S_DEFAULT(61),                 /* DEFAULT  */
+    S_NEW_ASSIGN(62),              /* NEW_ASSIGN  */
+    S_ELSEIF(63),                  /* ELSEIF  */
+    S_RIGHT_POINTER(64),           /* RIGHT_POINTER  */
+    S_STRING_CAT(65),              /* STRING_CAT  */
+    S_OPEN_BIG_BRACKET(66),        /* OPEN_BIG_BRACKET  */
+    S_CLOSE_BIG_BRACKET(67),       /* CLOSE_BIG_BRACKET  */
+    S_NULL(68),                    /* NULL  */
+    S_YYACCEPT(69),                /* $accept  */
+    S_program(70),                 /* program  */
+    S_body(71),                    /* body  */
+    S_function_declaration(72),    /* function_declaration  */
+    S_function_declaration_arguments(73), /* function_declaration_arguments  */
+    S_arg(74),                     /* arg  */
+    S_function_call(75),           /* function_call  */
+    S_function_call_arguments(76), /* function_call_arguments  */
+    S_arg_expr(77),                /* arg_expr  */
+    S_block(78),                   /* block  */
+    S_stmt(79),                    /* stmt  */
+    S_fake_call_stmt(80),          /* fake_call_stmt  */
+    S_for_stmt(81),                /* for_stmt  */
+    S_for_loop_stmt(82),           /* for_loop_stmt  */
+    S_while_stmt(83),              /* while_stmt  */
+    S_if_stmt(84),                 /* if_stmt  */
+    S_elseif_stmt_list(85),        /* elseif_stmt_list  */
+    S_elseif_stmt(86),             /* elseif_stmt  */
+    S_else_stmt(87),               /* else_stmt  */
+    S_cmp(88),                     /* cmp  */
+    S_cmp_value(89),               /* cmp_value  */
+    S_return_stmt(90),             /* return_stmt  */
+    S_return_value_list(91),       /* return_value_list  */
+    S_return_value(92),            /* return_value  */
+    S_assign_stmt(93),             /* assign_stmt  */
+    S_multi_assign_stmt(94),       /* multi_assign_stmt  */
+    S_var_list(95),                /* var_list  */
+    S_assign_value(96),            /* assign_value  */
+    S_math_assign_stmt(97),        /* math_assign_stmt  */
+    S_var(98),                     /* var  */
+    S_variable(99),                /* variable  */
+    S_expr(100),                   /* expr  */
+    S_math_expr(101),              /* math_expr  */
+    S_expr_value(102),             /* expr_value  */
+    S_break(103),                  /* break  */
+    S_continue(104),               /* continue  */
+    S_sleep(105),                  /* sleep  */
+    S_yield(106),                  /* yield  */
+    S_switch_stmt(107),            /* switch_stmt  */
+    S_switch_case_list(108),       /* switch_case_list  */
+    S_switch_case_define(109),     /* switch_case_define  */
+    S_package_head(110),           /* package_head  */
+    S_include_head(111),           /* include_head  */
+    S_include_define(112),         /* include_define  */
+    S_struct_head(113),            /* struct_head  */
+    S_struct_define(114),          /* struct_define  */
+    S_struct_mem_declaration(115), /* struct_mem_declaration  */
+    S_const_head(116),             /* const_head  */
+    S_const_define(117),           /* const_define  */
+    S_explicit_value(118),         /* explicit_value  */
+    S_const_map_list_value(119),   /* const_map_list_value  */
+    S_const_map_value(120),        /* const_map_value  */
+    S_const_array_list_value(121); /* const_array_list_value  */
 
 
+    private final int yycode_;
 
-  
+    SymbolKind (int n) {
+      this.yycode_ = n;
+    }
+
+    private static final SymbolKind[] values_ = {
+      SymbolKind.S_YYEOF,
+      SymbolKind.S_YYerror,
+      SymbolKind.S_YYUNDEF,
+      SymbolKind.S_VAR_BEGIN,
+      SymbolKind.S_RETURN,
+      SymbolKind.S_BREAK,
+      SymbolKind.S_FUNC,
+      SymbolKind.S_WHILE,
+      SymbolKind.S_FTRUE,
+      SymbolKind.S_FFALSE,
+      SymbolKind.S_IF,
+      SymbolKind.S_THEN,
+      SymbolKind.S_ELSE,
+      SymbolKind.S_END,
+      SymbolKind.S_STRING_DEFINITION,
+      SymbolKind.S_IDENTIFIER,
+      SymbolKind.S_NUMBER,
+      SymbolKind.S_SINGLE_LINE_COMMENT,
+      SymbolKind.S_DIVIDE_MOD,
+      SymbolKind.S_ARG_SPLITTER,
+      SymbolKind.S_PLUS,
+      SymbolKind.S_MINUS,
+      SymbolKind.S_DIVIDE,
+      SymbolKind.S_MULTIPLY,
+      SymbolKind.S_ASSIGN,
+      SymbolKind.S_MORE,
+      SymbolKind.S_LESS,
+      SymbolKind.S_MORE_OR_EQUAL,
+      SymbolKind.S_LESS_OR_EQUAL,
+      SymbolKind.S_EQUAL,
+      SymbolKind.S_NOT_EQUAL,
+      SymbolKind.S_OPEN_BRACKET,
+      SymbolKind.S_CLOSE_BRACKET,
+      SymbolKind.S_AND,
+      SymbolKind.S_OR,
+      SymbolKind.S_FKFLOAT,
+      SymbolKind.S_PLUS_ASSIGN,
+      SymbolKind.S_MINUS_ASSIGN,
+      SymbolKind.S_DIVIDE_ASSIGN,
+      SymbolKind.S_MULTIPLY_ASSIGN,
+      SymbolKind.S_DIVIDE_MOD_ASSIGN,
+      SymbolKind.S_COLON,
+      SymbolKind.S_FOR,
+      SymbolKind.S_INC,
+      SymbolKind.S_FAKE,
+      SymbolKind.S_FKUUID,
+      SymbolKind.S_OPEN_SQUARE_BRACKET,
+      SymbolKind.S_CLOSE_SQUARE_BRACKET,
+      SymbolKind.S_FCONST,
+      SymbolKind.S_PACKAGE,
+      SymbolKind.S_INCLUDE,
+      SymbolKind.S_IDENTIFIER_DOT,
+      SymbolKind.S_IDENTIFIER_POINTER,
+      SymbolKind.S_STRUCT,
+      SymbolKind.S_IS,
+      SymbolKind.S_NOT,
+      SymbolKind.S_CONTINUE,
+      SymbolKind.S_YIELD,
+      SymbolKind.S_SLEEP,
+      SymbolKind.S_SWITCH,
+      SymbolKind.S_CASE,
+      SymbolKind.S_DEFAULT,
+      SymbolKind.S_NEW_ASSIGN,
+      SymbolKind.S_ELSEIF,
+      SymbolKind.S_RIGHT_POINTER,
+      SymbolKind.S_STRING_CAT,
+      SymbolKind.S_OPEN_BIG_BRACKET,
+      SymbolKind.S_CLOSE_BIG_BRACKET,
+      SymbolKind.S_NULL,
+      SymbolKind.S_YYACCEPT,
+      SymbolKind.S_program,
+      SymbolKind.S_body,
+      SymbolKind.S_function_declaration,
+      SymbolKind.S_function_declaration_arguments,
+      SymbolKind.S_arg,
+      SymbolKind.S_function_call,
+      SymbolKind.S_function_call_arguments,
+      SymbolKind.S_arg_expr,
+      SymbolKind.S_block,
+      SymbolKind.S_stmt,
+      SymbolKind.S_fake_call_stmt,
+      SymbolKind.S_for_stmt,
+      SymbolKind.S_for_loop_stmt,
+      SymbolKind.S_while_stmt,
+      SymbolKind.S_if_stmt,
+      SymbolKind.S_elseif_stmt_list,
+      SymbolKind.S_elseif_stmt,
+      SymbolKind.S_else_stmt,
+      SymbolKind.S_cmp,
+      SymbolKind.S_cmp_value,
+      SymbolKind.S_return_stmt,
+      SymbolKind.S_return_value_list,
+      SymbolKind.S_return_value,
+      SymbolKind.S_assign_stmt,
+      SymbolKind.S_multi_assign_stmt,
+      SymbolKind.S_var_list,
+      SymbolKind.S_assign_value,
+      SymbolKind.S_math_assign_stmt,
+      SymbolKind.S_var,
+      SymbolKind.S_variable,
+      SymbolKind.S_expr,
+      SymbolKind.S_math_expr,
+      SymbolKind.S_expr_value,
+      SymbolKind.S_break,
+      SymbolKind.S_continue,
+      SymbolKind.S_sleep,
+      SymbolKind.S_yield,
+      SymbolKind.S_switch_stmt,
+      SymbolKind.S_switch_case_list,
+      SymbolKind.S_switch_case_define,
+      SymbolKind.S_package_head,
+      SymbolKind.S_include_head,
+      SymbolKind.S_include_define,
+      SymbolKind.S_struct_head,
+      SymbolKind.S_struct_define,
+      SymbolKind.S_struct_mem_declaration,
+      SymbolKind.S_const_head,
+      SymbolKind.S_const_define,
+      SymbolKind.S_explicit_value,
+      SymbolKind.S_const_map_list_value,
+      SymbolKind.S_const_map_value,
+      SymbolKind.S_const_array_list_value
+    };
+
+    static final SymbolKind get(int code) {
+      return values_[code];
+    }
+
+    public final int getCode() {
+      return this.yycode_;
+    }
+
+    /* Return YYSTR after stripping away unnecessary quotes and
+       backslashes, so that it's suitable for yyerror.  The heuristic is
+       that double-quoting is unnecessary unless the string contains an
+       apostrophe, a comma, or backslash (other than backslash-backslash).
+       YYSTR is taken from yytname.  */
+    private static String yytnamerr_(String yystr)
+    {
+      if (yystr.charAt (0) == '"')
+        {
+          StringBuffer yyr = new StringBuffer();
+          strip_quotes: for (int i = 1; i < yystr.length(); i++)
+            switch (yystr.charAt(i))
+              {
+              case '\'':
+              case ',':
+                break strip_quotes;
+
+              case '\\':
+                if (yystr.charAt(++i) != '\\')
+                  break strip_quotes;
+                /* Fall through.  */
+              default:
+                yyr.append(yystr.charAt(i));
+                break;
+
+              case '"':
+                return yyr.toString();
+              }
+        }
+      return yystr;
+    }
+
+    /* YYTNAME[SYMBOL-NUM] -- String name of the symbol SYMBOL-NUM.
+       First, the terminals, then, starting at \a YYNTOKENS_, nonterminals.  */
+    private static final String[] yytname_ = yytname_init();
+  private static final String[] yytname_init()
+  {
+    return new String[]
+    {
+  "\"end of file\"", "error", "\"invalid token\"", "VAR_BEGIN", "RETURN",
+  "BREAK", "FUNC", "WHILE", "FTRUE", "FFALSE", "IF", "THEN", "ELSE", "END",
+  "STRING_DEFINITION", "IDENTIFIER", "NUMBER", "SINGLE_LINE_COMMENT",
+  "DIVIDE_MOD", "ARG_SPLITTER", "PLUS", "MINUS", "DIVIDE", "MULTIPLY",
+  "ASSIGN", "MORE", "LESS", "MORE_OR_EQUAL", "LESS_OR_EQUAL", "EQUAL",
+  "NOT_EQUAL", "OPEN_BRACKET", "CLOSE_BRACKET", "AND", "OR", "FKFLOAT",
+  "PLUS_ASSIGN", "MINUS_ASSIGN", "DIVIDE_ASSIGN", "MULTIPLY_ASSIGN",
+  "DIVIDE_MOD_ASSIGN", "COLON", "FOR", "INC", "FAKE", "FKUUID",
+  "OPEN_SQUARE_BRACKET", "CLOSE_SQUARE_BRACKET", "FCONST", "PACKAGE",
+  "INCLUDE", "IDENTIFIER_DOT", "IDENTIFIER_POINTER", "STRUCT", "IS", "NOT",
+  "CONTINUE", "YIELD", "SLEEP", "SWITCH", "CASE", "DEFAULT", "NEW_ASSIGN",
+  "ELSEIF", "RIGHT_POINTER", "STRING_CAT", "OPEN_BIG_BRACKET",
+  "CLOSE_BIG_BRACKET", "NULL", "$accept", "program", "body",
+  "function_declaration", "function_declaration_arguments", "arg",
+  "function_call", "function_call_arguments", "arg_expr", "block", "stmt",
+  "fake_call_stmt", "for_stmt", "for_loop_stmt", "while_stmt", "if_stmt",
+  "elseif_stmt_list", "elseif_stmt", "else_stmt", "cmp", "cmp_value",
+  "return_stmt", "return_value_list", "return_value", "assign_stmt",
+  "multi_assign_stmt", "var_list", "assign_value", "math_assign_stmt",
+  "var", "variable", "expr", "math_expr", "expr_value", "break",
+  "continue", "sleep", "yield", "switch_stmt", "switch_case_list",
+  "switch_case_define", "package_head", "include_head", "include_define",
+  "struct_head", "struct_define", "struct_mem_declaration", "const_head",
+  "const_define", "explicit_value", "const_map_list_value",
+  "const_map_value", "const_array_list_value", null
+    };
+  }
+
+    /* The user-facing name of this symbol.  */
+    public final String getName() {
+      return yytnamerr_(yytname_[yycode_]);
+    }
+
+  };
+
 
   /**
    * Communication interface between the scanner and the Bison-generated
    * parser <tt>YYParser</tt>.
    */
   public interface Lexer {
-    
+    /* Token kinds.  */
+    /** Token "end of file", to be returned by the scanner.  */
+    static final int YYEOF = 0;
+    /** Token error, to be returned by the scanner.  */
+    static final int YYerror = 256;
+    /** Token "invalid token", to be returned by the scanner.  */
+    static final int YYUNDEF = 257;
+    /** Token VAR_BEGIN, to be returned by the scanner.  */
+    static final int VAR_BEGIN = 258;
+    /** Token RETURN, to be returned by the scanner.  */
+    static final int RETURN = 259;
+    /** Token BREAK, to be returned by the scanner.  */
+    static final int BREAK = 260;
+    /** Token FUNC, to be returned by the scanner.  */
+    static final int FUNC = 261;
+    /** Token WHILE, to be returned by the scanner.  */
+    static final int WHILE = 262;
+    /** Token FTRUE, to be returned by the scanner.  */
+    static final int FTRUE = 263;
+    /** Token FFALSE, to be returned by the scanner.  */
+    static final int FFALSE = 264;
+    /** Token IF, to be returned by the scanner.  */
+    static final int IF = 265;
+    /** Token THEN, to be returned by the scanner.  */
+    static final int THEN = 266;
+    /** Token ELSE, to be returned by the scanner.  */
+    static final int ELSE = 267;
+    /** Token END, to be returned by the scanner.  */
+    static final int END = 268;
+    /** Token STRING_DEFINITION, to be returned by the scanner.  */
+    static final int STRING_DEFINITION = 269;
+    /** Token IDENTIFIER, to be returned by the scanner.  */
+    static final int IDENTIFIER = 270;
+    /** Token NUMBER, to be returned by the scanner.  */
+    static final int NUMBER = 271;
+    /** Token SINGLE_LINE_COMMENT, to be returned by the scanner.  */
+    static final int SINGLE_LINE_COMMENT = 272;
+    /** Token DIVIDE_MOD, to be returned by the scanner.  */
+    static final int DIVIDE_MOD = 273;
+    /** Token ARG_SPLITTER, to be returned by the scanner.  */
+    static final int ARG_SPLITTER = 274;
+    /** Token PLUS, to be returned by the scanner.  */
+    static final int PLUS = 275;
+    /** Token MINUS, to be returned by the scanner.  */
+    static final int MINUS = 276;
+    /** Token DIVIDE, to be returned by the scanner.  */
+    static final int DIVIDE = 277;
+    /** Token MULTIPLY, to be returned by the scanner.  */
+    static final int MULTIPLY = 278;
+    /** Token ASSIGN, to be returned by the scanner.  */
+    static final int ASSIGN = 279;
+    /** Token MORE, to be returned by the scanner.  */
+    static final int MORE = 280;
+    /** Token LESS, to be returned by the scanner.  */
+    static final int LESS = 281;
+    /** Token MORE_OR_EQUAL, to be returned by the scanner.  */
+    static final int MORE_OR_EQUAL = 282;
+    /** Token LESS_OR_EQUAL, to be returned by the scanner.  */
+    static final int LESS_OR_EQUAL = 283;
+    /** Token EQUAL, to be returned by the scanner.  */
+    static final int EQUAL = 284;
+    /** Token NOT_EQUAL, to be returned by the scanner.  */
+    static final int NOT_EQUAL = 285;
+    /** Token OPEN_BRACKET, to be returned by the scanner.  */
+    static final int OPEN_BRACKET = 286;
+    /** Token CLOSE_BRACKET, to be returned by the scanner.  */
+    static final int CLOSE_BRACKET = 287;
+    /** Token AND, to be returned by the scanner.  */
+    static final int AND = 288;
+    /** Token OR, to be returned by the scanner.  */
+    static final int OR = 289;
+    /** Token FKFLOAT, to be returned by the scanner.  */
+    static final int FKFLOAT = 290;
+    /** Token PLUS_ASSIGN, to be returned by the scanner.  */
+    static final int PLUS_ASSIGN = 291;
+    /** Token MINUS_ASSIGN, to be returned by the scanner.  */
+    static final int MINUS_ASSIGN = 292;
+    /** Token DIVIDE_ASSIGN, to be returned by the scanner.  */
+    static final int DIVIDE_ASSIGN = 293;
+    /** Token MULTIPLY_ASSIGN, to be returned by the scanner.  */
+    static final int MULTIPLY_ASSIGN = 294;
+    /** Token DIVIDE_MOD_ASSIGN, to be returned by the scanner.  */
+    static final int DIVIDE_MOD_ASSIGN = 295;
+    /** Token COLON, to be returned by the scanner.  */
+    static final int COLON = 296;
+    /** Token FOR, to be returned by the scanner.  */
+    static final int FOR = 297;
+    /** Token INC, to be returned by the scanner.  */
+    static final int INC = 298;
+    /** Token FAKE, to be returned by the scanner.  */
+    static final int FAKE = 299;
+    /** Token FKUUID, to be returned by the scanner.  */
+    static final int FKUUID = 300;
+    /** Token OPEN_SQUARE_BRACKET, to be returned by the scanner.  */
+    static final int OPEN_SQUARE_BRACKET = 301;
+    /** Token CLOSE_SQUARE_BRACKET, to be returned by the scanner.  */
+    static final int CLOSE_SQUARE_BRACKET = 302;
+    /** Token FCONST, to be returned by the scanner.  */
+    static final int FCONST = 303;
+    /** Token PACKAGE, to be returned by the scanner.  */
+    static final int PACKAGE = 304;
+    /** Token INCLUDE, to be returned by the scanner.  */
+    static final int INCLUDE = 305;
+    /** Token IDENTIFIER_DOT, to be returned by the scanner.  */
+    static final int IDENTIFIER_DOT = 306;
+    /** Token IDENTIFIER_POINTER, to be returned by the scanner.  */
+    static final int IDENTIFIER_POINTER = 307;
+    /** Token STRUCT, to be returned by the scanner.  */
+    static final int STRUCT = 308;
+    /** Token IS, to be returned by the scanner.  */
+    static final int IS = 309;
+    /** Token NOT, to be returned by the scanner.  */
+    static final int NOT = 310;
+    /** Token CONTINUE, to be returned by the scanner.  */
+    static final int CONTINUE = 311;
+    /** Token YIELD, to be returned by the scanner.  */
+    static final int YIELD = 312;
+    /** Token SLEEP, to be returned by the scanner.  */
+    static final int SLEEP = 313;
+    /** Token SWITCH, to be returned by the scanner.  */
+    static final int SWITCH = 314;
+    /** Token CASE, to be returned by the scanner.  */
+    static final int CASE = 315;
+    /** Token DEFAULT, to be returned by the scanner.  */
+    static final int DEFAULT = 316;
+    /** Token NEW_ASSIGN, to be returned by the scanner.  */
+    static final int NEW_ASSIGN = 317;
+    /** Token ELSEIF, to be returned by the scanner.  */
+    static final int ELSEIF = 318;
+    /** Token RIGHT_POINTER, to be returned by the scanner.  */
+    static final int RIGHT_POINTER = 319;
+    /** Token STRING_CAT, to be returned by the scanner.  */
+    static final int STRING_CAT = 320;
+    /** Token OPEN_BIG_BRACKET, to be returned by the scanner.  */
+    static final int OPEN_BIG_BRACKET = 321;
+    /** Token CLOSE_BIG_BRACKET, to be returned by the scanner.  */
+    static final int CLOSE_BIG_BRACKET = 322;
+    /** Token NULL, to be returned by the scanner.  */
+    static final int NULL = 323;
+
+    /** Deprecated, use YYEOF instead.  */
+    public static final int EOF = YYEOF;
+
 
     /**
      * Method to retrieve the semantic value of the last scanned token.
-     * @return the semantic value of the last scanned token.  */
-    Object getLVal ();
+     * @return the semantic value of the last scanned token.
+     */
+    Object getLVal();
 
     /**
      * Entry point for the scanner.  Returns the token identifier corresponding
      * to the next token and prepares to return the semantic value
-     * of the token. 
-     * @return the token identifier corresponding to the next token. */
-    int yylex () throws java.io.IOException;
+     * of the token.
+     * @return the token identifier corresponding to the next token.
+     */
+    int yylex() throws java.io.IOException;
 
     /**
-     * Entry point for error reporting.  Emits an error
-     * in a user-defined way.
+     * Emit an errorin a user-defined way.
      *
-     * 
-     * @param s The string for the error message.  */
-     void yyerror (String s);
+     *
+     * @param msg The string for the error message.
+     */
+     void yyerror(String msg);
+
+
   }
 
-  /** The object doing lexical analysis for us.  */
+
+  /**
+   * The object doing lexical analysis for us.
+   */
   private Lexer yylexer;
-  
-  
+
+
 
 
 
@@ -242,290 +596,258 @@ class YYParser
    * Instantiates the Bison-generated parser.
    * @param yylexer The scanner that will supply tokens to the parser.
    */
-  public YYParser (Lexer yylexer) {
+  public YYParser(Lexer yylexer)
+  {
+
     this.yylexer = yylexer;
-    
+
   }
 
-  private java.io.PrintStream yyDebugStream = System.err;
+
+
+  private int yynerrs = 0;
 
   /**
-   * Return the <tt>PrintStream</tt> on which the debugging output is
-   * printed.
+   * The number of syntax errors so far.
    */
-  public final java.io.PrintStream getDebugStream () { return yyDebugStream; }
+  public final int getNumberOfErrors() { return yynerrs; }
 
   /**
-   * Set the <tt>PrintStream</tt> on which the debug output is printed.
-   * @param s The stream that is used for debugging output.
+   * Print an error message via the lexer.
+   *
+   * @param msg The error message.
    */
-  public final void setDebugStream(java.io.PrintStream s) { yyDebugStream = s; }
-
-  private int yydebug = 0;
-
-  /**
-   * Answer the verbosity of the debugging output; 0 means that all kinds of
-   * output from the parser are suppressed.
-   */
-  public final int getDebugLevel() { return yydebug; }
-
-  /**
-   * Set the verbosity of the debugging output; 0 means that all kinds of
-   * output from the parser are suppressed.
-   * @param level The verbosity level for debugging output.
-   */
-  public final void setDebugLevel(int level) { yydebug = level; }
-
-  private final int yylex () throws java.io.IOException {
-    return yylexer.yylex ();
-  }
-  protected final void yyerror (String s) {
-    yylexer.yyerror (s);
+  public final void yyerror(String msg) {
+      yylexer.yyerror(msg);
   }
 
-  
 
-  protected final void yycdebug (String s) {
-    if (yydebug > 0)
-      yyDebugStream.println (s);
-  }
 
   private final class YYStack {
     private int[] stateStack = new int[16];
-    
     private Object[] valueStack = new Object[16];
 
     public int size = 16;
     public int height = -1;
-    
-    public final void push (int state, Object value    	   	      	    ) {
-      height++;
-      if (size == height) 
-        {
-	  int[] newStateStack = new int[size * 2];
-	  System.arraycopy (stateStack, 0, newStateStack, 0, height);
-	  stateStack = newStateStack;
-	  
-	  
-	  Object[] newValueStack = new Object[size * 2];
-	  System.arraycopy (valueStack, 0, newValueStack, 0, height);
-	  valueStack = newValueStack;
 
-	  size *= 2;
-	}
+    public final void push(int state, Object value) {
+      height++;
+      if (size == height) {
+        int[] newStateStack = new int[size * 2];
+        System.arraycopy(stateStack, 0, newStateStack, 0, height);
+        stateStack = newStateStack;
+
+        Object[] newValueStack = new Object[size * 2];
+        System.arraycopy(valueStack, 0, newValueStack, 0, height);
+        valueStack = newValueStack;
+
+        size *= 2;
+      }
 
       stateStack[height] = state;
-      
       valueStack[height] = value;
     }
 
-    public final void pop () {
-      height--;
+    public final void pop() {
+      pop(1);
     }
 
-    public final void pop (int num) {
+    public final void pop(int num) {
       // Avoid memory leaks... garbage collection is a white lie!
-      if (num > 0) {
-	java.util.Arrays.fill (valueStack, height - num + 1, height, null);
-        
+      if (0 < num) {
+        java.util.Arrays.fill(valueStack, height - num + 1, height + 1, null);
       }
       height -= num;
     }
 
-    public final int stateAt (int i) {
+    public final int stateAt(int i) {
       return stateStack[height - i];
     }
 
-    public final Object valueAt (int i) {
+    public final Object valueAt(int i) {
       return valueStack[height - i];
     }
 
     // Print the state stack on the debug stream.
-    public void print (java.io.PrintStream out)
-    {
+    public void print(java.io.PrintStream out) {
       out.print ("Stack now");
-      
-      for (int i = 0; i < height; i++)
-        {
-	  out.print (' ');
-	  out.print (stateStack[i]);
-        }
-      out.println ();
+
+      for (int i = 0; i <= height; i++) {
+        out.print(' ');
+        out.print(stateStack[i]);
+      }
+      out.println();
     }
   }
 
   /**
    * Returned by a Bison action in order to stop the parsing process and
-   * return success (<tt>true</tt>).  */
+   * return success (<tt>true</tt>).
+   */
   public static final int YYACCEPT = 0;
 
   /**
    * Returned by a Bison action in order to stop the parsing process and
-   * return failure (<tt>false</tt>).  */
+   * return failure (<tt>false</tt>).
+   */
   public static final int YYABORT = 1;
+
+
 
   /**
    * Returned by a Bison action in order to start error recovery without
-   * printing an error message.  */
+   * printing an error message.
+   */
   public static final int YYERROR = 2;
 
   /**
-   * Returned by a Bison action in order to print an error message and start
-   * error recovery.  */
-  public static final int YYFAIL = 3;
-
+   * Internal return codes that are not supported for user semantic
+   * actions.
+   */
+  private static final int YYERRLAB = 3;
   private static final int YYNEWSTATE = 4;
   private static final int YYDEFAULT = 5;
   private static final int YYREDUCE = 6;
   private static final int YYERRLAB1 = 7;
   private static final int YYRETURN = 8;
 
+
   private int yyerrstatus_ = 0;
 
+
   /**
-   * Return whether error recovery is being done.  In this state, the parser
+   * Whether error recovery is being done.  In this state, the parser
    * reads token until it reaches a known state, and then restarts normal
-   * operation.  */
+   * operation.
+   */
   public final boolean recovering ()
   {
     return yyerrstatus_ == 0;
   }
 
-  private int yyaction (int yyn, YYStack yystack, int yylen) 
-  {
-    Object yyval;
-    
+  /** Compute post-reduction state.
+   * @param yystate   the current state
+   * @param yysym     the nonterminal to push on the stack
+   */
+  private int yyLRGotoState(int yystate, int yysym) {
+    int yyr = yypgoto_[yysym - YYNTOKENS_] + yystate;
+    if (0 <= yyr && yyr <= YYLAST_ && yycheck_[yyr] == yystate)
+      return yytable_[yyr];
+    else
+      return yydefgoto_[yysym - YYNTOKENS_];
+  }
 
+  private int yyaction(int yyn, YYStack yystack, int yylen)
+  {
     /* If YYLEN is nonzero, implement the default value of the action:
-       `$$ = $1'.  Otherwise, use the top of the stack.
-    
+       '$$ = $1'.  Otherwise, use the top of the stack.
+
        Otherwise, the following line sets YYVAL to garbage.
        This behavior is undocumented and Bison
        users should not rely upon it.  */
-    if (yylen > 0)
-      yyval = yystack.valueAt (yylen - 1);
-    else
-      yyval = yystack.valueAt (0);
-    
-    yy_reduce_print (yyn, yystack);
+    Object yyval = (0 < yylen) ? yystack.valueAt(yylen - 1) : yystack.valueAt(0);
 
     switch (yyn)
       {
-	  case 3:
+          case 3: /* body: %empty  */
   if (yyn == 3)
-    
-/* Line 353 of lalr1.java  */
-/* Line 99 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":99  */
+        {
 	};
   break;
-    
 
-  case 6:
+
+  case 6: /* function_declaration: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET block END  */
   if (yyn == 6)
-    
-/* Line 353 of lalr1.java  */
-/* Line 109 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":109  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET block END");
-		func_desc_node p = ((Yylex)yylexer).new_node(func_desc_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (7-(2)))))).ival);
-		p.m_funcname = ((ParserVal)((ParserVal)((yystack.valueAt (7-(2)))))).sval;
-		p.m_arglist = (func_desc_arglist_node)((ParserVal)((yystack.valueAt (7-(4))))).obj;
-		p.m_block = (block_node)((ParserVal)((yystack.valueAt (7-(6))))).obj;
+		func_desc_node p = ((Yylex)yylexer).new_node(func_desc_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
+		p.m_funcname = ((ParserVal)((ParserVal)yystack.valueAt (5))).sval;
+		p.m_arglist = (func_desc_arglist_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_block = (block_node)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_endline = ((Yylex)yylexer).get_mybison().get_jflex().get_line();
 		((Yylex)yylexer).get_mybison().add_func_desc(p);
 	};
   break;
-    
 
-  case 7:
+
+  case 7: /* function_declaration: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET END  */
   if (yyn == 7)
-    
-/* Line 353 of lalr1.java  */
-/* Line 120 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":120  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET END");
-		func_desc_node p = ((Yylex)yylexer).new_node(func_desc_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(2)))))).ival);
-		p.m_funcname = ((ParserVal)((ParserVal)((yystack.valueAt (6-(2)))))).sval;
-		p.m_arglist = (func_desc_arglist_node)((ParserVal)((yystack.valueAt (6-(4))))).obj;
+		func_desc_node p = ((Yylex)yylexer).new_node(func_desc_node.class, ((ParserVal)((ParserVal)yystack.valueAt (4))).ival);
+		p.m_funcname = ((ParserVal)((ParserVal)yystack.valueAt (4))).sval;
+		p.m_arglist = (func_desc_arglist_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_endline = ((Yylex)yylexer).get_mybison().get_jflex().get_line();
 		((Yylex)yylexer).get_mybison().add_func_desc(p);
 	};
   break;
-    
 
-  case 8:
+
+  case 8: /* function_declaration_arguments: %empty  */
   if (yyn == 8)
-    
-/* Line 353 of lalr1.java  */
-/* Line 132 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":132  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty");
 	};
   break;
-    
 
-  case 9:
+
+  case 9: /* function_declaration_arguments: function_declaration_arguments ARG_SPLITTER arg  */
   if (yyn == 9)
-    
-/* Line 353 of lalr1.java  */
-/* Line 137 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":137  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_declaration_arguments ARG_SPLITTER arg ");
-		func_desc_arglist_node p = (func_desc_arglist_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj);
+		func_desc_arglist_node p = (func_desc_arglist_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 10:
+
+  case 10: /* function_declaration_arguments: arg  */
   if (yyn == 10)
-    
-/* Line 353 of lalr1.java  */
-/* Line 148 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":148  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: arg");
-		func_desc_arglist_node p = ((Yylex)yylexer).new_node(func_desc_arglist_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		func_desc_arglist_node p = ((Yylex)yylexer).new_node(func_desc_arglist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 11:
+
+  case 11: /* arg: IDENTIFIER  */
   if (yyn == 11)
-    
-/* Line 353 of lalr1.java  */
-/* Line 161 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":161  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER");
-		identifier_node p = ((Yylex)yylexer).new_node(identifier_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		identifier_node p = ((Yylex)yylexer).new_node(identifier_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 12:
+
+  case 12: /* function_call: IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 12)
-    
-/* Line 353 of lalr1.java  */
-/* Line 175 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":175  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
-		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).ival);
-		p.m_fuc = ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).sval;
-		p.m_arglist = (function_call_arglist_node)((ParserVal)((yystack.valueAt (4-(3))))).obj;
+		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
+		p.m_fuc = ((ParserVal)((ParserVal)yystack.valueAt (3))).sval;
+		p.m_arglist = (function_call_arglist_node)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_fakecall = false;
 		p.m_classmem_call = false;
 		
@@ -534,18 +856,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 13:
+
+  case 13: /* function_call: IDENTIFIER_DOT OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 13)
-    
-/* Line 353 of lalr1.java  */
-/* Line 189 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":189  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER_DOT OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
-		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).ival);
-		p.m_fuc = ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).sval;
-		p.m_arglist = (function_call_arglist_node)((ParserVal)((yystack.valueAt (4-(3))))).obj;
+		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
+		p.m_fuc = ((ParserVal)((ParserVal)yystack.valueAt (3))).sval;
+		p.m_arglist = (function_call_arglist_node)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_fakecall = false;
 		p.m_classmem_call = false;
 		
@@ -554,18 +874,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 14:
+
+  case 14: /* function_call: function_call OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 14)
-    
-/* Line 353 of lalr1.java  */
-/* Line 203 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":203  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
-		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).ival);
-		p.m_prefuc = (syntree_node)((ParserVal)((yystack.valueAt (4-(1))))).obj;
-		p.m_arglist = (function_call_arglist_node)((ParserVal)((yystack.valueAt (4-(3))))).obj;
+		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
+		p.m_prefuc = (syntree_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_arglist = (function_call_arglist_node)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_fakecall = false;
 		p.m_classmem_call = false;
 		
@@ -574,23 +892,21 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 15:
+
+  case 15: /* function_call: variable COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 15)
-    
-/* Line 353 of lalr1.java  */
-/* Line 217 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":217  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
-		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(1)))))).ival);
-		p.m_fuc = ((ParserVal)((ParserVal)((yystack.valueAt (6-(3)))))).sval;
-		p.m_arglist = (function_call_arglist_node)((ParserVal)((yystack.valueAt (6-(5))))).obj;
+		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
+		p.m_fuc = ((ParserVal)((ParserVal)yystack.valueAt (3))).sval;
+		p.m_arglist = (function_call_arglist_node)((ParserVal)yystack.valueAt (1)).obj;
 		if (p.m_arglist == null)
 		{
-			p.m_arglist = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(1)))))).ival);
+			p.m_arglist = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
 		}
-		p.m_arglist.add_arg((syntree_node)((ParserVal)((yystack.valueAt (6-(1))))).obj);
+		p.m_arglist.add_arg((syntree_node)((ParserVal)yystack.valueAt (5)).obj);
 		p.m_fakecall = false;
 		p.m_classmem_call = true;
 		
@@ -599,23 +915,21 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 16:
+
+  case 16: /* function_call: function_call COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 16)
-    
-/* Line 353 of lalr1.java  */
-/* Line 236 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":236  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
-		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(1)))))).ival);
-		p.m_fuc = ((ParserVal)((ParserVal)((yystack.valueAt (6-(3)))))).sval;
-		p.m_arglist = (function_call_arglist_node)((ParserVal)((yystack.valueAt (6-(5))))).obj;
+		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
+		p.m_fuc = ((ParserVal)((ParserVal)yystack.valueAt (3))).sval;
+		p.m_arglist = (function_call_arglist_node)((ParserVal)yystack.valueAt (1)).obj;
 		if (p.m_arglist == null)
 		{
-			p.m_arglist = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(1)))))).ival);
+			p.m_arglist = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
 		}
-		p.m_arglist.add_arg((syntree_node)((ParserVal)((yystack.valueAt (6-(1))))).obj);
+		p.m_arglist.add_arg((syntree_node)((ParserVal)yystack.valueAt (5)).obj);
 		p.m_fakecall = false;
 		p.m_classmem_call = true;
 		
@@ -624,287 +938,243 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 17:
+
+  case 17: /* function_call_arguments: %empty  */
   if (yyn == 17)
-    
-/* Line 353 of lalr1.java  */
-/* Line 257 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":257  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty ");
 	};
   break;
-    
 
-  case 18:
+
+  case 18: /* function_call_arguments: function_call_arguments ARG_SPLITTER arg_expr  */
   if (yyn == 18)
-    
-/* Line 353 of lalr1.java  */
-/* Line 262 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":262  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call_arguments ARG_SPLITTER arg_expr ");
-		function_call_arglist_node p = (function_call_arglist_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj);
+		function_call_arglist_node p = (function_call_arglist_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 19:
+
+  case 19: /* function_call_arguments: arg_expr  */
   if (yyn == 19)
-    
-/* Line 353 of lalr1.java  */
-/* Line 273 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":273  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: arg_expr ");
-		function_call_arglist_node p = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		function_call_arglist_node p = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 20:
+
+  case 20: /* arg_expr: expr_value  */
   if (yyn == 20)
-    
-/* Line 353 of lalr1.java  */
-/* Line 286 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":286  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 21:
+
+  case 21: /* block: block stmt  */
   if (yyn == 21)
-    
-/* Line 353 of lalr1.java  */
-/* Line 296 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":296  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: block stmt ");
-		block_node p = (block_node)((ParserVal)((yystack.valueAt (2-(1))))).obj;
-		p.add_stmt((syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj);
+		block_node p = (block_node)((ParserVal)yystack.valueAt (1)).obj;
+		p.add_stmt((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 22:
+
+  case 22: /* block: stmt  */
   if (yyn == 22)
-    
-/* Line 353 of lalr1.java  */
-/* Line 307 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":307  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: stmt");
-		block_node p = ((Yylex)yylexer).new_node(block_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_stmt((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		block_node p = ((Yylex)yylexer).new_node(block_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_stmt((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 23:
+
+  case 23: /* stmt: while_stmt  */
   if (yyn == 23)
-    
-/* Line 353 of lalr1.java  */
-/* Line 320 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":320  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: while_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 24:
+
+  case 24: /* stmt: if_stmt  */
   if (yyn == 24)
-    
-/* Line 353 of lalr1.java  */
-/* Line 326 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":326  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: if_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 25:
+
+  case 25: /* stmt: return_stmt  */
   if (yyn == 25)
-    
-/* Line 353 of lalr1.java  */
-/* Line 332 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":332  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 26:
+
+  case 26: /* stmt: assign_stmt  */
   if (yyn == 26)
-    
-/* Line 353 of lalr1.java  */
-/* Line 338 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":338  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: assign_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 27:
+
+  case 27: /* stmt: multi_assign_stmt  */
   if (yyn == 27)
-    
-/* Line 353 of lalr1.java  */
-/* Line 344 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":344  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: multi_assign_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 28:
+
+  case 28: /* stmt: break  */
   if (yyn == 28)
-    
-/* Line 353 of lalr1.java  */
-/* Line 350 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":350  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: break");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 29:
+
+  case 29: /* stmt: continue  */
   if (yyn == 29)
-    
-/* Line 353 of lalr1.java  */
-/* Line 356 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":356  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: continue");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 30:
+
+  case 30: /* stmt: expr  */
   if (yyn == 30)
-    
-/* Line 353 of lalr1.java  */
-/* Line 362 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":362  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 31:
+
+  case 31: /* stmt: math_assign_stmt  */
   if (yyn == 31)
-    
-/* Line 353 of lalr1.java  */
-/* Line 368 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":368  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_assign_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 32:
+
+  case 32: /* stmt: for_stmt  */
   if (yyn == 32)
-    
-/* Line 353 of lalr1.java  */
-/* Line 374 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":374  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: for_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 33:
+
+  case 33: /* stmt: for_loop_stmt  */
   if (yyn == 33)
-    
-/* Line 353 of lalr1.java  */
-/* Line 380 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":380  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: for_loop_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 34:
+
+  case 34: /* stmt: fake_call_stmt  */
   if (yyn == 34)
-    
-/* Line 353 of lalr1.java  */
-/* Line 386 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":386  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: fake_call_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 35:
+
+  case 35: /* stmt: sleep  */
   if (yyn == 35)
-    
-/* Line 353 of lalr1.java  */
-/* Line 392 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":392  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: sleep_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 36:
+
+  case 36: /* stmt: yield  */
   if (yyn == 36)
-    
-/* Line 353 of lalr1.java  */
-/* Line 398 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":398  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: yield_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 37:
+
+  case 37: /* stmt: switch_stmt  */
   if (yyn == 37)
-    
-/* Line 353 of lalr1.java  */
-/* Line 404 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":404  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: switch_stmt");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 38:
+
+  case 38: /* fake_call_stmt: FAKE function_call  */
   if (yyn == 38)
-    
-/* Line 353 of lalr1.java  */
-/* Line 412 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":412  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FAKE function_call");
-		function_call_node p = (function_call_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		function_call_node p = (function_call_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_fakecall = true;
 		
 		ParserVal ret = new ParserVal(p);
@@ -912,39 +1182,35 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 39:
+
+  case 39: /* for_stmt: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END  */
   if (yyn == 39)
-    
-/* Line 353 of lalr1.java  */
-/* Line 425 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":425  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END");
-		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (9-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (9-(4))))).obj;
-		p.m_beginblock = (block_node)((ParserVal)((yystack.valueAt (9-(2))))).obj;
-		p.m_endblock = (block_node)((ParserVal)((yystack.valueAt (9-(6))))).obj;
-		p.m_block = (block_node)((ParserVal)((yystack.valueAt (9-(8))))).obj;
+		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (7))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (5)).obj;
+		p.m_beginblock = (block_node)((ParserVal)yystack.valueAt (7)).obj;
+		p.m_endblock = (block_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_block = (block_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 40:
+
+  case 40: /* for_stmt: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END  */
   if (yyn == 40)
-    
-/* Line 353 of lalr1.java  */
-/* Line 439 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":439  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END");
-		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (8-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (8-(4))))).obj;
-		p.m_beginblock = (block_node)((ParserVal)((yystack.valueAt (8-(2))))).obj;
-		p.m_endblock = (block_node)((ParserVal)((yystack.valueAt (8-(6))))).obj;
+		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (6))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (4)).obj;
+		p.m_beginblock = (block_node)((ParserVal)yystack.valueAt (6)).obj;
+		p.m_endblock = (block_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_block = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -952,41 +1218,37 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 41:
+
+  case 41: /* for_loop_stmt: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END  */
   if (yyn == 41)
-    
-/* Line 353 of lalr1.java  */
-/* Line 455 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":455  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END");
-		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (11-(2)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (11-(2))))).obj;
-		p.m_begin = (syntree_node)((ParserVal)((yystack.valueAt (11-(4))))).obj;
-		p.m_end = (syntree_node)((ParserVal)((yystack.valueAt (11-(6))))).obj;
-		p.m_add = (syntree_node)((ParserVal)((yystack.valueAt (11-(8))))).obj;
-		p.m_block = (block_node)((ParserVal)((yystack.valueAt (11-(10))))).obj;
+		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (9))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (9)).obj;
+		p.m_begin = (syntree_node)((ParserVal)yystack.valueAt (7)).obj;
+		p.m_end = (syntree_node)((ParserVal)yystack.valueAt (5)).obj;
+		p.m_add = (syntree_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_block = (block_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 42:
+
+  case 42: /* for_loop_stmt: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END  */
   if (yyn == 42)
-    
-/* Line 353 of lalr1.java  */
-/* Line 470 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":470  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END");
-		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (10-(2)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (10-(2))))).obj;
-		p.m_begin = (syntree_node)((ParserVal)((yystack.valueAt (10-(4))))).obj;
-		p.m_end = (syntree_node)((ParserVal)((yystack.valueAt (10-(6))))).obj;
-		p.m_add = (syntree_node)((ParserVal)((yystack.valueAt (10-(8))))).obj;
+		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (8))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (8)).obj;
+		p.m_begin = (syntree_node)((ParserVal)yystack.valueAt (6)).obj;
+		p.m_end = (syntree_node)((ParserVal)yystack.valueAt (4)).obj;
+		p.m_add = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_block = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -994,35 +1256,31 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 43:
+
+  case 43: /* while_stmt: WHILE cmp THEN block END  */
   if (yyn == 43)
-    
-/* Line 353 of lalr1.java  */
-/* Line 487 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":487  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp THEN block END ");
-		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (5-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (5-(2))))).obj;
-		p.m_block = (block_node)((ParserVal)((yystack.valueAt (5-(4))))).obj;
+		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_block = (block_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 44:
+
+  case 44: /* while_stmt: WHILE cmp THEN END  */
   if (yyn == 44)
-    
-/* Line 353 of lalr1.java  */
-/* Line 499 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":499  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp THEN END ");
-		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (4-(2))))).obj;
+		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_block = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1030,54 +1288,48 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 45:
+
+  case 45: /* if_stmt: IF cmp THEN block elseif_stmt_list else_stmt END  */
   if (yyn == 45)
-    
-/* Line 353 of lalr1.java  */
-/* Line 513 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":513  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IF cmp THEN block elseif_stmt_list else_stmt END");
-		if_stmt p = ((Yylex)yylexer).new_node(if_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (7-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (7-(2))))).obj;
-		p.m_block = (block_node)((ParserVal)((yystack.valueAt (7-(4))))).obj;
-		p.m_elseifs = (elseif_stmt_list)((ParserVal)((yystack.valueAt (7-(5))))).obj;
-		p.m_elses = (else_stmt)((ParserVal)((yystack.valueAt (7-(6))))).obj;
+		if_stmt p = ((Yylex)yylexer).new_node(if_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (5)).obj;
+		p.m_block = (block_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_elseifs = (elseif_stmt_list)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_elses = (else_stmt)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 46:
+
+  case 46: /* if_stmt: IF cmp THEN elseif_stmt_list else_stmt END  */
   if (yyn == 46)
-    
-/* Line 353 of lalr1.java  */
-/* Line 527 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":527  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IF cmp THEN elseif_stmt_list else_stmt END");
-		if_stmt p = ((Yylex)yylexer).new_node(if_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (6-(2))))).obj;
+		if_stmt p = ((Yylex)yylexer).new_node(if_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (4))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (4)).obj;
 		p.m_block = null;
-		p.m_elseifs = (elseif_stmt_list)((ParserVal)((yystack.valueAt (6-(4))))).obj;
-		p.m_elses = (else_stmt)((ParserVal)((yystack.valueAt (6-(5))))).obj;
+		p.m_elseifs = (elseif_stmt_list)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_elses = (else_stmt)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 47:
+
+  case 47: /* elseif_stmt_list: %empty  */
   if (yyn == 47)
-    
-/* Line 353 of lalr1.java  */
-/* Line 543 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":543  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty");
 		
 		ParserVal ret = new ParserVal(null);
@@ -1085,69 +1337,61 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 48:
+
+  case 48: /* elseif_stmt_list: elseif_stmt_list elseif_stmt  */
   if (yyn == 48)
-    
-/* Line 353 of lalr1.java  */
-/* Line 552 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":552  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: elseif_stmt_list elseif_stmt");
-		elseif_stmt_list p = (elseif_stmt_list)((ParserVal)((yystack.valueAt (2-(1))))).obj;
-		p.add_stmt((syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj);
+		elseif_stmt_list p = (elseif_stmt_list)((ParserVal)yystack.valueAt (1)).obj;
+		p.add_stmt((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 49:
+
+  case 49: /* elseif_stmt_list: elseif_stmt  */
   if (yyn == 49)
-    
-/* Line 353 of lalr1.java  */
-/* Line 563 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":563  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: elseif_stmt");
-		elseif_stmt_list p = ((Yylex)yylexer).new_node(elseif_stmt_list.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_stmt((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		elseif_stmt_list p = ((Yylex)yylexer).new_node(elseif_stmt_list.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_stmt((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 50:
+
+  case 50: /* elseif_stmt: ELSEIF cmp THEN block  */
   if (yyn == 50)
-    
-/* Line 353 of lalr1.java  */
-/* Line 576 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":576  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSEIF cmp THEN block");
-		elseif_stmt p = ((Yylex)yylexer).new_node(elseif_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (4-(2))))).obj;
-		p.m_block = (syntree_node)((ParserVal)((yystack.valueAt (4-(4))))).obj;
+		elseif_stmt p = ((Yylex)yylexer).new_node(elseif_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_block = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 51:
+
+  case 51: /* elseif_stmt: ELSEIF cmp THEN  */
   if (yyn == 51)
-    
-/* Line 353 of lalr1.java  */
-/* Line 588 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":588  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSEIF cmp THEN");
-		elseif_stmt p = ((Yylex)yylexer).new_node(elseif_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(2)))))).ival);
-		p.m_cmp = (cmp_stmt)((ParserVal)((yystack.valueAt (3-(2))))).obj;
+		elseif_stmt p = ((Yylex)yylexer).new_node(elseif_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
+		p.m_cmp = (cmp_stmt)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_block = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1155,14 +1399,12 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 52:
+
+  case 52: /* else_stmt: %empty  */
   if (yyn == 52)
-    
-/* Line 353 of lalr1.java  */
-/* Line 602 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":602  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty");
 		
 		ParserVal ret = new ParserVal(null);
@@ -1170,31 +1412,27 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 53:
+
+  case 53: /* else_stmt: ELSE block  */
   if (yyn == 53)
-    
-/* Line 353 of lalr1.java  */
-/* Line 611 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":611  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSE block");
-		else_stmt p = ((Yylex)yylexer).new_node(else_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
-		p.m_block = (block_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		else_stmt p = ((Yylex)yylexer).new_node(else_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_block = (block_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 54:
+
+  case 54: /* else_stmt: ELSE  */
   if (yyn == 54)
-    
-/* Line 353 of lalr1.java  */
-/* Line 622 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":622  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSE");
 		else_stmt p = ((Yylex)yylexer).new_node(else_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 		p.m_block = null;
@@ -1204,178 +1442,158 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 55:
+
+  case 55: /* cmp: OPEN_BRACKET cmp CLOSE_BRACKET  */
   if (yyn == 55)
-    
-/* Line 353 of lalr1.java  */
-/* Line 635 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":635  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET cmp CLOSE_BRACKET");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (3-(2))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (1)));
 	};
   break;
-    
 
-  case 56:
+
+  case 56: /* cmp: cmp AND cmp  */
   if (yyn == 56)
-    
-/* Line 353 of lalr1.java  */
-/* Line 641 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":641  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp AND cmp");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = "&&";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 57:
+
+  case 57: /* cmp: cmp OR cmp  */
   if (yyn == 57)
-    
-/* Line 353 of lalr1.java  */
-/* Line 654 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":654  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp OR cmp");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = "||";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 58:
+
+  case 58: /* cmp: cmp_value LESS cmp_value  */
   if (yyn == 58)
-    
-/* Line 353 of lalr1.java  */
-/* Line 667 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":667  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value LESS cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = "<";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 59:
+
+  case 59: /* cmp: cmp_value MORE cmp_value  */
   if (yyn == 59)
-    
-/* Line 353 of lalr1.java  */
-/* Line 680 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":680  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value MORE cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = ">";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 60:
+
+  case 60: /* cmp: cmp_value EQUAL cmp_value  */
   if (yyn == 60)
-    
-/* Line 353 of lalr1.java  */
-/* Line 693 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":693  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value EQUAL cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = "==";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 61:
+
+  case 61: /* cmp: cmp_value MORE_OR_EQUAL cmp_value  */
   if (yyn == 61)
-    
-/* Line 353 of lalr1.java  */
-/* Line 706 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":706  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value MORE_OR_EQUAL cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = ">=";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 62:
+
+  case 62: /* cmp: cmp_value LESS_OR_EQUAL cmp_value  */
   if (yyn == 62)
-    
-/* Line 353 of lalr1.java  */
-/* Line 719 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":719  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value LESS_OR_EQUAL cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = "<=";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 63:
+
+  case 63: /* cmp: cmp_value NOT_EQUAL cmp_value  */
   if (yyn == 63)
-    
-/* Line 353 of lalr1.java  */
-/* Line 732 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":732  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value NOT_EQUAL cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_cmp = "!=";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 64:
+
+  case 64: /* cmp: FTRUE  */
   if (yyn == 64)
-    
-/* Line 353 of lalr1.java  */
-/* Line 745 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":745  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FTRUE");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 		p.m_cmp = "true";
@@ -1387,14 +1605,12 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 65:
+
+  case 65: /* cmp: FFALSE  */
   if (yyn == 65)
-    
-/* Line 353 of lalr1.java  */
-/* Line 758 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":758  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FFALSE");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 		p.m_cmp = "false";
@@ -1406,18 +1622,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 66:
+
+  case 66: /* cmp: IS cmp_value  */
   if (yyn == 66)
-    
-/* Line 353 of lalr1.java  */
-/* Line 771 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":771  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IS cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
 		p.m_cmp = "is";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_right = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1425,18 +1639,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 67:
+
+  case 67: /* cmp: NOT cmp_value  */
   if (yyn == 67)
-    
-/* Line 353 of lalr1.java  */
-/* Line 784 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":784  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NOT cmp_value");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
 		p.m_cmp = "not";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_right = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1444,67 +1656,57 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 68:
+
+  case 68: /* cmp_value: explicit_value  */
   if (yyn == 68)
-    
-/* Line 353 of lalr1.java  */
-/* Line 799 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":799  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 69:
+
+  case 69: /* cmp_value: variable  */
   if (yyn == 69)
-    
-/* Line 353 of lalr1.java  */
-/* Line 805 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":805  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 70:
+
+  case 70: /* cmp_value: expr  */
   if (yyn == 70)
-    
-/* Line 353 of lalr1.java  */
-/* Line 811 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":811  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 71:
+
+  case 71: /* return_stmt: RETURN return_value_list  */
   if (yyn == 71)
-    
-/* Line 353 of lalr1.java  */
-/* Line 819 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":819  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: RETURN return_value_list");
-		return_stmt p = ((Yylex)yylexer).new_node(return_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
-		p.m_returnlist = (return_value_list_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		return_stmt p = ((Yylex)yylexer).new_node(return_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_returnlist = (return_value_list_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 72:
+
+  case 72: /* return_stmt: RETURN  */
   if (yyn == 72)
-    
-/* Line 353 of lalr1.java  */
-/* Line 830 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":830  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: RETURN");
 		return_stmt p = ((Yylex)yylexer).new_node(return_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 		p.m_returnlist = null;
@@ -1514,88 +1716,76 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 73:
+
+  case 73: /* return_value_list: return_value_list ARG_SPLITTER return_value  */
   if (yyn == 73)
-    
-/* Line 353 of lalr1.java  */
-/* Line 843 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":843  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_value_list ARG_SPLITTER return_value");
-		return_value_list_node p = (return_value_list_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj);
+		return_value_list_node p = (return_value_list_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 74:
+
+  case 74: /* return_value_list: return_value  */
   if (yyn == 74)
-    
-/* Line 353 of lalr1.java  */
-/* Line 854 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":854  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_value");
-		return_value_list_node p = ((Yylex)yylexer).new_node(return_value_list_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		return_value_list_node p = ((Yylex)yylexer).new_node(return_value_list_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 75:
+
+  case 75: /* return_value: explicit_value  */
   if (yyn == 75)
-    
-/* Line 353 of lalr1.java  */
-/* Line 867 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":867  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 76:
+
+  case 76: /* return_value: variable  */
   if (yyn == 76)
-    
-/* Line 353 of lalr1.java  */
-/* Line 873 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":873  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 77:
+
+  case 77: /* return_value: expr  */
   if (yyn == 77)
-    
-/* Line 353 of lalr1.java  */
-/* Line 879 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":879  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 78:
+
+  case 78: /* assign_stmt: var ASSIGN assign_value  */
   if (yyn == 78)
-    
-/* Line 353 of lalr1.java  */
-/* Line 887 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":887  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var ASSIGN assign_value");
-		assign_stmt p = ((Yylex)yylexer).new_node(assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		assign_stmt p = ((Yylex)yylexer).new_node(assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_isnew = false;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1603,18 +1793,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 79:
+
+  case 79: /* assign_stmt: var NEW_ASSIGN assign_value  */
   if (yyn == 79)
-    
-/* Line 353 of lalr1.java  */
-/* Line 900 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":900  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var NEW_ASSIGN assign_value");
-		assign_stmt p = ((Yylex)yylexer).new_node(assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		assign_stmt p = ((Yylex)yylexer).new_node(assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_isnew = true;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1622,18 +1810,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 80:
+
+  case 80: /* multi_assign_stmt: var_list ASSIGN function_call  */
   if (yyn == 80)
-    
-/* Line 353 of lalr1.java  */
-/* Line 915 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":915  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var_list ASSIGN function_call");
-		multi_assign_stmt p = ((Yylex)yylexer).new_node(multi_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_varlist = (var_list_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		multi_assign_stmt p = ((Yylex)yylexer).new_node(multi_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_varlist = (var_list_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_isnew = false;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1641,18 +1827,16 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 81:
+
+  case 81: /* multi_assign_stmt: var_list NEW_ASSIGN function_call  */
   if (yyn == 81)
-    
-/* Line 353 of lalr1.java  */
-/* Line 928 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":928  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var_list NEW_ASSIGN function_call");
-		multi_assign_stmt p = ((Yylex)yylexer).new_node(multi_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_varlist = (var_list_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		multi_assign_stmt p = ((Yylex)yylexer).new_node(multi_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_varlist = (var_list_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		p.m_isnew = true;
 		
 		ParserVal ret = new ParserVal(p);
@@ -1660,186 +1844,164 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 82:
+
+  case 82: /* var_list: var_list ARG_SPLITTER var  */
   if (yyn == 82)
-    
-/* Line 353 of lalr1.java  */
-/* Line 943 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":943  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var_list ARG_SPLITTER var");
-		var_list_node p = (var_list_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj);
+		var_list_node p = (var_list_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 83:
+
+  case 83: /* var_list: var  */
   if (yyn == 83)
-    
-/* Line 353 of lalr1.java  */
-/* Line 954 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":954  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var");
-		var_list_node p = ((Yylex)yylexer).new_node(var_list_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_arg((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		var_list_node p = ((Yylex)yylexer).new_node(var_list_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_arg((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 84:
+
+  case 84: /* assign_value: explicit_value  */
   if (yyn == 84)
-    
-/* Line 353 of lalr1.java  */
-/* Line 967 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":967  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 85:
+
+  case 85: /* assign_value: variable  */
   if (yyn == 85)
-    
-/* Line 353 of lalr1.java  */
-/* Line 973 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":973  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 86:
+
+  case 86: /* assign_value: expr  */
   if (yyn == 86)
-    
-/* Line 353 of lalr1.java  */
-/* Line 979 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":979  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 87:
+
+  case 87: /* math_assign_stmt: variable PLUS_ASSIGN assign_value  */
   if (yyn == 87)
-    
-/* Line 353 of lalr1.java  */
-/* Line 987 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":987  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable PLUS_ASSIGN assign_value");
-		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_oper = "+=";
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 88:
+
+  case 88: /* math_assign_stmt: variable MINUS_ASSIGN assign_value  */
   if (yyn == 88)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1000 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1000  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable MINUS_ASSIGN assign_value");
-		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_oper = "-=";
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 89:
+
+  case 89: /* math_assign_stmt: variable DIVIDE_ASSIGN assign_value  */
   if (yyn == 89)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1013 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1013  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable DIVIDE_ASSIGN assign_value");
-		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_oper = "/=";
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 90:
+
+  case 90: /* math_assign_stmt: variable MULTIPLY_ASSIGN assign_value  */
   if (yyn == 90)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1026 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1026  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable MULTIPLY_ASSIGN assign_value");
-		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_oper = "*=";
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 91:
+
+  case 91: /* math_assign_stmt: variable DIVIDE_MOD_ASSIGN assign_value  */
   if (yyn == 91)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1039 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1039  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable DIVIDE_MOD_ASSIGN assign_value");
-		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_oper = "%=";
-		p.m_value = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_value = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 92:
+
+  case 92: /* math_assign_stmt: variable INC  */
   if (yyn == 92)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1052 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1052  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable INC");
-		explicit_value_node pp = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(1)))))).ival);
+		explicit_value_node pp = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
 		pp.m_str = "1";
 		pp.m_type = explicit_value_type.EVT_NUM;
 		
-		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(1)))))).ival);
-		p.m_var = (syntree_node)((ParserVal)((yystack.valueAt (2-(1))))).obj;
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
+		p.m_var = (syntree_node)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_oper = "+=";
 		p.m_value = pp;
 		
@@ -1848,322 +2010,280 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 93:
+
+  case 93: /* var: VAR_BEGIN IDENTIFIER  */
   if (yyn == 93)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1071 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1071  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: VAR_BEGIN IDENTIFIER");
-		var_node p = ((Yylex)yylexer).new_node(var_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).sval;
+		var_node p = ((Yylex)yylexer).new_node(var_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 94:
+
+  case 94: /* var: variable  */
   if (yyn == 94)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1082 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1082  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 95:
+
+  case 95: /* variable: IDENTIFIER  */
   if (yyn == 95)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1090 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1090  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER");
-		variable_node p = ((Yylex)yylexer).new_node(variable_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		variable_node p = ((Yylex)yylexer).new_node(variable_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 96:
+
+  case 96: /* variable: IDENTIFIER OPEN_SQUARE_BRACKET expr_value CLOSE_SQUARE_BRACKET  */
   if (yyn == 96)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1101 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1101  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER OPEN_SQUARE_BRACKET expr_value CLOSE_SQUARE_BRACKET");
-		container_get_node p = ((Yylex)yylexer).new_node(container_get_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).ival);
-		p.m_container = ((ParserVal)((ParserVal)((yystack.valueAt (4-(1)))))).sval;
-		p.m_key = (syntree_node)((ParserVal)((yystack.valueAt (4-(3))))).obj;
+		container_get_node p = ((Yylex)yylexer).new_node(container_get_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
+		p.m_container = ((ParserVal)((ParserVal)yystack.valueAt (3))).sval;
+		p.m_key = (syntree_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 97:
+
+  case 97: /* variable: IDENTIFIER_POINTER  */
   if (yyn == 97)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1113 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1113  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER_POINTER");
-		struct_pointer_node p = ((Yylex)yylexer).new_node(struct_pointer_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		struct_pointer_node p = ((Yylex)yylexer).new_node(struct_pointer_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 98:
+
+  case 98: /* variable: IDENTIFIER_DOT  */
   if (yyn == 98)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1124 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1124  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER_DOT");
-		variable_node p = ((Yylex)yylexer).new_node(variable_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		variable_node p = ((Yylex)yylexer).new_node(variable_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 99:
+
+  case 99: /* expr: OPEN_BRACKET expr CLOSE_BRACKET  */
   if (yyn == 99)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1137 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1137  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET expr CLOSE_BRACKET");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (3-(2))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (1)));
 	};
   break;
-    
 
-  case 100:
+
+  case 100: /* expr: function_call  */
   if (yyn == 100)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1143 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1143  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 101:
+
+  case 101: /* expr: math_expr  */
   if (yyn == 101)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1149 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1149  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 102:
+
+  case 102: /* math_expr: OPEN_BRACKET math_expr CLOSE_BRACKET  */
   if (yyn == 102)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1157 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1157  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET math_expr CLOSE_BRACKET");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (3-(2))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (1)));
 	};
   break;
-    
 
-  case 103:
+
+  case 103: /* math_expr: expr_value PLUS expr_value  */
   if (yyn == 103)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1163 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1163  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value PLUS expr_value");
-		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_oper = "+";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 104:
+
+  case 104: /* math_expr: expr_value MINUS expr_value  */
   if (yyn == 104)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1176 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1176  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value MINUS expr_value");
-		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_oper = "-";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 105:
+
+  case 105: /* math_expr: expr_value MULTIPLY expr_value  */
   if (yyn == 105)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1189 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1189  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value MULTIPLY expr_value");
-		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_oper = "*";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 106:
+
+  case 106: /* math_expr: expr_value DIVIDE expr_value  */
   if (yyn == 106)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1202 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1202  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value DIVIDE expr_value");
-		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_oper = "/";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 107:
+
+  case 107: /* math_expr: expr_value DIVIDE_MOD expr_value  */
   if (yyn == 107)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1215 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1215  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value DIVIDE_MOD expr_value");
-		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_oper = "%";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 108:
+
+  case 108: /* math_expr: expr_value STRING_CAT expr_value  */
   if (yyn == 108)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1228 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1228  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value STRING_CAT expr_value");
-		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
 		p.m_oper = "..";
-		p.m_left = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_right = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		p.m_left = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_right = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 109:
+
+  case 109: /* expr_value: math_expr  */
   if (yyn == 109)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1243 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1243  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 110:
+
+  case 110: /* expr_value: explicit_value  */
   if (yyn == 110)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1249 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1249  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 111:
+
+  case 111: /* expr_value: function_call  */
   if (yyn == 111)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1255 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1255  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 112:
+
+  case 112: /* expr_value: variable  */
   if (yyn == 112)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1261 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1261  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
-		yyval = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1))))));
+		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
 	};
   break;
-    
 
-  case 113:
+
+  case 113: /* break: BREAK  */
   if (yyn == 113)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1269 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1269  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: BREAK");
 		break_stmt p = ((Yylex)yylexer).new_node(break_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 		
@@ -2172,14 +2292,12 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 114:
+
+  case 114: /* continue: CONTINUE  */
   if (yyn == 114)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1281 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1281  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: CONTINUE");
 		continue_stmt p = ((Yylex)yylexer).new_node(continue_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 		
@@ -2188,71 +2306,63 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 115:
+
+  case 115: /* sleep: SLEEP expr_value  */
   if (yyn == 115)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1293 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1293  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SLEEP");
-		sleep_stmt p = ((Yylex)yylexer).new_node(sleep_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
-		p.m_time = (syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		sleep_stmt p = ((Yylex)yylexer).new_node(sleep_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_time = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 116:
+
+  case 116: /* yield: YIELD expr_value  */
   if (yyn == 116)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1306 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1306  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: YIELD");
-		yield_stmt p = ((Yylex)yylexer).new_node(yield_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (2-(2)))))).ival);
-		p.m_time = (syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj;
+		yield_stmt p = ((Yylex)yylexer).new_node(yield_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_time = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 117:
+
+  case 117: /* switch_stmt: SWITCH cmp_value switch_case_list DEFAULT block END  */
   if (yyn == 117)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1319 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1319  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SWITCH cmp_value switch_case_list DEFAULT block END");
-		switch_stmt p = ((Yylex)yylexer).new_node(switch_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (6-(2)))))).ival);
-		p.m_cmp = (syntree_node)((ParserVal)((yystack.valueAt (6-(2))))).obj;
-		p.m_caselist = (syntree_node)((ParserVal)((yystack.valueAt (6-(3))))).obj;
-		p.m_def = (syntree_node)((ParserVal)((yystack.valueAt (6-(5))))).obj;
+		switch_stmt p = ((Yylex)yylexer).new_node(switch_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (4))).ival);
+		p.m_cmp = (syntree_node)((ParserVal)yystack.valueAt (4)).obj;
+		p.m_caselist = (syntree_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_def = (syntree_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 118:
+
+  case 118: /* switch_stmt: SWITCH cmp_value switch_case_list DEFAULT END  */
   if (yyn == 118)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1332 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1332  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SWITCH cmp_value switch_case_list DEFAULT END");
-		switch_stmt p = ((Yylex)yylexer).new_node(switch_stmt.class, ((ParserVal)((ParserVal)((yystack.valueAt (5-(2)))))).ival);
-		p.m_cmp = (syntree_node)((ParserVal)((yystack.valueAt (5-(2))))).obj;
-		p.m_caselist = (syntree_node)((ParserVal)((yystack.valueAt (5-(3))))).obj;
+		switch_stmt p = ((Yylex)yylexer).new_node(switch_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
+		p.m_cmp = (syntree_node)((ParserVal)yystack.valueAt (3)).obj;
+		p.m_caselist = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
 		p.m_def = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2260,69 +2370,61 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 119:
+
+  case 119: /* switch_case_list: switch_case_define  */
   if (yyn == 119)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1347 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1347  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: switch_case_define");
-		switch_caselist_node p = ((Yylex)yylexer).new_node(switch_caselist_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_case((syntree_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		switch_caselist_node p = ((Yylex)yylexer).new_node(switch_caselist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_case((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 120:
+
+  case 120: /* switch_case_list: switch_case_list switch_case_define  */
   if (yyn == 120)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1358 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1358  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: switch_case_list switch_case_define");
-		switch_caselist_node p = (switch_caselist_node)((ParserVal)((yystack.valueAt (2-(1))))).obj;
-		p.add_case((syntree_node)((ParserVal)((yystack.valueAt (2-(2))))).obj);
+		switch_caselist_node p = (switch_caselist_node)((ParserVal)yystack.valueAt (1)).obj;
+		p.add_case((syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 121:
+
+  case 121: /* switch_case_define: CASE cmp_value THEN block  */
   if (yyn == 121)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1371 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1371  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: CASE cmp_value THEN block");
-		switch_case_node p = ((Yylex)yylexer).new_node(switch_case_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (4-(2)))))).ival);
-		p.m_cmp = (syntree_node)((ParserVal)((yystack.valueAt (4-(2))))).obj;
-		p.m_block = (syntree_node)((ParserVal)((yystack.valueAt (4-(4))))).obj;
+		switch_case_node p = ((Yylex)yylexer).new_node(switch_case_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_cmp = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_block = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 122:
+
+  case 122: /* switch_case_define: CASE cmp_value THEN  */
   if (yyn == 122)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1383 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1383  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: CASE cmp_value THEN");
-		switch_case_node p = ((Yylex)yylexer).new_node(switch_case_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(2)))))).ival);
-		p.m_cmp = (syntree_node)((ParserVal)((yystack.valueAt (3-(2))))).obj;
+		switch_case_node p = ((Yylex)yylexer).new_node(switch_case_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
+		p.m_cmp = (syntree_node)((ParserVal)yystack.valueAt (1)).obj;
 		p.m_block = null;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2330,136 +2432,112 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 123:
+
+  case 123: /* package_head: %empty  */
   if (yyn == 123)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1397 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1397  */
+        {
 	};
   break;
-    
 
-  case 124:
+
+  case 124: /* package_head: PACKAGE IDENTIFIER  */
   if (yyn == 124)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1401 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1401  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: PACKAGE IDENTIFIER ");
-		((Yylex)yylexer).get_mybison().set_package(((ParserVal)((yystack.valueAt (2-(2))))).sval);
+		((Yylex)yylexer).get_mybison().set_package(((ParserVal)yystack.valueAt (0)).sval);
 	};
   break;
-    
 
-  case 125:
+
+  case 125: /* package_head: PACKAGE IDENTIFIER_DOT  */
   if (yyn == 125)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1407 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1407  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: PACKAGE IDENTIFIER_DOT ");
-		((Yylex)yylexer).get_mybison().set_package(((ParserVal)((yystack.valueAt (2-(2))))).sval);
+		((Yylex)yylexer).get_mybison().set_package(((ParserVal)yystack.valueAt (0)).sval);
 	};
   break;
-    
 
-  case 126:
+
+  case 126: /* include_head: %empty  */
   if (yyn == 126)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1415 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1415  */
+        {
 	};
   break;
-    
 
-  case 129:
+
+  case 129: /* include_define: INCLUDE STRING_DEFINITION  */
   if (yyn == 129)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1425 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1425  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: INCLUDE STRING_DEFINITION ");
-		((Yylex)yylexer).get_mybison().add_include(((ParserVal)((yystack.valueAt (2-(2))))).sval);
+		((Yylex)yylexer).get_mybison().add_include(((ParserVal)yystack.valueAt (0)).sval);
 	};
   break;
-    
 
-  case 130:
+
+  case 130: /* struct_head: %empty  */
   if (yyn == 130)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1433 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1433  */
+        {
 	};
   break;
-    
 
-  case 133:
+
+  case 133: /* struct_define: STRUCT IDENTIFIER struct_mem_declaration END  */
   if (yyn == 133)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1443 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1443  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: STRUCT IDENTIFIER struct_mem_declaration END ");
-		((Yylex)yylexer).get_mybison().add_struct_desc(((ParserVal)((yystack.valueAt (4-(2))))).sval);
+		((Yylex)yylexer).get_mybison().add_struct_desc(((ParserVal)yystack.valueAt (2)).sval);
 	};
   break;
-    
 
-  case 134:
+
+  case 134: /* struct_mem_declaration: struct_mem_declaration IDENTIFIER  */
   if (yyn == 134)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1451 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1451  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: struct_mem_declaration IDENTIFIER ");
 	};
   break;
-    
 
-  case 135:
+
+  case 135: /* struct_mem_declaration: IDENTIFIER  */
   if (yyn == 135)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1456 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1456  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER ");
 	};
   break;
-    
 
-  case 136:
+
+  case 136: /* const_head: %empty  */
   if (yyn == 136)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1463 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1463  */
+        {
 	};
   break;
-    
 
-  case 139:
+
+  case 139: /* const_define: FCONST IDENTIFIER ASSIGN explicit_value  */
   if (yyn == 139)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1473 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1473  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FCONST IDENTIFIER ASSIGN explicit_value ");
-		((Yylex)yylexer).get_mybison().add_const_desc(((ParserVal)((yystack.valueAt (4-(2))))).sval, (syntree_node)((ParserVal)((yystack.valueAt (4-(4))))).obj);
+		((Yylex)yylexer).get_mybison().add_const_desc(((ParserVal)yystack.valueAt (2)).sval, (syntree_node)((ParserVal)yystack.valueAt (0)).obj);
 	};
   break;
-    
 
-  case 140:
+
+  case 140: /* explicit_value: NULL  */
   if (yyn == 140)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1481 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1481  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NULL ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
 		p.m_type = explicit_value_type.EVT_NULL;
@@ -2469,14 +2547,12 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 141:
+
+  case 141: /* explicit_value: FTRUE  */
   if (yyn == 141)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1492 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1492  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FTRUE ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
 		p.m_type = explicit_value_type.EVT_TRUE;
@@ -2486,14 +2562,12 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 142:
+
+  case 142: /* explicit_value: FFALSE  */
   if (yyn == 142)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1503 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1503  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FFALSE ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
 		p.m_type = explicit_value_type.EVT_FALSE;
@@ -2503,17 +2577,15 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 143:
+
+  case 143: /* explicit_value: NUMBER  */
   if (yyn == 143)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1514 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1514  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NUMBER ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		p.m_type = explicit_value_type.EVT_NUM;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2521,17 +2593,15 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 144:
+
+  case 144: /* explicit_value: FKUUID  */
   if (yyn == 144)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1526 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1526  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FKUUID ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		p.m_type = explicit_value_type.EVT_UUID;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2539,17 +2609,15 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 145:
+
+  case 145: /* explicit_value: STRING_DEFINITION  */
   if (yyn == 145)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1538 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1538  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: STRING_DEFINITION ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		p.m_type = explicit_value_type.EVT_STR;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2557,17 +2625,15 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 146:
+
+  case 146: /* explicit_value: FKFLOAT  */
   if (yyn == 146)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1550 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1550  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FKFLOAT ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.m_str = ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).sval;
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.m_str = ((ParserVal)((ParserVal)yystack.valueAt (0))).sval;
 		p.m_type = explicit_value_type.EVT_FLOAT;
 		
 		ParserVal ret = new ParserVal(p);
@@ -2575,50 +2641,44 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 147:
+
+  case 147: /* explicit_value: OPEN_BIG_BRACKET const_map_list_value CLOSE_BIG_BRACKET  */
   if (yyn == 147)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1562 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1562  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET const_map_list_value CLOSE_BIG_BRACKET ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(2)))))).ival);
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
 		p.m_type = explicit_value_type.EVT_MAP;
-		p.m_v = (const_map_list_value_node)((ParserVal)((yystack.valueAt (3-(2))))).obj;
+		p.m_v = (const_map_list_value_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 148:
+
+  case 148: /* explicit_value: OPEN_SQUARE_BRACKET const_array_list_value CLOSE_SQUARE_BRACKET  */
   if (yyn == 148)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1574 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1574  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET const_array_list_value CLOSE_BIG_BRACKET ");
-		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(2)))))).ival);
+		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
 		p.m_type = explicit_value_type.EVT_ARRAY;
-		p.m_v = (const_array_list_value_node)((ParserVal)((yystack.valueAt (3-(2))))).obj;
+		p.m_v = (const_array_list_value_node)((ParserVal)yystack.valueAt (1)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 149:
+
+  case 149: /* const_map_list_value: %empty  */
   if (yyn == 149)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1589 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1589  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty ");
 		const_map_list_value_node p = ((Yylex)yylexer).new_node(const_map_list_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 				
@@ -2627,66 +2687,58 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 150:
+
+  case 150: /* const_map_list_value: const_map_value  */
   if (yyn == 150)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1599 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1599  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: const_map_value ");
-		const_map_list_value_node p = ((Yylex)yylexer).new_node(const_map_list_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_ele((const_map_value_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		const_map_list_value_node p = ((Yylex)yylexer).new_node(const_map_list_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_ele((const_map_value_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 151:
+
+  case 151: /* const_map_list_value: const_map_list_value const_map_value  */
   if (yyn == 151)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1610 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1610  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: const_map_list_value const_map_value ");
-		const_map_list_value_node p = (const_map_list_value_node)((ParserVal)((yystack.valueAt (2-(1))))).obj;
-		p.add_ele((const_map_value_node)((ParserVal)((yystack.valueAt (2-(2))))).obj);
+		const_map_list_value_node p = (const_map_list_value_node)((ParserVal)yystack.valueAt (1)).obj;
+		p.add_ele((const_map_value_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 152:
+
+  case 152: /* const_map_value: explicit_value COLON explicit_value  */
   if (yyn == 152)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1624 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1624  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value COLON explicit_value ");
-		const_map_value_node p = ((Yylex)yylexer).new_node(const_map_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (3-(1)))))).ival);
-		p.m_k = (syntree_node)((ParserVal)((yystack.valueAt (3-(1))))).obj;
-		p.m_v = (syntree_node)((ParserVal)((yystack.valueAt (3-(3))))).obj;
+		const_map_value_node p = ((Yylex)yylexer).new_node(const_map_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
+		p.m_k = (syntree_node)((ParserVal)yystack.valueAt (2)).obj;
+		p.m_v = (syntree_node)((ParserVal)yystack.valueAt (0)).obj;
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 153:
+
+  case 153: /* const_array_list_value: %empty  */
   if (yyn == 153)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1638 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1638  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty ");
 		const_array_list_value_node p = ((Yylex)yylexer).new_node(const_array_list_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
 				
@@ -2695,114 +2747,54 @@ class YYParser
 		yyval = ret;
 	};
   break;
-    
 
-  case 154:
+
+  case 154: /* const_array_list_value: explicit_value  */
   if (yyn == 154)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1648 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1648  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value ");
-		const_array_list_value_node p = ((Yylex)yylexer).new_node(const_array_list_value_node.class, ((ParserVal)((ParserVal)((yystack.valueAt (1-(1)))))).ival);
-		p.add_ele((explicit_value_node)((ParserVal)((yystack.valueAt (1-(1))))).obj);
+		const_array_list_value_node p = ((Yylex)yylexer).new_node(const_array_list_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
+		p.add_ele((explicit_value_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
-  case 155:
+
+  case 155: /* const_array_list_value: const_array_list_value explicit_value  */
   if (yyn == 155)
-    
-/* Line 353 of lalr1.java  */
-/* Line 1659 of "YYParser.y"  */
-    {
+    /* "jflexbison/YYParser.y":1659  */
+        {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: const_array_list_value explicit_value ");
-		const_array_list_value_node p = (const_array_list_value_node)((ParserVal)((yystack.valueAt (2-(1))))).obj;
-		p.add_ele((explicit_value_node)((ParserVal)((yystack.valueAt (2-(2))))).obj);
+		const_array_list_value_node p = (const_array_list_value_node)((ParserVal)yystack.valueAt (1)).obj;
+		p.add_ele((explicit_value_node)((ParserVal)yystack.valueAt (0)).obj);
 		
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		yyval = ret;
 	};
   break;
-    
 
 
 
-/* Line 353 of lalr1.java  */
-/* Line 2738 of "YYParser.java"  */
-	default: break;
+/* "src/main/java/com/github/esrrhs/fakescript/YYParser.java":2784  */
+
+        default: break;
       }
 
-    yy_symbol_print ("-> $$ =", yyr1_[yyn], yyval);
-
-    yystack.pop (yylen);
+    yystack.pop(yylen);
     yylen = 0;
-
     /* Shift the result of the reduction.  */
-    yyn = yyr1_[yyn];
-    int yystate = yypgoto_[yyn - yyntokens_] + yystack.stateAt (0);
-    if (0 <= yystate && yystate <= yylast_
-	&& yycheck_[yystate] == yystack.stateAt (0))
-      yystate = yytable_[yystate];
-    else
-      yystate = yydefgoto_[yyn - yyntokens_];
-
-    yystack.push (yystate, yyval);
+    int yystate = yyLRGotoState(yystack.stateAt(0), yyr1_[yyn]);
+    yystack.push(yystate, yyval);
     return YYNEWSTATE;
   }
 
-  /* Return YYSTR after stripping away unnecessary quotes and
-     backslashes, so that it's suitable for yyerror.  The heuristic is
-     that double-quoting is unnecessary unless the string contains an
-     apostrophe, a comma, or backslash (other than backslash-backslash).
-     YYSTR is taken from yytname.  */
-  private final String yytnamerr_ (String yystr)
-  {
-    if (yystr.charAt (0) == '"')
-      {
-        StringBuffer yyr = new StringBuffer ();
-        strip_quotes: for (int i = 1; i < yystr.length (); i++)
-          switch (yystr.charAt (i))
-            {
-            case '\'':
-            case ',':
-              break strip_quotes;
 
-            case '\\':
-	      if (yystr.charAt(++i) != '\\')
-                break strip_quotes;
-              /* Fall through.  */
-            default:
-              yyr.append (yystr.charAt (i));
-              break;
 
-            case '"':
-              return yyr.toString ();
-            }
-      }
-    else if (yystr.equals ("$end"))
-      return "end of input";
-
-    return yystr;
-  }
-
-  /*--------------------------------.
-  | Print this symbol on YYOUTPUT.  |
-  `--------------------------------*/
-
-  private void yy_symbol_print (String s, int yytype,
-			         Object yyvaluep				 )
-  {
-    if (yydebug > 0)
-    yycdebug (s + (yytype < yyntokens_ ? " token " : " nterm ")
-	      + yytname_[yytype] + " ("
-	      + (yyvaluep == null ? "(null)" : yyvaluep.toString ()) + ")");
-  }
 
   /**
    * Parse input from the scanner that was specified at object construction
@@ -2811,286 +2803,347 @@ class YYParser
    * @return <tt>true</tt> if the parsing succeeds.  Note that this does not
    *          imply that there were no syntax errors.
    */
-  public boolean parse () throws java.io.IOException
+  public boolean parse() throws java.io.IOException
+
   {
-    /// Lookahead and lookahead in internal form.
-    int yychar = yyempty_;
-    int yytoken = 0;
+
+
+    /* Lookahead token kind.  */
+    int yychar = YYEMPTY_;
+    /* Lookahead symbol kind.  */
+    SymbolKind yytoken = null;
 
     /* State.  */
     int yyn = 0;
     int yylen = 0;
     int yystate = 0;
-
     YYStack yystack = new YYStack ();
+    int label = YYNEWSTATE;
 
-    /* Error handling.  */
-    int yynerrs_ = 0;
-    
 
-    /// Semantic value of the lookahead.
+
+    /* Semantic value of the lookahead.  */
     Object yylval = null;
 
-    int yyresult;
 
-    yycdebug ("Starting parse\n");
+
     yyerrstatus_ = 0;
-
+    yynerrs = 0;
 
     /* Initialize the stack.  */
     yystack.push (yystate, yylval);
 
-    int label = YYNEWSTATE;
+
+
     for (;;)
       switch (label)
       {
         /* New state.  Unlike in the C/C++ skeletons, the state is already
-	   pushed when we come here.  */
+           pushed when we come here.  */
       case YYNEWSTATE:
-        yycdebug ("Entering state " + yystate + "\n");
-        if (yydebug > 0)
-          yystack.print (yyDebugStream);
-    
+
         /* Accept?  */
-        if (yystate == yyfinal_)
+        if (yystate == YYFINAL_)
           return true;
-    
+
         /* Take a decision.  First try without lookahead.  */
         yyn = yypact_[yystate];
-        if (yyn == yypact_ninf_)
+        if (yyPactValueIsDefault (yyn))
           {
             label = YYDEFAULT;
-	    break;
+            break;
           }
-    
+
         /* Read a lookahead token.  */
-        if (yychar == yyempty_)
+        if (yychar == YYEMPTY_)
           {
-	    yycdebug ("Reading a token: ");
-	    yychar = yylex ();
-            
-            yylval = yylexer.getLVal ();
+
+            yychar = yylexer.yylex ();
+            yylval = yylexer.getLVal();
+
           }
-    
+
         /* Convert token to internal form.  */
-        if (yychar <= EOF)
+        yytoken = yytranslate_ (yychar);
+
+        if (yytoken == SymbolKind.S_YYerror)
           {
-	    yychar = yytoken = EOF;
-	    yycdebug ("Now at end of input.\n");
+            // The scanner already issued an error message, process directly
+            // to error recovery.  But do not keep the error token as
+            // lookahead, it is too special and may lead us to an endless
+            // loop in error recovery. */
+            yychar = Lexer.YYUNDEF;
+            yytoken = SymbolKind.S_YYUNDEF;
+            label = YYERRLAB1;
           }
         else
           {
-	    yytoken = yytranslate_ (yychar);
-	    yy_symbol_print ("Next token is", yytoken,
-	    		     yylval);
-          }
-    
-        /* If the proper action on seeing token YYTOKEN is to reduce or to
-           detect an error, take that action.  */
-        yyn += yytoken;
-        if (yyn < 0 || yylast_ < yyn || yycheck_[yyn] != yytoken)
-          label = YYDEFAULT;
-    
-        /* <= 0 means reduce or error.  */
-        else if ((yyn = yytable_[yyn]) <= 0)
-          {
-	    if (yyn == 0 || yyn == yytable_ninf_)
-	      label = YYFAIL;
-	    else
-	      {
-	        yyn = -yyn;
-	        label = YYREDUCE;
-	      }
-          }
-    
-        else
-          {
-            /* Shift the lookahead token.  */
-	    yy_symbol_print ("Shifting", yytoken,
-	    		     yylval);
-    
-            /* Discard the token being shifted.  */
-            yychar = yyempty_;
-    
-            /* Count tokens shifted since error; after three, turn off error
-               status.  */
-            if (yyerrstatus_ > 0)
-              --yyerrstatus_;
-    
-            yystate = yyn;
-            yystack.push (yystate, yylval);
-            label = YYNEWSTATE;
+            /* If the proper action on seeing token YYTOKEN is to reduce or to
+               detect an error, take that action.  */
+            yyn += yytoken.getCode();
+            if (yyn < 0 || YYLAST_ < yyn || yycheck_[yyn] != yytoken.getCode()) {
+              label = YYDEFAULT;
+            }
+
+            /* <= 0 means reduce or error.  */
+            else if ((yyn = yytable_[yyn]) <= 0)
+              {
+                if (yyTableValueIsError(yyn)) {
+                  label = YYERRLAB;
+                } else {
+                  yyn = -yyn;
+                  label = YYREDUCE;
+                }
+              }
+
+            else
+              {
+                /* Shift the lookahead token.  */
+                /* Discard the token being shifted.  */
+                yychar = YYEMPTY_;
+
+                /* Count tokens shifted since error; after three, turn off error
+                   status.  */
+                if (yyerrstatus_ > 0)
+                  --yyerrstatus_;
+
+                yystate = yyn;
+                yystack.push(yystate, yylval);
+                label = YYNEWSTATE;
+              }
           }
         break;
-    
+
       /*-----------------------------------------------------------.
       | yydefault -- do the default action for the current state.  |
       `-----------------------------------------------------------*/
       case YYDEFAULT:
         yyn = yydefact_[yystate];
         if (yyn == 0)
-          label = YYFAIL;
+          label = YYERRLAB;
         else
           label = YYREDUCE;
         break;
-    
+
       /*-----------------------------.
       | yyreduce -- Do a reduction.  |
       `-----------------------------*/
       case YYREDUCE:
         yylen = yyr2_[yyn];
-        label = yyaction (yyn, yystack, yylen);
-	yystate = yystack.stateAt (0);
+        label = yyaction(yyn, yystack, yylen);
+        yystate = yystack.stateAt(0);
         break;
-    
+
       /*------------------------------------.
       | yyerrlab -- here on detecting error |
       `------------------------------------*/
-      case YYFAIL:
+      case YYERRLAB:
         /* If not already recovering from an error, report this error.  */
         if (yyerrstatus_ == 0)
           {
-	    ++yynerrs_;
-	    yyerror (yysyntax_error (yystate, yytoken));
+            ++yynerrs;
+            if (yychar == YYEMPTY_)
+              yytoken = null;
+            yyreportSyntaxError(new Context(this, yystack, yytoken));
           }
-    
-        
+
         if (yyerrstatus_ == 3)
           {
-	    /* If just tried and failed to reuse lookahead token after an
-	     error, discard it.  */
-    
-	    if (yychar <= EOF)
-	      {
-	      /* Return failure if at end of input.  */
-	      if (yychar == EOF)
-	        return false;
-	      }
-	    else
-	      yychar = yyempty_;
+            /* If just tried and failed to reuse lookahead token after an
+               error, discard it.  */
+
+            if (yychar <= Lexer.YYEOF)
+              {
+                /* Return failure if at end of input.  */
+                if (yychar == Lexer.YYEOF)
+                  return false;
+              }
+            else
+              yychar = YYEMPTY_;
           }
-    
+
         /* Else will try to reuse lookahead token after shifting the error
            token.  */
         label = YYERRLAB1;
         break;
-    
-      /*---------------------------------------------------.
+
+      /*-------------------------------------------------.
       | errorlab -- error raised explicitly by YYERROR.  |
-      `---------------------------------------------------*/
+      `-------------------------------------------------*/
       case YYERROR:
-    
-        
         /* Do not reclaim the symbols of the rule which action triggered
            this YYERROR.  */
         yystack.pop (yylen);
         yylen = 0;
-        yystate = yystack.stateAt (0);
+        yystate = yystack.stateAt(0);
         label = YYERRLAB1;
         break;
-    
+
       /*-------------------------------------------------------------.
       | yyerrlab1 -- common code for both syntax error and YYERROR.  |
       `-------------------------------------------------------------*/
       case YYERRLAB1:
-        yyerrstatus_ = 3;	/* Each real token shifted decrements this.  */
-    
+        yyerrstatus_ = 3;       /* Each real token shifted decrements this.  */
+
+        // Pop stack until we find a state that shifts the error token.
         for (;;)
           {
-	    yyn = yypact_[yystate];
-	    if (yyn != yypact_ninf_)
-	      {
-	        yyn += yyterror_;
-	        if (0 <= yyn && yyn <= yylast_ && yycheck_[yyn] == yyterror_)
-	          {
-	            yyn = yytable_[yyn];
-	            if (0 < yyn)
-		      break;
-	          }
-	      }
-    
-	    /* Pop the current state because it cannot handle the error token.  */
-	    if (yystack.height == 1)
-	      return false;
-    
-	    
-	    yystack.pop ();
-	    yystate = yystack.stateAt (0);
-	    if (yydebug > 0)
-	      yystack.print (yyDebugStream);
+            yyn = yypact_[yystate];
+            if (!yyPactValueIsDefault (yyn))
+              {
+                yyn += SymbolKind.S_YYerror.getCode();
+                if (0 <= yyn && yyn <= YYLAST_
+                    && yycheck_[yyn] == SymbolKind.S_YYerror.getCode())
+                  {
+                    yyn = yytable_[yyn];
+                    if (0 < yyn)
+                      break;
+                  }
+              }
+
+            /* Pop the current state because it cannot handle the
+             * error token.  */
+            if (yystack.height == 0)
+              return false;
+
+
+            yystack.pop ();
+            yystate = yystack.stateAt(0);
           }
-    
-	
+
+        if (label == YYABORT)
+          /* Leave the switch.  */
+          break;
+
+
 
         /* Shift the error token.  */
-        yy_symbol_print ("Shifting", yystos_[yyn],
-			 yylval);
-    
+
         yystate = yyn;
-	yystack.push (yyn, yylval);
+        yystack.push (yyn, yylval);
         label = YYNEWSTATE;
         break;
-    
+
         /* Accept.  */
       case YYACCEPT:
         return true;
-    
+
         /* Abort.  */
       case YYABORT:
         return false;
       }
+}
+
+
+
+
+  /**
+   * Information needed to get the list of expected tokens and to forge
+   * a syntax error diagnostic.
+   */
+  public static final class Context {
+    Context(YYParser parser, YYStack stack, SymbolKind token) {
+      yyparser = parser;
+      yystack = stack;
+      yytoken = token;
+    }
+
+    private YYParser yyparser;
+    private YYStack yystack;
+
+
+    /**
+     * The symbol kind of the lookahead token.
+     */
+    public final SymbolKind getToken() {
+      return yytoken;
+    }
+
+    private SymbolKind yytoken;
+    static final int NTOKENS = YYParser.YYNTOKENS_;
+
+    /**
+     * Put in YYARG at most YYARGN of the expected tokens given the
+     * current YYCTX, and return the number of tokens stored in YYARG.  If
+     * YYARG is null, return the number of expected tokens (guaranteed to
+     * be less than YYNTOKENS).
+     */
+    int getExpectedTokens(SymbolKind yyarg[], int yyargn) {
+      return getExpectedTokens (yyarg, 0, yyargn);
+    }
+
+    int getExpectedTokens(SymbolKind yyarg[], int yyoffset, int yyargn) {
+      int yycount = yyoffset;
+      int yyn = yypact_[this.yystack.stateAt(0)];
+      if (!yyPactValueIsDefault(yyn))
+        {
+          /* Start YYX at -YYN if negative to avoid negative
+             indexes in YYCHECK.  In other words, skip the first
+             -YYN actions for this state because they are default
+             actions.  */
+          int yyxbegin = yyn < 0 ? -yyn : 0;
+          /* Stay within bounds of both yycheck and yytname.  */
+          int yychecklim = YYLAST_ - yyn + 1;
+          int yyxend = yychecklim < NTOKENS ? yychecklim : NTOKENS;
+          for (int yyx = yyxbegin; yyx < yyxend; ++yyx)
+            if (yycheck_[yyx + yyn] == yyx && yyx != SymbolKind.S_YYerror.getCode()
+                && !yyTableValueIsError(yytable_[yyx + yyn]))
+              {
+                if (yyarg == null)
+                  yycount += 1;
+                else if (yycount == yyargn)
+                  return 0; // FIXME: this is incorrect.
+                else
+                  yyarg[yycount++] = SymbolKind.get(yyx);
+              }
+        }
+      if (yyarg != null && yycount == yyoffset && yyoffset < yyargn)
+        yyarg[yycount] = null;
+      return yycount - yyoffset;
+    }
   }
 
-  // Generate an error message.
-  private String yysyntax_error (int yystate, int tok)
-  {
-    if (errorVerbose)
-      {
-        int yyn = yypact_[yystate];
-        if (yypact_ninf_ < yyn && yyn <= yylast_)
-          {
-	    StringBuffer res;
 
-	    /* Start YYX at -YYN if negative to avoid negative indexes in
-	       YYCHECK.  */
-	    int yyxbegin = yyn < 0 ? -yyn : 0;
 
-	    /* Stay within bounds of both yycheck and yytname.  */
-	    int yychecklim = yylast_ - yyn + 1;
-	    int yyxend = yychecklim < yyntokens_ ? yychecklim : yyntokens_;
-	    int count = 0;
-	    for (int x = yyxbegin; x < yyxend; ++x)
-	      if (yycheck_[x + yyn] == x && x != yyterror_)
-	        ++count;
 
-	    // FIXME: This method of building the message is not compatible
-	    // with internationalization.
-	    res = new StringBuffer ("syntax error, unexpected ");
-	    res.append (yytnamerr_ (yytname_[tok]));
-	    if (count < 5)
-	      {
-	        count = 0;
-	        for (int x = yyxbegin; x < yyxend; ++x)
-	          if (yycheck_[x + yyn] == x && x != yyterror_)
-		    {
-		      res.append (count++ == 0 ? ", expecting " : " or ");
-		      res.append (yytnamerr_ (yytname_[x]));
-		    }
-	      }
-	    return res.toString ();
-          }
-      }
 
-    return "syntax error";
+  /**
+   * Build and emit a "syntax error" message in a user-defined way.
+   *
+   * @param ctx  The context of the error.
+   */
+  private void yyreportSyntaxError(Context yyctx) {
+      yyerror("syntax error");
   }
 
+  /**
+   * Whether the given <code>yypact_</code> value indicates a defaulted state.
+   * @param yyvalue   the value to check
+   */
+  private static boolean yyPactValueIsDefault(int yyvalue) {
+    return yyvalue == yypact_ninf_;
+  }
 
-  /* YYPACT[STATE-NUM] -- Index in YYTABLE of the portion describing
-     STATE-NUM.  */
+  /**
+   * Whether the given <code>yytable_</code>
+   * value indicates a syntax error.
+   * @param yyvalue the value to check
+   */
+  private static boolean yyTableValueIsError(int yyvalue) {
+    return yyvalue == yytable_ninf_;
+  }
+
   private static final short yypact_ninf_ = -210;
-  private static final short yypact_[] =
+  private static final short yytable_ninf_ = -113;
+
+/* YYPACT[STATE-NUM] -- Index in YYTABLE of the portion describing
+   STATE-NUM.  */
+  private static final short[] yypact_ = yypact_init();
+  private static final short[] yypact_init()
   {
-       -33,   -11,    49,    16,  -210,  -210,  -210,    56,   103,  -210,
+    return new short[]
+    {
+     -33,   -11,    49,    16,  -210,  -210,  -210,    56,   103,  -210,
     -210,    79,  -210,   107,  -210,    87,   105,  -210,    -1,  -210,
     -210,   148,   122,   139,   158,  -210,  -210,  -210,  -210,   392,
      159,  -210,  -210,  -210,  -210,  -210,  -210,  -210,   392,   392,
@@ -3118,14 +3171,18 @@ class YYParser
     1177,   270,  1177,  -210,   895,   245,  1177,  -210,  -210,  -210,
     1177,  -210,   961,  1232,  -210,  1027,     0,  -210,  1093,  -210,
     1159,  -210
-  };
+    };
+  }
 
-  /* YYDEFACT[S] -- default rule to reduce with in state S when YYTABLE
-     doesn't specify something else to do.  Zero means the default is an
-     error.  */
-  private static final short yydefact_[] =
+/* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
+   Performed when YYTABLE does not specify something else to do.  Zero
+   means the default is an error.  */
+  private static final short[] yydefact_ = yydefact_init();
+  private static final short[] yydefact_init()
   {
-       123,     0,     0,   126,   124,   125,     1,     0,   130,   127,
+    return new short[]
+    {
+     123,     0,     0,   126,   124,   125,     1,     0,   130,   127,
      129,     0,   128,   136,   131,     0,     0,   132,     3,   137,
      135,     0,     0,     0,     2,     4,   138,   133,   134,     0,
        0,     5,   141,   142,   145,   143,   146,   144,   153,   149,
@@ -3153,39 +3210,48 @@ class YYParser
       51,     0,    53,    46,     0,     0,   121,   117,    16,    15,
       50,    45,     0,     0,    40,     0,     0,    39,     0,    42,
        0,    41
-  };
+    };
+  }
 
-  /* YYPGOTO[NTERM-NUM].  */
-  private static final short yypgoto_[] =
+/* YYPGOTO[NTERM-NUM].  */
+  private static final short[] yypgoto_ = yypgoto_init();
+  private static final short[] yypgoto_init()
   {
-      -210,  -210,  -210,   256,  -210,   238,   181,  -125,    73,   -17,
+    return new short[]
+    {
+    -210,  -210,  -210,   256,  -210,   238,   181,  -125,    73,   -17,
      127,  -210,  -210,  -210,  -210,  -210,    91,  -209,    90,   -58,
      267,  -210,  -210,   184,  -210,  -210,  -210,   129,  -210,   -66,
       32,   332,   151,   219,  -210,  -210,  -210,  -210,  -210,  -210,
      162,  -210,  -210,   333,  -210,   327,  -210,  -210,   326,   -29,
     -210,   300,  -210
-  };
+    };
+  }
 
-  /* YYDEFGOTO[NTERM-NUM].  */
-  private static final short
-  yydefgoto_[] =
+/* YYDEFGOTO[NTERM-NUM].  */
+  private static final short[] yydefgoto_ = yydefgoto_init();
+  private static final short[] yydefgoto_init()
   {
-        -1,     2,    24,    25,    49,    50,    76,   170,   171,    77,
+    return new short[]
+    {
+       0,     2,    24,    25,    49,    50,    76,   170,   171,    77,
       78,    79,    80,    81,    82,    83,   222,   223,   241,   111,
      112,    84,   101,   102,    85,    86,    87,   191,    88,    89,
       90,    91,    92,    93,    94,    95,    96,    97,    98,   181,
      182,     3,     8,     9,    13,    14,    21,    18,    19,    99,
       46,    47,    44
-  };
+    };
+  }
 
-  /* YYTABLE[YYPACT[STATE-NUM]].  What to do in state STATE-NUM.  If
-     positive, shift that token.  If negative, reduce the rule which
-     number is the opposite.  If zero, do what YYDEFACT says.  */
-  private static final short yytable_ninf_ = -113;
-  private static final short
-  yytable_[] =
+/* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
+   positive, shift that token.  If negative, reduce the rule whose
+   number is the opposite.  If YYTABLE_NINF, syntax error.  */
+  private static final short[] yytable_ = yytable_init();
+  private static final short[] yytable_init()
   {
-        41,   178,   123,   239,     4,    23,   116,    60,   183,    43,
+    return new short[]
+    {
+      41,   178,   123,   239,     4,    23,   116,    60,   183,    43,
       45,   268,   149,   240,    56,    52,     1,    45,   149,   185,
      150,   151,   152,   153,    58,   140,   177,    57,   149,   240,
      106,   107,   105,   153,   115,   115,    34,    66,    35,  -111,
@@ -3316,13 +3382,15 @@ class YYParser
        0,     0,     0,    70,    71,     0,     0,     0,     0,    39,
        0,    40,     0,     0,     0,     0,     0,     0,    39,     0,
       40
-  };
+    };
+  }
 
-  /* YYCHECK.  */
-  private static final short
-  yycheck_[] =
+private static final short[] yycheck_ = yycheck_init();
+  private static final short[] yycheck_init()
   {
-        29,   126,    68,    12,    15,     6,    64,     3,   133,    38,
+    return new short[]
+    {
+      29,   126,    68,    12,    15,     6,    64,     3,   133,    38,
       39,    11,    18,   222,    19,    44,    49,    46,    18,    15,
       20,    21,    22,    23,    53,    24,    24,    32,    18,   238,
        8,     9,    61,    23,    63,    64,    14,    15,    16,    18,
@@ -3453,14 +3521,17 @@ class YYParser
       -1,    -1,    -1,    51,    52,    -1,    -1,    -1,    -1,    66,
       -1,    68,    -1,    -1,    -1,    -1,    -1,    -1,    66,    -1,
       68
-  };
+    };
+  }
 
-  /* STOS_[STATE-NUM] -- The (internal number of the) accessing
-     symbol of state STATE-NUM.  */
-  private static final byte
-  yystos_[] =
+/* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
+   state STATE-NUM.  */
+  private static final byte[] yystos_ = yystos_init();
+  private static final byte[] yystos_init()
   {
-         0,    49,    70,   110,    15,    51,     0,    50,   111,   112,
+    return new byte[]
+    {
+       0,    49,    70,   110,    15,    51,     0,    50,   111,   112,
       14,    53,   112,   113,   114,    15,    48,   114,   116,   117,
       15,   115,    15,     6,    71,    72,   117,    13,    15,    24,
       15,    72,     8,     9,    14,    16,    35,    45,    46,    66,
@@ -3488,27 +3559,16 @@ class YYParser
       11,    87,    78,    13,    78,    89,    78,    13,    32,    32,
       78,    13,    11,    19,    13,    78,   102,    13,    11,    13,
       78,    13
-  };
+    };
+  }
 
-  /* TOKEN_NUMBER_[YYLEX-NUM] -- Internal symbol number corresponding
-     to YYLEX-NUM.  */
-  private static final short
-  yytoken_number_[] =
+/* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
+  private static final byte[] yyr1_ = yyr1_init();
+  private static final byte[] yyr1_init()
   {
-         0,   256,   257,   258,   259,   260,   261,   262,   263,   264,
-     265,   266,   267,   268,   269,   270,   271,   272,   273,   274,
-     275,   276,   277,   278,   279,   280,   281,   282,   283,   284,
-     285,   286,   287,   288,   289,   290,   291,   292,   293,   294,
-     295,   296,   297,   298,   299,   300,   301,   302,   303,   304,
-     305,   306,   307,   308,   309,   310,   311,   312,   313,   314,
-     315,   316,   317,   318,   319,   320,   321,   322,   323
-  };
-
-  /* YYR1[YYN] -- Symbol number of symbol that rule YYN derives.  */
-  private static final byte
-  yyr1_[] =
-  {
-         0,    69,    70,    71,    71,    71,    72,    72,    73,    73,
+    return new byte[]
+    {
+       0,    69,    70,    71,    71,    71,    72,    72,    73,    73,
       73,    74,    75,    75,    75,    75,    75,    76,    76,    76,
       77,    78,    78,    79,    79,    79,    79,    79,    79,    79,
       79,    79,    79,    79,    79,    79,    79,    79,    80,    81,
@@ -3524,13 +3584,16 @@ class YYParser
      113,   113,   113,   114,   115,   115,   116,   116,   116,   117,
      118,   118,   118,   118,   118,   118,   118,   118,   118,   119,
      119,   119,   120,   121,   121,   121
-  };
+    };
+  }
 
-  /* YYR2[YYN] -- Number of symbols composing right hand side of rule YYN.  */
-  private static final byte
-  yyr2_[] =
+/* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
+  private static final byte[] yyr2_ = yyr2_init();
+  private static final byte[] yyr2_init()
   {
-         0,     2,     5,     0,     1,     2,     7,     6,     0,     3,
+    return new byte[]
+    {
+       0,     2,     5,     0,     1,     2,     7,     6,     0,     3,
        1,     1,     4,     4,     4,     6,     6,     0,     3,     1,
        1,     2,     1,     1,     1,     1,     1,     1,     1,     1,
        1,     1,     1,     1,     1,     1,     1,     1,     2,     9,
@@ -3546,161 +3609,31 @@ class YYParser
        0,     1,     2,     4,     2,     1,     0,     1,     2,     4,
        1,     1,     1,     1,     1,     1,     1,     3,     3,     0,
        1,     2,     3,     0,     1,     2
-  };
-
-  /* YYTNAME[SYMBOL-NUM] -- String name of the symbol SYMBOL-NUM.
-     First, the terminals, then, starting at \a yyntokens_, nonterminals.  */
-  private static final String yytname_[] =
-  {
-    "$end", "error", "$undefined", "VAR_BEGIN", "RETURN", "BREAK", "FUNC",
-  "WHILE", "FTRUE", "FFALSE", "IF", "THEN", "ELSE", "END",
-  "STRING_DEFINITION", "IDENTIFIER", "NUMBER", "SINGLE_LINE_COMMENT",
-  "DIVIDE_MOD", "ARG_SPLITTER", "PLUS", "MINUS", "DIVIDE", "MULTIPLY",
-  "ASSIGN", "MORE", "LESS", "MORE_OR_EQUAL", "LESS_OR_EQUAL", "EQUAL",
-  "NOT_EQUAL", "OPEN_BRACKET", "CLOSE_BRACKET", "AND", "OR", "FKFLOAT",
-  "PLUS_ASSIGN", "MINUS_ASSIGN", "DIVIDE_ASSIGN", "MULTIPLY_ASSIGN",
-  "DIVIDE_MOD_ASSIGN", "COLON", "FOR", "INC", "FAKE", "FKUUID",
-  "OPEN_SQUARE_BRACKET", "CLOSE_SQUARE_BRACKET", "FCONST", "PACKAGE",
-  "INCLUDE", "IDENTIFIER_DOT", "IDENTIFIER_POINTER", "STRUCT", "IS", "NOT",
-  "CONTINUE", "YIELD", "SLEEP", "SWITCH", "CASE", "DEFAULT", "NEW_ASSIGN",
-  "ELSEIF", "RIGHT_POINTER", "STRING_CAT", "OPEN_BIG_BRACKET",
-  "CLOSE_BIG_BRACKET", "NULL", "$accept", "program", "body",
-  "function_declaration", "function_declaration_arguments", "arg",
-  "function_call", "function_call_arguments", "arg_expr", "block", "stmt",
-  "fake_call_stmt", "for_stmt", "for_loop_stmt", "while_stmt", "if_stmt",
-  "elseif_stmt_list", "elseif_stmt", "else_stmt", "cmp", "cmp_value",
-  "return_stmt", "return_value_list", "return_value", "assign_stmt",
-  "multi_assign_stmt", "var_list", "assign_value", "math_assign_stmt",
-  "var", "variable", "expr", "math_expr", "expr_value", "break",
-  "continue", "sleep", "yield", "switch_stmt", "switch_case_list",
-  "switch_case_define", "package_head", "include_head", "include_define",
-  "struct_head", "struct_define", "struct_mem_declaration", "const_head",
-  "const_define", "explicit_value", "const_map_list_value",
-  "const_map_value", "const_array_list_value", null
-  };
-
-  /* YYRHS -- A `-1'-separated list of the rules' RHS.  */
-  private static final byte yyrhs_[] =
-  {
-        70,     0,    -1,   110,   111,   113,   116,    71,    -1,    -1,
-      72,    -1,    71,    72,    -1,     6,    15,    31,    73,    32,
-      78,    13,    -1,     6,    15,    31,    73,    32,    13,    -1,
-      -1,    73,    19,    74,    -1,    74,    -1,    15,    -1,    15,
-      31,    76,    32,    -1,    51,    31,    76,    32,    -1,    75,
-      31,    76,    32,    -1,    99,    41,    15,    31,    76,    32,
-      -1,    75,    41,    15,    31,    76,    32,    -1,    -1,    76,
-      19,    77,    -1,    77,    -1,   102,    -1,    78,    79,    -1,
-      79,    -1,    83,    -1,    84,    -1,    90,    -1,    93,    -1,
-      94,    -1,   103,    -1,   104,    -1,   100,    -1,    97,    -1,
-      81,    -1,    82,    -1,    80,    -1,   105,    -1,   106,    -1,
-     107,    -1,    44,    75,    -1,    42,    78,    19,    88,    19,
-      78,    11,    78,    13,    -1,    42,    78,    19,    88,    19,
-      78,    11,    13,    -1,    42,    98,    24,    96,    64,    89,
-      19,   102,    11,    78,    13,    -1,    42,    98,    24,    96,
-      64,    89,    19,   102,    11,    13,    -1,     7,    88,    11,
-      78,    13,    -1,     7,    88,    11,    13,    -1,    10,    88,
-      11,    78,    85,    87,    13,    -1,    10,    88,    11,    85,
-      87,    13,    -1,    -1,    85,    86,    -1,    86,    -1,    63,
-      88,    11,    78,    -1,    63,    88,    11,    -1,    -1,    12,
-      78,    -1,    12,    -1,    31,    88,    32,    -1,    88,    33,
-      88,    -1,    88,    34,    88,    -1,    89,    26,    89,    -1,
-      89,    25,    89,    -1,    89,    29,    89,    -1,    89,    27,
-      89,    -1,    89,    28,    89,    -1,    89,    30,    89,    -1,
-       8,    -1,     9,    -1,    54,    89,    -1,    55,    89,    -1,
-     118,    -1,    99,    -1,   100,    -1,     4,    91,    -1,     4,
-      -1,    91,    19,    92,    -1,    92,    -1,   118,    -1,    99,
-      -1,   100,    -1,    98,    24,    96,    -1,    98,    62,    96,
-      -1,    95,    24,    75,    -1,    95,    62,    75,    -1,    95,
-      19,    98,    -1,    98,    -1,   118,    -1,    99,    -1,   100,
-      -1,    99,    36,    96,    -1,    99,    37,    96,    -1,    99,
-      38,    96,    -1,    99,    39,    96,    -1,    99,    40,    96,
-      -1,    99,    43,    -1,     3,    15,    -1,    99,    -1,    15,
-      -1,    15,    46,   102,    47,    -1,    52,    -1,    51,    -1,
-      31,   100,    32,    -1,    75,    -1,   101,    -1,    31,   101,
-      32,    -1,   102,    20,   102,    -1,   102,    21,   102,    -1,
-     102,    23,   102,    -1,   102,    22,   102,    -1,   102,    18,
-     102,    -1,   102,    65,   102,    -1,   101,    -1,   118,    -1,
-      75,    -1,    99,    -1,     5,    -1,    56,    -1,    58,   102,
-      -1,    57,   102,    -1,    59,    89,   108,    61,    78,    13,
-      -1,    59,    89,   108,    61,    13,    -1,   109,    -1,   108,
-     109,    -1,    60,    89,    11,    78,    -1,    60,    89,    11,
-      -1,    -1,    49,    15,    -1,    49,    51,    -1,    -1,   112,
-      -1,   111,   112,    -1,    50,    14,    -1,    -1,   114,    -1,
-     113,   114,    -1,    53,    15,   115,    13,    -1,   115,    15,
-      -1,    15,    -1,    -1,   117,    -1,   116,   117,    -1,    48,
-      15,    24,   118,    -1,    68,    -1,     8,    -1,     9,    -1,
-      16,    -1,    45,    -1,    14,    -1,    35,    -1,    66,   119,
-      67,    -1,    46,   121,    47,    -1,    -1,   120,    -1,   119,
-     120,    -1,   118,    41,   118,    -1,    -1,   118,    -1,   121,
-     118,    -1
-  };
-
-  /* YYPRHS[YYN] -- Index of the first RHS symbol of rule number YYN in
-     YYRHS.  */
-  private static final short yyprhs_[] =
-  {
-         0,     0,     3,     9,    10,    12,    15,    23,    30,    31,
-      35,    37,    39,    44,    49,    54,    61,    68,    69,    73,
-      75,    77,    80,    82,    84,    86,    88,    90,    92,    94,
-      96,    98,   100,   102,   104,   106,   108,   110,   112,   115,
-     125,   134,   146,   157,   163,   168,   176,   183,   184,   187,
-     189,   194,   198,   199,   202,   204,   208,   212,   216,   220,
-     224,   228,   232,   236,   240,   242,   244,   247,   250,   252,
-     254,   256,   259,   261,   265,   267,   269,   271,   273,   277,
-     281,   285,   289,   293,   295,   297,   299,   301,   305,   309,
-     313,   317,   321,   324,   327,   329,   331,   336,   338,   340,
-     344,   346,   348,   352,   356,   360,   364,   368,   372,   376,
-     378,   380,   382,   384,   386,   388,   391,   394,   401,   407,
-     409,   412,   417,   421,   422,   425,   428,   429,   431,   434,
-     437,   438,   440,   443,   448,   451,   453,   454,   456,   459,
-     464,   466,   468,   470,   472,   474,   476,   478,   482,   486,
-     487,   489,   492,   496,   497,   499
-  };
-
-  /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-  private static final short yyrline_[] =
-  {
-         0,    90,    90,    99,   102,   104,   108,   119,   132,   136,
-     147,   160,   174,   188,   202,   216,   235,   257,   261,   272,
-     285,   295,   306,   319,   325,   331,   337,   343,   349,   355,
-     361,   367,   373,   379,   385,   391,   397,   403,   411,   424,
-     438,   454,   469,   486,   498,   512,   526,   543,   551,   562,
-     575,   587,   602,   610,   621,   634,   640,   653,   666,   679,
-     692,   705,   718,   731,   744,   757,   770,   783,   798,   804,
-     810,   818,   829,   842,   853,   866,   872,   878,   886,   899,
-     914,   927,   942,   953,   966,   972,   978,   986,   999,  1012,
-    1025,  1038,  1051,  1070,  1081,  1089,  1100,  1112,  1123,  1136,
-    1142,  1148,  1156,  1162,  1175,  1188,  1201,  1214,  1227,  1242,
-    1248,  1254,  1260,  1268,  1280,  1292,  1305,  1318,  1331,  1346,
-    1357,  1370,  1382,  1397,  1400,  1406,  1415,  1418,  1420,  1424,
-    1433,  1436,  1438,  1442,  1450,  1455,  1463,  1466,  1468,  1472,
-    1480,  1491,  1502,  1513,  1525,  1537,  1549,  1561,  1573,  1589,
-    1598,  1609,  1623,  1638,  1647,  1658
-  };
-
-  // Report on the debug stream that the rule yyrule is going to be reduced.
-  private void yy_reduce_print (int yyrule, YYStack yystack)
-  {
-    if (yydebug == 0)
-      return;
-
-    int yylno = yyrline_[yyrule];
-    int yynrhs = yyr2_[yyrule];
-    /* Print the symbols being reduced, and their result.  */
-    yycdebug ("Reducing stack by rule " + (yyrule - 1)
-	      + " (line " + yylno + "), ");
-
-    /* The symbols being reduced.  */
-    for (int yyi = 0; yyi < yynrhs; yyi++)
-      yy_symbol_print ("   $" + (yyi + 1) + " =",
-		       yyrhs_[yyprhs_[yyrule] + yyi],
-		       ((yystack.valueAt (yynrhs-(yyi + 1)))));
+    };
   }
 
-  /* YYTRANSLATE(YYLEX) -- Bison symbol number corresponding to YYLEX.  */
-  private static final byte yytranslate_table_[] =
+
+
+
+  /* YYTRANSLATE_(TOKEN-NUM) -- Symbol number corresponding to TOKEN-NUM
+     as returned by yylex, with out-of-bounds checking.  */
+  private static final SymbolKind yytranslate_(int t)
   {
-         0,     2,     2,     2,     2,     2,     2,     2,     2,     2,
+    // Last valid token kind.
+    int code_max = 323;
+    if (t <= 0)
+      return SymbolKind.S_YYEOF;
+    else if (t <= code_max)
+      return SymbolKind.get(yytranslate_table_[t]);
+    else
+      return SymbolKind.S_YYUNDEF;
+  }
+  private static final byte[] yytranslate_table_ = yytranslate_table_init();
+  private static final byte[] yytranslate_table_init()
+  {
+    return new byte[]
+    {
+       0,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
@@ -3733,34 +3666,17 @@ class YYParser
       45,    46,    47,    48,    49,    50,    51,    52,    53,    54,
       55,    56,    57,    58,    59,    60,    61,    62,    63,    64,
       65,    66,    67,    68
-  };
-
-  private static final byte yytranslate_ (int t)
-  {
-    if (t >= 0 && t <= yyuser_token_number_max_)
-      return yytranslate_table_[t];
-    else
-      return yyundef_token_;
+    };
   }
 
-  private static final int yylast_ = 1300;
-  private static final int yynnts_ = 53;
-  private static final int yyempty_ = -2;
-  private static final int yyfinal_ = 6;
-  private static final int yyterror_ = 1;
-  private static final int yyerrcode_ = 256;
-  private static final int yyntokens_ = 69;
 
-  private static final int yyuser_token_number_max_ = 323;
-  private static final int yyundef_token_ = 2;
+  private static final int YYLAST_ = 1300;
+  private static final int YYEMPTY_ = -2;
+  private static final int YYFINAL_ = 6;
+  private static final int YYNTOKENS_ = 69;
 
-/* User implementation code.  */
 
 }
-
-
-/* Line 879 of lalr1.java  */
-/* Line 1670 of "YYParser.y"  */
-
+/* "jflexbison/YYParser.y":1670  */
 
 
