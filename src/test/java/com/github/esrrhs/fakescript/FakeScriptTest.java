@@ -95,7 +95,7 @@ public class FakeScriptTest {
 
         Object ret = fk.run(f, "test_container");
         assertNotNull(ret, fk.geterror(f));
-        assertEquals(300.0, ((Double) ret).doubleValue());
+        assertEquals(300L, ((Long) ret).longValue());
     }
 
     @Test
@@ -140,7 +140,7 @@ public class FakeScriptTest {
 
         Object ret = fk.run(f, "main");
         assertNotNull(ret, fk.geterror(f));
-        assertEquals(30.0, ((Double) ret).doubleValue());
+        assertEquals(30L, ((Long) ret).longValue());
     }
 
     @Test
@@ -281,7 +281,7 @@ public class FakeScriptTest {
 
         Object[] rets = fk.runmulti(f, "f");
         assertEquals(3, rets.length);
-        assertEquals(1.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals(1L, ((Long) rets[0]).longValue());
         assertEquals("two", rets[1]);
         assertEquals(3.5, ((Double) rets[2]).doubleValue(), 0.0001);
     }
@@ -541,7 +541,7 @@ public class FakeScriptTest {
 
         assertNotNull(rets, "resume did not finish in 10000 frames: " + fk.geterror(f));
         assertTrue(frames > 10, "expected frame-sliced execution, finished in " + frames + " frames");
-        assertEquals(100.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals(100L, ((Long) rets[0]).longValue());
 
         // 结束后可以重新启动,同样按帧执行直到结束
         Object[] again = null;
@@ -557,7 +557,7 @@ public class FakeScriptTest {
             restartFrames++;
         }
         assertNotNull(again, fk.geterror(f));
-        assertEquals(100.0, ((Double) again[0]).doubleValue(), 0.0001);
+        assertEquals(100L, ((Long) again[0]).longValue());
     }
 
     @Test

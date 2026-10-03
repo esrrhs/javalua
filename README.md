@@ -176,6 +176,22 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 
 ---
 
+## Numeric Types
+
+Numbers come in two flavors:
+
+* **INT** — signed 64-bit integers. Integer literals (`42`) and integer-only arithmetic (`+`, `-`, `*`, `%`, comparisons) produce INT, with full 64-bit precision (no double rounding above 2^53) and C-style overflow wrap.
+* **REAL** — 64-bit doubles. Float literals (`4.2`) and any expression mixing INT and REAL promote to REAL.
+
+Semantics worth knowing:
+
+* Division is always floating point: `4 / 2` is `2.0`, `1 / 2` is `0.5`.
+* Equality is value-based across numeric types: `1 == 1.0` is true, and both act as the same map key.
+* `UUID` values (integer literals with a `u` suffix, e.g. `123u`) never participate in arithmetic.
+* Host-side: `Integer`/`Double`/`Float` arguments become REAL, `Long` becomes UUID (legacy convention), and script INT results are returned to Java as `Long`.
+
+---
+
 ## Runtime Safety & Control
 
 When embedding scripts, use `fkconfig` to cap runaway scripts and `fk.stop` to cancel execution:

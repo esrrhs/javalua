@@ -941,6 +941,10 @@ public class fk
 		{
 			return null;
 		}
+		else if (v.get_type() == variant_type.INT)
+		{
+			return (long) (Long) v.get_data();
+		}
 		else if (v.get_type() == variant_type.REAL)
 		{
 			return (double) (Double) v.get_data();

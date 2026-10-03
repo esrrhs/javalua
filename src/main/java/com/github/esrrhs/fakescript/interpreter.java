@@ -1628,23 +1628,31 @@ class interpreter
 						{
 							try
 							{
-								v.set_real(Double.parseDouble(valuestr));
+								// 整数形式优先存为INT
+								v.set_int(Long.parseLong(valuestr));
 							}
-							catch (NumberFormatException e)
+							catch (NumberFormatException e1)
 							{
-								if (valuestr.equalsIgnoreCase("true"))
+								try
 								{
-									v.set_real(1);
+									v.set_real(Double.parseDouble(valuestr));
 								}
-								else if (valuestr.equalsIgnoreCase("false"))
+								catch (NumberFormatException e)
 								{
-									v.set_real(0);
-								}
-								else
-								{
-									types.seterror(f, "", 0, "", "debug set %s fail, cannot parse value %s", name,
-											valuestr);
-									return;
+									if (valuestr.equalsIgnoreCase("true"))
+									{
+										v.set_real(1);
+									}
+									else if (valuestr.equalsIgnoreCase("false"))
+									{
+										v.set_real(0);
+									}
+									else
+									{
+										types.seterror(f, "", 0, "", "debug set %s fail, cannot parse value %s", name,
+												valuestr);
+										return;
+									}
 								}
 							}
 						}

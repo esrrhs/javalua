@@ -408,7 +408,7 @@ class compiler
 				v.set_real(0);
 				break;
 			case EVT_NUM:
-				v.set_real(Integer.valueOf(ev.m_str));
+				v.set_int(Long.valueOf(ev.m_str));
 				break;
 			case EVT_STR:
 				v.set_string(ev.m_str);
