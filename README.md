@@ -277,4 +277,4 @@ Additional build profiles:
 ./mvnw clean test -Pgrammar           # regenerate YYParser.java (requires bison >= 3.0)
 ```
 
-The lexer (`Yylex.java`) is regenerated from `jflexbison/jflex.flex` on every build via the JFlex Maven plugin. The parser (`YYParser.java`) is checked in; regenerate it with the `grammar` profile (or `build.sh`) when the grammar changes. Test coverage reports are generated under `target/site/jacoco/` on every `test` run.
+The lexer (`Yylex.java`) is regenerated from `jflexbison/jflex.flex` on every build via the JFlex Maven plugin. The parser (`YYParser.java`) is checked in; regenerate it with the `grammar` profile when the grammar changes. Test coverage reports are generated under `target/site/jacoco/` on every `test` run.
