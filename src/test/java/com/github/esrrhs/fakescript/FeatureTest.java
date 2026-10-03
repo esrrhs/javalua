@@ -712,6 +712,184 @@ public class FeatureTest {
     }
 
     @Test
+    public void testBreakContinue() {
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    var hits = 0\n" +
+                "    while true then\n" +
+                "        i = i + 1\n" +
+                "        if i % 2 == 0 then\n" +
+                "            continue\n" +
+                "        end\n" +
+                "        hits = hits + 1\n" +
+                "        if i >= 9 then\n" +
+                "            break\n" +
+                "        end\n" +
+                "    end\n" +
+                "    return i, hits\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(2, rets.length, fk.geterror(f));
+        assertEquals(9L, ((Long) rets[0]).longValue());
+        assertEquals(5L, ((Long) rets[1]).longValue());
+    }
+
+    @Test
+    public void testBreakContinueInFor() {
+        String script =
+                "func f()\n" +
+                "    var sum = 0\n" +
+                "    for var j = 0, j < 10, j++ then\n" +
+                "        if j < 3 then\n" +
+                "            continue\n" +
+                "        end\n" +
+                "        if j > 6 then\n" +
+                "            break\n" +
+                "        end\n" +
+                "        sum = sum + j\n" +
+                "    end\n" +
+                "    return sum\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object ret = fk.run(f, "f");
+        assertEquals(18L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testConstMapArrayLiterals() {
+        String script =
+                "const CONFIG_MAP = {1 : \"Alpha\" 2 : \"Beta\"}\n" +
+                "const CONFIG_ARR = [10 20 30]\n" +
+                "func f()\n" +
+                "    return CONFIG_MAP[1], CONFIG_MAP[2], CONFIG_ARR[0], CONFIG_ARR[2], size(CONFIG_ARR)\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        assertEquals("Alpha", rets[0]);
+        assertEquals("Beta", rets[1]);
+        assertEquals(10L, ((Long) rets[2]).longValue());
+        assertEquals(30L, ((Long) rets[3]).longValue());
+        assertEquals(3L, ((Long) rets[4]).longValue());
+    }
+
+    @Test
+    public void testConstContainerIsReadOnly() {
+        String script =
+                "const ARR = [1 2]\n" +
+                "func f()\n" +
+                "    ARR[0] = 9\n" +
+                "    return ARR[0]\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f), "const container write should fail");
+        assertTrue(fk.geterror(f).contains("const"), fk.geterror(f));
+    }
+
+    @Test
+    public void testMultiAssignFromFunction() {
+        // 声明式多赋值用:=;=要求变量已声明
+        String script =
+                "func pair()\n" +
+                "    return 1, 2\n" +
+                "end\n" +
+                "func f()\n" +
+                "    a, b := pair()\n" +
+                "    return a, b, a + b\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(3, rets.length, fk.geterror(f));
+        assertEquals(1L, ((Long) rets[0]).longValue());
+        assertEquals(2L, ((Long) rets[1]).longValue());
+        assertEquals(3L, ((Long) rets[2]).longValue());
+    }
+
+    @Test
+    public void testDofilePositive(@TempDir Path dir) throws Exception {
+        Files.write(dir.resolve("extra.fk"),
+                "func extra_func()\n    return 77\nend\n".getBytes(StandardCharsets.UTF_8));
+
+        String script =
+                "func f()\n" +
+                "    dofile(\"" + dir.resolve("extra.fk").toString().replace("\\", "\\\\")
+                        + "\")\n" +
+                "    return extra_func()\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(77L, ((Long) fk.run(f, "f")).longValue());
+        assertTrue(fk.isfunc(f, "extra_func"));
+    }
+
+    @Test
+    public void testRegPackageScan() {
+        // 扫描包下所有类并绑定(测试包里有带@fakescript的方法)
+        fk.reg(f, "com.github.esrrhs.fakescript");
+
+        assertTrue(fk.isfunc(f, "FakeScriptTest.add"));
+
+        String script =
+                "func f()\n" +
+                "    return FakeScriptTest.add(2, 3)\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(5L, ((Long) fk.run(f, "f")).longValue());
+    }
+
+    @Test
+    public void testDebugSetVariantInt() throws Exception {
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    while i < 100 then\n" +
+                "        i = i + 1\n" +
+                "        yield 1\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        // 启动并跑一帧
+        assertNull(fk.resume(f, "f"));
+        int rid = fk.getcurroutineid(f);
+
+        // 读回当前变量(启动帧已执行过一次自增)
+        String val = fk.getcurvariantbyroutinebyframe(f, rid, 0, "i", -1);
+        assertEquals("1", val);
+
+        // 调试器修改变量为99(整数路径),循环应很快结束
+        fk.setcurvariantbyroutinebyframe(f, rid, 0, "i", "99", -1);
+        assertEquals("99", fk.getcurvariantbyroutinebyframe(f, rid, 0, "i", -1));
+
+        Object[] rets = null;
+        int frames = 0;
+        while (frames < 10000)
+        {
+            Object[] r = fk.resume(f, "f");
+            if (r != null)
+            {
+                rets = r;
+                break;
+            }
+            frames++;
+        }
+        assertNotNull(rets, fk.geterror(f));
+        assertEquals(100L, ((Long) rets[0]).longValue());
+        assertTrue(frames <= 3, "i=99 should finish fast, took " + frames + " frames");
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =

@@ -348,6 +348,27 @@ class interpreter
 		return command.ADDR_TYPE(command.COMMAND_CODE(fb.get_buff()[ip])) == command.ADDR_CONTAINER;
 	}
 
+	// dest为容器元素时,元素槽variant不携带const标记,必须检查container_addr指向的容器本体
+	public void CHECK_CONST_CONTAINER_DEST(func_binary fb, int ip) throws Exception
+	{
+		long cmd = fb.get_buff()[ip];
+		if (command.COMMAND_TYPE(cmd) != command.COMMAND_ADDR)
+		{
+			return;
+		}
+		int code = command.COMMAND_CODE(cmd);
+		if (command.ADDR_TYPE(code) != command.ADDR_CONTAINER)
+		{
+			return;
+		}
+		container_addr ca = fb.get_container_addr_list()[command.ADDR_POS(code)];
+		variant conv = GET_VARIANT_BY_CMD(fb, m_bp, ca.m_con);
+		if (CHECK_CONST_MAP_POS(conv) || CHECK_CONST_ARRAY_POS(conv))
+		{
+			throw new Exception("interpreter assign error, dest is const container");
+		}
+	}
+
 	public boolean CHECK_CONST_MAP_POS(variant v) throws Exception
 	{
 		return (v.get_type() == variant_type.MAP && v.get_map().m_isconst);
@@ -466,6 +487,7 @@ class interpreter
 						}
 
 						variant varv = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
 						if ((CHECK_CONST_MAP_POS(varv) || CHECK_CONST_ARRAY_POS(varv)))
 						{
 
@@ -980,6 +1002,7 @@ class interpreter
 											+ POS_TYPE_NAME(m_fb, m_ip));
 						}
 						variant var = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
 						if ((CHECK_CONST_MAP_POS(var) || CHECK_CONST_ARRAY_POS(var)))
 						{
 							throw new Exception("interpreter assign error, dest is const container");
@@ -1001,6 +1024,7 @@ class interpreter
 											+ POS_TYPE_NAME(m_fb, m_ip));
 						}
 						variant var = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
 						if ((CHECK_CONST_MAP_POS(var) || CHECK_CONST_ARRAY_POS(var)))
 						{
 							throw new Exception("interpreter assign error, dest is const container");
@@ -1022,6 +1046,7 @@ class interpreter
 											+ POS_TYPE_NAME(m_fb, m_ip));
 						}
 						variant var = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
 						if ((CHECK_CONST_MAP_POS(var) || CHECK_CONST_ARRAY_POS(var)))
 						{
 							throw new Exception("interpreter assign error, dest is const container");
@@ -1043,6 +1068,7 @@ class interpreter
 											+ POS_TYPE_NAME(m_fb, m_ip));
 						}
 						variant var = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
 						if ((CHECK_CONST_MAP_POS(var) || CHECK_CONST_ARRAY_POS(var)))
 						{
 							throw new Exception("interpreter assign error, dest is const container");
@@ -1064,6 +1090,7 @@ class interpreter
 											+ POS_TYPE_NAME(m_fb, m_ip));
 						}
 						variant var = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
 						if ((CHECK_CONST_MAP_POS(var) || CHECK_CONST_ARRAY_POS(var)))
 						{
 							throw new Exception("interpreter assign error, dest is const container");
