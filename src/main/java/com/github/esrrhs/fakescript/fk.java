@@ -888,25 +888,25 @@ public class fk
 		}
 
 		Class<? extends Object> c = arg.getClass();
-		if (c == Byte.class)
+		if (c == Byte.class || c == Short.class || c == Integer.class)
 		{
-			Byte b = (Byte) arg;
-			v.set_real(b);
-		}
-		else if (c == Short.class)
-		{
-			Short b = (Short) arg;
-			v.set_real(b);
-		}
-		else if (c == Integer.class)
-		{
-			Integer b = (Integer) arg;
-			v.set_real(b);
+			// 宿主整数统一映射为脚本INT
+			Number b = (Number) arg;
+			v.set_int(b.longValue());
 		}
 		else if (c == Long.class)
 		{
 			long b = (long) (Long) arg;
-			v.set_uuid(b);
+			if (f.cfg.long_as_int)
+			{
+				// 不使用UUID的宿主可开启,Long参数直接以64位整数进入脚本
+				v.set_int(b);
+			}
+			else
+			{
+				// 历史约定:Long映射为UUID,不参与计算
+				v.set_uuid(b);
+			}
 		}
 		else if (c == Float.class)
 		{
