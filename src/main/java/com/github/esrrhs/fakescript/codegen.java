@@ -102,7 +102,9 @@ class codegen
 		for (int i = 0; i < (int) m_const_list.size(); i++)
 		{
 			variant vv = m_const_list.get(i);
-			if (vv.equals(v))
+			// 常量去重必须类型严格:variant.equals对INT/REAL跨类型相等(1==1.0),
+			// 若用于去重会让整数字面量复用REAL常量槽,静默污染计算类型
+			if (vv.get_type() == v.get_type() && vv.equals(v))
 			{
 				return i;
 			}
