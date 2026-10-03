@@ -277,4 +277,4 @@ Object[] rets = fk.resume(f, "main"); // 每帧调用一次,直到返回非null
 ./mvnw clean test -Pgrammar           # 重新生成YYParser.java(需要bison >= 3.0)
 ```
 
-词法分析器(`Yylex.java`)由JFlex Maven插件在每次构建时从 `jflexbison/jflex.flex` 自动生成。语法分析器(`YYParser.java`)提交在仓库中，语法变更后使用 `grammar` profile(或 `build.sh`)重新生成。每次 `test` 构建会在 `target/site/jacoco/` 下生成测试覆盖率报告。
+词法分析器(`Yylex.java`)由JFlex Maven插件在每次构建时从 `jflexbison/jflex.flex` 自动生成。语法分析器(`YYParser.java`)提交在仓库中，语法变更后使用 `grammar` profile 重新生成。每次 `test` 构建会在 `target/site/jacoco/` 下生成测试覆盖率报告。
