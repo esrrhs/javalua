@@ -74,7 +74,7 @@ public class FakeScriptTest {
 
         Object ret = fk.run(f, "calc", 3, 4);
         assertNotNull(ret);
-        assertEquals(11.0, ((Double) ret).doubleValue());
+        assertEquals(11L, ((Long) ret).longValue());
     }
 
     @Test
@@ -115,7 +115,7 @@ public class FakeScriptTest {
 
         Object ret = fk.run(f, "call_java");
         assertNotNull(ret, fk.geterror(f));
-        assertEquals(40.0, ((Double) ret).doubleValue());
+        assertEquals(40L, ((Long) ret).longValue());
     }
 
     @Test
@@ -434,6 +434,51 @@ public class FakeScriptTest {
     }
 
     @Test
+    public void testHostIntMapping() throws Exception {
+        // Integer/Short/Byte默认映射为INT,可参与64位整数运算
+        String script =
+                "func f(a, b)\n" +
+                "    return a + b\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        Object ret = fk.run(f, "f", 2000000000, 1000000000);
+        assertEquals(3000000000L, ((Long) ret).longValue());
+
+        // short/byte同样进INT
+        Object ret2 = fk.run(f, "f", (short) 3, (byte) 4);
+        assertEquals(7L, ((Long) ret2).longValue());
+    }
+
+    @Test
+    public void testLongAsIntFlag() throws Exception {
+        fkconfig config = new fkconfig();
+        config.long_as_int = true;
+        fake ff = fk.newfake(config);
+        fk.openbaselib(ff);
+
+        String script =
+                "func f(a)\n" +
+                "    return a * 2, typeof(a)\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(ff, script), fk.geterror(ff));
+
+        Object[] rets = fk.runmulti(ff, "f", 3000000000L);
+        assertEquals(6000000000L, ((Long) rets[0]).longValue());
+        assertEquals("INT", rets[1]);
+
+        // 默认配置下Long仍是UUID,不参与计算
+        fake def = fk.newfake(new fkconfig());
+        fk.openbaselib(def);
+        assertTrue(fk.parsestr(def, script), fk.geterror(def));
+        fk.runmulti(def, "f", 3000000000L);
+        assertTrue(fk.error(def));
+        assertTrue(fk.geterror(def).contains("can not calculate"), fk.geterror(def));
+    }
+
+    @Test
     public void testBoolVariantSemantics() {
         variant rv = new variant();
         rv.set_real(0);
@@ -480,7 +525,7 @@ public class FakeScriptTest {
 
         Object[] rets = fk.runmulti(f, "f");
         assertEquals(4, rets.length, fk.geterror(f));
-        assertEquals(3.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals(3L, ((Long) rets[0]).longValue());
         assertEquals(1.0, ((Double) rets[1]).doubleValue(), 0.0001);
         assertEquals(0.0, ((Double) rets[2]).doubleValue(), 0.0001);
         assertEquals(7L, ((Long) rets[3]).longValue());
@@ -572,7 +617,7 @@ public class FakeScriptTest {
 
         Object[] rets = fk.resume(f, "f", 10, 4);
         assertNotNull(rets, fk.geterror(f));
-        assertEquals(14.0, ((Double) rets[0]).doubleValue(), 0.0001);
-        assertEquals(6.0, ((Double) rets[1]).doubleValue(), 0.0001);
+        assertEquals(14L, ((Long) rets[0]).longValue());
+        assertEquals(6L, ((Long) rets[1]).longValue());
     }
 }

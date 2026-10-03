@@ -182,7 +182,7 @@ public class FeatureTest {
         assertEquals(42L, ((Long) rets[0]).longValue());
         assertEquals("42", rets[1]);
         assertEquals("INT", rets[2]);
-        assertEquals(5.0, ((Double) rets[3]).doubleValue(), 0.0001);
+        assertEquals(5L, ((Long) rets[3]).longValue());
         assertEquals("e", rets[4]);
     }
 
@@ -258,7 +258,7 @@ public class FeatureTest {
 
         Object ret = fk.run(f, "f");
         assertNotNull(ret, fk.geterror(f));
-        assertEquals(3.0, ((Double) ret).doubleValue(), 0.0001);
+        assertEquals(3L, ((Long) ret).longValue());
     }
 
     @fakescript(name = "myadd")
@@ -333,8 +333,8 @@ public class FeatureTest {
 
         // clone共享已编译的函数与const,可直接运行
         fake c = fk.clone(f);
-        assertEquals(8.0, ((Double) fk.run(c, "f", 4)).doubleValue(), 0.0001);
-        assertEquals(8.0, ((Double) fk.run(f, "f", 4)).doubleValue(), 0.0001);
+        assertEquals(8L, ((Long) fk.run(c, "f", 4)).longValue());
+        assertEquals(8L, ((Long) fk.run(f, "f", 4)).longValue());
     }
 
     @Test
