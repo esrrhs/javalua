@@ -51,6 +51,16 @@ class builtinfunc
 		reg_func("trim", "builtin_trim");
 		reg_func("replace", "builtin_replace");
 		reg_func("split", "builtin_split");
+		reg_func("push", "builtin_push");
+		reg_func("pop", "builtin_pop");
+		reg_func("insert", "builtin_insert");
+		reg_func("remove", "builtin_remove");
+		reg_func("sort", "builtin_sort");
+		reg_func("keys", "builtin_keys");
+		reg_func("values", "builtin_values");
+		reg_func("copy", "builtin_copy");
+		reg_func("tojson", "builtin_tojson");
+		reg_func("fromjson", "builtin_fromjson");
 	}
 
 	public static void builtin_new(fake f, interpreter inter) throws Exception
@@ -678,5 +688,218 @@ class builtinfunc
 
 		variant ret = f.ps.push_and_get();
 		ret.set_array(va);
+	}
+	// ==================== 标准库:容器与JSON ====================
+
+	private static variant need_array(fake f) throws Exception
+	{
+		variant v = f.ps.pop_and_get();
+		if (v.get_type() != variant_type.ARRAY)
+		{
+			throw new Exception("container op fail, need array, got " + v.get_type());
+		}
+		return v;
+	}
+
+	private static variant need_map(fake f) throws Exception
+	{
+		variant v = f.ps.pop_and_get();
+		if (v.get_type() != variant_type.MAP)
+		{
+			throw new Exception("container op fail, need map, got " + v.get_type());
+		}
+		return v;
+	}
+
+	// push(arr, v):尾部追加,返回数组本身
+	public static void builtin_push(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 2);
+
+		variant v = f.ps.pop_and_get();
+		variant arr = need_array(f);
+		variant nv = new variant();
+		nv.copy_from(v);
+		((variant_array) arr.get_data()).push_back(nv);
+		f.ps.push_and_get().copy_from(arr);
+	}
+
+	// pop(arr):弹出尾部元素,空数组返回nil
+	public static void builtin_pop(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant arr = need_array(f);
+		variant e = ((variant_array) arr.get_data()).pop_back();
+		variant ret = f.ps.push_and_get();
+		if (e == null)
+		{
+			ret.set_nil();
+		}
+		else
+		{
+			ret.copy_from(e);
+		}
+	}
+
+	// insert(arr, i, v):i处插入,i夹紧
+	public static void builtin_insert(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 3);
+
+		variant v = f.ps.pop_and_get();
+		variant vi = f.ps.pop_and_get();
+		variant arr = need_array(f);
+		variant nv = new variant();
+		nv.copy_from(v);
+		((variant_array) arr.get_data()).insert_at((int) vi.get_real(), nv);
+		f.ps.push_and_get().copy_from(arr);
+	}
+
+	// remove(arr, i):删除i处元素并返回,越界返回nil
+	public static void builtin_remove(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 2);
+
+		variant vi = f.ps.pop_and_get();
+		variant arr = need_array(f);
+		variant e = ((variant_array) arr.get_data()).remove_at((int) vi.get_real());
+		variant ret = f.ps.push_and_get();
+		if (e == null)
+		{
+			ret.set_nil();
+		}
+		else
+		{
+			ret.copy_from(e);
+		}
+	}
+
+	// sort(arr):就地排序,数值按double视图,字符串按字典序,混用报错
+	public static void builtin_sort(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant arr = need_array(f);
+		((variant_array) arr.get_data()).sort();
+		f.ps.push_and_get().copy_from(arr);
+	}
+
+	// keys(map):键数组(HashMap遍历序)
+	public static void builtin_keys(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant m = need_map(f);
+		variant_map vm = (variant_map) m.get_data();
+		variant_array va = new variant_array(f);
+		for (int i = 0; i < vm.size(); i++)
+		{
+			Map.Entry<variant, variant> e = vm.get_entry_by_index(i);
+			variant kv = new variant();
+			kv.set_real(i);
+			va.con_array_get(kv).copy_from(e.getKey());
+		}
+		variant ret = f.ps.push_and_get();
+		ret.set_array(va);
+	}
+
+	// values(map):值数组(HashMap遍历序)
+	public static void builtin_values(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant m = need_map(f);
+		variant_map vm = (variant_map) m.get_data();
+		variant_array va = new variant_array(f);
+		for (int i = 0; i < vm.size(); i++)
+		{
+			Map.Entry<variant, variant> e = vm.get_entry_by_index(i);
+			variant kv = new variant();
+			kv.set_real(i);
+			va.con_array_get(kv).copy_from(e.getValue());
+		}
+		variant ret = f.ps.push_and_get();
+		ret.set_array(va);
+	}
+
+	// copy(v):深拷贝,容器递归复制,深度上限64
+	public static void builtin_copy(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().copy_from(deep_copy(f, v, 0));
+	}
+
+	private static variant deep_copy(fake f, variant v, int depth) throws Exception
+	{
+		if (depth > 64)
+		{
+			throw new Exception("copy fail, nested too deep");
+		}
+
+		if (v.get_type() == variant_type.ARRAY)
+		{
+			variant_array src = (variant_array) v.get_data();
+			variant_array dst = new variant_array(f);
+			for (int i = 0; i < src.size(); i++)
+			{
+				variant kv = new variant();
+				kv.set_real(i);
+				variant slot = dst.con_array_get(kv);
+				variant se = src.get_by_index(i);
+				if (se != null)
+				{
+					slot.copy_from(deep_copy(f, se, depth + 1));
+				}
+				else
+				{
+					slot.set_nil();
+				}
+			}
+			variant ret = new variant();
+			ret.set_array(dst);
+			return ret;
+		}
+
+		if (v.get_type() == variant_type.MAP)
+		{
+			variant_map src = (variant_map) v.get_data();
+			variant_map dst = new variant_map(f);
+			for (int i = 0; i < src.size(); i++)
+			{
+				Map.Entry<variant, variant> e = src.get_entry_by_index(i);
+				variant newk = deep_copy(f, e.getKey(), depth + 1);
+				variant slot = dst.con_map_get(newk);
+				slot.copy_from(deep_copy(f, e.getValue(), depth + 1));
+			}
+			variant ret = new variant();
+			ret.set_map(dst);
+			return ret;
+		}
+
+		variant ret = new variant();
+		ret.copy_from(v);
+		return ret;
+	}
+
+	// tojson(v):序列化为JSON字符串
+	public static void builtin_tojson(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_string(json.write(v));
+	}
+
+	// fromjson(str):解析JSON,整数样式为INT,非法输入报错
+	public static void builtin_fromjson(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		variant ret = json.parse(v.get_string());
+		f.ps.push_and_get().copy_from(ret);
 	}
 }

@@ -195,6 +195,9 @@ Built-in functions available to scripts:
 
 * **Values**: `print`, `format`, `typeof`, `tonumber`, `tostring`, `tolong`, `size`, `range`, `getconst`, `isfunc`
 * **Containers**: `array`, `map`, `_G`, `new` (subject to `new_class_white_list`)
+* **Array ops**: `push`, `pop`, `insert`, `remove`, `sort` (in-place; numbers by value, strings lexicographic, mixing fails)
+* **Map ops**: `keys`, `values` (iteration order is HashMap order, not insertion order)
+* **Data**: `copy` (deep copy, 64-level cap), `tojson`, `fromjson` — JSON numbers round-trip as INT/REAL, UUID as integer, map keys must be string/number
 * **Math & time**: `abs` (INT-preserving), `floor`, `ceil` (return INT), `sqrt`, `pow`, `random()` (REAL in [0,1)) / `random(n)` (INT in [0,n)), `time` (epoch millis)
 * **Strings**: `substr(s, start, len)`, `find(s, sub)` (0-based, -1 if absent), `upper`, `lower`, `trim`, `replace` (literal), `split` (literal separator, keeps empty parts)
 * **Dynamic**: `dostring`, `dofile` (subject to `allow_dofile`), `getcurfile`, `getcurline`, `getcurfunc`, `getcurcallstack`, `dumpfunc`, `dumpallfunc`
