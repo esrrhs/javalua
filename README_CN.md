@@ -195,6 +195,9 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 
 * **值**: `print`、`format`、`typeof`、`tonumber`、`tostring`、`tolong`、`size`、`range`、`getconst`、`isfunc`
 * **容器**: `array`、`map`、`_G`、`new`(受`new_class_white_list`限制)
+* **数组操作**: `push`、`pop`、`insert`、`remove`、`sort`(就地排序;数值按值、字符串按字典序,混用报错)
+* **映射操作**: `keys`、`values`(遍历序为HashMap序,非插入序)
+* **数据**: `copy`(深拷贝,64层上限)、`tojson`、`fromjson` —— JSON整数与脚本INT/REAL往返保真,UUID输出为整数,map键仅支持字符串/数值
 * **数学与时间**: `abs`(INT保持INT)、`floor`、`ceil`(返回INT)、`sqrt`、`pow`、`random()`(REAL,范围[0,1)) / `random(n)`(INT,范围[0,n))、`time`(毫秒时间戳)
 * **字符串**: `substr(s, start, len)`、`find(s, sub)`(0起,不存在为-1)、`upper`、`lower`、`trim`、`replace`(字面量替换)、`split`(字面量分隔符,保留空段)
 * **动态**: `dostring`、`dofile`(受`allow_dofile`限制)、`getcurfile`、`getcurline`、`getcurfunc`、`getcurcallstack`、`dumpfunc`、`dumpallfunc`

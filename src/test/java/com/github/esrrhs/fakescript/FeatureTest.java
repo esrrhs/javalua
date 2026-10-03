@@ -509,6 +509,209 @@ public class FeatureTest {
     }
 
     @Test
+    public void testArrayOps() {
+        String script =
+                "func f()\n" +
+                "    var arr = array()\n" +
+                "    push(arr, 1)\n" +
+                "    push(arr, 2)\n" +
+                "    push(arr, 3)\n" +
+                "    var p = pop(arr)\n" +
+                "    insert(arr, 0, 0)\n" +
+                "    var r = remove(arr, 1)\n" +
+                "    sort(arr)\n" +
+                "    return size(arr), p, r, arr[0], arr[1]\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        assertEquals(2L, ((Long) rets[0]).longValue());
+        assertEquals(3L, ((Long) rets[1]).longValue());
+        assertEquals(1L, ((Long) rets[2]).longValue());
+        assertEquals(0L, ((Long) rets[3]).longValue());
+        assertEquals(2L, ((Long) rets[4]).longValue());
+    }
+
+    @Test
+    public void testArraySortBuiltin() {
+        String script =
+                "func f()\n" +
+                "    var nums = array()\n" +
+                "    push(nums, 3.5)\n" +
+                "    push(nums, 1)\n" +
+                "    push(nums, 2.5)\n" +
+                "    sort(nums)\n" +
+                "    var strs = split(\"b,a,c\", \",\")\n" +
+                "    sort(strs)\n" +
+                "    return nums[0], nums[2], strs[0], strs[2]\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(4, rets.length, fk.geterror(f));
+        assertEquals(1L, ((Long) rets[0]).longValue());
+        assertEquals(3.5, ((Double) rets[1]).doubleValue(), 0.0000001);
+        assertEquals("a", rets[2]);
+        assertEquals("c", rets[3]);
+    }
+
+    @Test
+    public void testMapKeysValues() {
+        String script =
+                "func f()\n" +
+                "    var m = map()\n" +
+                "    m[\"a\"] = 1\n" +
+                "    m[\"b\"] = 2\n" +
+                "    var ks = keys(m)\n" +
+                "    var vs = values(m)\n" +
+                "    var sum = 0\n" +
+                "    for var i = 0, i < size(vs), i++ then\n" +
+                "        sum = sum + vs[i]\n" +
+                "    end\n" +
+                "    return size(ks), sum\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(2, rets.length, fk.geterror(f));
+        assertEquals(2L, ((Long) rets[0]).longValue());
+        assertEquals(3L, ((Long) rets[1]).longValue());
+    }
+
+    @Test
+    public void testDeepCopy() {
+        String script =
+                "func f()\n" +
+                "    var m = map()\n" +
+                "    var arr = array()\n" +
+                "    push(arr, 1)\n" +
+                "    push(arr, \"x\")\n" +
+                "    m[\"list\"] = arr\n" +
+                "    m[\"n\"] = 5\n" +
+                "    var c = copy(m)\n" +
+                "    c[\"n\"] = 100\n" +
+                "    var cl = c[\"list\"]\n" +
+                "    cl[0] = 999\n" +
+                "    var ml = m[\"list\"]\n" +
+                "    return m[\"n\"], ml[0], c[\"n\"], cl[0], cl[1]\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        // 深拷贝后互不影响
+        assertEquals(5L, ((Long) rets[0]).longValue());
+        assertEquals(1L, ((Long) rets[1]).longValue());
+        assertEquals(100L, ((Long) rets[2]).longValue());
+        assertEquals(999L, ((Long) rets[3]).longValue());
+        assertEquals("x", rets[4]);
+    }
+
+    @Test
+    public void testJsonRoundTrip() {
+        String script =
+                "func f()\n" +
+                "    var m = map()\n" +
+                "    m[\"name\"] = \"fake\"\n" +
+                "    m[\"hp\"] = 100\n" +
+                "    m[\"atk\"] = 12.5\n" +
+                "    m[\"dead\"] = false\n" +
+                "    var tags = array()\n" +
+                "    push(tags, \"boss\")\n" +
+                "    push(tags, 42)\n" +
+                "    m[\"tags\"] = tags\n" +
+                "    var j = tojson(m)\n" +
+                "    var back = fromjson(j)\n" +
+                "    var btags = back[\"tags\"]\n" +
+                "    return back[\"name\"], back[\"hp\"], back[\"atk\"], btags[0], btags[1]\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        assertEquals("fake", rets[0]);
+        assertEquals(100L, ((Long) rets[1]).longValue());
+        assertEquals(12.5, ((Double) rets[2]).doubleValue(), 0.0000001);
+        assertEquals("boss", rets[3]);
+        assertEquals(42L, ((Long) rets[4]).longValue());
+    }
+
+    @Test
+    public void testJsonTypesAndEscapes() {
+        String script =
+                "func f()\n" +
+                "    var j = fromjson(\"{\\\"s\\\":\\\"a\\\\nb\\\",\\\"i\\\":9007199254740993,\\\"f\\\":1.5,\\\"n\\\":null,\\\"t\\\":true}\")\n" +
+                "    return j[\"s\"], size(j[\"s\"]), j[\"i\"], typeof(j[\"i\"]), j[\"f\"], j[\"n\"], j[\"t\"]\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(7, rets.length, fk.geterror(f));
+        assertEquals("a\nb", rets[0]);
+        assertEquals(3L, ((Long) rets[1]).longValue());
+        // 2^53+1:JSON整数保真为64位INT
+        assertEquals(9007199254740993L, ((Long) rets[2]).longValue());
+        assertEquals("INT", rets[3]);
+        assertEquals(1.5, ((Double) rets[4]).doubleValue(), 0.0000001);
+        assertNull(rets[5]);
+        assertEquals(1.0, ((Double) rets[6]).doubleValue(), 0.0000001);
+    }
+
+    @Test
+    public void testJsonTojsonOutput() {
+        String script =
+                "func f()\n" +
+                "    var m = map()\n" +
+                "    m[\"id\"] = 123u\n" +
+                "    m[\"nil\"] = null\n" +
+                "    var arr = array()\n" +
+                "    push(arr, 1.0)\n" +
+                "    push(arr, 2.5)\n" +
+                "    m[\"arr\"] = arr\n" +
+                "    return tojson(m)\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object j = fk.run(f, "f");
+        // UUID输出为数字;REAL整数值输出为整数;nil输出null;键按HashMap遍历序,断言子串
+        String s = (String) j;
+        assertTrue(s.contains("\"id\":123"), s);
+        assertTrue(s.contains("\"nil\":null"), s);
+        assertTrue(s.contains("[1,2.5]"), s);
+    }
+
+    @Test
+    public void testJsonErrors() {
+        String script =
+                "func f()\n" +
+                "    return fromjson(\"{bad\")\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertNull(ret);
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("json parse fail"), fk.geterror(f));
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =
