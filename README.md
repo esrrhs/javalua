@@ -176,6 +176,19 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 
 ---
 
+## Profiling
+
+Built-in per-function profiler:
+
+```java
+fk.openprofile(f);
+fk.run(f, "main");
+fk.closeprofile(f);
+System.out.println(fk.dumpprofile(f)); // calls, total & per-call time per function
+```
+
+---
+
 ## Numeric Types
 
 Numbers come in two flavors:

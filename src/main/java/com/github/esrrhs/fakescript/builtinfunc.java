@@ -208,6 +208,15 @@ class builtinfunc
 		BIF_CHECK_ARG_NUM(f, 1);
 
 		String file = (String) fk.pspop(f);
+
+		// 沙箱:配置为不允许时直接失败
+		if (!f.cfg.allow_dofile)
+		{
+			types.seterror(f, "", 0, "", "dofile %s fail, allow_dofile is false", file);
+			fk.pspush(f, false);
+			return;
+		}
+
 		boolean ret = fk.parse(f, file);
 		fk.pspush(f, ret);
 	}
