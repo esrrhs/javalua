@@ -479,6 +479,34 @@ public class FakeScriptTest {
     }
 
     @Test
+    public void testStructuredError() throws Exception {
+        String script =
+                "func g()\n" +
+                "    var arr = array()\n" +
+                "    return arr[-1]\n" +
+                "end\n" +
+                "func f()\n" +
+                "    return g()\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertNull(fk.getlasterror(f));
+
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+
+        fkerror e = fk.getlasterror(f);
+        assertNotNull(e);
+        assertEquals("g", e.funcname, e.toString());
+        assertTrue(e.lineno > 0, e.toString());
+        assertTrue(e.message.contains("call stack:"), e.message);
+
+        // clearerr后清空
+        f.clearerr();
+        assertNull(fk.getlasterror(f));
+    }
+
+    @Test
     public void testBoolVariantSemantics() {
         variant rv = new variant();
         rv.set_real(0);
