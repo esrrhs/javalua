@@ -189,6 +189,18 @@ System.out.println(fk.dumpprofile(f)); // calls, total & per-call time per funct
 
 ---
 
+## Standard Library
+
+Built-in functions available to scripts:
+
+* **Values**: `print`, `format`, `typeof`, `tonumber`, `tostring`, `tolong`, `size`, `range`, `getconst`, `isfunc`
+* **Containers**: `array`, `map`, `_G`, `new` (subject to `new_class_white_list`)
+* **Math & time**: `abs` (INT-preserving), `floor`, `ceil` (return INT), `sqrt`, `pow`, `random()` (REAL in [0,1)) / `random(n)` (INT in [0,n)), `time` (epoch millis)
+* **Strings**: `substr(s, start, len)`, `find(s, sub)` (0-based, -1 if absent), `upper`, `lower`, `trim`, `replace` (literal), `split` (literal separator, keeps empty parts)
+* **Dynamic**: `dostring`, `dofile` (subject to `allow_dofile`), `getcurfile`, `getcurline`, `getcurfunc`, `getcurcallstack`, `dumpfunc`, `dumpallfunc`
+
+---
+
 ## Numeric Types
 
 Numbers come in two flavors:
@@ -201,7 +213,7 @@ Semantics worth knowing:
 * Division is always floating point: `4 / 2` is `2.0`, `1 / 2` is `0.5`.
 * Equality is value-based across numeric types: `1 == 1.0` is true, and both act as the same map key.
 * `UUID` values (integer literals with a `u` suffix, e.g. `123u`) never participate in arithmetic.
-* Host-side: `Integer`/`Double`/`Float` arguments become REAL, `Long` becomes UUID (legacy convention), and script INT results are returned to Java as `Long`.
+* Host-side: `Integer`/`Short`/`Byte` arguments become INT, `Float`/`Double` become REAL, and `Long` becomes UUID (legacy convention) — set `fkconfig.long_as_int = true` to map `Long` to INT instead. Script INT results are returned to Java as `Long`.
 
 ---
 

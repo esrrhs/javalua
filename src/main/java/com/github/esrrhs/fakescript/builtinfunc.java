@@ -1,5 +1,6 @@
 package com.github.esrrhs.fakescript;
 
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.Map;
 import java.util.Set;
 
@@ -36,6 +37,20 @@ class builtinfunc
 		reg_func("tolong", "builtin_tolong");
 		reg_func("getconst", "builtin_getconst");
 		reg_func("new", "builtin_new");
+		reg_func("abs", "builtin_abs");
+		reg_func("floor", "builtin_floor");
+		reg_func("ceil", "builtin_ceil");
+		reg_func("sqrt", "builtin_sqrt");
+		reg_func("pow", "builtin_pow");
+		reg_func("random", "builtin_random");
+		reg_func("time", "builtin_time");
+		reg_func("substr", "builtin_substr");
+		reg_func("find", "builtin_find");
+		reg_func("upper", "builtin_upper");
+		reg_func("lower", "builtin_lower");
+		reg_func("trim", "builtin_trim");
+		reg_func("replace", "builtin_replace");
+		reg_func("split", "builtin_split");
 	}
 
 	public static void builtin_new(fake f, interpreter inter) throws Exception
@@ -462,4 +477,206 @@ class builtinfunc
 		}
 	}
 
+	// ==================== 标准库:数学与时间 ====================
+
+	public static void builtin_abs(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		variant ret = f.ps.push_and_get();
+		if (v.get_type() == variant_type.INT)
+		{
+			ret.set_int(Math.abs((long) (Long) v.get_data()));
+		}
+		else
+		{
+			ret.set_real(Math.abs(v.get_real()));
+		}
+	}
+
+	public static void builtin_floor(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_int((long) Math.floor(v.get_real()));
+	}
+
+	public static void builtin_ceil(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_int((long) Math.ceil(v.get_real()));
+	}
+
+	public static void builtin_sqrt(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_real(Math.sqrt(v.get_real()));
+	}
+
+	public static void builtin_pow(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 2);
+
+		variant e = f.ps.pop_and_get();
+		variant b = f.ps.pop_and_get();
+		f.ps.push_and_get().set_real(Math.pow(b.get_real(), e.get_real()));
+	}
+
+	// random()返回[0,1)的REAL;random(n)返回[0,n)的INT
+	public static void builtin_random(fake f, interpreter inter) throws Exception
+	{
+		if (f.ps.size() > 0)
+		{
+			BIF_CHECK_ARG_NUM(f, 1);
+
+			variant v = f.ps.pop_and_get();
+			long n = v.get_int();
+			if (n <= 0)
+			{
+				f.ps.push_and_get().set_int(0);
+			}
+			else
+			{
+				f.ps.push_and_get().set_int(ThreadLocalRandom.current().nextLong(n));
+			}
+		}
+		else
+		{
+			f.ps.push_and_get().set_real(ThreadLocalRandom.current().nextDouble());
+		}
+	}
+
+	// 当前毫秒时间戳
+	public static void builtin_time(fake f, interpreter inter) throws Exception
+	{
+		f.ps.push_and_get().set_int(System.currentTimeMillis());
+	}
+
+	// ==================== 标准库:字符串 ====================
+
+	// substr(s, start, len):从start(0起)截取len个字符,自动夹紧
+	public static void builtin_substr(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 3);
+
+		variant vlen = f.ps.pop_and_get();
+		variant vstart = f.ps.pop_and_get();
+		variant vs = f.ps.pop_and_get();
+		String s = vs.get_string();
+		int start = (int) vstart.get_real();
+		int len = (int) vlen.get_real();
+
+		if (start < 0)
+		{
+			start = 0;
+		}
+		if (start >= s.length() || len <= 0)
+		{
+			f.ps.push_and_get().set_string("");
+			return;
+		}
+		int end = Math.min(s.length(), start + len);
+		f.ps.push_and_get().set_string(s.substring(start, end));
+	}
+
+	// find(s, sub):子串位置,0起,不存在为-1
+	public static void builtin_find(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 2);
+
+		variant vsub = f.ps.pop_and_get();
+		variant vs = f.ps.pop_and_get();
+		f.ps.push_and_get().set_int(vs.get_string().indexOf(vsub.get_string()));
+	}
+
+	public static void builtin_upper(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_string(v.get_string().toUpperCase());
+	}
+
+	public static void builtin_lower(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_string(v.get_string().toLowerCase());
+	}
+
+	public static void builtin_trim(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 1);
+
+		variant v = f.ps.pop_and_get();
+		f.ps.push_and_get().set_string(v.get_string().trim());
+	}
+
+	// replace(s, from, to):字面量替换,非正则
+	public static void builtin_replace(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 3);
+
+		variant vto = f.ps.pop_and_get();
+		variant vfrom = f.ps.pop_and_get();
+		variant vs = f.ps.pop_and_get();
+		String s = vs.get_string();
+		String from = vfrom.get_string();
+		if (from.isEmpty())
+		{
+			f.ps.push_and_get().set_string(s);
+			return;
+		}
+		f.ps.push_and_get().set_string(s.replace(from, vto.get_string()));
+	}
+
+	// split(s, sep):按字面量分隔符切分为字符串数组
+	public static void builtin_split(fake f, interpreter inter) throws Exception
+	{
+		BIF_CHECK_ARG_NUM(f, 2);
+
+		variant vsep = f.ps.pop_and_get();
+		variant vs = f.ps.pop_and_get();
+		String s = vs.get_string();
+		String sep = vsep.get_string();
+
+		variant_array va = new variant_array(f);
+		if (sep.isEmpty())
+		{
+			variant kv0 = new variant();
+			kv0.set_real(0);
+			va.con_array_get(kv0).set_string(s);
+		}
+		else
+		{
+			int i = 0;
+			int pos = 0;
+			while (true)
+			{
+				int next = s.indexOf(sep, pos);
+				String part = next == -1 ? s.substring(pos) : s.substring(pos, next);
+
+				variant kv = new variant();
+				kv.set_real(i);
+				va.con_array_get(kv).set_string(part);
+				i++;
+
+				if (next == -1)
+				{
+					break;
+				}
+				pos = next + sep.length();
+			}
+		}
+
+		variant ret = f.ps.push_and_get();
+		ret.set_array(va);
+	}
 }
