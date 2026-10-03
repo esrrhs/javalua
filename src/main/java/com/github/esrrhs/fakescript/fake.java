@@ -10,6 +10,8 @@ public class fake
 {
 	protected boolean error = false;
 	protected String errorstr = "";
+	// 最近一次错误的结构化信息,clearerr时清空
+	protected fkerror lasterror = null;
 	protected callback cb = new default_callback();
 
 	// 配置
@@ -64,6 +66,7 @@ public class fake
 	{
 		error = false;
 		errorstr = "";
+		lasterror = null;
 	}
 
 	// 未通过fk.set_callback设置回调时的默认行为:print输出到stdout,错误只记录在errorstr中

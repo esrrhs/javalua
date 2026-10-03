@@ -82,6 +82,21 @@ public class fk
 	}
 
 	/**
+	 * 获取上一次错误的结构化信息
+	 * <p>
+	 * 按字段返回文件、行号、函数与完整信息,无错误时为null<br>
+	 * fk.clearerr及下次run/parse开始时清空
+	 *
+	 * @param f
+	 *            fake对象
+	 * @return 结构化错误,无错误时为null
+	 */
+	public static fkerror getlasterror(fake f)
+	{
+		return f.lasterror;
+	}
+
+	/**
 	 * 绑定java函数
 	 * <p>
 	 * 遍历package下所有类<br>

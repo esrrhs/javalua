@@ -8,6 +8,12 @@ class types
 		f.error = true;
 		f.errorstr = String.format(errorstr, args);
 
+		f.lasterror = new fkerror();
+		f.lasterror.file = file;
+		f.lasterror.lineno = lineno;
+		f.lasterror.funcname = func;
+		f.lasterror.message = f.errorstr;
+
 		if (f.cb != null)
 		{
 			f.cb.on_error(f, file, lineno, func, f.errorstr);
