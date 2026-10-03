@@ -60,7 +60,7 @@ public class FeatureTest {
         assertTrue(ok, fk.geterror(f));
 
         Object ret = fk.run(f, "f");
-        assertEquals(3.0, ((Double) ret).doubleValue(), 0.0001);
+        assertEquals(3L, ((Long) ret).longValue());
     }
 
     @Test
@@ -99,7 +99,7 @@ public class FeatureTest {
                 "end\n";
 
         Object ret = runScript(script, "f");
-        assertEquals(100.0, ((Double) ret).doubleValue(), 0.0001);
+        assertEquals(100L, ((Long) ret).longValue());
     }
 
     @Test
@@ -111,7 +111,7 @@ public class FeatureTest {
                 "end\n";
 
         Object ret = runScript(script, "f");
-        assertEquals(100.0, ((Double) ret).doubleValue(), 0.0001);
+        assertEquals(100L, ((Long) ret).longValue());
     }
 
     @Test
@@ -126,7 +126,7 @@ public class FeatureTest {
                 "end\n";
 
         Object ret = runScript(script, "f", 10);
-        assertEquals(45.0, ((Double) ret).doubleValue(), 0.0001);
+        assertEquals(45L, ((Long) ret).longValue());
     }
 
     @Test
@@ -141,7 +141,7 @@ public class FeatureTest {
                 "end\n";
 
         Object ret = runScript(script, "f", 7);
-        assertEquals(8.0, ((Double) ret).doubleValue(), 0.0001);
+        assertEquals(8L, ((Long) ret).longValue());
     }
 
     @Test
@@ -179,9 +179,9 @@ public class FeatureTest {
 
         Object[] rets = fk.runmulti(f, "f");
         assertEquals(5, rets.length, fk.geterror(f));
-        assertEquals(42.0, ((Double) rets[0]).doubleValue(), 0.0001);
+        assertEquals(42L, ((Long) rets[0]).longValue());
         assertEquals("42", rets[1]);
-        assertEquals("REAL", rets[2]);
+        assertEquals("INT", rets[2]);
         assertEquals(5.0, ((Double) rets[3]).doubleValue(), 0.0001);
         assertEquals("e", rets[4]);
     }
@@ -214,8 +214,8 @@ public class FeatureTest {
         String v1 = "func f()\n    return 1\nend\n";
         String v2 = "func f()\n    return 2\nend\n";
 
-        assertEquals(1.0, ((Double) runScript(v1, "f")).doubleValue(), 0.0001);
-        assertEquals(2.0, ((Double) runScript(v2, "f")).doubleValue(), 0.0001);
+        assertEquals(1L, ((Long) runScript(v1, "f")).longValue());
+        assertEquals(2L, ((Long) runScript(v2, "f")).longValue());
     }
 
     @Test
@@ -264,5 +264,148 @@ public class FeatureTest {
     @fakescript(name = "myadd")
     public static int myadd(int a, int b) {
         return a + b;
+    }
+
+    @Test
+    public void testIntegerPrecision() {
+        // 2^60+1超出double精度,INT精确到64位
+        String script =
+                "func f()\n" +
+                "    return 1152921504606846977 + 1\n" +
+                "end\n";
+
+        Object ret = runScript(script, "f");
+        assertEquals(1152921504606846978L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testIntegerOverflowWrapsLikeC() {
+        String script =
+                "func f()\n" +
+                "    return 9223372036854775807 + 1\n" +
+                "end\n";
+
+        Object ret = runScript(script, "f");
+        assertEquals(-9223372036854775808L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testDivisionStaysFloating() {
+        String script =
+                "func f()\n" +
+                "    var a = 1 / 2\n" +
+                "    var b = 4 / 2\n" +
+                "    return a, typeof(a), b, typeof(b)\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(4, rets.length, fk.geterror(f));
+        assertEquals(0.5, ((Double) rets[0]).doubleValue(), 0.0000001);
+        assertEquals("REAL", rets[1]);
+        assertEquals(2.0, ((Double) rets[2]).doubleValue(), 0.0000001);
+        assertEquals("REAL", rets[3]);
+    }
+
+    @Test
+    public void testIntegerModulo() {
+        String script =
+                "func f()\n" +
+                "    var a = 7 % 3\n" +
+                "    var b = 7.5 % 3\n" +
+                "    return a, typeof(a), b\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(3, rets.length, fk.geterror(f));
+        assertEquals(1L, ((Long) rets[0]).longValue());
+        assertEquals("INT", rets[1]);
+        // REAL参与%与旧语义一致:先截断为整数再取模
+        assertEquals(1.0, ((Double) rets[2]).doubleValue(), 0.0000001);
+    }
+
+    @Test
+    public void testMixedNumericComparisonAndEquality() {
+        // 注意:比较表达式只能出现在if/while等条件位置,不能作赋值右值
+        String script =
+                "func f()\n" +
+                "    var a = 0\n" +
+                "    if 1 < 1.5 then\n" +
+                "        a = 1\n" +
+                "    end\n" +
+                "    var b = 0\n" +
+                "    if 1 == 1.0 then\n" +
+                "        b = 1\n" +
+                "    end\n" +
+                "    var c = 0\n" +
+                "    if 2 == 1.0 then\n" +
+                "        c = 1\n" +
+                "    end\n" +
+                "    var d = 1 + 0.5\n" +
+                "    return a, b, c, d, typeof(d)\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        assertEquals(1L, ((Long) rets[0]).longValue());
+        assertEquals(1L, ((Long) rets[1]).longValue());
+        assertEquals(0L, ((Long) rets[2]).longValue());
+        assertEquals(1.5, ((Double) rets[3]).doubleValue(), 0.0000001);
+        assertEquals("REAL", rets[4]);
+    }
+
+    @Test
+    public void testMapKeyCrossTypeNumeric() {
+        // INT 1 与 REAL 1.0 是同一个键
+        String script =
+                "func f()\n" +
+                "    var m = map()\n" +
+                "    m[1] = \"a\"\n" +
+                "    return m[1.0]\n" +
+                "end\n";
+
+        assertEquals("a", runScript(script, "f"));
+    }
+
+    @Test
+    public void testUuidNotCalculable() {
+        String script =
+                "func f()\n" +
+                "    return 123u + 1\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("can not calculate"), fk.geterror(f));
+    }
+
+    @Test
+    public void testNumberConversionBuiltins() {
+        String script =
+                "func f()\n" +
+                "    return tonumber(\"42\"), typeof(tonumber(\"42\")), tonumber(\"4.2\"), tolong(\"42\"), typeof(tolong(\"42\"))\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        assertEquals(42L, ((Long) rets[0]).longValue());
+        assertEquals("INT", rets[1]);
+        assertEquals(4.2, ((Double) rets[2]).doubleValue(), 0.0000001);
+        assertEquals(42L, ((Long) rets[3]).longValue());
+        assertEquals("INT", rets[4]);
     }
 }

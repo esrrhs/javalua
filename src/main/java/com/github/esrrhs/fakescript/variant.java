@@ -46,6 +46,10 @@ class variant
 				ss = "" + real;
 			}
 		}
+		else if (m_type == variant_type.INT)
+		{
+			ss = "" + (long) (Long) m_data;
+		}
 		else if (m_type == variant_type.STRING)
 		{
 			ss = (String) (m_data);
@@ -114,6 +118,12 @@ class variant
 		m_data = l;
 	}
 
+	public void set_int(long l)
+	{
+		m_type = variant_type.INT;
+		m_data = l;
+	}
+
 	public void set_array(variant_array va)
 	{
 		m_type = variant_type.ARRAY;
@@ -135,13 +145,38 @@ class variant
 		return m_data;
 	}
 
+	// 取数值(double视图),接受REAL/INT/NIL
 	public double get_real() throws Exception
 	{
-		if (m_type != variant_type.REAL && m_type != variant_type.NIL)
+		if (m_type != variant_type.REAL && m_type != variant_type.INT && m_type != variant_type.NIL)
 		{
 			throw new Exception("variant get real fail, the variant is " + m_type.toString() + m_data.toString());
 		}
+		if (m_type == variant_type.INT)
+		{
+			return (long) (Long) m_data;
+		}
 		return m_data == null ? 0 : (double) (Double) m_data;
+	}
+
+	// 取数值(long视图),接受INT/REAL/NIL,REAL按C语义截断
+	public long get_int() throws Exception
+	{
+		if (m_type != variant_type.REAL && m_type != variant_type.INT && m_type != variant_type.NIL)
+		{
+			throw new Exception("variant get int fail, the variant is " + m_type.toString() + m_data.toString());
+		}
+		if (m_type == variant_type.INT)
+		{
+			return (long) (Long) m_data;
+		}
+		return m_data == null ? 0 : (long) (double) (Double) m_data;
+	}
+
+	// 是否参与计算的数值类型
+	private boolean is_num()
+	{
+		return m_type == variant_type.REAL || m_type == variant_type.INT;
 	}
 
 	public String get_string() throws Exception
@@ -182,7 +217,7 @@ class variant
 
 	public void assert_can_cal() throws Exception
 	{
-		if (m_type != variant_type.REAL && m_type != variant_type.NIL)
+		if (m_type != variant_type.REAL && m_type != variant_type.INT && m_type != variant_type.NIL)
 		{
 			throw new Exception("variant can not calculate, the variant is " + m_type.toString() + " "
 					+ (m_data != null ? m_data.toString() : "null"));
@@ -191,7 +226,7 @@ class variant
 
 	public void assert_can_divide() throws Exception
 	{
-		if (((double) (Double) m_data) == 0)
+		if ((m_type == variant_type.INT ? (long) (Long) m_data : (double) (Double) m_data) == 0)
 		{
 			throw new Exception(
 					"variant can not be divide, the variant is " + m_type.toString() + " " + m_data.toString());
@@ -202,32 +237,57 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data + (double) (Double) r.m_data;
-		m_type = variant_type.REAL;
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = (long) (Long) l.m_data + (long) (Long) r.m_data;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = l.get_real() + r.get_real();
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public void minus(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data - (double) (Double) r.m_data;
-		m_type = variant_type.REAL;
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = (long) (Long) l.m_data - (long) (Long) r.m_data;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = l.get_real() - r.get_real();
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public void multiply(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data * (double) (Double) r.m_data;
-		m_type = variant_type.REAL;
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = (long) (Long) l.m_data * (long) (Long) r.m_data;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = l.get_real() * r.get_real();
+			m_type = variant_type.REAL;
+		}
 	}
 
+	// 除法恒为浮点,4/2得到2.0,1/2得到0.5
 	public void divide(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
 		r.assert_can_divide();
-		m_data = (double) (Double) l.m_data / (double) (Double) r.m_data;
+		m_data = l.get_real() / r.get_real();
 		m_type = variant_type.REAL;
 	}
 
@@ -236,8 +296,16 @@ class variant
 		l.assert_can_cal();
 		r.assert_can_cal();
 		r.assert_can_divide();
-		m_data = (double) ((long) (double) (Double) l.m_data % (long) (double) (Double) r.m_data);
-		m_type = variant_type.REAL;
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = (long) (Long) l.m_data % (long) (Long) r.m_data;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = (double) (l.get_int() % r.get_int());
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public void string_cat(variant l, variant r) throws Exception
@@ -249,32 +317,48 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (((double) (Double) l.m_data != 0) && ((double) (Double) r.m_data != 0)) ? (double) 1 : (double) 0;
-		m_type = variant_type.REAL;
+		boolean ret = l.get_real() != 0 && r.get_real() != 0;
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ret ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = ret ? (double) 1 : (double) 0;
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public void or(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (((double) (Double) l.m_data != 0) || ((double) (Double) r.m_data != 0)) ? (double) 1 : (double) 0;
-		m_type = variant_type.REAL;
+		boolean ret = l.get_real() != 0 || r.get_real() != 0;
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ret ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = ret ? (double) 1 : (double) 0;
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public void less(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data < (double) (Double) r.m_data ? (double) 1 : (double) 0;
-		m_type = variant_type.REAL;
+		set_cmp_ret(l, r, l.get_real() < r.get_real());
 	}
 
 	public void more(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data > (double) (Double) r.m_data ? (double) 1 : (double) 0;
-		m_type = variant_type.REAL;
+		set_cmp_ret(l, r, l.get_real() > r.get_real());
 	}
 
 	public void equal(variant l, variant r) throws Exception
@@ -287,16 +371,29 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data <= (double) (Double) r.m_data ? (double) 1 : (double) 0;
-		m_type = variant_type.REAL;
+		set_cmp_ret(l, r, l.get_real() <= r.get_real());
 	}
 
 	public void more_equal(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		m_data = (double) (Double) l.m_data >= (double) (Double) r.m_data ? (double) 1 : (double) 0;
-		m_type = variant_type.REAL;
+		set_cmp_ret(l, r, l.get_real() >= r.get_real());
+	}
+
+	// 比较结果1/0,两个INT操作数时结果保持INT
+	private void set_cmp_ret(variant l, variant r, boolean ret)
+	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ret ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = ret ? (double) 1 : (double) 0;
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public void not_equal(variant l, variant r) throws Exception
@@ -307,36 +404,45 @@ class variant
 
 	public void not(variant r) throws Exception
 	{
-		m_data = ((double) (Double) r.m_data != 0) ? (double) 0 : (double) 1;
-		m_type = variant_type.REAL;
+		boolean ret = r.get_real() != 0;
+		if (r.m_type == variant_type.INT)
+		{
+			m_data = ret ? (long) 0 : (long) 1;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = ret ? (double) 0 : (double) 1;
+			m_type = variant_type.REAL;
+		}
 	}
 
 	public static boolean and_jne(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data != 0) && ((double) (Double) r.m_data != 0);
+		return l.get_real() != 0 && r.get_real() != 0;
 	}
 
 	public static boolean or_jne(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data != 0) || ((double) (Double) r.m_data != 0);
+		return l.get_real() != 0 || r.get_real() != 0;
 	}
 
 	public static boolean less_jne(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data) < ((double) (Double) r.m_data);
+		return l.get_real() < r.get_real();
 	}
 
 	public static boolean more_jne(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data) > ((double) (Double) r.m_data);
+		return l.get_real() > r.get_real();
 	}
 
 	public static boolean equal_jne(variant l, variant r) throws Exception
@@ -348,14 +454,14 @@ class variant
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data) >= ((double) (Double) r.m_data);
+		return l.get_real() >= r.get_real();
 	}
 
 	public static boolean less_equal_jne(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return ((double) (Double) l.m_data) <= ((double) (Double) r.m_data);
+		return l.get_real() <= r.get_real();
 	}
 
 	public static boolean not_equal_jne(variant l, variant r) throws Exception
@@ -366,22 +472,31 @@ class variant
 	public static boolean not_jne(variant r) throws Exception
 	{
 		r.assert_can_cal();
-		return ((double) (Double) r.m_data) == 0;
+		return r.get_real() == 0;
 	}
 
 	public boolean bool()
 	{
 		// NIL或其他非数值类型视为false,避免比较判断时对无效类型崩溃
-		if (m_data == null || !(m_data instanceof Double))
+		if (m_type == variant_type.INT)
 		{
-			return false;
+			return (long) (Long) m_data != 0;
 		}
-		return (double) (Double) m_data != 0;
+		if (m_type == variant_type.REAL)
+		{
+			return (double) (Double) m_data != 0;
+		}
+		return false;
 	}
 
 	@Override
 	public int hashCode()
 	{
+		// 数值键统一按double视图哈希,使INT与REAL的等值键落在同一桶
+		if (m_type == variant_type.INT)
+		{
+			return Double.hashCode((double) (long) (Long) m_data);
+		}
 		return m_data != null ? m_data.hashCode() : 0;
 	}
 
@@ -406,6 +521,15 @@ class variant
 			return true;
 		}
 
+		// 数值跨类型按值比较(1与1.0相等),与hashCode的数值规范化配套,保证map键跨类型一致
+		if ((m_type == variant_type.INT && r.m_type == variant_type.REAL)
+				|| (m_type == variant_type.REAL && r.m_type == variant_type.INT))
+		{
+			double a = m_type == variant_type.INT ? (long) (Long) m_data : (double) (Double) m_data;
+			double b = r.m_type == variant_type.INT ? (long) (Long) r.m_data : (double) (Double) r.m_data;
+			return a == b;
+		}
+
 		if (m_type != r.m_type)
 		{
 			return false;
@@ -414,6 +538,10 @@ class variant
 		if (m_type == variant_type.REAL)
 		{
 			return (double) (Double) m_data == (double) (Double) r.m_data;
+		}
+		else if (m_type == variant_type.INT)
+		{
+			return (long) (Long) m_data == (long) (Long) r.m_data;
 		}
 		else if (m_type == variant_type.STRING)
 		{

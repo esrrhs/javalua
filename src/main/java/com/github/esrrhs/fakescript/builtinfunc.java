@@ -116,20 +116,33 @@ class builtinfunc
 		BIF_CHECK_ARG_NUM(f, 1);
 
 		variant v = f.ps.pop_and_get();
-		double ret = 0;
+		variant ret = new variant();
 		if (v.get_type() == variant_type.STRING)
 		{
-			ret = Double.valueOf((String) v.get_data());
+			String str = (String) v.get_data();
+			try
+			{
+				// 整数形式的字符串转为INT,其余转REAL
+				ret.set_int(Long.valueOf(str));
+			}
+			catch (NumberFormatException e)
+			{
+				ret.set_real(Double.valueOf(str));
+			}
 		}
 		else if (v.get_type() == variant_type.REAL)
 		{
-			ret = (double) (Double) v.get_data();
+			ret.set_real((double) (Double) v.get_data());
+		}
+		else if (v.get_type() == variant_type.INT)
+		{
+			ret.copy_from(v);
 		}
 		else if (v.get_type() == variant_type.UUID)
 		{
-			ret = (double) (long) (Long) v.get_data();
+			ret.set_real((double) (long) (Long) v.get_data());
 		}
-		fk.pspush(f, ret);
+		f.ps.push_and_get().copy_from(ret);
 	}
 
 	public static void builtin_tolong(fake f, interpreter inter) throws Exception
@@ -146,11 +159,15 @@ class builtinfunc
 		{
 			ret = (long) (double) (Double) v.get_data();
 		}
+		else if (v.get_type() == variant_type.INT)
+		{
+			ret = (long) (Long) v.get_data();
+		}
 		else if (v.get_type() == variant_type.UUID)
 		{
 			ret = (long) (Long) v.get_data();
 		}
-		fk.pspush(f, ret);
+		f.ps.push_and_get().set_int(ret);
 	}
 
 	public static void builtin_isfunc(fake f, interpreter inter) throws Exception
