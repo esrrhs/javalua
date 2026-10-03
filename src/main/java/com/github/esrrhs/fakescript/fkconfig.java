@@ -15,4 +15,5 @@ public class fkconfig
 	public int run_timeout_ms = 0; // 单次run的墙钟时间上限(毫秒),超过则以错误结束,0表示不限制
 	public int container_max_size = 0; // 单个容器(array/map)最大元素个数,超过则以错误结束,0表示不限制
 	public String[] new_class_white_list = null; // 内置new()允许实例化的类名前缀白名单,null或空表示不限制,用于沙箱场景
+	public boolean allow_dofile = true; // 是否允许内置dofile()加载任意脚本文件,沙箱场景建议关闭
 }

@@ -176,6 +176,19 @@ implementation 'com.github.esrrhs:fakescript-java:1.0.14'
 
 ---
 
+## 性能剖析
+
+内置按函数统计的profiler:
+
+```java
+fk.openprofile(f);
+fk.run(f, "main");
+fk.closeprofile(f);
+System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗时与单次耗时
+```
+
+---
+
 ## 数值类型
 
 数值分两类:

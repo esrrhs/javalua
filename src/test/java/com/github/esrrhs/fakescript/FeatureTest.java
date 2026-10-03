@@ -267,6 +267,155 @@ public class FeatureTest {
     }
 
     @Test
+    public void testPackageSameFile() {
+        // package内的函数以"包名.函数名"注册,宿主按全名调用
+        String script =
+                "package mypkg.sub\n" +
+                "func f()\n" +
+                "    return 42\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        assertTrue(fk.isfunc(f, "mypkg.sub.f"));
+        assertFalse(fk.isfunc(f, "f"));
+
+        Object ret = fk.run(f, "mypkg.sub.f");
+        assertEquals(42L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testPackageWithConstAndInnerCall() {
+        // 包内const引用与函数互调自动拼包前缀
+        String script =
+                "package pkg\n" +
+                "const N = 5\n" +
+                "func inner()\n" +
+                "    return N\n" +
+                "end\n" +
+                "func f()\n" +
+                "    return inner() + N\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object ret = fk.run(f, "pkg.f");
+        assertEquals(10L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testPackageAcrossInclude(@TempDir Path dir) throws Exception {
+        // include的文件可以有自己的package;调用方用"包名.函数名"调用
+        Files.write(dir.resolve("a.fk"),
+                "package lib\nfunc fa()\n    return 7\nend\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(dir.resolve("main.fk"),
+                "include \"a.fk\"\nfunc f()\n    return lib.fa()\nend\n".getBytes(StandardCharsets.UTF_8));
+
+        boolean ok = fk.parse(f, dir.resolve("main.fk").toString());
+        assertTrue(ok, fk.geterror(f));
+
+        assertTrue(fk.isfunc(f, "lib.fa"));
+
+        assertEquals(7L, ((Long) fk.run(f, "f")).longValue());
+        assertEquals(7L, ((Long) fk.run(f, "lib.fa")).longValue());
+    }
+
+    @Test
+    public void testCloneFake() {
+        String script =
+                "func f(x)\n" +
+                "    return x * 2\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        // clone共享已编译的函数与const,可直接运行
+        fake c = fk.clone(f);
+        assertEquals(8.0, ((Double) fk.run(c, "f", 4)).doubleValue(), 0.0001);
+        assertEquals(8.0, ((Double) fk.run(f, "f", 4)).doubleValue(), 0.0001);
+    }
+
+    @Test
+    public void testOnErrorCallback() {
+        final StringBuilder errmsg = new StringBuilder();
+        fk.set_callback(f, new callback() {
+            @Override
+            public void on_error(fake ff, String file, int lineno, String funcname, String str) {
+                errmsg.append(str);
+            }
+
+            @Override
+            public void on_print(fake ff, String str) {
+            }
+        });
+
+        String script =
+                "func f()\n" +
+                "    var arr = array()\n" +
+                "    return arr[-1]\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(errmsg.length() > 0, "on_error should be invoked");
+        assertTrue(errmsg.toString().contains("array"), errmsg.toString());
+    }
+
+    @Test
+    public void testDostring() {
+        // dostring在运行时编译并注册新函数,随后即可调用
+        String script =
+                "func f()\n" +
+                "    dostring(\"func g() return 9 end\")\n" +
+                "    return g()\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertEquals(9L, ((Long) ret).longValue());
+        assertTrue(fk.isfunc(f, "g"));
+    }
+
+    @Test
+    public void testGetconst() {
+        String script =
+                "const VERSION = 7\n" +
+                "func f()\n" +
+                "    return getconst(\"VERSION\")\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        Object ret = fk.run(f, "f");
+        assertEquals(7L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testDofileDisabled() {
+        fkconfig config = new fkconfig();
+        config.allow_dofile = false;
+        fake ff = fk.newfake(config);
+        fk.openbaselib(ff);
+
+        String script =
+                "func f()\n" +
+                "    return dofile(\"no_such_allow.fk\")\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(ff, script), fk.geterror(ff));
+
+        Object ret = fk.run(ff, "f");
+        assertEquals(0.0, ((Double) ret).doubleValue(), 0.0001);
+        assertTrue(fk.error(ff));
+        assertTrue(fk.geterror(ff).contains("allow_dofile is false"), fk.geterror(ff));
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =
