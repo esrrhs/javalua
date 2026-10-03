@@ -189,6 +189,18 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 
 ---
 
+## 标准库
+
+脚本可用的内置函数:
+
+* **值**: `print`、`format`、`typeof`、`tonumber`、`tostring`、`tolong`、`size`、`range`、`getconst`、`isfunc`
+* **容器**: `array`、`map`、`_G`、`new`(受`new_class_white_list`限制)
+* **数学与时间**: `abs`(INT保持INT)、`floor`、`ceil`(返回INT)、`sqrt`、`pow`、`random()`(REAL,范围[0,1)) / `random(n)`(INT,范围[0,n))、`time`(毫秒时间戳)
+* **字符串**: `substr(s, start, len)`、`find(s, sub)`(0起,不存在为-1)、`upper`、`lower`、`trim`、`replace`(字面量替换)、`split`(字面量分隔符,保留空段)
+* **动态**: `dostring`、`dofile`(受`allow_dofile`限制)、`getcurfile`、`getcurline`、`getcurfunc`、`getcurcallstack`、`dumpfunc`、`dumpallfunc`
+
+---
+
 ## 数值类型
 
 数值分两类:
@@ -201,7 +213,7 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 * 除法恒为浮点:`4 / 2` 得到 `2.0`,`1 / 2` 得到 `0.5`。
 * 相等判断跨数值类型按值比较:`1 == 1.0` 为真,二者作为map键也是同一个键。
 * `UUID`值(整数加`u`后缀,如`123u`)不参与任何算术运算。
-* 宿主侧:`Integer`/`Double`/`Float`参数映射为REAL,`Long`映射为UUID(历史约定),脚本INT返回值在Java侧为`Long`。
+* 宿主侧:`Integer`/`Short`/`Byte`参数映射为INT,`Float`/`Double`映射为REAL,`Long`默认映射为UUID(历史约定)——设置`fkconfig.long_as_int = true`可让`Long`映射为INT。脚本INT返回值在Java侧为`Long`。
 
 ---
 

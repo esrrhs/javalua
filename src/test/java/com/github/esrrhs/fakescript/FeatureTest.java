@@ -416,6 +416,99 @@ public class FeatureTest {
     }
 
     @Test
+    public void testMathBuiltins() {
+        String script =
+                "func f()\n" +
+                "    return abs(-7), abs(-7.5), floor(2.7), ceil(2.1), sqrt(16.0), pow(2.0, 10.0), typeof(floor(2.7))\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(7, rets.length, fk.geterror(f));
+        assertEquals(7L, ((Long) rets[0]).longValue());
+        assertEquals(7.5, ((Double) rets[1]).doubleValue(), 0.0000001);
+        assertEquals(2L, ((Long) rets[2]).longValue());
+        assertEquals(3L, ((Long) rets[3]).longValue());
+        assertEquals(4.0, ((Double) rets[4]).doubleValue(), 0.0000001);
+        assertEquals(1024.0, ((Double) rets[5]).doubleValue(), 0.0000001);
+        assertEquals("INT", rets[6]);
+    }
+
+    @Test
+    public void testRandomAndTime() {
+        String script =
+                "func f()\n" +
+                "    var r1 = random()\n" +
+                "    var r2 = random(100)\n" +
+                "    var t = time()\n" +
+                "    return r1, typeof(r1), r2, typeof(r2), t, typeof(t)\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(6, rets.length, fk.geterror(f));
+        double r1 = ((Double) rets[0]).doubleValue();
+        assertTrue(r1 >= 0.0 && r1 < 1.0);
+        assertEquals("REAL", rets[1]);
+        long r2 = ((Long) rets[2]).longValue();
+        assertTrue(r2 >= 0 && r2 < 100);
+        assertEquals("INT", rets[3]);
+        long t = ((Long) rets[4]).longValue();
+        assertTrue(Math.abs(t - System.currentTimeMillis()) < 60000);
+        assertEquals("INT", rets[5]);
+    }
+
+    @Test
+    public void testStringBuiltins() {
+        String script =
+                "func f()\n" +
+                "    var s = \"Hello, World\"\n" +
+                "    return substr(s, 7, 5), find(s, \"World\"), find(s, \"nope\"), upper(s), lower(s), trim(\"  x  \"), replace(s, \"World\", \"FK\"), size(replace(s, \"World\", \"FK\"))\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(8, rets.length, fk.geterror(f));
+        assertEquals("World", rets[0]);
+        assertEquals(7L, ((Long) rets[1]).longValue());
+        assertEquals(-1L, ((Long) rets[2]).longValue());
+        assertEquals("HELLO, WORLD", rets[3]);
+        assertEquals("hello, world", rets[4]);
+        assertEquals("x", rets[5]);
+        assertEquals("Hello, FK", rets[6]);
+        assertEquals(9L, ((Long) rets[7]).longValue());
+    }
+
+    @Test
+    public void testSplitBuiltin() {
+        // 分隔符按字面量整体匹配
+        String script =
+                "func f()\n" +
+                "    var parts = split(\"a,b,c\", \",\")\n" +
+                "    var multi = split(\"x::y:z\", \":\")\n" +
+                "    return size(parts), parts[0], parts[2], size(multi), multi[2]\n" +
+                "end\n";
+
+        boolean ok = fk.parsestr(f, script);
+        assertTrue(ok, fk.geterror(f));
+
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(5, rets.length, fk.geterror(f));
+        assertEquals(3L, ((Long) rets[0]).longValue());
+        assertEquals("a", rets[1]);
+        assertEquals("c", rets[2]);
+        // 连续分隔符产生空元素
+        assertEquals(4L, ((Long) rets[3]).longValue());
+        assertEquals("y", rets[4]);
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =
