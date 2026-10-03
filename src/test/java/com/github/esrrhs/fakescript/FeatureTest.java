@@ -890,6 +890,67 @@ public class FeatureTest {
     }
 
     @Test
+    public void testRuntimeErrorPaths() {
+        // 除零
+        assertTrue(fk.parsestr(f, "func f()\n    return 1 / 0\nend\n"), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("divide"), fk.geterror(f));
+
+        // 调用不存在的函数
+        f.clearerr();
+        assertTrue(fk.parsestr(f, "func f()\n    return no_such_func()\nend\n"), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("no func"), fk.geterror(f));
+
+        // 参数个数不匹配
+        f.clearerr();
+        assertTrue(fk.parsestr(f,
+                "func add(a, b)\n    return a + b\nend\nfunc f()\n    return add(1)\nend\n"), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("param not match"), fk.geterror(f));
+
+        // 容器下标为负
+        f.clearerr();
+        assertTrue(fk.parsestr(f, "func f()\n    var a = array()\n    return a[-1]\nend\n"), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("index"), fk.geterror(f));
+
+        // 非容器取下标
+        f.clearerr();
+        assertTrue(fk.parsestr(f, "func f()\n    var x = 5\n    return x[0]\nend\n"), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("container"), fk.geterror(f));
+    }
+
+    @Test
+    public void testStackOverflowProtection() {
+        // 无穷递归触发stack_max保护
+        String script =
+                "func rec(n)\n" +
+                "    return rec(n + 1)\n" +
+                "end\n" +
+                "func f()\n" +
+                "    return rec(1)\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        long start = System.currentTimeMillis();
+        fk.run(f, "f");
+        long cost = System.currentTimeMillis() - start;
+
+        assertTrue(fk.error(f));
+        assertTrue(fk.geterror(f).contains("stack too big"), fk.geterror(f));
+        // 保护应立刻生效,而不是靠超时
+        assertTrue(cost < 5000, "stack overflow should abort fast, took " + cost + "ms");
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =
