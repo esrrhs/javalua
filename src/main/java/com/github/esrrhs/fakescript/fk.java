@@ -235,9 +235,20 @@ public class fk
 	 */
 	public static boolean parse(fake f, String filename)
 	{
-		f.clearerr();
-		f.pa.clear();
-		return f.pa.parse(filename);
+		if (!enter(f))
+		{
+			return false;
+		}
+		try
+		{
+			f.clearerr();
+			f.pa.clear();
+			return f.pa.parse(filename);
+		}
+		finally
+		{
+			f.exit();
+		}
 	}
 
 	/**
@@ -256,9 +267,20 @@ public class fk
 	 */
 	public static boolean parsestr(fake f, String str)
 	{
-		f.clearerr();
-		f.pa.clear();
-		return f.pa.parsestr(str);
+		if (!enter(f))
+		{
+			return false;
+		}
+		try
+		{
+			f.clearerr();
+			f.pa.clear();
+			return f.pa.parsestr(str);
+		}
+		finally
+		{
+			f.exit();
+		}
 	}
 
 	/**
@@ -340,6 +362,27 @@ public class fk
 	 * @return 未结束返回null,结束返回返回值数组
 	 */
 	public static Object[] resume(fake f, String func, Object... args)
+	{
+		if (!enter(f))
+		{
+			return new Object[] { null };
+		}
+		try
+		{
+			return resume_inner(f, func, args);
+		}
+		catch (Exception e)
+		{
+			types.seterror(f, "", 0, "", "resume fail " + types.show_exception(e));
+			return new Object[] { null };
+		}
+		finally
+		{
+			f.exit();
+		}
+	}
+
+	private static Object[] resume_inner(fake f, String func, Object... args) throws Exception
 	{
 		processor pro = f.rn.cur_pro();
 		if (pro == null)
@@ -887,6 +930,17 @@ public class fk
 		return f.pf.dump();
 	}
 
+	// 并发访问检测入口:占用失败返回false并记录错误(错误状态在并发误用下为last-writer-wins)
+	private static boolean enter(fake f)
+	{
+		if (f.try_enter())
+		{
+			return true;
+		}
+		types.seterror(f, "", 0, "", "fake is busy, concurrent access from another thread detected");
+		return false;
+	}
+
 	protected static void psclear(fake f)
 	{
 		f.ps.clear();
@@ -1190,6 +1244,26 @@ public class fk
 
 	private static void rundebugps(fake f, String func)
 	{
+		if (!enter(f))
+		{
+			return;
+		}
+		try
+		{
+			rundebugps_inner(f, func);
+		}
+		catch (Exception e)
+		{
+			types.seterror(f, "", 0, "", "debug run fail " + types.show_exception(e));
+		}
+		finally
+		{
+			f.exit();
+		}
+	}
+
+	private static void rundebugps_inner(fake f, String func) throws Exception
+	{
 		variant funcv = new variant();
 		funcv.set_string(func);
 
@@ -1215,6 +1289,29 @@ public class fk
 	}
 
 	private static void runps(fake f, String func)
+	{
+		if (!enter(f))
+		{
+			// 占用失败不触碰共享的参数栈,run/runmulti据空栈返回null
+			return;
+		}
+		try
+		{
+			runps_inner(f, func);
+		}
+		catch (Exception e)
+		{
+			// 理论不可达:runps_inner内部已捕获;兜底保证契约
+			types.seterror(f, "", 0, "", "run fail " + types.show_exception(e));
+			f.ps.push_and_get();
+		}
+		finally
+		{
+			f.exit();
+		}
+	}
+
+	private static void runps_inner(fake f, String func) throws Exception
 	{
 		variant funcv = new variant();
 		funcv.set_string(func);
@@ -1352,6 +1449,22 @@ public class fk
 	}
 
 	protected static boolean resumeps(fake f, boolean isend) throws Exception
+	{
+		if (!enter(f))
+		{
+			return false;
+		}
+		try
+		{
+			return resumeps_inner(f, isend);
+		}
+		finally
+		{
+			f.exit();
+		}
+	}
+
+	private static boolean resumeps_inner(fake f, boolean isend) throws Exception
 	{
 		// 上次的processor
 		processor pro = f.rn.cur_pro();

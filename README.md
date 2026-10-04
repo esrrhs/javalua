@@ -263,7 +263,7 @@ Object[] rets = fk.resume(f, "main"); // call once per frame until non-null
 
 `resume` returns `null` while any coroutine is still alive, and the full return-value array once finished. After it finishes, calling `resume` again with a new function name starts a fresh run.
 
-Note: a `fake` instance (and the objects obtained from it) is **not thread-safe** — drive it from a single thread.
+Note: a `fake` instance (and the objects obtained from it) is **not thread-safe** — drive it from a single thread. Concurrent access from two threads is detected at runtime and rejected with a `fake is busy` error instead of corrupting state (the error flag is last-writer-wins under such misuse); sequential use across different threads is fine.
 
 ---
 
