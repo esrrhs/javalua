@@ -930,6 +930,12 @@ class compiler
 
 	public boolean compile_break_stmt(codegen cg, break_stmt bs) throws Exception
 	{
+		if (m_loop_break_pos_stack.isEmpty())
+		{
+			compile_seterror(bs, "no loop to break");
+			return false;
+		}
+
 		cg.push(command.MAKE_OPCODE(command.OPCODE_JMP), bs.lineno());
 		cg.push(command.EMPTY_CMD, bs.lineno()); // 先塞个位置
 		int jmppos = cg.byte_code_size() - 1;
