@@ -1121,6 +1121,148 @@ public class FeatureTest {
     }
 
     @Test
+    public void testConcurrentAccessDetection() throws Exception {
+        String script =
+                "func f()\n" +
+                "    sleep 300\n" +
+                "    return 7\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        // 线程A占用fake执行
+        Thread a = new Thread(() -> fk.run(f, "f"));
+        a.start();
+        Thread.sleep(80); // 确保A已进入
+
+        // 线程B并发进入:应被拒绝且不损坏状态
+        Object retB = fk.run(f, "f");
+        assertNull(retB);
+        assertTrue(fk.geterror(f).contains("busy"), fk.geterror(f));
+
+        a.join(5000);
+
+        // A结束后,顺序执行恢复正常
+        Object ret = fk.run(f, "f");
+        assertEquals(7L, ((Long) ret).longValue());
+    }
+
+    @Test
+    public void testSequentialCrossThreadStillWorks() throws Exception {
+        // 线程A创建并解析,线程B执行,线程C再执行:顺序跨线程合法
+        String script =
+                "func f()\n" +
+                "    return 42\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        final Object[] result = new Object[1];
+        Thread b = new Thread(() -> result[0] = fk.run(f, "f"));
+        b.start();
+        b.join(5000);
+
+        assertEquals(42L, ((Long) result[0]).longValue());
+
+        Object[] result2 = new Object[1];
+        Thread c = new Thread(() -> result2[0] = fk.run(f, "f"));
+        c.start();
+        c.join(5000);
+
+        assertEquals(42L, ((Long) result2[0]).longValue());
+    }
+
+    @Test
+    public void testConcurrentStressNoCorruption() throws Exception {
+        String script =
+                "func f()\n" +
+                "    var i = 0\n" +
+                "    while i < 100 then\n" +
+                "        i = i + 1\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        final java.util.List<Throwable> escaped = java.util.Collections
+                .synchronizedList(new java.util.ArrayList<Throwable>());
+
+        Thread[] threads = new Thread[8];
+        for (int t = 0; t < threads.length; t++)
+        {
+            threads[t] = new Thread(() -> {
+                for (int i = 0; i < 50; i++)
+                {
+                    try
+                    {
+                        fk.run(f, "f");
+                    }
+                    catch (Throwable e)
+                    {
+                        escaped.add(e);
+                    }
+                }
+            });
+            threads[t].start();
+        }
+        for (Thread t : threads)
+        {
+            t.join(30000);
+        }
+
+        // 并发误用不允许任何异常逃逸到调用方
+        assertTrue(escaped.isEmpty(), "escaped: " + escaped);
+
+        // 压力结束后,fake状态一致,顺序执行结果正确
+        Object ret = fk.run(f, "f");
+        assertEquals(100L, ((Long) ret).longValue(), fk.geterror(f));
+    }
+
+    @Test
+    public void testHotReloadWhileSuspended() throws Exception {
+        // 语义:挂起中的协程按旧字节码跑完;重新解析只影响之后的调用
+        String v1 =
+                "func g()\n" +
+                "    yield 1\n" +
+                "    return 1\n" +
+                "end\n" +
+                "func f()\n" +
+                "    return g()\n" +
+                "end\n";
+        String v2 =
+                "func g()\n" +
+                "    yield 1\n" +
+                "    return 2\n" +
+                "end\n" +
+                "func f()\n" +
+                "    return g()\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, v1), fk.geterror(f));
+
+        // 进入g并挂起
+        assertNull(fk.resume(f, "f"));
+
+        // 挂起中热更新g
+        assertTrue(fk.parsestr(f, v2), fk.geterror(f));
+
+        // 在飞的旧g继续按旧字节码跑完,返回1
+        Object[] rets = null;
+        int guard = 0;
+        while (rets == null && guard < 100)
+        {
+            rets = fk.resume(f, "f");
+            guard++;
+        }
+        assertNotNull(rets, fk.geterror(f));
+        assertEquals(1L, ((Long) rets[0]).longValue());
+
+        // 下一次调用走新字节码,返回2
+        assertEquals(2L, ((Long) fk.run(f, "f")).longValue());
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =

@@ -12,6 +12,36 @@ public class fake
 	protected String errorstr = "";
 	// 最近一次错误的结构化信息,clearerr时清空
 	protected fkerror lasterror = null;
+
+	// 并发访问检测:同一时刻只允许一个线程进入执行/解析,同线程可重入
+	// 误用从"静默状态损坏"变为明确报错;顺序的跨线程使用不受影响
+	private final java.util.concurrent.atomic.AtomicReference<Thread> m_holder = new java.util.concurrent.atomic.AtomicReference<Thread>();
+	private int m_holddepth;
+
+	boolean try_enter()
+	{
+		Thread cur = Thread.currentThread();
+		if (m_holder.get() == cur)
+		{
+			m_holddepth++;
+			return true;
+		}
+		if (m_holder.compareAndSet(null, cur))
+		{
+			m_holddepth = 1;
+			return true;
+		}
+		return false;
+	}
+
+	void exit()
+	{
+		m_holddepth--;
+		if (m_holddepth <= 0)
+		{
+			m_holder.set(null);
+		}
+	}
 	protected callback cb = new default_callback();
 
 	// 配置
