@@ -152,6 +152,38 @@ class processor
 				{
 					return;
 				}
+
+				// 整跑模式:所有协程都在睡眠时睡到最近的唤醒点,避免忙等烧CPU
+				if (m_maxruncmd == 0 && itercmd == 0 && !m_routines.isEmpty())
+				{
+					long now = System.currentTimeMillis();
+					long minwake = Long.MAX_VALUE;
+					for (int i = 0; i < (int) m_routines.size(); i++)
+					{
+						long w = m_routines.get(i).get_interpreter().get_wakeuptime();
+						if (w < minwake)
+						{
+							minwake = w;
+						}
+					}
+					try
+					{
+						if (minwake == Long.MAX_VALUE || minwake <= now)
+						{
+							// yield等帧级唤醒,或已到唤醒点:小睡让出CPU
+							Thread.sleep(1);
+						}
+						else
+						{
+							// sleep等到墙钟唤醒点,分段睡眠以便stop/超时及时生效
+							Thread.sleep(Math.min(minwake - now, 100));
+						}
+					}
+					catch (InterruptedException e)
+					{
+						Thread.currentThread().interrupt();
+					}
+				}
 			}
 		}
 	}

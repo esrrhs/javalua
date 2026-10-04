@@ -171,7 +171,29 @@ class compiler
 		return true;
 	}
 
+	// 表达式/语句嵌套深度上限,防止深层嵌套输入撑爆Java栈
+	private static final int MAX_COMPILE_DEPTH = 512;
+	private int m_compile_depth;
+
 	public boolean compile_node(codegen cg, syntree_node node) throws Exception
+	{
+		if (m_compile_depth >= MAX_COMPILE_DEPTH)
+		{
+			compile_seterror(node, "compile too deep, nested expression or block over %d", MAX_COMPILE_DEPTH);
+			return false;
+		}
+		m_compile_depth++;
+		try
+		{
+			return compile_node_inner(cg, node);
+		}
+		finally
+		{
+			m_compile_depth--;
+		}
+	}
+
+	private boolean compile_node_inner(codegen cg, syntree_node node) throws Exception
 	{
 		esyntreetype type = node.gettype();
 		switch (type)
