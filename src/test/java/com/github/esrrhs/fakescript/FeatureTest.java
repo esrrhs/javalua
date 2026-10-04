@@ -951,6 +951,55 @@ public class FeatureTest {
     }
 
     @Test
+    public void testSleepWaitsAndYields() {
+        // 整跑模式:sleep应真实等待指定毫秒
+        String script =
+                "func f()\n" +
+                "    var start = time()\n" +
+                "    sleep 200\n" +
+                "    return time() - start\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        long t0 = System.currentTimeMillis();
+        Object ret = fk.run(f, "f");
+        long wall = System.currentTimeMillis() - t0;
+
+        long slept = ((Long) ret).longValue();
+        assertTrue(slept >= 190, "script-observed sleep too short: " + slept);
+        assertTrue(wall >= 190 && wall < 3000, "wall time " + wall + "ms");
+    }
+
+    @Test
+    public void testSleepWithMultipleRoutines() {
+        // 多协程都睡眠时不忙等,且全部按时唤醒
+        String script =
+                "func sleeper(n)\n" +
+                "    sleep n\n" +
+                "    var g = _G()\n" +
+                "    g[\"done\"] = g[\"done\"] + 1\n" +
+                "end\n" +
+                "func f()\n" +
+                "    var g = _G()\n" +
+                "    g[\"done\"] = 0\n" +
+                "    fake sleeper(150)\n" +
+                "    fake sleeper(250)\n" +
+                "    sleep 300\n" +
+                "    return g[\"done\"]\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        long t0 = System.currentTimeMillis();
+        Object ret = fk.run(f, "f");
+        long wall = System.currentTimeMillis() - t0;
+
+        assertEquals(2L, ((Long) ret).longValue(), fk.geterror(f));
+        assertTrue(wall >= 280 && wall < 3000, "wall time " + wall + "ms");
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =

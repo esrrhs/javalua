@@ -189,6 +189,12 @@ System.out.println(fk.dumpprofile(f)); // calls, total & per-call time per funct
 
 ---
 
+## Language Notes
+
+* String concatenation uses `..` (Lua style): `"key" .. 1`. The `+` operator is arithmetic only.
+* Multi-return declaration assignment is `a, b := f()`; `a, b = f()` assigns to pre-declared variables.
+* Sleeping coroutines do not busy-wait: `fk.run` sleeps until the nearest wake-up point.
+
 ## Standard Library
 
 Built-in functions available to scripts:
@@ -226,9 +232,9 @@ When embedding scripts, use `fkconfig` to cap runaway scripts and `fk.stop` to c
 
 ```java
 fkconfig config = new fkconfig();
-config.max_run_cmd_num = 1000000;  // max total commands per run, 0 = unlimited
-config.run_timeout_ms = 1000;      // wall-clock limit per run (ms), 0 = unlimited
-config.container_max_size = 1000000; // max elements per array/map, 0 = unlimited
+config.max_run_cmd_num = 1000000;  // max total commands per run; default 100M (dead-loop backstop), 0 = unlimited
+config.run_timeout_ms = 1000;      // wall-clock limit per run (ms), 0 (default) = unlimited
+config.container_max_size = 1000000; // max elements per array/map; default 10M, 0 = unlimited
 config.new_class_white_list = new String[] { "com.example.script." }; // sandbox: classes new() may instantiate, null = unlimited
 
 fake f = fk.newfake(config);
@@ -275,6 +281,12 @@ Additional build profiles:
 ```bash
 ./mvnw verify -Pquality -DskipTests   # SpotBugs static analysis report
 ./mvnw clean test -Pgrammar           # regenerate YYParser.java (requires bison >= 3.0)
+```
+
+A micro benchmark (trend observation, not JMH-precise):
+
+```bash
+./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=com.github.esrrhs.fakescript.Benchmark
 ```
 
 The lexer (`Yylex.java`) is regenerated from `jflexbison/jflex.flex` on every build via the JFlex Maven plugin. The parser (`YYParser.java`) is checked in; regenerate it with the `grammar` profile when the grammar changes. Test coverage reports are generated under `target/site/jacoco/` on every `test` run.

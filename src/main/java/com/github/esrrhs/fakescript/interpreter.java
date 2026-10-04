@@ -42,6 +42,16 @@ class interpreter
 		return m_isend;
 	}
 
+	// 睡眠中返回唤醒时刻;yield按帧唤醒时为0;未睡眠返回Long.MAX_VALUE
+	public long get_wakeuptime()
+	{
+		if (!m_sleeping)
+		{
+			return Long.MAX_VALUE;
+		}
+		return m_wakeuptime;
+	}
+
 	public variant get_ret()
 	{
 		return m_ret.isEmpty() ? new variant() : m_ret.get(0);

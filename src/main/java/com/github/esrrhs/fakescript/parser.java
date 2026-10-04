@@ -78,6 +78,11 @@ class parser
 					"parse " + "" + " fail " + types.show_exception(e));
 			return false;
 		}
+		catch (StackOverflowError e)
+		{
+			types.seterror(m_f, "", 0, "", "parse fail, script too complex");
+			return false;
+		}
 
 		// 编译
 		try
@@ -92,6 +97,11 @@ class parser
 		{
 			types.seterror(m_f, "", fk.getcurline(m_f), fk.getcurfunc(m_f),
 					"compiler " + "" + " fail " + types.show_exception(e));
+			return false;
+		}
+		catch (StackOverflowError e)
+		{
+			types.seterror(m_f, "", 0, "", "compiler fail, script too complex");
 			return false;
 		}
 
@@ -155,6 +165,11 @@ class parser
 					"parse " + filename + " fail " + types.show_exception(e));
 			return false;
 		}
+		catch (StackOverflowError e)
+		{
+			types.seterror(m_f, filename, 0, "", "parse fail, script too complex");
+			return false;
+		}
 
 		// 解析前置文件
 		for (int i = 0; i < (int) mbs.get_include_list().size(); i++)
@@ -179,6 +194,11 @@ class parser
 		{
 			types.seterror(m_f, filename, fk.getcurline(m_f), fk.getcurfunc(m_f),
 					"compiler " + filename + " fail " + types.show_exception(e));
+			return false;
+		}
+		catch (StackOverflowError e)
+		{
+			types.seterror(m_f, filename, 0, "", "compiler fail, script too complex");
 			return false;
 		}
 

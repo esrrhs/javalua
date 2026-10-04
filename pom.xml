@@ -115,6 +115,19 @@
 
     <profiles>
         <profile>
+            <id>bench</id>
+            <!-- 运行微基准:./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -->
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.2.0</version>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>grammar</id>
             <!-- 需要系统安装bison(>=3.0,支持Java后端);重新生成YYParser.java后提交 -->
             <build>

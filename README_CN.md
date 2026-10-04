@@ -189,6 +189,12 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 
 ---
 
+## 语法说明
+
+* 字符串拼接用`..`(Lua风格):`"key" .. 1`。`+`仅用于算术。
+* 多返回值的声明式接收是`a, b := f()`;`a, b = f()`要求变量已声明。
+* 睡眠中的协程不忙等:`fk.run`会睡到最近的唤醒点。
+
 ## 标准库
 
 脚本可用的内置函数:
@@ -226,9 +232,9 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 
 ```java
 fkconfig config = new fkconfig();
-config.max_run_cmd_num = 1000000;    // 单次run总命令数上限,0表示不限制
-config.run_timeout_ms = 1000;        // 单次run墙钟时间上限(毫秒),0表示不限制
-config.container_max_size = 1000000; // 单个容器(array/map)元素个数上限,0表示不限制
+config.max_run_cmd_num = 1000000;    // 单次run总命令数上限;默认1亿条兜底死循环,0表示不限制
+config.run_timeout_ms = 1000;        // 单次run墙钟时间上限(毫秒),默认0不限制
+config.container_max_size = 1000000; // 单个容器(array/map)元素个数上限;默认千万级,0表示不限制
 config.new_class_white_list = new String[] { "com.example.script." }; // 沙箱:内置new()允许实例化的类名前缀,null表示不限制
 
 fake f = fk.newfake(config);
@@ -275,6 +281,12 @@ Object[] rets = fk.resume(f, "main"); // 每帧调用一次,直到返回非null
 ```bash
 ./mvnw verify -Pquality -DskipTests   # SpotBugs静态分析报告
 ./mvnw clean test -Pgrammar           # 重新生成YYParser.java(需要bison >= 3.0)
+```
+
+微基准(趋势观察,非JMH精度):
+
+```bash
+./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=com.github.esrrhs.fakescript.Benchmark
 ```
 
 词法分析器(`Yylex.java`)由JFlex Maven插件在每次构建时从 `jflexbison/jflex.flex` 自动生成。语法分析器(`YYParser.java`)提交在仓库中，语法变更后使用 `grammar` profile 重新生成。每次 `test` 构建会在 `target/site/jacoco/` 下生成测试覆盖率报告。
