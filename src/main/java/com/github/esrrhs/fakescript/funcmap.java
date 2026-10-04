@@ -7,6 +7,8 @@ class funcmap
 {
 	private fake m_f;
 	private HashMap<variant, funcunion> m_funcmap = new HashMap<variant, funcunion>();
+	// 调用热路径的字符串索引,与m_funcmap同步维护
+	private HashMap<String, funcunion> m_funcindex = new HashMap<String, funcunion>();
 
 	public funcmap(fake f)
 	{
@@ -21,6 +23,11 @@ class funcmap
 		{
 			funcunion fc = e.getValue();
 			ret.m_funcmap.put(e.getKey(), fc.clonef());
+		}
+		ret.m_funcindex = new HashMap<String, funcunion>();
+		for (Map.Entry<String, funcunion> e : this.m_funcindex.entrySet())
+		{
+			ret.m_funcindex.put(e.getKey(), ret.m_funcmap.get(e.getKey()));
 		}
 		return ret;
 	}
@@ -67,6 +74,12 @@ class funcmap
 		return m_funcmap.get(name);
 	}
 
+	// 调用热路径:函数名在编译期已知的字符串直接查索引,免variant哈希
+	public funcunion get_func_by_name(String name)
+	{
+		return m_funcindex.get(name);
+	}
+
 	public HashMap<variant, funcunion> get_funcmap()
 	{
 		return m_funcmap;
@@ -82,6 +95,10 @@ class funcmap
 
 		funcunion tmp = new funcunion();
 		m_funcmap.put(name, tmp);
+		if (name.get_type() == variant_type.STRING)
+		{
+			m_funcindex.put((String) name.get_data(), tmp);
+		}
 		return tmp;
 	}
 
