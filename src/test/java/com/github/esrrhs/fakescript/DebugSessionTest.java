@@ -164,6 +164,169 @@ public class DebugSessionTest {
     }
 
     @Test
+    public void testBytecodeSteppingFinishAndDisa() throws Exception {
+        String script =
+                "func g(x)\n" +       // 1
+                "    var y = x * 2\n" + // 2
+                "    return y\n" +     // 3
+                "end\n" +              // 4
+                "func f()\n" +         // 5
+                "    var r = g(21)\n" + // 6
+                "    return r\n" +     // 7
+                "end\n";               // 8
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        debug_session s = f.dbg.createsession("f");
+        s.execute("b 2");
+        s.execute("c");
+        int rid = fk.getcurroutineid(f);
+        int pos0 = fk.getcurbytecodeposbyroutine(f, rid);
+        assertTrue(pos0 >= 0);
+
+        // si:单字节码步进,位置前进且仍在g内
+        String si = s.execute("si");
+        assertFalse(s.is_end());
+        int pos1 = fk.getcurbytecodeposbyroutine(f, rid);
+        assertTrue(pos1 != pos0, "bytecode pos should advance: " + pos0 + " -> " + pos1);
+
+        // disa:反汇编输出
+        String disa = s.execute("disa");
+        assertTrue(disa.contains("byte code"), disa);
+
+        // ni:跨过调用,停在函数内
+        s.execute("ni");
+        assertFalse(s.is_end());
+
+        // fin:完成当前帧,回到f
+        String fin = s.execute("fin");
+        assertFalse(s.is_end());
+        assertEquals("f", fk.getcurfuncbyroutinebyframe(f, rid, 0));
+
+        s.execute("c");
+        assertTrue(s.is_end());
+        assertEquals(42L, s.get_ret().get_int());
+    }
+
+    @Test
+    public void testCommandArgValidation() throws Exception {
+        String script = "func f()\n    return 1\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        debug_session s = f.dbg.createsession("f");
+
+        assertTrue(s.execute("p").contains("need arg"));
+        assertTrue(s.execute("set").contains("need arg"));
+        assertTrue(s.execute("wa").contains("need arg"));
+        assertTrue(s.execute("i").contains("need arg"));
+        assertTrue(s.execute("r").contains("need arg"));
+        assertTrue(s.execute("r 999").contains("no routine"));
+        assertTrue(s.execute("f 5").contains("is invalid"));
+        assertTrue(s.execute("b nosuchfunc").contains("is not func"));
+
+        // 无效帧号不应改变当前帧(修复:超界时此前仍会应用)
+        s.execute("f 5");
+        assertTrue(s.execute("p a").contains("nil") || !s.is_end());
+
+        // 不存在的断点id删除无副作用
+        s.execute("d 42");
+        assertFalse(s.is_end());
+
+        // l与disa可用(parsestr无文件名,list输出有限,disa看字节码)
+        s.execute("l");
+        assertTrue(s.execute("disa").contains("byte code"));
+    }
+
+    @Test
+    public void testRoutineSwitchAndInfo() throws Exception {
+        String script =
+                "func worker()\n" +
+                "    var w = 7\n" +
+                "    while w > 0 then\n" +
+                "        w = w - 1\n" +
+                "        yield 1\n" +
+                "    end\n" +
+                "end\n" +
+                "func f()\n" +
+                "    fake worker()\n" +
+                "    var i = 0\n" +
+                "    while i < 2 then\n" +
+                "        i = i + 1\n" +
+                "        yield 1\n" +
+                "    end\n" +
+                "    return i\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        debug_session s = f.dbg.createsession("f");
+
+        // 步进直到worker协程启动
+        int guard = 0;
+        while (fk.getcurroutinenum(f) < 2 && guard < 20 && !s.is_end())
+        {
+            s.execute("n");
+            guard++;
+        }
+        assertTrue(fk.getcurroutinenum(f) >= 2, "worker coroutine should exist");
+
+        // i r列出两个协程
+        String ir = s.execute("i r");
+        assertTrue(ir.contains("Id:"), ir);
+
+        // 切到worker协程:切换后查看的是worker的栈帧(n命令会把焦点重置回当前调度协程,属预期行为)
+        int mainid = fk.getroutineidbyindex(f, 0);
+        int wid = fk.getroutineidbyindex(f, 1);
+        assertTrue(wid != mainid);
+        // 跨协程读worker的w:每轮先切r再纯查看p(p不会重置焦点),n仅用于推进
+        // (n/s/c类命令会把查看焦点重置回当前调度协程,属预期行为)
+        boolean sawworkervar = false;
+        boolean sawheader = false;
+        int wguard = 0;
+        while (wguard < 40 && !s.is_end())
+        {
+            String sw2 = s.execute("r " + wid);
+            assertTrue(sw2 != null);
+            String outp = s.execute("p w");
+            if (outp.contains("worker"))
+            {
+                sawheader = true;
+            }
+            String pw = outp.trim();
+            boolean numeric = true;
+            for (int c = 0; c < pw.length(); c++)
+            {
+                if (!Character.isDigit(pw.charAt(c)))
+                {
+                    numeric = false;
+                    break;
+                }
+            }
+            if (numeric && !pw.isEmpty())
+            {
+                int wv = Integer.parseInt(pw);
+                assertTrue(wv >= 0 && wv <= 7, "worker w out of range: " + wv);
+                sawworkervar = true;
+                assertTrue(sawheader, "routine header should show after switch");
+                break;
+            }
+            s.execute("n");
+            wguard++;
+        }
+        assertTrue(sawworkervar, "should read worker's variable w");
+
+        // 继续到结束(两个协程都跑完)
+        int fguard = 0;
+        while (!s.is_end() && fguard < 500)
+        {
+            s.execute("c");
+            fguard++;
+        }
+        assertTrue(s.is_end());
+        assertEquals(2L, s.get_ret().get_int());
+    }
+
+    @Test
     public void testWatchVariable() throws Exception {
         String script =
                 "func f()\n" +

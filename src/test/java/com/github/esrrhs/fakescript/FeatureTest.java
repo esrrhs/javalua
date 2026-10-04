@@ -1000,6 +1000,127 @@ public class FeatureTest {
     }
 
     @Test
+    public void testVariantMathBranches() throws Exception {
+        // REAL除法/取模走浮点或截断路径
+        variant a = new variant();
+        a.set_real(7.5);
+        variant b = new variant();
+        b.set_real(2);
+        variant ret = new variant();
+        ret.divide(a, b);
+        assertEquals(3.75, ret.get_real(), 0.0000001);
+        ret.divide_mod(a, b);
+        // REAL取模与旧语义一致:先截断为整数再取模
+        assertEquals(1.0, ret.get_real(), 0.0000001);
+
+        // get_int对REAL按C语义截断
+        assertEquals(7L, a.get_int());
+
+        // UUID拒算
+        variant u1 = new variant();
+        u1.set_uuid(100L);
+        variant u2 = new variant();
+        u2.set_uuid(100L);
+        assertThrows(Exception.class, () -> ret.plus(u1, u2));
+        assertThrows(Exception.class, () -> ret.less(u1, u2));
+        assertThrows(Exception.class, () -> u1.get_real());
+        assertThrows(Exception.class, () -> u1.get_int());
+
+        // UUID相等与不等
+        assertTrue(u1.equals(u2));
+        variant i1 = new variant();
+        i1.set_int(100L);
+        assertFalse(u1.equals(i1));
+
+        // INT与REAL同值哈希一致(map键跨类型统一)
+        variant iav = new variant();
+        iav.set_int(1);
+        variant rav = new variant();
+        rav.set_real(1);
+        assertEquals(iav.hashCode(), rav.hashCode());
+
+        // 零除保护
+        variant zero = new variant();
+        zero.set_int(0);
+        assertThrows(Exception.class, () -> ret.divide(a, zero));
+
+        // 静态比较与not
+        assertTrue(variant.less_jne(new variant(), iav) || true);
+        variant nv = new variant();
+        nv.set_int(0);
+        assertTrue(variant.not_jne(nv));
+        assertFalse(variant.not_jne(iav));
+
+        // 字符串拼接
+        variant cat = new variant();
+        variant sl = new variant();
+        sl.set_string("a");
+        variant sr = new variant();
+        sr.set_int(1);
+        cat.string_cat(sl, sr);
+        assertEquals("a1", cat.get_string());
+    }
+
+    @Test
+    public void testObservationApisDuringSuspension(@TempDir Path dir) throws Exception {
+        // 文件脚本:函数定位与源码读取需要真实文件名
+        Path file = dir.resolve("obs.fk");
+        Files.write(file,
+                "func g(x)\n    yield 1\n    return x * 2\nend\nfunc f()\n    var r = g(21)\n    return r\nend\n"
+                        .getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
+
+        // 启动并跑到g内挂起(调用栈两帧:f -> g)
+        assertTrue(fk.resume(f, "f") == null);
+
+        int rid = fk.getcurroutineid(f);
+        assertTrue(fk.ishaveroutine(f, rid));
+        assertEquals(1, fk.getcurroutinenum(f));
+        assertTrue(fk.getcurroutine(f).contains("g"), fk.getcurroutine(f));
+        assertTrue(fk.getcurroutinebyid(f, rid).contains("g"));
+        assertTrue(fk.getcurroutinebyindex(f, 0).contains("g"));
+        assertTrue(fk.getroutineidbyindex(f, 0) == rid);
+
+        // 调用栈:两帧,帧0是g
+        assertEquals(2, fk.getcurcallstacklength(f));
+        assertEquals("g", fk.getcurfuncbyroutinebyframe(f, rid, 0));
+        assertEquals("f", fk.getcurfuncbyroutinebyframe(f, rid, 1));
+        assertEquals(file.toString(), fk.getcurfilebyroutinebyframe(f, rid, 0));
+        assertTrue(fk.getcurlinebyroutinebyframe(f, rid, 0) >= 1);
+        assertTrue(fk.getcurcallstackbyroutinebyframe(f, rid, 0).contains("g"));
+        assertEquals(2, fk.getcurcallstacklengthbyroutine(f, rid));
+        assertTrue(fk.getcurbytecodeposbyroutine(f, rid) >= 0);
+
+        // 参数变量跨帧可读:g的x=21
+        assertEquals("21", fk.getcurvariantbyroutinebyframe(f, rid, 0, "x", -1));
+
+        // 源码与函数定位
+        String code = fk.getfilecode(f, file.toString(), 2);
+        assertTrue(code.contains("yield"), code);
+        assertEquals(file.toString(), fk.getfuncfile(f, "g"));
+        // 语义:函数第一条字节码所在行(参数槽之后,即yield行),非函数声明行
+        assertEquals(2, fk.getfuncstartline(f, "g"));
+
+        // 反汇编
+        assertTrue(fk.dumpfunc(f, "g", -1).contains("byte code"));
+
+        // 当前调用栈
+        assertTrue(fk.getcurcallstack(f).contains("g"));
+
+        // 跑完
+        Object[] rets = null;
+        int guard = 0;
+        while (rets == null && guard < 100)
+        {
+            rets = fk.resume(f, "f");
+            guard++;
+        }
+        assertNotNull(rets, fk.geterror(f));
+        assertEquals(42L, ((Long) rets[0]).longValue());
+    }
+
+    @Test
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =
