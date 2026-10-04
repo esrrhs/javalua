@@ -235,50 +235,47 @@ class variant
 
 	public void plus(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
+		// INT×INT快路径:类型已知可算,跳过断言调用
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = (long) (Long) l.m_data + (long) (Long) r.m_data;
 			m_type = variant_type.INT;
+			return;
 		}
-		else
-		{
-			m_data = l.get_real() + r.get_real();
-			m_type = variant_type.REAL;
-		}
+		l.assert_can_cal();
+		r.assert_can_cal();
+		m_data = l.get_real() + r.get_real();
+		m_type = variant_type.REAL;
 	}
 
 	public void minus(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
+		// INT×INT快路径:类型已知可算,跳过断言调用
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = (long) (Long) l.m_data - (long) (Long) r.m_data;
 			m_type = variant_type.INT;
+			return;
 		}
-		else
-		{
-			m_data = l.get_real() - r.get_real();
-			m_type = variant_type.REAL;
-		}
+		l.assert_can_cal();
+		r.assert_can_cal();
+		m_data = l.get_real() - r.get_real();
+		m_type = variant_type.REAL;
 	}
 
 	public void multiply(variant l, variant r) throws Exception
 	{
-		l.assert_can_cal();
-		r.assert_can_cal();
+		// INT×INT快路径:类型已知可算,跳过断言调用
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = (long) (Long) l.m_data * (long) (Long) r.m_data;
 			m_type = variant_type.INT;
+			return;
 		}
-		else
-		{
-			m_data = l.get_real() * r.get_real();
-			m_type = variant_type.REAL;
-		}
+		l.assert_can_cal();
+		r.assert_can_cal();
+		m_data = l.get_real() * r.get_real();
+		m_type = variant_type.REAL;
 	}
 
 	// 除法恒为浮点,4/2得到2.0,1/2得到0.5
@@ -349,6 +346,12 @@ class variant
 
 	public void less(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ((long) (Long) l.m_data < (long) (Long) r.m_data) ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+			return;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		set_cmp_ret(l, r, l.get_real() < r.get_real());
@@ -356,6 +359,12 @@ class variant
 
 	public void more(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ((long) (Long) l.m_data > (long) (Long) r.m_data) ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+			return;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		set_cmp_ret(l, r, l.get_real() > r.get_real());
@@ -369,6 +378,12 @@ class variant
 
 	public void less_equal(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ((long) (Long) l.m_data <= (long) (Long) r.m_data) ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+			return;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		set_cmp_ret(l, r, l.get_real() <= r.get_real());
@@ -376,6 +391,12 @@ class variant
 
 	public void more_equal(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			m_data = ((long) (Long) l.m_data >= (long) (Long) r.m_data) ? (long) 1 : (long) 0;
+			m_type = variant_type.INT;
+			return;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		set_cmp_ret(l, r, l.get_real() >= r.get_real());
@@ -419,6 +440,10 @@ class variant
 
 	public static boolean and_jne(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return (long) (Long) l.m_data != 0 && (long) (Long) r.m_data != 0;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		return l.get_real() != 0 && r.get_real() != 0;
@@ -426,6 +451,10 @@ class variant
 
 	public static boolean or_jne(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return (long) (Long) l.m_data != 0 || (long) (Long) r.m_data != 0;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		return l.get_real() != 0 || r.get_real() != 0;
@@ -433,6 +462,10 @@ class variant
 
 	public static boolean less_jne(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return (long) (Long) l.m_data < (long) (Long) r.m_data;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		return l.get_real() < r.get_real();
@@ -440,6 +473,10 @@ class variant
 
 	public static boolean more_jne(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return (long) (Long) l.m_data > (long) (Long) r.m_data;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		return l.get_real() > r.get_real();
@@ -452,6 +489,10 @@ class variant
 
 	public static boolean more_equal_jne(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return (long) (Long) l.m_data >= (long) (Long) r.m_data;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		return l.get_real() >= r.get_real();
@@ -459,6 +500,10 @@ class variant
 
 	public static boolean less_equal_jne(variant l, variant r) throws Exception
 	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return (long) (Long) l.m_data <= (long) (Long) r.m_data;
+		}
 		l.assert_can_cal();
 		r.assert_can_cal();
 		return l.get_real() <= r.get_real();

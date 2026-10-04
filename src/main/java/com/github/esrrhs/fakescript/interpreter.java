@@ -31,6 +31,8 @@ class interpreter
 	private long m_wakeuptime;
 	private int m_yieldtime;
 	private boolean m_sleeping;
+	// CALL指令的返回位置暂存,避免每次调用分配ArrayList(不跨call()调用持有)
+	private final ArrayList<Integer> m_retpos_scratch = new ArrayList<Integer>();
 
 	public interpreter(fake f)
 	{
@@ -74,7 +76,16 @@ class interpreter
 
 	public void call(variant func, ArrayList<Integer> retpos) throws Exception
 	{
-		funcunion f = m_f.fm.get_func(func);
+		funcunion f = null;
+		if (func.get_type() == variant_type.STRING)
+		{
+			// 编译期调用目标名是常量字符串,走索引免variant哈希
+			f = m_f.fm.get_func_by_name((String) func.get_data());
+		}
+		if (f == null)
+		{
+			f = m_f.fm.get_func(func);
+		}
 		if (f == null)
 		{
 			throw new Exception("run no func " + func + " fail");
@@ -1124,7 +1135,8 @@ class interpreter
 						int retnum = command.COMMAND_CODE(m_fb.get_buff()[m_ip]);
 						m_ip++;
 
-						ArrayList<Integer> retpos = new ArrayList<Integer>();
+						ArrayList<Integer> retpos = m_retpos_scratch;
+						retpos.clear();
 
 						for (int i = 0; i < retnum; i++)
 						{
