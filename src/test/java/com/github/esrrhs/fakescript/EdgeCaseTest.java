@@ -279,6 +279,142 @@ public class EdgeCaseTest {
         assertEquals(9L, ((Long) fk.run(f, "f")).longValue());
     }
 
+    // ==================== math-assign与语法补充 ====================
+
+    @Test
+    public void testMathAssignOperators() {
+        // 五个复合赋值操作符
+        String script =
+                "func f()\n" +
+                "    var s = 10\n" +
+                "    s += 5\n" +
+                "    s -= 3\n" +
+                "    s *= 2\n" +
+                "    s /= 4\n" +
+                "    s %= 4\n" +
+                "    return s\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        // 10+5=15, -3=12, *2=24, /4=6.0(浮点除), %4=2.0(截断取模)
+        assertEquals(2.0, ((Double) fk.run(f, "f")).doubleValue(), 0.0000001);
+    }
+
+    @Test
+    public void testCommentsAndNegativeLiterals() {
+        // --注释、负数字面量、降序循环(无自减操作符,用-=)
+        String script =
+                "-- 这是注释\n" +
+                "func f()\n" +                       // 行2
+                "    var s = -5\n" +                 // 行3
+                "    -- 循环内注释\n" +
+                "    for var i = 3, i > 0, i -= 1 then\n" +
+                "        s = s + i\n" +
+                "    end\n" +
+                "    return s\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        // -5 + 3 + 2 + 1 = 1(整数运算,返回Long)
+        assertEquals(1L, ((Long) fk.run(f, "f")).longValue());
+    }
+
+    @Test
+    public void testScriptSideIntrospection() {
+        String script =
+                "func helper()\n" +
+                "    return 1\n" +
+                "end\n" +
+                "func f()\n" +
+                "    var has = 0\n" +
+                "    if dumpallfunc() != \"\" then\n" +
+                "        has = 1\n" +
+                "    end\n" +
+                "    return getcurfunc(), isfunc(\"helper\"), isfunc(\"nosuch\"), has\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(4, rets.length, fk.geterror(f));
+        assertEquals("f", rets[0]);
+        assertEquals(1.0, ((Double) rets[1]).doubleValue(), 0.0000001);
+        assertEquals(0.0, ((Double) rets[2]).doubleValue(), 0.0000001);
+        assertEquals(1L, ((Long) rets[3]).longValue());
+    }
+
+    @Test
+    public void testJsonEscapeMatrix() throws Exception {
+        // 写入侧:\b \f控制字符、非ASCII
+        variant v = new variant();
+        v.set_string("a\bb\fc\u4e2d");
+        String j = json.write(v);
+        assertTrue(j.contains("\\b"), j);
+        assertTrue(j.contains("\\f"), j);
+        assertTrue(j.contains("中"), j);
+
+        // 解析侧:反斜杠u转义与斜杠转义
+        variant p = json.parse("{\"s\":\"x\\u4e2dy\", \"i\":1e999, \"z\":\"01\"}");
+        assertEquals("x\u4e2dy", p.get_map().get_entry_by_index(0).getValue().get_string());
+
+        // 1e999超出double:解析为Infinity,写回为null
+        variant inf = json.parse("{\"i\":1e999}");
+        assertTrue(Double.isInfinite((double) (Double) inf.get_map().get_entry_by_index(0).getValue().get_data()));
+        assertTrue(json.write(inf).replace(" ", "").contains("\"i\":null"));
+
+        // 前导零按数字解析
+        variant z = json.parse("01");
+        assertEquals(1L, z.get_int());
+
+        // 各类畸形输入干净拒绝
+        String[] bad = { "-", "{", "[1,", "\"unclosed", "{\"a\":}", "[", "tru", "{\"a\" 1}" };
+        for (String b : bad) {
+            try {
+                json.parse(b);
+                fail("should reject: " + b);
+            } catch (Exception e) {
+                assertNotNull(e.getMessage());
+            }
+        }
+
+        // 深嵌套数组:超深度上限干净拒绝
+        StringBuilder deep = new StringBuilder();
+        for (int i = 0; i < 100; i++) {
+            deep.append('[');
+        }
+        try {
+            json.parse(deep.toString());
+            fail("deep json should be rejected");
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("deep"), e.getMessage());
+        }
+    }
+
+    @Test
+    public void testVariantContainerToString() throws Exception {
+        // 带内容的容器toString
+        variant_array va = new variant_array();
+        variant e1 = new variant();
+        e1.set_int(1);
+        va.push_back(e1);
+        variant e2 = new variant();
+        e2.set_string("b");
+        va.push_back(e2);
+
+        variant av = new variant();
+        av.set_array(va);
+        assertEquals("[1,b,]", av.toString());
+
+        variant_map vm = new variant_map();
+        variant k = new variant();
+        k.set_string("k");
+        variant vv = new variant();
+        vv.set_int(2);
+        vm.con_map_get(k).copy_from(vv);
+        variant mv = new variant();
+        mv.set_map(vm);
+        assertEquals("{(k,2)}", mv.toString());
+    }
+
     // ==================== variant 矩阵 ====================
 
     @Test

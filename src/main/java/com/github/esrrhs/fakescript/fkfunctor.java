@@ -75,7 +75,22 @@ class fkfunctor
 			param[i] = fk.trans(fk.pspop(f), dest.m_param[i]);
 		}
 
-		Object ret = dest.m_m.invoke(c, param);
+		Object ret;
+		try
+		{
+			ret = dest.m_m.invoke(c, param);
+		}
+		catch (java.lang.reflect.InvocationTargetException e)
+		{
+			Throwable cause = e.getCause();
+			throw new Exception("call bind func " + dest.m_m.getName() + " fail: "
+					+ (cause != null ? cause.toString() : e.toString()));
+		}
+		catch (IllegalArgumentException e)
+		{
+			throw new Exception("call bind func " + dest.m_m.getName()
+					+ " fail, argument cannot be applied (null to primitive?): " + e.getMessage());
+		}
 
 		// 检查类型
 		if (ret != null && ret.getClass().isInstance(dest.m_ret))
