@@ -529,7 +529,10 @@ class debug_session
 					{
 						out(String.format("%d is invalid\n", theframe));
 					}
-					m_frame = theframe;
+					else
+					{
+						m_frame = theframe;
+					}
 				}
 			}
 				break;
