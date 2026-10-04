@@ -326,20 +326,32 @@ public class fk
 	 */
 	public static Object[] runmulti(fake f, String func, Object... args)
 	{
-		psclear(f);
-		for (Object arg : args)
+		// 持有必须覆盖压参、执行、读取结果的完整窗口,否则并发方会改写共享参数栈
+		if (!enter(f))
 		{
-			pspush(f, arg);
+			return new Object[] { null };
 		}
-		runps(f, func);
+		try
+		{
+			psclear(f);
+			for (Object arg : args)
+			{
+				pspush(f, arg);
+			}
+			runps(f, func);
 
-		int num = f.ps.size();
-		Object[] ret = new Object[num];
-		for (int i = 0; i < num; i++)
-		{
-			ret[i] = psget(f, i);
+			int num = f.ps.size();
+			Object[] ret = new Object[num];
+			for (int i = 0; i < num; i++)
+			{
+				ret[i] = psget(f, i);
+			}
+			return ret;
 		}
-		return ret;
+		finally
+		{
+			f.exit();
+		}
 	}
 
 	/**
@@ -478,15 +490,26 @@ public class fk
 
 	public static Object debugrun(fake f, String func, Object... args)
 	{
-		psclear(f);
-		for (Object arg : args)
+		if (!enter(f))
 		{
-			pspush(f, arg);
+			return null;
 		}
-		openstepmod(f);
-		rundebugps(f, func);
-		closestepmod(f);
-		return pspop(f);
+		try
+		{
+			psclear(f);
+			for (Object arg : args)
+			{
+				pspush(f, arg);
+			}
+			openstepmod(f);
+			rundebugps(f, func);
+			closestepmod(f);
+			return pspop(f);
+		}
+		finally
+		{
+			f.exit();
+		}
 	}
 
 	public static void openstepmod(fake f)
@@ -1242,27 +1265,8 @@ public class fk
 		}
 	}
 
+	// 仅在持有fake的窗口内调用(debugrun)
 	private static void rundebugps(fake f, String func)
-	{
-		if (!enter(f))
-		{
-			return;
-		}
-		try
-		{
-			rundebugps_inner(f, func);
-		}
-		catch (Exception e)
-		{
-			types.seterror(f, "", 0, "", "debug run fail " + types.show_exception(e));
-		}
-		finally
-		{
-			f.exit();
-		}
-	}
-
-	private static void rundebugps_inner(fake f, String func) throws Exception
 	{
 		variant funcv = new variant();
 		funcv.set_string(func);
@@ -1288,30 +1292,8 @@ public class fk
 		}
 	}
 
+	// 仅在持有fake的窗口内调用(runmulti/debugrun)
 	private static void runps(fake f, String func)
-	{
-		if (!enter(f))
-		{
-			// 占用失败不触碰共享的参数栈,run/runmulti据空栈返回null
-			return;
-		}
-		try
-		{
-			runps_inner(f, func);
-		}
-		catch (Exception e)
-		{
-			// 理论不可达:runps_inner内部已捕获;兜底保证契约
-			types.seterror(f, "", 0, "", "run fail " + types.show_exception(e));
-			f.ps.push_and_get();
-		}
-		finally
-		{
-			f.exit();
-		}
-	}
-
-	private static void runps_inner(fake f, String func) throws Exception
 	{
 		variant funcv = new variant();
 		funcv.set_string(func);
