@@ -93,12 +93,6 @@ class fkfunctor
 		}
 
 		// 检查类型
-		if (ret != null && ret.getClass().isInstance(dest.m_ret))
-		{
-			throw new Exception("call bind class " + m_c.toString() + " " + dest.m_m.toString()
-					+ ", diff ret type, give " + ret.getClass().toString());
-		}
-
 		fk.pspush(f, ret);
 	}
 }

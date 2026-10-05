@@ -12,14 +12,4 @@ public class explicit_value_node extends syntree_node
 		return esyntreetype.est_explicit_value;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[explicit_value]:";
-		ret += m_str;
-		ret += "\n";
-		return ret;
-	}
 }

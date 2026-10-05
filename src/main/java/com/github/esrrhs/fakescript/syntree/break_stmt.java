@@ -8,12 +8,4 @@ public class break_stmt extends syntree_node
 		return esyntreetype.est_break;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[break]:\n";
-		return ret;
-	}
 }

@@ -1135,6 +1135,14 @@ public class fk
 			{
 				return ((Number) src).byteValue();
 			}
+			if (src instanceof Boolean)
+			{
+				return (byte) (((Boolean) src) ? 1 : 0);
+			}
+			if (src instanceof String)
+			{
+				return Byte.valueOf((String) src);
+			}
 			return (byte) 0;
 		}
 
@@ -1143,6 +1151,14 @@ public class fk
 			if (src instanceof Number)
 			{
 				return ((Number) src).shortValue();
+			}
+			if (src instanceof Boolean)
+			{
+				return (short) (((Boolean) src) ? 1 : 0);
+			}
+			if (src instanceof String)
+			{
+				return Short.valueOf((String) src);
 			}
 			return (short) 0;
 		}
@@ -1153,6 +1169,14 @@ public class fk
 			{
 				return ((Number) src).intValue();
 			}
+			if (src instanceof Boolean)
+			{
+				return ((Boolean) src) ? 1 : 0;
+			}
+			if (src instanceof String)
+			{
+				return Integer.valueOf((String) src);
+			}
 			return (int) 0;
 		}
 
@@ -1161,6 +1185,14 @@ public class fk
 			if (src instanceof Number)
 			{
 				return ((Number) src).longValue();
+			}
+			if (src instanceof Boolean)
+			{
+				return (long) (((Boolean) src) ? 1 : 0);
+			}
+			if (src instanceof String)
+			{
+				return Long.valueOf((String) src);
 			}
 			return (long) 0;
 		}
@@ -1171,6 +1203,14 @@ public class fk
 			{
 				return ((Number) src).floatValue();
 			}
+			if (src instanceof Boolean)
+			{
+				return (float) (((Boolean) src) ? 1 : 0);
+			}
+			if (src instanceof String)
+			{
+				return Float.valueOf((String) src);
+			}
 			return (float) 0;
 		}
 
@@ -1179,6 +1219,14 @@ public class fk
 			if (src instanceof Number)
 			{
 				return ((Number) src).doubleValue();
+			}
+			if (src instanceof Boolean)
+			{
+				return (double) (((Boolean) src) ? 1 : 0);
+			}
+			if (src instanceof String)
+			{
+				return Double.valueOf((String) src);
 			}
 			return (double) 0;
 		}

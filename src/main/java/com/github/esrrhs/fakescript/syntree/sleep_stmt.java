@@ -10,15 +10,4 @@ public class sleep_stmt extends syntree_node
 		return esyntreetype.est_sleep;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[sleep]:\n";
-		ret += gentab(indent + 1);
-		ret += "[time]:\n";
-		ret += m_time.dump(indent + 2);
-		return ret;
-	}
 }

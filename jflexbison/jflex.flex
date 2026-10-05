@@ -321,6 +321,18 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.EQUAL;
 }
 
+"&&" {
+	return YYParser.Lexer.AND;
+}
+
+"||" {
+	return YYParser.Lexer.OR;
+}
+
+"!" {
+	return YYParser.Lexer.NOT;
+}
+
 "!=" {
 	return YYParser.Lexer.NOT_EQUAL;
 }

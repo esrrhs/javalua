@@ -638,44 +638,6 @@ class interpreter
 						dest.string_cat(left, right);
 					}
 						break;
-					case command.OPCODE_AND:
-					{
-						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
-						m_ip++;
-
-						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
-						m_ip++;
-
-						if (!(CHECK_DST_POS(m_fb, m_ip)))
-						{
-							throw new Exception("interpreter math oper error, dest is not stack, type "
-									+ POS_TYPE_NAME(m_fb, m_ip));
-						}
-						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
-						m_ip++;
-
-						dest.and(left, right);
-					}
-						break;
-					case command.OPCODE_OR:
-					{
-						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
-						m_ip++;
-
-						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
-						m_ip++;
-
-						if (!(CHECK_DST_POS(m_fb, m_ip)))
-						{
-							throw new Exception("interpreter math oper error, dest is not stack, type "
-									+ POS_TYPE_NAME(m_fb, m_ip));
-						}
-						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
-						m_ip++;
-
-						dest.or(left, right);
-					}
-						break;
 					case command.OPCODE_LESS:
 					{
 						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
