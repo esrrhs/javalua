@@ -10,16 +10,5 @@ public class yield_stmt extends syntree_node
 		return esyntreetype.est_yield;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[yield]:\n";
-		ret += gentab(indent + 1);
-		ret += "[time]:\n";
-		ret += m_time.dump(indent + 2);
-		return ret;
-	}
 }
 

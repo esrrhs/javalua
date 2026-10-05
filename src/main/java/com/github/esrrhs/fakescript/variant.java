@@ -310,40 +310,6 @@ class variant
 		set_string(l.toString() + r.toString());
 	}
 
-	public void and(variant l, variant r) throws Exception
-	{
-		l.assert_can_cal();
-		r.assert_can_cal();
-		boolean ret = l.get_real() != 0 && r.get_real() != 0;
-		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
-		{
-			m_data = ret ? (long) 1 : (long) 0;
-			m_type = variant_type.INT;
-		}
-		else
-		{
-			m_data = ret ? (double) 1 : (double) 0;
-			m_type = variant_type.REAL;
-		}
-	}
-
-	public void or(variant l, variant r) throws Exception
-	{
-		l.assert_can_cal();
-		r.assert_can_cal();
-		boolean ret = l.get_real() != 0 || r.get_real() != 0;
-		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
-		{
-			m_data = ret ? (long) 1 : (long) 0;
-			m_type = variant_type.INT;
-		}
-		else
-		{
-			m_data = ret ? (double) 1 : (double) 0;
-			m_type = variant_type.REAL;
-		}
-	}
-
 	public void less(variant l, variant r) throws Exception
 	{
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)

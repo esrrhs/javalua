@@ -13,22 +13,4 @@ public class func_desc_node extends syntree_node
 		return esyntreetype.est_func_desc;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[func_desc]:";
-		ret += m_funcname;
-		ret += "\n";
-		if (m_arglist != null)
-		{
-			ret += m_arglist.dump(indent + 1);
-		}
-		if (m_block != null)
-		{
-			ret += m_block.dump(indent + 1);
-		}
-		return ret;
-	}
 }

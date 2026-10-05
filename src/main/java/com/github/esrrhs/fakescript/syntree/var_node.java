@@ -10,14 +10,4 @@ public class var_node extends syntree_node
 		return esyntreetype.est_var;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[var]:";
-		ret += m_str;
-		ret += "\n";
-		return ret;
-	}
 }

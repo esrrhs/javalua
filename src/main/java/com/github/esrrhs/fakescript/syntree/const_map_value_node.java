@@ -11,17 +11,4 @@ public class const_map_value_node extends syntree_node
 		return esyntreetype.est_constmapvalue;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "(";
-		ret += m_k.dump(indent + 1);
-		ret += ":\n";
-		ret += m_v.dump(indent + 1);
-		ret += gentab(indent);
-		ret += ")\n";
-		return ret;
-	}
 }

@@ -12,22 +12,6 @@ public class block_node extends syntree_node
 		return esyntreetype.est_block;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[block]:\n";
-		for (int i = 0; i < (int)m_stmtlist.size(); i++)
-		{
-			ret += gentab(indent + 1);
-			ret += "[stmt";
-			ret += i;
-			ret += "]:\n";
-			ret += m_stmtlist.get(i).dump(indent + 2);
-		}
-		return ret;
-	}
 	
 	public void add_stmt(syntree_node stmt)
 	{

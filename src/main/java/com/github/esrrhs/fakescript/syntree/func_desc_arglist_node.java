@@ -12,20 +12,6 @@ public class func_desc_arglist_node extends syntree_node
 		return esyntreetype.est_arglist;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		ret += gentab(indent);
-		ret += "[func_desc_arglist]:";
-		for (int i = 0; i < (int)m_arglist.size(); i++)
-		{
-			ret += m_arglist.get(i);
-			ret += ",";
-		}
-		ret += "\n";
-		return ret;
-	}
 	
 	public void add_arg(syntree_node p)
 	{

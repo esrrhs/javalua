@@ -1094,6 +1094,9 @@ class compiler
 		{
 			oper = deps == 0 ? command.MAKE_OPCODE(command.OPCODE_NOT_JNE) : command.MAKE_OPCODE(command.OPCODE_NOT);
 
+			// 强制内层比较走写dest的非跳形式,NOT基于其结果取反
+			m_cmp_deps++;
+
 			// left
 			if (!compile_node(cg, cs.m_left))
 			{
@@ -1101,9 +1104,19 @@ class compiler
 			}
 			left = m_cur_addr;
 
-			int despos = cg.alloc_stack_identifier();
-			dest = command.MAKE_ADDR(command.ADDR_STACK, despos);
-			m_cur_addr = dest;
+			if (deps == 0)
+			{
+				// NOT_JNE布局:[NOT_JNE][left][占位][POS]:
+				// 解释器读left取反、跳过占位、假跳到if层回填的POS;占位复用left避免多余槽
+				dest = left;
+			}
+			else
+			{
+				// 嵌套时非JNE的NOT把取反结果写入dest
+				int despos = cg.alloc_stack_identifier();
+				dest = command.MAKE_ADDR(command.ADDR_STACK, despos);
+				m_cur_addr = dest;
+			}
 
 			cg.push(oper, cs.lineno());
 			cg.push(left, cs.lineno());

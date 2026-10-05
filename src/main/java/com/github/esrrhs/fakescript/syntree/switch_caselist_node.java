@@ -12,17 +12,6 @@ public class switch_caselist_node extends syntree_node
 		return esyntreetype.est_switch_caselist;
 	}
 
-	@Override
-	public String dump(int indent)
-	{
-		String ret = "";
-		for (int i = 0; i < (int)m_list.size(); i++)
-		{
-			ret += m_list.get(i).dump(indent);
-		}
-		return ret;
-	}
-
 	public void add_case(syntree_node p)
 	{
 		m_list.add(p);

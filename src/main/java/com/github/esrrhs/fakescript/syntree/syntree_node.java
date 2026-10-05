@@ -18,24 +18,6 @@ public class syntree_node
 		return gettype().toString();
 	}
 	
-	public String dump(int indent)
-	{
-		return gentab(indent) + "nil\n";
-	}
-
-	public String gentab(int indent)
-	{
-		String ret = "";
-		ret += "LINE:";
-		ret += m_lno;
-		ret += " ";
-		for (int i = 0; i < indent; i++)
-		{
-			ret += "\t";
-		}
-		return ret;
-	}
-
 	public int lineno()
 	{
 		return m_lno;
