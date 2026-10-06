@@ -12,7 +12,7 @@ public class fk
 	/**
 	 * 版本号
 	 */
-	public static final String version = "1.0.15";
+	public static final String version = "1.0.16";
 
 	// 节省内存
 	protected static final HashMap<String, variant> regName = new HashMap<String, variant>();

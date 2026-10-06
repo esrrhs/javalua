@@ -164,14 +164,14 @@ public class Main {
 <dependency>
     <groupId>com.github.esrrhs</groupId>
     <artifactId>fakescript-java</artifactId>
-    <version>1.0.15</version>
+    <version>1.0.16</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.github.esrrhs:fakescript-java:1.0.15'
+implementation 'com.github.esrrhs:fakescript-java:1.0.16'
 ```
 
 ---

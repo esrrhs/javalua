@@ -7,7 +7,7 @@
     <groupId>com.github.esrrhs</groupId>
     <artifactId>fakescript-java</artifactId>
     <packaging>jar</packaging>
-    <version>1.0.15</version>
+    <version>1.0.16</version>
 
     <name>fakescript-java</name>
     <description>Lightweight embedded scripting language.</description>
