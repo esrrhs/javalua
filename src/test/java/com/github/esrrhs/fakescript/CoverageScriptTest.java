@@ -351,6 +351,43 @@ public class CoverageScriptTest {
     }
 
     @Test
+    public void testStaleRetNotLeaked() {
+        // 回归:同routine内先调用多返回值函数再单值return,陈旧值不得泄漏
+        String script =
+                "func g()\n" +
+                "    return 1, 2, 3\n" +
+                "end\n" +
+                "func f()\n" +
+                "    g()\n" +
+                "    return 9\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(1, rets.length, "stale rets leaked: got " + rets.length);
+        assertEquals(9L, ((Long) rets[0]).longValue());
+    }
+
+    @Test
+    public void testEmptyReturnDestructure() {
+        // 回归:空return被多接收解构时,缺失值补nil而非IOOBE
+        String script =
+                "func p()\n" +
+                "    return\n" +
+                "end\n" +
+                "func f()\n" +
+                "    a, b := p()\n" +
+                "    return a\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(1, rets.length, fk.geterror(f));
+        assertNull(rets[0]);
+        assertFalse(fk.error(f), fk.geterror(f));
+    }
+
+    @Test
     public void testSetRunningVariantBranches() throws Exception {
         String script =
                 "const C = 5\n" +
