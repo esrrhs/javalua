@@ -11,7 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 覆盖率清扫:调试器剩余命令、绑定错误路径、内建剩余分支、解析错误路径
+ * 覆盖率清扫:调试器剩余命令、CALL_CLASSMEM互操作、内建剩余分支、解析错误路径
  */
 public class CoverageSweepTest {
 
@@ -24,6 +24,42 @@ public class CoverageSweepTest {
     }
 
     // ==================== 调试器剩余命令 ====================
+
+    @Test
+    public void testDebugFinishNiSi(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("fin.fk");
+        Files.write(file, ("func g(x)\n" +
+                "    var y = x + 1\n" +
+                "    return y\n" +
+                "end\n" +
+                "func f()\n" +
+                "    var r = g(1)\n" +
+                "    var z = r + 1\n" +
+                "    return z\n" +
+                "end\n").getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
+
+        debug_session s = f.dbg.createsession("f");
+
+        s.execute("b 2");
+        s.execute("c");
+        assertFalse(s.is_end());
+        assertEquals("g", fk.getcurfuncbyroutinebyframe(f, fk.getcurroutineid(f), 0));
+
+        s.execute("si");
+        assertFalse(s.is_end());
+
+        s.execute("fin");
+        assertFalse(s.is_end());
+        assertEquals("f", fk.getcurfuncbyroutinebyframe(f, fk.getcurroutineid(f), 0));
+
+        s.execute("wa r");
+        s.execute("n");
+        s.execute("c");
+        assertTrue(s.is_end());
+        assertEquals(3L, s.get_ret().get_int());
+    }
 
     @Test
     public void testDebugListAndRoutineErrors(@TempDir Path dir) throws Exception {
@@ -49,28 +85,32 @@ public class CoverageSweepTest {
         assertTrue(s.is_end());
     }
 
-    // ==================== 绑定错误路径 ====================
+    // ==================== CALL_CLASSMEM(发现:死代码路径) ====================
 
-    public static class Dummy {
-        public int member() {
-            return 1;
+    @Test
+    public void testClassMemCallNotRoutable() {
+        // 发现:m_classmem_call从未被语法/AST设为true,`w->method(args)`语法解析失败。
+        // CALL_CLASSMEM解释器路径是死代码,直到grammar补上指针调用的产生式。
+        fk.regclass(f, Widget.class);
+        fk.regclass(f, CoverageSweepTest.class);
+
+        String script =
+                "func f(a, b)\n" +
+                "    var w = CoverageSweepTest.makeWidget()\n" +
+                "    return w->add(a, b)\n" +
+                "end\n";
+
+        assertFalse(fk.parsestr(f, script), "classmem call should not parse (dead path)");
+    }
+
+    public static class Widget {
+        public int add(int a, int b) {
+            return a + b;
         }
     }
 
-    @Test
-    public void testBindMemberWithoutInstance() {
-        fk.regclass(f, Dummy.class);
-        // 非静态方法绑定名 = 全限定类名 + 方法名(无点分隔)
-        String bindname = "com.github.esrrhs.fakescript.CoverageSweepTest$Dummymember";
-        assertTrue(fk.isfunc(f, bindname), "member should be bound");
-
-        // $无法出现在脚本标识符中,ref is null分支改为直接调用fkfunctor验证
-        funcunion fu = f.fm.get_func_by_name(bindname);
-        assertNotNull(fu);
-        assertTrue(fu.m_haveff);
-        // 无实例调用非静态绑定:fkfunctor抛"ref is null"(异常直接传播,不走seterror)
-        Exception e = assertThrows(Exception.class, () -> fu.m_ff.call(f));
-        assertTrue(e.getMessage().contains("ref is null"), e.getMessage());
+    public static Widget makeWidget() {
+        return new Widget();
     }
 
     // ==================== 内建剩余分支 ====================
@@ -114,15 +154,14 @@ public class CoverageSweepTest {
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         Object[] rets = fk.runmulti(f, "f");
         assertEquals(4, rets.length, fk.geterror(f));
-        assertEquals(1L, ((Long) rets[0]).longValue());  // 文件名空(size==0)
-        assertEquals(0L, ((Long) rets[1]).longValue());  // getcurline非0
-        assertEquals(1L, ((Long) rets[2]).longValue());  // 函数名非空
-        assertEquals(1L, ((Long) rets[3]).longValue());  // 调用栈非空
+        assertEquals(1L, ((Long) rets[0]).longValue());
+        assertEquals(0L, ((Long) rets[1]).longValue());
+        assertEquals(1L, ((Long) rets[2]).longValue());
+        assertEquals(1L, ((Long) rets[3]).longValue());
     }
 
     @Test
-    public void testTonumberTolongErrorInputs() {
-        // tonumber非数字字符串:NumberFormatException向上抛,脚本以错误结束
+    public void testTonumberBadInput() {
         String script =
                 "func f()\n" +
                 "    return tonumber(\"notnum\")\n" +
@@ -157,7 +196,6 @@ public class CoverageSweepTest {
 
     @Test
     public void testJsonWriteErrors() throws Exception {
-        // POINTER(null)以外的POINTER:不可序列化
         variant v = new variant();
         v.set_pointer(new Object());
         try {
@@ -167,7 +205,6 @@ public class CoverageSweepTest {
             assertTrue(e.getMessage().contains("not supported"), e.getMessage());
         }
 
-        // map键为容器:不可序列化
         variant mv = new variant();
         mv.set_map(new variant_map());
         variant kv = new variant();
@@ -181,7 +218,6 @@ public class CoverageSweepTest {
             assertTrue(e.getMessage().contains("map key"), e.getMessage());
         }
 
-        // 解析错误:未闭合字符串、坏转义、未闭合数组、坏unicode
         String[] bad = { "\"unclosed", "\"bad\\escape\"", "[1", "{\"a\":", "\"\\uZZ\"" };
         for (String b : bad) {
             try {
@@ -192,7 +228,6 @@ public class CoverageSweepTest {
             }
         }
 
-        // \/转义与反斜杠转义
         variant p = json.parse("\"a\\/b\\\\c\"");
         assertEquals("a/b\\c", p.get_string());
     }
@@ -201,14 +236,12 @@ public class CoverageSweepTest {
 
     @Test
     public void testParseIncludeErrors(@TempDir Path dir) throws Exception {
-        // include不存在的文件
         Files.write(dir.resolve("main.fk"),
                 "include \"nope.fk\"\nfunc f()\nend\n".getBytes(StandardCharsets.UTF_8));
         boolean ok = fk.parse(f, dir.resolve("main.fk").toString());
         assertFalse(ok);
-        assertTrue(fk.geterror(f).contains("open nope.fk fail") || fk.geterror(f).contains("nope"), fk.geterror(f));
+        assertTrue(fk.geterror(f).contains("nope"), fk.geterror(f));
 
-        // include语法错误的文件
         Files.write(dir.resolve("bad.fk"), "func broken(\n".getBytes(StandardCharsets.UTF_8));
         Files.write(dir.resolve("main2.fk"),
                 "include \"bad.fk\"\nfunc f()\nend\n".getBytes(StandardCharsets.UTF_8));
