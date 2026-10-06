@@ -203,6 +203,240 @@ public class CoverageDeepTest {
         assertEquals(99L, ((Long) rets[0]).longValue());
     }
 
+    // ==================== for循环OPCODE_FORBEGIN/FORLOOP路径 ====================
+
+    @Test
+    public void testForLoopWithBreakAndContinue() {
+        // for循环:FORBEGIN/FORLOOP + break/continue的位置回填
+        String script = "func f(n)\n" +
+                "    var s = 0\n" +
+                "    for var i = 0, i < n, i++ then\n" +
+                "        if i == 2 then\n" +
+                "            continue\n" +
+                "        end\n" +
+                "        if i == 5 then\n" +
+                "            break\n" +
+                "        end\n" +
+                "        s = s + i\n" +
+                "    end\n" +
+                "    return s\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        // i=0(s+=0), i=1(s+=1), i=2(continue), i=3(s+=3), i=4(s+=4), i=5(break) => s=0+1+3+4=8
+        assertEquals(8L, ((Long) fk.run(f, "f", 10)).longValue());
+    }
+
+    @Test
+    public void testForLoopContinueOnly() {
+        String script = "func f(n)\n" +
+                "    var s = 0\n" +
+                "    for var i = 0, i < n, i++ then\n" +
+                "        if i % 2 == 0 then\n" +
+                "            continue\n" +
+                "        end\n" +
+                "        s = s + i\n" +
+                "    end\n" +
+                "    return s\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        // 奇数和:1+3+5+7+9=25
+        assertEquals(25L, ((Long) fk.run(f, "f", 10)).longValue());
+    }
+
+    @Test
+    public void testForLoopZeroIterations() {
+        String script = "func f()\n" +
+                "    var s = 0\n" +
+                "    for var i = 0, i < 0, i++ then\n" +
+                "        s = s + 1\n" +
+                "    end\n" +
+                "    return s\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(0L, ((Long) fk.run(f, "f")).longValue());
+    }
+
+    // ==================== elseif链的JNE占位回填 ====================
+
+    @Test
+    public void testElseifChainMultiple() {
+        // elseif链:每个elseif都会生成JNE+占位+回填
+        String script = "func f(x)\n" +
+                "    if x == 1 then\n" +
+                "        return \"a\"\n" +
+                "    elseif x == 2 then\n" +
+                "        return \"b\"\n" +
+                "    elseif x == 3 then\n" +
+                "        return \"c\"\n" +
+                "    elseif x == 4 then\n" +
+                "        return \"d\"\n" +
+                "    elseif x == 5 then\n" +
+                "        return \"e\"\n" +
+                "    else\n" +
+                "        return \"z\"\n" +
+                "    end\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        for (int i = 1; i <= 5; i++) {
+            assertEquals(String.valueOf((char) ('a' + i - 1)), fk.run(f, "f", i));
+        }
+        assertEquals("z", fk.run(f, "f", 99));
+    }
+
+    // ==================== debugger debug() System.in集成 ====================
+
+    @Test
+    public void testDebugSystemInIntegration() throws Exception {
+        String script = "func f()\n    return 42\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        // 喂调试命令流:n(单步)→ c(continue) → EOF
+        String input = "n\nc\n";
+        java.io.InputStream origIn = System.in;
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)));
+            Object ret = fk.debugrun(f, "f");
+            // debugrun走debug()循环,完成后返回值
+            assertNotNull(ret);
+        } finally {
+            System.setIn(origIn);
+        }
+    }
+
+    // ==================== JSON parse_string深层转义 ====================
+
+    @Test
+    public void testJsonParseUnicodeAndSlashes() throws Exception {
+        // \\uXXXX合法
+        variant v = json.parse("\"\\u4e2d\"");
+        assertEquals("中", v.get_string());
+
+        // \\/转义
+        variant slash = json.parse("\"a\\/b\"");
+        assertEquals("a/b", slash.get_string());
+
+        // \\b \\f转义
+        variant bf = json.parse("\"\\b\\f\"");
+        assertEquals("\b\f", bf.get_string());
+
+        // 坏hex
+        try {
+            json.parse("\"\\uZZZZ\"");
+            fail("should reject bad unicode");
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("ZZZZ") || e.getMessage().contains("radix")
+                    || e.getMessage().contains("escape"), e.getMessage());
+        }
+
+        // 未闭合
+        try {
+            json.parse("\"unclosed\\\n");
+            fail("should reject unclosed string");
+        } catch (Exception e) {
+            assertNotNull(e.getMessage());
+        }
+    }
+
+    // ==================== variant.equals更多分支 ====================
+
+    @Test
+    public void testVariantEqualsEdgeBranches() throws Exception {
+        // STRING vs NIL
+        variant s = new variant();
+        s.set_string("");
+        variant n = new variant();
+        n.set_nil();
+        assertFalse(s.equals(n));
+
+        // UUID vs NIL
+        variant u = new variant();
+        u.set_uuid(1L);
+        assertFalse(u.equals(n));
+
+        // ARRAY vs NIL
+        variant a = new variant();
+        a.set_array(new variant_array());
+        assertFalse(a.equals(n));
+
+        // MAP vs NIL
+        variant m = new variant();
+        m.set_map(new variant_map());
+        assertFalse(m.equals(n));
+
+        // 同引用
+        assertTrue(a.equals(a));
+
+        // POINTER vs POINTER(null)等于NIL
+        variant pnull = new variant();
+        pnull.set_pointer(null);
+        assertTrue(pnull.equals(n));
+
+        // 不同类
+        assertFalse(a.equals("not a variant"));
+    }
+
+    // ==================== fk.resume / runps 边界 ====================
+
+    @Test
+    public void testResumeAfterFinish() {
+        String script = "func f()\n    return 1\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+
+        // 第一次resume完成
+        Object[] rets = fk.resume(f, "f");
+        assertNotNull(rets);
+
+        // 结束后再resume:重新启动
+        Object[] rets2 = fk.resume(f, "f");
+        assertNotNull(rets2, "should restart after completion");
+    }
+
+    @Test
+    public void testRunpsEmptyReturn() {
+        String script = "func f()\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] rets = fk.runmulti(f, "f");
+        assertEquals(1, rets.length);
+        assertNull(rets[0]);
+    }
+
+    // ==================== json.write_value 更多分支 ====================
+
+    @Test
+    public void testJsonWriteRealEdgeCases() throws Exception {
+        // REAL整数值输出为整数
+        variant v = new variant();
+        v.set_real(3.0);
+        assertEquals("3", json.write(v));
+
+        // NaN输出null
+        variant nan = new variant();
+        nan.set_real(Double.NaN);
+        assertEquals("null", json.write(nan));
+
+        // Infinity输出null
+        variant inf = new variant();
+        inf.set_real(Double.POSITIVE_INFINITY);
+        assertEquals("null", json.write(inf));
+
+        // 大数不转整数字面量
+        variant big = new variant();
+        big.set_real(1.0E15);
+        assertEquals("1.0E15", json.write(big));
+    }
+
+    @Test
+    public void testJsonWriteStringControlChars() throws Exception {
+        variant v = new variant();
+        v.set_string("a\b\f\n\r\t");
+        String j = json.write(v);
+        assertTrue(j.contains("\\b"), j);
+        assertTrue(j.contains("\\f"), j);
+        assertTrue(j.contains("\\n"), j);
+        assertTrue(j.contains("\\r"), j);
+        assertTrue(j.contains("\\t"), j);
+    }
+
     @Test
     public void testJsonParseObjectAndArray() throws Exception {
         variant v = json.parse("{\"arr\":[{\"x\":1},{\"x\":2}],\"empty\":{}}");
