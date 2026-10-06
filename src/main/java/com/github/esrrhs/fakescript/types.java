@@ -8,11 +8,13 @@ class types
 		f.error = true;
 		f.errorstr = String.format(errorstr, args);
 
-		f.lasterror = new fkerror();
-		f.lasterror.file = file;
-		f.lasterror.lineno = lineno;
-		f.lasterror.funcname = func;
-		f.lasterror.message = f.errorstr;
+		// 局部变量构建后原子赋值,防止并发clearerr导致的NPE
+		fkerror err = new fkerror();
+		err.file = file;
+		err.lineno = lineno;
+		err.funcname = func;
+		err.message = f.errorstr;
+		f.lasterror = err;
 
 		if (f.cb != null)
 		{
