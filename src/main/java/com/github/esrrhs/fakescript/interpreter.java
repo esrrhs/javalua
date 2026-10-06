@@ -480,7 +480,15 @@ class interpreter
 							int oldretpos = BP_GET_RETPOS(oldbp, oldretnum, i);
 
 							variant ret = GET_VARIANT(m_fb, m_bp, oldretpos);
-							ret.copy_from(m_ret.get(i));
+							// 实际返回值不足时补nil(空return被解构的场景)
+							if (i < m_ret.size())
+							{
+								ret.copy_from(m_ret.get(i));
+							}
+							else
+							{
+								ret.set_nil();
+							}
 						}
 					}
 					continue;
@@ -1183,6 +1191,12 @@ class interpreter
 							variant retv = new variant();
 							retv.copy_from(ret);
 							m_ret.set(i, retv);
+						}
+
+						// 收缩到returnnum:同routine内先前调用的多返回值若不清理会泄漏进本次返回
+						while (m_ret.size() > returnnum)
+						{
+							m_ret.remove(m_ret.size() - 1);
 						}
 
 						m_ip = (m_fb).get_buff().length;
