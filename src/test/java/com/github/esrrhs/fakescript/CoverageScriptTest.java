@@ -388,6 +388,111 @@ public class CoverageScriptTest {
     }
 
     @Test
+    public void testBracketedAndOrNonJne() {
+        // 括号cmp作为AND/OR操作数时,内层比较走非JNE路径(OPCODE_LESS/MORE/EQUAL非跳版)
+        String script =
+                "func f(a, b)\n" +
+                "    var r1 = 0\n" +
+                "    if (a > 0) && (b > 0) then\n" +
+                "        r1 = 1\n" +
+                "    end\n" +
+                "    var r2 = 0\n" +
+                "    if (a > 0) || (b > 0) then\n" +
+                "        r2 = 1\n" +
+                "    end\n" +
+                "    var r3 = 0\n" +
+                "    if (a == 1) && (b == 2) then\n" +
+                "        r3 = 1\n" +
+                "    end\n" +
+                "    return r1, r2, r3\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] hit = fk.runmulti(f, "f", 1, 2);
+        assertEquals(3, hit.length, fk.geterror(f));
+        assertEquals(1L, ((Long) hit[0]).longValue());
+        assertEquals(1L, ((Long) hit[1]).longValue());
+        assertEquals(1L, ((Long) hit[2]).longValue());
+
+        Object[] miss = fk.runmulti(f, "f", 0, 0);
+        assertEquals(0L, ((Long) miss[0]).longValue());
+        assertEquals(0L, ((Long) miss[1]).longValue());
+        assertEquals(0L, ((Long) miss[2]).longValue());
+    }
+
+    @Test
+    public void testAndOrUnbracketed() {
+        // 无括号的AND/OR
+        String script =
+                "func f(a, b)\n" +
+                "    var r = 0\n" +
+                "    if a > 0 && b > 0 then\n" +
+                "        r = 1\n" +
+                "    end\n" +
+                "    if a > 0 || b > 0 then\n" +
+                "        r = r + 10\n" +
+                "    end\n" +
+                "    return r\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(11L, ((Long) fk.run(f, "f", 1, 1)).longValue());
+        assertEquals(0L, ((Long) fk.run(f, "f", 0, 0)).longValue());
+        assertEquals(10L, ((Long) fk.run(f, "f", 1, 0)).longValue());
+    }
+
+    @Test
+    public void testNotOnVariableWithComparison() {
+        // NOT + 变量:NOT_JNE路径
+        String script =
+                "func f(a)\n" +
+                "    var r = 0\n" +
+                "    if !a then\n" +
+                "        r = 1\n" +
+                "    end\n" +
+                "    return r\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(1L, ((Long) fk.run(f, "f", 0)).longValue());
+        assertEquals(0L, ((Long) fk.run(f, "f", 3)).longValue());
+    }
+
+    @Test
+    public void testCmpFalseLiteral() {
+        // false字面量在cmp中的编译路径
+        String script =
+                "func f()\n" +
+                "    var r = 0\n" +
+                "    if false then\n" +
+                "        r = 1\n" +
+                "    end\n" +
+                "    return r\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(0L, ((Long) fk.run(f, "f")).longValue());
+    }
+
+    @Test
+    public void testMathAssignAllOps() {
+        String script =
+                "func f()\n" +
+                "    var a = 10\n" +
+                "    a += 5\n" +
+                "    a -= 3\n" +
+                "    a *= 2\n" +
+                "    a /= 4\n" +
+                "    a %= 4\n" +
+                "    return a\n" +
+                "end\n";
+
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        // 10+5=15, -3=12, *2=24, /4=6.0(浮点除), %4=2.0(截断取模)
+        assertEquals(2.0, ((Double) fk.run(f, "f")).doubleValue(), 0.0000001);
+    }
+
+    @Test
     public void testSetRunningVariantBranches() throws Exception {
         String script =
                 "const C = 5\n" +
