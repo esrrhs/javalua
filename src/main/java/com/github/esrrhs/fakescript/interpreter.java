@@ -1072,6 +1072,28 @@ class interpreter
 						var.divide(var, value);
 					}
 						break;
+					case command.OPCODE_DIVIDE_FLOOR_ASSIGN:
+					{
+						if (!CHECK_DST_POS(m_fb, m_ip))
+						{
+							throw new Exception(
+									"interpreter math assign oper error, dest is not stack or container, type "
+											+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant var = GET_VARIANT(m_fb, m_bp, m_ip);
+						CHECK_CONST_CONTAINER_DEST(m_fb, m_ip);
+						if ((CHECK_CONST_MAP_POS(var) || CHECK_CONST_ARRAY_POS(var)))
+						{
+							throw new Exception("interpreter assign error, dest is const container");
+						}
+						m_ip++;
+
+						variant value = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						var.floor_divide(var, value);
+					}
+						break;
 					case command.OPCODE_DIVIDE_MOD_ASSIGN:
 					{
 						if (!CHECK_DST_POS(m_fb, m_ip))
@@ -1311,6 +1333,152 @@ class interpreter
 						m_sleeping = true;
 						return runcmdnum + 1;
 					}
+					case command.OPCODE_NEGATE:
+					{
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.negate(right);
+					}
+						break;
+					case command.OPCODE_DIVIDE_FLOOR:
+					{
+						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.floor_divide(left, right);
+					}
+						break;
+					case command.OPCODE_BIT_AND:
+					{
+						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.bit_and(left, right);
+					}
+						break;
+					case command.OPCODE_BIT_OR:
+					{
+						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.bit_or(left, right);
+					}
+						break;
+					case command.OPCODE_BIT_XOR:
+					{
+						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.bit_xor(left, right);
+					}
+						break;
+					case command.OPCODE_SHIFT_LEFT:
+					{
+						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.shift_left(left, right);
+					}
+						break;
+					case command.OPCODE_SHIFT_RIGHT:
+					{
+						variant left = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.shift_right(left, right);
+					}
+						break;
+					case command.OPCODE_BIT_NOT:
+					{
+						variant right = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						if (!(CHECK_DST_POS(m_fb, m_ip)))
+						{
+							throw new Exception("interpreter math oper error, dest is not stack, type "
+									+ POS_TYPE_NAME(m_fb, m_ip));
+						}
+						variant dest = GET_VARIANT(m_fb, m_bp, m_ip);
+						m_ip++;
+
+						dest.bit_not(right);
+					}
+						break;
 					default:
 						throw new Exception("next err code " + code + " " + types.OpCodeStr(code));
 				}

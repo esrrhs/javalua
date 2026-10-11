@@ -513,6 +513,24 @@ class types
 				return "SLEEP";
 			case command.OPCODE_YIELD:
 				return "YIELD";
+			case command.OPCODE_NEGATE:
+				return "NEGATE";
+			case command.OPCODE_DIVIDE_FLOOR:
+				return "DIVIDE_FLOOR";
+			case command.OPCODE_DIVIDE_FLOOR_ASSIGN:
+				return "DIVIDE_FLOOR_ASSIGN";
+			case command.OPCODE_BIT_AND:
+				return "BIT_AND";
+			case command.OPCODE_BIT_OR:
+				return "BIT_OR";
+			case command.OPCODE_BIT_XOR:
+				return "BIT_XOR";
+			case command.OPCODE_BIT_NOT:
+				return "BIT_NOT";
+			case command.OPCODE_SHIFT_LEFT:
+				return "SHIFT_LEFT";
+			case command.OPCODE_SHIFT_RIGHT:
+				return "SHIFT_RIGHT";
 		}
 		return "unknown";
 	}

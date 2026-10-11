@@ -12,6 +12,10 @@ import com.github.esrrhs.fakescript.syntree.*;
 
 %byaccj
 
+/* 底层扫描方法改名,由手写的 yylex() 包装,以便根据上下文
+   把操作数位置的 - / ~ 替换成 UNARY_MINUS / UNARY_WAVE */
+%function yylex_raw
+
 %{
   fake m_f;
   StringBuilder string = new StringBuilder();
@@ -70,6 +74,55 @@ import com.github.esrrhs.fakescript.syntree.*;
   public void yyerror(String s)
   {
 	m_mybison.lexer_error(s, yyline, yytext());
+  }
+
+  /* true 表示下一个 token 位于"操作数位"(表达式起始、运算符之后、
+     左括号、逗号等),此时的 - / ~ 是一元运算符。块内语句没有分隔符,
+     f() - x 既可能是两条语句也可能是一个二元表达式;用词法上下文把
+     一元 MINUS/WAVE 与二元 token 区分开,文法上的 reduce/reduce
+     冲突就不存在了,二元减法得以优先(贪婪)归约 */
+  private boolean m_operandPos = true;
+
+  public int yylex() throws java.io.IOException
+  {
+	int t = yylex_raw();
+	if (m_operandPos)
+	{
+		if (t == YYParser.Lexer.MINUS)
+		{
+			t = YYParser.Lexer.UNARY_MINUS;
+		}
+		else if (t == YYParser.Lexer.WAVE)
+		{
+			t = YYParser.Lexer.UNARY_WAVE;
+		}
+	}
+	m_operandPos = isOperandPos(t);
+	return t;
+  }
+
+  private static boolean isOperandPos(int t)
+  {
+	switch (t)
+	{
+	/* 这些 token 标志一个(或结束一个)值,其后的 - / ~ 必为二元 */
+	case YYParser.Lexer.NUMBER:
+	case YYParser.Lexer.FKFLOAT:
+	case YYParser.Lexer.STRING_DEFINITION:
+	case YYParser.Lexer.IDENTIFIER:
+	case YYParser.Lexer.IDENTIFIER_DOT:
+	case YYParser.Lexer.IDENTIFIER_POINTER:
+	case YYParser.Lexer.FKUUID:
+	case YYParser.Lexer.FTRUE:
+	case YYParser.Lexer.FFALSE:
+	case YYParser.Lexer.NULL:
+	case YYParser.Lexer.CLOSE_BRACKET:
+	case YYParser.Lexer.CLOSE_SQUARE_BRACKET:
+	case YYParser.Lexer.CLOSE_BIG_BRACKET:
+		return false;
+	default:
+		return true;
+	}
   }
 %}
 
@@ -229,6 +282,25 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.FKUUID;
 }
 
+/* 十六进制浮点:0x1p4、0X1.8p1、0x.8p0、0x1.8 */
+-?0[xX]([0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+ {
+	yylval = new ParserVal(yytext());
+	yylval.ival = yyline + 1;
+	return YYParser.Lexer.FKFLOAT;
+}
+-?0[xX]([0-9a-fA-F]+\.[0-9a-fA-F]*|\.[0-9a-fA-F]+) {
+	yylval = new ParserVal(yytext());
+	yylval.ival = yyline + 1;
+	return YYParser.Lexer.FKFLOAT;
+}
+
+/* 十六进制整数:0xff、-0x10,按 uint64 位模式解析 */
+-?0[xX][0-9a-fA-F]+ {
+	yylval = new ParserVal(yytext());
+	yylval.ival = yyline + 1;
+	return YYParser.Lexer.NUMBER;
+}
+
 /* Lua 风格浮点:带指数(指数可带 +/-)的一定是浮点,如 1e20、-3.0E+5 */
 -?[0-9]+(\.[0-9]*)?[Ee][+-]?[0-9]+ {
 	yylval = new ParserVal(yytext());
@@ -278,6 +350,14 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 
 "-" {
 	return YYParser.Lexer.MINUS;
+}
+
+"//=" {
+	return YYParser.Lexer.DIVIDE_FLOOR_ASSIGN;
+}
+
+"//" {
+	return YYParser.Lexer.DIVIDE_FLOOR;
 }
 
 "/" {
@@ -340,8 +420,28 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.AND;
 }
 
+"&" {
+	return YYParser.Lexer.BIT_AND;
+}
+
 "||" {
 	return YYParser.Lexer.OR;
+}
+
+"|" {
+	return YYParser.Lexer.BIT_OR;
+}
+
+"~" {
+	return YYParser.Lexer.WAVE;
+}
+
+"<<" {
+	return YYParser.Lexer.SHIFT_LEFT;
+}
+
+">>" {
+	return YYParser.Lexer.SHIFT_RIGHT;
 }
 
 "!" {
