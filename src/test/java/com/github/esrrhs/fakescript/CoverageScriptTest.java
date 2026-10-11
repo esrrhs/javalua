@@ -488,7 +488,7 @@ public class CoverageScriptTest {
                 "end\n";
 
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
-        // 10+5=15, -3=12, *2=24, /4=6.0(浮点除), %4=2.0(截断取模)
+        // 10+5=15, -3=12, *2=24, /4=6.0(浮点除), %4=2.0(Lua floor 取模)
         assertEquals(2.0, ((Double) fk.run(f, "f")).doubleValue(), 0.0000001);
     }
 

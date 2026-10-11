@@ -590,12 +590,28 @@ class builtinfunc
 		}
 	}
 
+	// Lua 5.4 math.floor/math.ceil:整数入参原样返回;浮点结果落在 int64 内
+	// 返回 INT,否则(1e300/nan/inf)原样返回 REAL,避免强转 long 的静默截断
 	public static void builtin_floor(fake f, interpreter inter) throws Exception
 	{
 		BIF_CHECK_ARG_NUM(f, 1);
 
 		variant v = f.ps.pop_and_get();
-		f.ps.push_and_get().set_int((long) Math.floor(v.get_real()));
+		variant ret = f.ps.push_and_get();
+		if (v.get_type() == variant_type.INT)
+		{
+			ret.set_int((long) (Long) v.get_data());
+			return;
+		}
+		double d = Math.floor(v.get_real());
+		if (fits_int64(d))
+		{
+			ret.set_int((long) d);
+		}
+		else
+		{
+			ret.set_real(d);
+		}
 	}
 
 	public static void builtin_ceil(fake f, interpreter inter) throws Exception
@@ -603,7 +619,28 @@ class builtinfunc
 		BIF_CHECK_ARG_NUM(f, 1);
 
 		variant v = f.ps.pop_and_get();
-		f.ps.push_and_get().set_int((long) Math.ceil(v.get_real()));
+		variant ret = f.ps.push_and_get();
+		if (v.get_type() == variant_type.INT)
+		{
+			ret.set_int((long) (Long) v.get_data());
+			return;
+		}
+		double d = Math.ceil(v.get_real());
+		if (fits_int64(d))
+		{
+			ret.set_int((long) d);
+		}
+		else
+		{
+			ret.set_real(d);
+		}
+	}
+
+	// double 值能否无损落入 int64。上界用 2^63(=9.2233720368547758E18)
+	// 开区间:大于 MAX_VALUE 的最近 double 就是 2^63,它不能表示为 int64
+	private static boolean fits_int64(double d)
+	{
+		return d >= (double) Long.MIN_VALUE && d < 9.2233720368547758E18;
 	}
 
 	public static void builtin_sqrt(fake f, interpreter inter) throws Exception

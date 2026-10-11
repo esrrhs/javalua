@@ -1010,8 +1010,8 @@ public class FeatureTest {
         ret.divide(a, b);
         assertEquals(3.75, ret.get_real(), 0.0000001);
         ret.divide_mod(a, b);
-        // REAL取模与旧语义一致:先截断为整数再取模
-        assertEquals(1.0, ret.get_real(), 0.0000001);
+        // Lua 5.4 floor 取模:7.5 % 2 = 1.5(旧实现截断为 7%2=1)
+        assertEquals(1.5, ret.get_real(), 0.0000001);
 
         // get_int对REAL按C语义截断
         assertEquals(7L, a.get_int());
@@ -1039,10 +1039,17 @@ public class FeatureTest {
         rav.set_real(1);
         assertEquals(iav.hashCode(), rav.hashCode());
 
-        // 零除保护
+        // 零除:Lua 5.4 整数除零抛错,浮点除零按 IEEE 754 得 inf/nan
         variant zero = new variant();
         zero.set_int(0);
-        assertThrows(Exception.class, () -> ret.divide(a, zero));
+        assertThrows(Exception.class, () -> ret.divide(i1, zero));
+        assertThrows(Exception.class, () -> ret.divide_mod(i1, zero));
+        ret.divide(a, zero);
+        assertEquals(Double.POSITIVE_INFINITY, ret.get_real(), 0.0);
+        variant realZero = new variant();
+        realZero.set_real(0.0);
+        ret.divide_mod(realZero, zero);
+        assertEquals(Double.NaN, ret.get_real(), 0.0);
 
         // 静态比较与not
         assertTrue(variant.less_jne(new variant(), iav) || true);
@@ -1311,18 +1318,24 @@ public class FeatureTest {
                 "func f()\n" +
                 "    var a = 7 % 3\n" +
                 "    var b = 7.5 % 3\n" +
-                "    return a, typeof(a), b\n" +
+                "    var c = -7 % 3\n" +
+                "    var d = 7 % -3\n" +
+                "    return a, typeof(a), b, c, typeof(c), d\n" +
                 "end\n";
 
         boolean ok = fk.parsestr(f, script);
         assertTrue(ok, fk.geterror(f));
 
         Object[] rets = fk.runmulti(f, "f");
-        assertEquals(3, rets.length, fk.geterror(f));
+        assertEquals(6, rets.length, fk.geterror(f));
         assertEquals(1L, ((Long) rets[0]).longValue());
         assertEquals("INT", rets[1]);
-        // REAL参与%与旧语义一致:先截断为整数再取模
-        assertEquals(1.0, ((Double) rets[2]).doubleValue(), 0.0000001);
+        // Lua 5.4 floor 取模:7.5 % 3 = 1.5
+        assertEquals(1.5, ((Double) rets[2]).doubleValue(), 0.0000001);
+        // 整数 floor 取模,结果符号随除数
+        assertEquals(2L, ((Long) rets[3]).longValue());
+        assertEquals("INT", rets[4]);
+        assertEquals(-2L, ((Long) rets[5]).longValue());
     }
 
     @Test
