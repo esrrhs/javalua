@@ -46,7 +46,16 @@ public class command
 	public static final int OPCODE_CALL = 35;
 	public static final int OPCODE_SLEEP = 36;
 	public static final int OPCODE_YIELD = 37;
-	public static final int OPCODE_MAX = 38;
+	public static final int OPCODE_NEGATE = 38;
+	public static final int OPCODE_DIVIDE_FLOOR = 39;
+	public static final int OPCODE_DIVIDE_FLOOR_ASSIGN = 40;
+	public static final int OPCODE_BIT_AND = 41;
+	public static final int OPCODE_BIT_OR = 42;
+	public static final int OPCODE_BIT_XOR = 43;
+	public static final int OPCODE_BIT_NOT = 44;
+	public static final int OPCODE_SHIFT_LEFT = 45;
+	public static final int OPCODE_SHIFT_RIGHT = 46;
+	public static final int OPCODE_MAX = 47;
 	
 	public static final int ADDR_STACK = 0;
 	public static final int ADDR_CONST = 1;

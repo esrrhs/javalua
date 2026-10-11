@@ -499,6 +499,139 @@ public class LuaNumberSemanticTest {
                 "REAL", "REAL", "INT", "0.0");
     }
 
+    @Test
+    public void testHexNumericLiterals() {
+        // 十六进制整数:uint64 位模式环绕,0xffffffffffffffff -> -1
+        Object[] r = returns(
+                "0xff, 0X10, 0x7fffffffffffffff, 0xffffffffffffffff, " +
+                "0x10 + 1, -0x10");
+        long[] expected = {255L, 16L, 9223372036854775807L, -1L, 17L, -16L};
+        assertEquals(expected.length, r.length, fk.geterror(f));
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+        // 十六进制浮点(p 指数必须有,或无 p 但含小数点),整型超界自动回落浮点
+        assertStrings(
+                "tostring(0x1p4), tostring(0x1.8), tostring(0X.8p0), " +
+                "tostring(-0x1p4), tostring(0xa.bp3), typeof(0xff), typeof(0x1p4), " +
+                "tostring(99999999999999999999), typeof(99999999999999999999)",
+                "16.0", "1.5", "0.5", "-16.0", "85.5", "INT", "REAL", "1e+20", "REAL");
+    }
+
+    @Test
+    public void testParenAndUnaryMinus() {
+        // 括号包裹裸值
+        Object[] r = returns(
+                "(1), (-1), (-1) % 3, ((1 + 2) * 3), (7 % 3), (-7) % 3");
+        long[] expected = {1L, -1L, 2L, 9L, 1L, 2L};
+        assertEquals(expected.length, r.length, fk.geterror(f));
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+        // 一元负号作用于表达式字面量,二元减号不被吞掉
+        assertStrings(
+                "tostring(10 - 3), tostring(10 - 3 - 2), tostring(2 * -3), " +
+                "tostring(-(3 + 4)), tostring(3 - -2), tostring(- -5)",
+                "7", "5", "-6", "-7", "5", "5");
+        // 一元负号作用于变量(含 INT MIN 溢出为浮点,与 Lua 5.4 一致)
+        String script = "func neg(x)\n    return -x\nend\n" +
+                "func neg2(y)\n    return -y * 2\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        // 宿主 Integer 映射为脚本 INT(Long 默认映射为 UUID)
+        assertEquals(-5L, fk.run(f, "neg", 5));
+        assertEquals(-10L, fk.run(f, "neg2", 5));
+        // INT MIN 取负溢出,按 Lua 5.4 为浮点 9.2233720368548e+18(脚本内 tostring 格式化)
+        assertStrings(
+                "tostring(-tonumber(\"-9223372036854775808\"))",
+                "9.2233720368548e+18");
+        // 函数调用参与减法,验证二元 MINUS 未被一元规则吞掉
+        String sub = "func id(a)\n    return a\nend\n";
+        f = fk.newfake(new fkconfig());
+        fk.openbaselib(f);
+        assertTrue(fk.parsestr(f, sub + "func g()\n    return id(7) - id(3)\nend\n"),
+                fk.geterror(f));
+        assertEquals(4L, fk.run(f, "g"));
+    }
+
+    @Test
+    public void testFloorDivide() {
+        // 期望值全部取自真实 lua5.4.9
+        Object[] r = returns(
+                "3 // 2, -3 // 2, 6 // -4, -6 // -4, -1 // 2, " +
+                "1 // 2 // 3, tonumber(\"-9223372036854775808\") // -1, " +
+                "1 + 2 // 3, 7 // 2 * 2");
+        long[] expected = {1L, -2L, -2L, 1L, -1L, 0L, Long.MIN_VALUE, 1L, 6L};
+        assertEquals(expected.length, r.length, fk.geterror(f));
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+        // 任一操作数为浮点,结果恒为浮点 floor(a/b);浮点除零按 IEEE 754
+        assertStrings(
+                "tostring(3.0 // 2), tostring(-3.0 // 2), tostring(1 // 0.5), " +
+                "tostring(7 // -2.0), tostring(1e300 // 0.01), tostring(1e20 // 1), " +
+                "tostring(5.0 // 0), tostring(0.0 // 0.0), tostring(1.5 // 0), " +
+                "tostring(1e300 // 1e-300), typeof(3.0 // 2)",
+                "1.0", "-2.0", "2.0", "-4.0", "1e+302", "1e+20",
+                "inf", "nan", "inf", "inf", "REAL");
+        // 整数 floor 除零抛错
+        assertRunError("5 // 0");
+        // 复合赋值 //=
+        String script = "func f()\n" +
+                "    var a = 7\n" +
+                "    a //= 2\n" +
+                "    var b = 6.0\n" +
+                "    b //= 4\n" +
+                "    return a, typeof(a), tostring(b), typeof(b)\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] cr = fk.runmulti(f, "f");
+        assertEquals(4, cr.length, fk.geterror(f));
+        assertEquals(3L, ((Long) cr[0]).longValue());
+        assertEquals("INT", cr[1]);
+        assertEquals("1.0", cr[2]);
+        assertEquals("REAL", cr[3]);
+    }
+
+    @Test
+    public void testBitwiseOps() {
+        // 期望值全部取自真实 lua5.4.9(64 位整数语义)
+        Object[] r = returns(
+                "3 & 5, 3 | 4, 3 ~ 5, 1 << 4, 256 >> 2, ~0, ~~5, " +
+                "1 << 63, (1 << 63) >> 63, 1 << 64, 1 >> 64, 1 << -1, 256 >> -2, " +
+                "-8 >> 1, -1 >> 63, -1 << 1");
+        long[] expected = {1L, 7L, 6L, 16L, 64L, -1L, 5L,
+                Long.MIN_VALUE, 1L, 0L, 0L, 0L, 1024L,
+                9223372036854775804L, 1L, -2L};
+        assertEquals(expected.length, r.length, fk.geterror(f));
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+        // 结果恒为 INT
+        assertStrings("typeof(3 & 5), typeof(1 << 4), typeof(~0)", "INT", "INT", "INT");
+        // 优先级(对齐 Lua): | < ~ < & < 移位
+        Object[] p = returns("1 | 2 & 3, 5 & 3 ~ 1, 1 | 1 << 2");
+        assertEquals(3L, ((Long) p[0]).longValue());
+        assertEquals(0L, ((Long) p[1]).longValue());
+        assertEquals(5L, ((Long) p[2]).longValue());
+        // 整数值浮点按整数处理
+        Object[] fo = returns(
+                "0.0 | 0, 3.0 & 5, -2.0 >> 1, 1e3 | 0, 1 << 100.0, ~~5.0");
+        long[] fe = {0L, 1L, 9223372036854775807L, 1000L, 0L, 5L};
+        assertEquals(fe.length, fo.length, fk.geterror(f));
+        for (int i = 0; i < fe.length; i++) {
+            assertEquals(fe[i], ((Long) fo[i]).longValue(), "index " + i);
+        }
+        // 非整数浮点、字符串、null 不能参与位运算(与 Lua 对 nil/string 报错一致)
+        assertRunError("~0.5");
+        assertRunError("3.5 & 1");
+        assertRunError("\"s\" | 1");
+        assertRunError("null | 0");
+        // 一元 ~ 作用于变量
+        String script = "func bnot(x)\n    return ~x\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals(-6L, fk.run(f, "bnot", 5));
+    }
+
     // ---------- types 静态工具直接测试 ----------
 
     @Test

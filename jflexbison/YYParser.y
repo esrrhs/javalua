@@ -73,16 +73,37 @@ import java.io.*;
 %token OPEN_BIG_BRACKET;
 %token CLOSE_BIG_BRACKET;
 %token NULL;
+/* Lua 5.4 位运算与 floor 除法 */
+%token WAVE;
+%token BIT_AND;
+%token BIT_OR;
+%token SHIFT_LEFT;
+%token SHIFT_RIGHT;
+%token DIVIDE_FLOOR;
+%token DIVIDE_FLOOR_ASSIGN;
+/* 由词法器按上下文区分出的一元 - / ~ */
+%token UNARY_MINUS;
+%token UNARY_WAVE;
 
-/* Precedences */
+/* Precedences 低 -> 高,对齐 Lua 5.4:
+   or and 比较 | ~ & << >> .. + - * / // % 一元 */
+%left BIT_OR;
+%left WAVE;
+%left BIT_AND;
+%left SHIFT_LEFT;
+%left SHIFT_RIGHT;
 %left PLUS;
 %left MINUS;
 %left DIVIDE;
 %left MULTIPLY;
 %left DIVIDE_MOD;
+%left DIVIDE_FLOOR;
 %left STRING_CAT;
+/* 一元运算最高优先级 */
+%right UNARY_MINUS;
+%right UNARY_WAVE;
 
-%expect 55
+%expect 57
 
 %%
 
@@ -741,27 +762,17 @@ cmp :
 		$$ = ret;
 	}
 	|
-	FTRUE
+	/* 裸值条件统一按真值判断处理(等价于 IS cmp_value);
+	   不再为 FTRUE/FFALSE 单设规则,那样会与 math_expr
+	   括号规则在 (true)/(false) 上产生 reduce/reduce 冲突 */
+	cmp_value
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FTRUE");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
-		p.m_cmp = "true";
-		p.m_left = null;
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value");
+		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_cmp = "is";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
 		p.m_right = null;
-		
-		ParserVal ret = new ParserVal(p);
-		ret.ival = p.m_lno;
-		$$ = ret;
-	}
-	|
-	FFALSE
-	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FFALSE");
-		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
-		p.m_cmp = "false";
-		p.m_left = null;
-		p.m_right = null;
-		
+
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		$$ = ret;
@@ -795,21 +806,12 @@ cmp :
 	;
 
 cmp_value :
-	explicit_value
+	/* expr_value 是 explicit_value/variable/function_call/math_expr/
+	   unary_expr 的超集,统一成一个候选可与 math_expr 括号规则共享
+	   归约,避免 (f()) 之类产生 reduce/reduce 冲突(动作均为透传) */
+	expr_value
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
-		$$ = ((ParserVal)((ParserVal)$1));
-	}
-	|
-	variable
-	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
-		$$ = ((ParserVal)((ParserVal)$1));
-	}
-	|
-	expr
-	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value");
 		$$ = ((ParserVal)((ParserVal)$1));
 	}
 	;
@@ -1016,7 +1018,20 @@ math_assign_stmt :
 		p.m_var = (syntree_node)((ParserVal)$1).obj;
 		p.m_oper = "/=";
 		p.m_value = (syntree_node)((ParserVal)$3).obj;
-		
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	variable DIVIDE_FLOOR_ASSIGN assign_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable DIVIDE_FLOOR_ASSIGN assign_value");
+		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_var = (syntree_node)((ParserVal)$1).obj;
+		p.m_oper = "//=";
+		p.m_value = (syntree_node)((ParserVal)$3).obj;
+
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		$$ = ret;
@@ -1132,30 +1147,13 @@ variable :
 	}
 	;
 
-expr :
-	OPEN_BRACKET expr CLOSE_BRACKET
-	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET expr CLOSE_BRACKET");
-		$$ = ((ParserVal)((ParserVal)$2));
-	}
-	|
-	function_call
-	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call");
-		$$ = ((ParserVal)((ParserVal)$1));
-	}
-	|
-	math_expr
-	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
-		$$ = ((ParserVal)((ParserVal)$1));
-	}
-	;
-
 math_expr :
-	OPEN_BRACKET math_expr CLOSE_BRACKET
+	/* 括号表达式只保留这一条:expr_value 已覆盖 math_expr/一元/
+	   调用/变量/字面量,再保留 OPEN math CLOSE 或 expr:(expr)
+	   会与之产生 reduce/reduce 冲突 */
+	OPEN_BRACKET expr_value CLOSE_BRACKET
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET math_expr CLOSE_BRACKET");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET expr_value CLOSE_BRACKET");
 		$$ = ((ParserVal)((ParserVal)$2));
 	}
 	|
@@ -1218,7 +1216,85 @@ math_expr :
 		p.m_oper = "%";
 		p.m_left = (syntree_node)((ParserVal)$1).obj;
 		p.m_right = (syntree_node)((ParserVal)$3).obj;
-		
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	expr_value DIVIDE_FLOOR expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value DIVIDE_FLOOR expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_oper = "//";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
+		p.m_right = (syntree_node)((ParserVal)$3).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	expr_value BIT_AND expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value BIT_AND expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_oper = "&";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
+		p.m_right = (syntree_node)((ParserVal)$3).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	expr_value BIT_OR expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value BIT_OR expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_oper = "|";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
+		p.m_right = (syntree_node)((ParserVal)$3).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	expr_value WAVE expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value WAVE expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_oper = "~";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
+		p.m_right = (syntree_node)((ParserVal)$3).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	expr_value SHIFT_LEFT expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value SHIFT_LEFT expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_oper = "<<";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
+		p.m_right = (syntree_node)((ParserVal)$3).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	expr_value SHIFT_RIGHT expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value SHIFT_RIGHT expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_oper = ">>";
+		p.m_left = (syntree_node)((ParserVal)$1).obj;
+		p.m_right = (syntree_node)((ParserVal)$3).obj;
+
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		$$ = ret;
@@ -1231,17 +1307,24 @@ math_expr :
 		p.m_oper = "..";
 		p.m_left = (syntree_node)((ParserVal)$1).obj;
 		p.m_right = (syntree_node)((ParserVal)$3).obj;
-		
+
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		$$ = ret;
 	}
-	;	
+	;
+
 
 expr_value :
 	math_expr
 	{
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	|
+	unary_expr
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: unary_expr");
 		$$ = ((ParserVal)((ParserVal)$1));
 	}
 	|
@@ -1263,7 +1346,62 @@ expr_value :
 		$$ = ((ParserVal)((ParserVal)$1));
 	}
 	;
-	
+
+	/* 一元运算独立成层,不放进 math_expr,避免 MINUS 同时进入
+	   math_expr 起始集与二元操作符位置引发 reduce/reduce 冲突。
+	   注意:expr/unary_expr 的规则编号必须晚于 expr_value 的同名候选,
+	   这样 f()-x 在"两条语句 vs 一个二元表达式"的 r/r 中归约到后者 */
+unary_expr :
+	UNARY_MINUS expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: UNARY MINUS expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$2)).ival);
+		p.m_oper = "-";
+		p.m_unary = true;
+		p.m_right = (syntree_node)((ParserVal)$2).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	UNARY_WAVE expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: UNARY WAVE expr_value");
+		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)$2)).ival);
+		p.m_oper = "~";
+		p.m_unary = true;
+		p.m_right = (syntree_node)((ParserVal)$2).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	;
+
+expr :
+	/* 括号表达式统一由 math_expr : OPEN_BRACKET expr_value CLOSE_BRACKET
+	   承载,此处不再单列 OPEN_BRACKET expr CLOSE_BRACKET,避免
+	   对 (f()) 等产生 reduce/reduce 冲突 */
+	function_call
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	|
+	math_expr
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	|
+	unary_expr
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: unary_expr");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	;
+
 break :
 	BREAK
 	{

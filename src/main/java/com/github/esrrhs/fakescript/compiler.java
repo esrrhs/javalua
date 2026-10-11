@@ -430,13 +430,19 @@ class compiler
 				v.set_real(0);
 				break;
 			case EVT_NUM:
-				v.set_int(Long.valueOf(ev.m_str));
-				break;
+			case EVT_FLOAT:
+			{
+				// 统一走 Lua 5.4 词法数值解析:十进制/十六进制整数(uint64 环绕)、
+				// 十六进制浮点、整型超界回落浮点(99999999999999999999 -> 浮点)
+				variant parsed = types.parse_lua_number(ev.m_str, null);
+				if (parsed == null)
+				{
+					throw new Exception("invalid number literal " + ev.m_str);
+				}
+				return parsed;
+			}
 			case EVT_STR:
 				v.set_string(ev.m_str);
-				break;
-			case EVT_FLOAT:
-				v.set_real(Double.valueOf(ev.m_str));
 				break;
 			case EVT_UUID:
 				v.set_uuid(Long.valueOf(ev.m_str.substring(0, ev.m_str.length() - 1)));
@@ -897,6 +903,10 @@ class compiler
 		{
 			oper = command.MAKE_OPCODE(command.OPCODE_DIVIDE_ASSIGN);
 		}
+		else if (ms.m_oper.equals("//="))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_DIVIDE_FLOOR_ASSIGN);
+		}
 		else if (ms.m_oper.equals("%="))
 		{
 			oper = command.MAKE_OPCODE(command.OPCODE_DIVIDE_MOD_ASSIGN);
@@ -1021,30 +1031,6 @@ class compiler
 			{
 				oper = deps == 0 ? command.MAKE_OPCODE(command.OPCODE_NOTEQUAL_JNE)
 						: command.MAKE_OPCODE(command.OPCODE_NOTEQUAL);
-			}
-			else if (cs.m_cmp.equals("true"))
-			{
-				variant v = new variant();
-				v.set_real(1);
-				int pos = cg.getconst(v);
-				m_cur_addr = command.MAKE_ADDR(command.ADDR_CONST, pos);
-
-				m_cmp_deps--;
-				m_cmp_jne = false;
-
-				return true;
-			}
-			else if (cs.m_cmp.equals("false"))
-			{
-				variant v = new variant();
-				v.set_real(0);
-				int pos = cg.getconst(v);
-				m_cur_addr = command.MAKE_ADDR(command.ADDR_CONST, pos);
-
-				m_cmp_deps--;
-				m_cmp_jne = false;
-
-				return true;
 			}
 			else if (cs.m_cmp.equals("is"))
 			{
@@ -1364,6 +1350,40 @@ class compiler
 		long right = 0;
 		long dest = 0;
 
+		// 一元运算:只有一个操作数,字节码为 [op, right, dest]
+		if (mn.m_unary)
+		{
+			if (mn.m_oper.equals("-"))
+			{
+				oper = command.MAKE_OPCODE(command.OPCODE_NEGATE);
+			}
+			else if (mn.m_oper.equals("~"))
+			{
+				oper = command.MAKE_OPCODE(command.OPCODE_BIT_NOT);
+			}
+			else
+			{
+				compile_seterror(mn, "compile math oper type %s error", mn.m_oper);
+				return false;
+			}
+
+			if (!compile_node(cg, mn.m_right))
+			{
+				return false;
+			}
+			right = m_cur_addr;
+
+			int despos = cg.alloc_stack_identifier();
+			dest = command.MAKE_ADDR(command.ADDR_STACK, despos);
+			m_cur_addr = dest;
+
+			cg.push(oper, mn.lineno());
+			cg.push(right, mn.lineno());
+			cg.push(dest, mn.lineno());
+
+			return true;
+		}
+
 		if (mn.m_oper.equals("+"))
 		{
 			oper = command.MAKE_OPCODE(command.OPCODE_PLUS);
@@ -1383,6 +1403,30 @@ class compiler
 		else if (mn.m_oper.equals("%"))
 		{
 			oper = command.MAKE_OPCODE(command.OPCODE_DIVIDE_MOD);
+		}
+		else if (mn.m_oper.equals("//"))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_DIVIDE_FLOOR);
+		}
+		else if (mn.m_oper.equals("&"))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_BIT_AND);
+		}
+		else if (mn.m_oper.equals("|"))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_BIT_OR);
+		}
+		else if (mn.m_oper.equals("~"))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_BIT_XOR);
+		}
+		else if (mn.m_oper.equals("<<"))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_SHIFT_LEFT);
+		}
+		else if (mn.m_oper.equals(">>"))
+		{
+			oper = command.MAKE_OPCODE(command.OPCODE_SHIFT_RIGHT);
 		}
 		else if (mn.m_oper.equals(".."))
 		{

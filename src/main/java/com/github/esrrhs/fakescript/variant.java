@@ -322,6 +322,151 @@ class variant
 		set_string(l.toString() + r.toString());
 	}
 
+	// Lua 5.4 // floor 除法:int//int 为整数 floor 除(除零报错,MIN//-1 环绕为 MIN);
+	// 任一操作数为浮点则结果恒为浮点 floor(a/b),除零按 IEEE 754 得 inf/nan
+	public void floor_divide(variant l, variant r) throws Exception
+	{
+		l.assert_can_cal();
+		r.assert_can_cal();
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			long a = (long) (Long) l.m_data;
+			long b = (long) (Long) r.m_data;
+			if (b == 0)
+			{
+				throw new Exception("variant can not be divide, the variant is INT 0");
+			}
+			if (a == Long.MIN_VALUE && b == -1)
+			{
+				m_data = Long.MIN_VALUE;
+				m_type = variant_type.INT;
+				return;
+			}
+			// q = (a - floor_mod(a,b)) / b,与 Lua floor 除法等价且不溢出
+			long m = a % b;
+			if (m != 0 && (a ^ b) < 0)
+			{
+				m += b;
+			}
+			m_data = (a - m) / b;
+			m_type = variant_type.INT;
+		}
+		else
+		{
+			m_data = Math.floor(l.get_real() / r.get_real());
+			m_type = variant_type.REAL;
+		}
+	}
+
+	// Lua 5.4 位运算取整数:INT 直接用;NIL 沿用本语言算术惯例按 0;
+	// REAL 仅接受落在 int64 内的精确整数,否则报错(number has no integer representation)
+	private long bit_integer(variant v) throws Exception
+	{
+		if (v.m_type == variant_type.INT)
+		{
+			return (long) (Long) v.m_data;
+		}
+		if (v.m_type == variant_type.NIL)
+		{
+			return 0;
+		}
+		if (v.m_type == variant_type.REAL)
+		{
+			double d = (double) (Double) v.m_data;
+			if (!Double.isNaN(d) && d >= (double) Long.MIN_VALUE
+					&& d < 9.2233720368547758E18 && types.isint(d))
+			{
+				return (long) d;
+			}
+			throw new Exception("variant can not bit oper, number has no integer representation");
+		}
+		throw new Exception("variant can not bit oper, the variant is " + v.m_type.toString());
+	}
+
+	public void bit_and(variant l, variant r) throws Exception
+	{
+		m_data = bit_integer(l) & bit_integer(r);
+		m_type = variant_type.INT;
+	}
+
+	public void bit_or(variant l, variant r) throws Exception
+	{
+		m_data = bit_integer(l) | bit_integer(r);
+		m_type = variant_type.INT;
+	}
+
+	public void bit_xor(variant l, variant r) throws Exception
+	{
+		m_data = bit_integer(l) ^ bit_integer(r);
+		m_type = variant_type.INT;
+	}
+
+	public void bit_not(variant l) throws Exception
+	{
+		m_data = ~bit_integer(l);
+		m_type = variant_type.INT;
+	}
+
+	// Lua 5.4 移位:|位移量|>=64 结果为 0;负数反向移位;右移按无符号补 0
+	public void shift_left(variant l, variant r) throws Exception
+	{
+		long a = bit_integer(l);
+		long d = bit_integer(r);
+		if (d >= 64 || d <= -64)
+		{
+			m_data = 0L;
+		}
+		else if (d >= 0)
+		{
+			m_data = a << d;
+		}
+		else
+		{
+			m_data = a >>> (-d);
+		}
+		m_type = variant_type.INT;
+	}
+
+	public void shift_right(variant l, variant r) throws Exception
+	{
+		long a = bit_integer(l);
+		long d = bit_integer(r);
+		if (d >= 64 || d <= -64)
+		{
+			m_data = 0L;
+		}
+		else if (d >= 0)
+		{
+			m_data = a >>> d;
+		}
+		else
+		{
+			m_data = a << (-d);
+		}
+		m_type = variant_type.INT;
+	}
+
+	// Lua 5.4 一元负号:INT MIN 取负超过 int64,按 Lua 结果为浮点 9.2233720368548e+18
+	public void negate(variant l) throws Exception
+	{
+		if (l.m_type == variant_type.INT)
+		{
+			long a = (long) (Long) l.m_data;
+			if (a == Long.MIN_VALUE)
+			{
+				m_data = -((double) Long.MIN_VALUE);
+				m_type = variant_type.REAL;
+				return;
+			}
+			m_data = -a;
+			m_type = variant_type.INT;
+			return;
+		}
+		l.assert_can_cal();
+		m_data = -l.get_real();
+		m_type = variant_type.REAL;
+	}
+
 	public void less(variant l, variant r) throws Exception
 	{
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
