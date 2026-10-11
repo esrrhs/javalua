@@ -145,13 +145,14 @@ public class CoverageSweepTest {
 
     @Test
     public void testTonumberBadInput() {
+        // Lua 5.4: 无法解析的字符串 tonumber 返回 nil,而不是抛错
         String script = "func f()\n" +
                 "    return tonumber(\"notnum\")\n" +
                 "end\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
-        fk.run(f, "f");
-        assertTrue(fk.error(f));
-        assertTrue(fk.geterror(f).contains("notnum"), fk.geterror(f));
+        Object ret = fk.run(f, "f");
+        assertFalse(fk.error(f), fk.geterror(f));
+        assertNull(ret);
     }
 
     @Test

@@ -36,15 +36,8 @@ class variant
 		String ss = "";
 		if (m_type == variant_type.REAL)
 		{
-			double real = (double) (Double) m_data;
-			if (types.isint(real))
-			{
-				ss = "" + (long) (double) real;
-			}
-			else
-			{
-				ss = "" + real;
-			}
+			// Lua 5.4: %.14g + 整数形态补 .0,float 永不打印成整数样子
+			ss = types.format_lua_float((double) (Double) m_data);
 		}
 		else if (m_type == variant_type.INT)
 		{
