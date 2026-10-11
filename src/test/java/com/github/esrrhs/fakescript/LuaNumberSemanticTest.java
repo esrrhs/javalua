@@ -327,6 +327,178 @@ public class LuaNumberSemanticTest {
                 "0.33333333333333", "1.2345678901234e+14", "v=-1.0 end");
     }
 
+    // ---------- % 取模 / 除零 / floor / ceil / abs(Lua 5.4 算术语义) ----------
+
+    @Test
+    public void testIntegerFloorModulo() {
+        // 注:当前文法不支持括号包裹裸值(如(-1)),负号由词法器并入 NUMBER 字面量
+        Object[] r = returns(
+                "-1 % 3, 1 % -3, -1 % -3, 7 % 3, -7 % 3, 7 % -3, 0 % 5, 5 % 1");
+        assertEquals(8, r.length, fk.geterror(f));
+        long[] expected = {2L, -2L, -1L, 1L, 2L, -2L, 0L, 0L};
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+    }
+
+    @Test
+    public void testIntegerModuloInt64Edges() {
+        // MIN=-2^63:余数校正公式不触发溢出,与 Lua lvm.c 行为一致
+        Object[] r = returns(
+                "tonumber(\"-9223372036854775808\") % -1, " +
+                "tonumber(\"-9223372036854775808\") % 1, " +
+                "tonumber(\"-9223372036854775808\") % 3, " +
+                "tonumber(\"9223372036854775807\") % 2, " +
+                "tonumber(\"999999999999999999999\", 10) % 7");
+        assertEquals(5, r.length, fk.geterror(f));
+        long[] expected = {0L, 0L, 1L, 1L};
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+        // 环绕后的 3875820019684212735 % 7
+        assertEquals(3875820019684212735L % 7, ((Long) r[4]).longValue());
+    }
+
+    @Test
+    public void testFloatFloorModulo() {
+        Object[] r = returns(
+                "5 % 2.0, 5.5 % 2, -5.5 % 2, 5.5 % -2, 0.5 % 1, -0.5 % 1, " +
+                "6.0 % 4, 1e300 % 0.1, typeof(5 % 2.0)");
+        assertEquals(9, r.length, fk.geterror(f));
+        assertEquals(1.0, (Double) r[0], 0.0);                 // 混合运算结果为 float
+        assertEquals(1.5, (Double) r[1], 0.0);
+        assertEquals(0.5, (Double) r[2], 0.0);
+        assertEquals(-0.5, (Double) r[3], 0.0);
+        assertEquals(0.5, (Double) r[4], 0.0);
+        assertEquals(0.5, (Double) r[5], 0.0);
+        assertEquals(2.0, (Double) r[6], 0.0);
+        assertEquals(0.00011215964963493, (Double) r[7], 1e-18);
+        assertEquals("REAL", r[8]);
+    }
+
+    @Test
+    public void testFloatModuloZeroSign() {
+        // 整除时零的符号跟随被除数(与真实 lua 5.4.9 实测一致);浮点 % 0 为 nan
+        assertStrings(
+                "tostring(5.0 % 5), tostring(-5.0 % 5), tostring(5.0 % -5), " +
+                "tostring(-5.0 % -5), tostring(-0.0 % 1), tostring(0.0 % 0.0), " +
+                "tostring(1.0 % 0.0)",
+                "0.0", "-0.0", "0.0", "-0.0", "-0.0", "nan", "nan");
+    }
+
+    @Test
+    public void testModuloCompoundAssignment() {
+        String script = "func f()\n" +
+                "    var a = -1\n" +
+                "    a %= 3\n" +
+                "    var b = 7\n" +
+                "    b %= -3\n" +
+                "    return a, b\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] r = fk.runmulti(f, "f");
+        assertEquals(2, r.length, fk.geterror(f));
+        assertEquals(2L, ((Long) r[0]).longValue());
+        assertEquals(-2L, ((Long) r[1]).longValue());
+    }
+
+    @Test
+    public void testDivisionByZeroSemantics() {
+        // 整数除零/取模零:抛错
+        assertRunError("1 / 0");
+        assertRunError("1 % 0");
+        // 浮点除零:IEEE 754
+        assertStrings(
+                "tostring(1.0 / 0.0), tostring(-1.0 / 0.0), tostring(0.0 / 0.0), " +
+                "tostring(5 / 0.0), typeof(1.0 / 0.0)",
+                "inf", "-inf", "nan", "inf", "REAL");
+    }
+
+    @Test
+    public void testFloorAndCeilSemantics() {
+        Object[] r = returns(
+                "floor(2.7), floor(-2.7), ceil(2.1), ceil(-2.1), floor(3), floor(3.0), " +
+                "typeof(floor(2.7)), typeof(floor(3)), floor(1e18)");
+        assertEquals(9, r.length, fk.geterror(f));
+        assertEquals(2L, ((Long) r[0]).longValue());
+        assertEquals(-3L, ((Long) r[1]).longValue());
+        assertEquals(3L, ((Long) r[2]).longValue());
+        assertEquals(-2L, ((Long) r[3]).longValue());
+        assertEquals(3L, ((Long) r[4]).longValue());
+        assertEquals(3L, ((Long) r[5]).longValue());
+        assertEquals("INT", r[6]);
+        assertEquals("INT", r[7]);
+        assertEquals(1000000000000000000L, ((Long) r[8]).longValue());
+    }
+
+    @Test
+    public void testFloorAndCeilOutsideInt64StayFloat() {
+        // 超出 int64 或 nan/inf:原样保留 REAL(旧实现强转 long 会静默错误)
+        assertStrings(
+                "tostring(floor(1e20)), tostring(floor(1e300)), tostring(floor(-1e300)), " +
+                "tostring(ceil(1e300)), tostring(floor(0.0 / 0.0)), " +
+                "tostring(floor(1.0 / 0.0)), tostring(ceil(0.0 / 0.0)), " +
+                "typeof(floor(1e300))",
+                "1e+20", "1e+300", "-1e+300", "1e+300", "nan", "inf", "nan", "REAL");
+    }
+
+    @Test
+    public void testAbsTypeSemantics() {
+        Object[] r = returns(
+                "abs(-3), abs(3), typeof(abs(-3)), abs(-3.5), abs(3.5), " +
+                "typeof(abs(-3.5)), abs(tonumber(\"-9223372036854775808\"))");
+        assertEquals(7, r.length, fk.geterror(f));
+        assertEquals(3L, ((Long) r[0]).longValue());
+        assertEquals(3L, ((Long) r[1]).longValue());
+        assertEquals("INT", r[2]);
+        assertEquals(3.5, (Double) r[3], 0.0);
+        assertEquals(3.5, (Double) r[4], 0.0);
+        assertEquals("REAL", r[5]);
+        // Lua 5.4.9: abs(MIN) 无正数可表示,原样返回 MIN
+        assertEquals(Long.MIN_VALUE, ((Long) r[6]).longValue());
+    }
+
+    @Test
+    public void testVariantModuloDirect() throws Exception {
+        variant ret = new variant();
+        variant na = new variant();
+        na.set_int(-1);
+        variant three = new variant();
+        three.set_int(3);
+        ret.divide_mod(na, three);
+        assertEquals(2L, ((Long) ret.get_data()).longValue());
+        assertEquals(variant_type.INT, ret.get_type());
+
+        variant x = new variant();
+        x.set_real(5.5);
+        variant two = new variant();
+        two.set_int(2);
+        ret.divide_mod(x, two);
+        assertEquals(1.5, (Double) ret.get_data(), 0.0);
+        assertEquals(variant_type.REAL, ret.get_type());
+
+        // INT % 0 抛错;REAL % 0 得 nan
+        variant zeroI = new variant();
+        zeroI.set_int(0);
+        assertThrows(Exception.class, () -> ret.divide_mod(three, zeroI));
+        variant zeroF = new variant();
+        zeroF.set_real(0.0);
+        ret.divide_mod(zeroF, zeroI);
+        assertEquals(Double.NaN, (Double) ret.get_data(), 0.0);
+    }
+
+    @Test
+    public void testLuaStyleNumericLiterals() {
+        // 指数形态(含 + 号)、.5、1. 等 Lua 词法;带小数点/指数恒为 REAL
+        assertStrings(
+                "tostring(1e20), tostring(.5), tostring(1.), tostring(1E+3), " +
+                "tostring(1e-2), tostring(-2.5e2), tostring(1.5e1), " +
+                "typeof(1e3), typeof(.5), typeof(12), tostring(0.0)",
+                "1e+20", "0.5", "1.0", "1000.0",
+                "0.01", "-250.0", "15.0",
+                "REAL", "REAL", "INT", "0.0");
+    }
+
     // ---------- types 静态工具直接测试 ----------
 
     @Test

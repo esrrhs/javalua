@@ -217,15 +217,6 @@ class variant
 		}
 	}
 
-	public void assert_can_divide() throws Exception
-	{
-		if ((m_type == variant_type.INT ? (long) (Long) m_data : (double) (Double) m_data) == 0)
-		{
-			throw new Exception(
-					"variant can not be divide, the variant is " + m_type.toString() + " " + m_data.toString());
-		}
-	}
-
 	public void plus(variant l, variant r) throws Exception
 	{
 		// INT×INT快路径:类型已知可算,跳过断言调用
@@ -272,28 +263,56 @@ class variant
 	}
 
 	// 除法恒为浮点,4/2得到2.0,1/2得到0.5
+	// Lua 5.4:整数除零抛错;浮点除零按 IEEE 754 得 inf/-inf/nan
 	public void divide(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		r.assert_can_divide();
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT
+				&& (long) (Long) r.m_data == 0)
+		{
+			throw new Exception("variant can not be divide, the variant is INT 0");
+		}
 		m_data = l.get_real() / r.get_real();
 		m_type = variant_type.REAL;
 	}
 
+	// Lua 5.4 floor 取模:结果符号与除数一致,-1 % 3 == 2,1 % -3 == -2
 	public void divide_mod(variant l, variant r) throws Exception
 	{
 		l.assert_can_cal();
 		r.assert_can_cal();
-		r.assert_can_divide();
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
-			m_data = (long) (Long) l.m_data % (long) (Long) r.m_data;
+			long a = (long) (Long) l.m_data;
+			long b = (long) (Long) r.m_data;
+			if (b == 0)
+			{
+				throw new Exception("variant can not be mod, the variant is INT 0");
+			}
+			// 与 Lua lvm.c 一致:截断余数在异号且非0时补一次除数
+			// (MIN % -1 余数为0,天然不溢出,结果为0)
+			long m = a % b;
+			if (m != 0 && (a ^ b) < 0)
+			{
+				m += b;
+			}
+			m_data = m;
 			m_type = variant_type.INT;
 		}
 		else
 		{
-			m_data = (double) (l.get_int() % r.get_int());
+			double a = l.get_real();
+			double b = r.get_real();
+			// fmod(Java double % 的 C 语义)后按 floor 取模校正;
+			// 整除时零的符号与 Lua 实测一致,跟随被除数(-5.0%5 == -0.0);
+			// 浮点 % 0 按 IEEE 得 nan,不报错
+			double m = a % b;
+			if (m != 0.0 && ((m < 0.0) != (b < 0.0)))
+			{
+				m += b;
+			}
+			m_data = m;
 			m_type = variant_type.REAL;
 		}
 	}

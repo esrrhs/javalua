@@ -229,16 +229,31 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.FKUUID;
 }
 
+/* Lua 风格浮点:带指数(指数可带 +/-)的一定是浮点,如 1e20、-3.0E+5 */
+-?[0-9]+(\.[0-9]*)?[Ee][+-]?[0-9]+ {
+	yylval = new ParserVal(yytext());
+	yylval.ival = yyline + 1;
+	return YYParser.Lexer.FKFLOAT;
+}
+
+/* .5 形式浮点 */
+-?\.[0-9]+([Ee][+-]?[0-9]+)? {
+	yylval = new ParserVal(yytext());
+	yylval.ival = yyline + 1;
+	return YYParser.Lexer.FKFLOAT;
+}
+
+/* 1. / 1.5 形式浮点(小数点后可无数字) */
+-?[0-9]+\.[0-9]* {
+	yylval = new ParserVal(yytext());
+	yylval.ival = yyline + 1;
+	return YYParser.Lexer.FKFLOAT;
+}
+
 -?[0-9]+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.NUMBER;
-}
-
--?[0-9]+\.[0-9]+([Ee]-?[0-9]+)? {
-	yylval = new ParserVal(yytext());
-	yylval.ival = yyline + 1;
-	return YYParser.Lexer.FKFLOAT;
 }
 
 "%" {
