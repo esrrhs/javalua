@@ -512,11 +512,11 @@ public class CoverageScriptTest {
         fk.setcurvariantbyroutinebyframe(f, rid, 0, "s", "\"new\"", -1);
         assertEquals("\"new\"", fk.getcurvariantbyroutinebyframe(f, rid, 0, "s", -1));
 
-        // true/false
+        // true/false 存为 REAL,按 Lua 5.4 浮点格式显示,整数形态补 .0
         fk.setcurvariantbyroutinebyframe(f, rid, 0, "n", "true", -1);
-        assertEquals("1", fk.getcurvariantbyroutinebyframe(f, rid, 0, "n", -1));
+        assertEquals("1.0", fk.getcurvariantbyroutinebyframe(f, rid, 0, "n", -1));
         fk.setcurvariantbyroutinebyframe(f, rid, 0, "n", "false", -1);
-        assertEquals("0", fk.getcurvariantbyroutinebyframe(f, rid, 0, "n", -1));
+        assertEquals("0.0", fk.getcurvariantbyroutinebyframe(f, rid, 0, "n", -1));
 
         // 空值:静默返回
         fk.setcurvariantbyroutinebyframe(f, rid, 0, "n", "", -1);

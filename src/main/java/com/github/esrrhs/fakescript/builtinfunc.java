@@ -138,36 +138,121 @@ class builtinfunc
 
 	public static void builtin_tonumber(fake f, interpreter inter) throws Exception
 	{
-		BIF_CHECK_ARG_NUM(f, 1);
+		int argc = f.ps.size();
+		if (argc != 1 && argc != 2)
+		{
+			throw new Exception("buildin func param not match, give " + argc + " need 1");
+		}
 
-		variant v = f.ps.pop_and_get();
-		variant ret = new variant();
+		variant v = f.ps.get(0);
+
+		// 可选第二参数 base(对齐 Lua 5.4 luaL_optinteger):
+		// 缺省/nil -> 标准 base10 自动识别(数值原样,十进制超界回落浮点);
+		// 显式给出(含 10) -> tointegertable 路径:首参必须是字符串,按 uint64 环绕;
+		// 整数/整数值浮点 base 合法范围 2..36,越界抛错;
+		// 数字字符串 base 经 tonumber 后须为整数("16"、"16.0" 可,"16.5" 抛错)
+		Integer base = null;
+		boolean explicitBase = false;
+		if (argc == 2)
+		{
+			variant bv = f.ps.get(1);
+			long bvval;
+			if (bv.get_type() == variant_type.INT)
+			{
+				bvval = (long) (Long) bv.get_data();
+			}
+			else if (bv.get_type() == variant_type.REAL)
+			{
+				double bd = (double) (Double) bv.get_data();
+				if (!types.isint(bd))
+				{
+					throw new Exception("bad argument #2 to 'tonumber' (number has no integer representation)");
+				}
+				bvval = (long) bd;
+			}
+			else if (bv.get_type() == variant_type.STRING)
+			{
+				String bs = types.trim_lua((String) bv.get_data());
+				variant parsed = types.parse_lua_number(bs, null);
+				if (parsed == null)
+				{
+					throw new Exception("bad argument #2 to 'tonumber' (number expected)");
+				}
+				if (parsed.get_type() == variant_type.INT)
+				{
+					bvval = (long) (Long) parsed.get_data();
+				}
+				else
+				{
+					double bd = (double) (Double) parsed.get_data();
+					if (!types.isint(bd))
+					{
+						throw new Exception("bad argument #2 to 'tonumber' (number has no integer representation)");
+					}
+					bvval = (long) bd;
+				}
+			}
+			else if (bv.get_type() == variant_type.NIL
+					|| (bv.get_type() == variant_type.POINTER && bv.get_data() == null))
+			{
+				// 显式传 null/fakescript 空值等同缺省,走标准路径
+				bvval = 10;
+			}
+			else
+			{
+				throw new Exception("bad argument #2 to 'tonumber' (number expected)");
+			}
+			if (bvval < 2 || bvval > 36)
+			{
+				throw new Exception("bad argument #2 to 'tonumber' (base out of range)");
+			}
+			variant rawBase = f.ps.get(1);
+			boolean baseIsNull = rawBase.get_type() == variant_type.NIL
+					|| (rawBase.get_type() == variant_type.POINTER && rawBase.get_data() == null);
+			explicitBase = !baseIsNull;
+			if (explicitBase)
+			{
+				base = (int) bvval;
+			}
+		}
+
+		variant ret = null;
 		if (v.get_type() == variant_type.STRING)
 		{
-			String str = (String) v.get_data();
-			try
+			// 字符串按 Lua 5.4 词法解析:trim、整数/十六进制/浮点分流,
+			// 拒绝 inf/nan 字面量,接受 1e999 溢出,无法解析返回 nil
+			String str = types.trim_lua((String) v.get_data());
+			ret = types.parse_lua_number(str, base);
+		}
+		else if (!explicitBase)
+		{
+			// 标准路径:数值原样返回;UUID 按数值视图转 REAL;其余类型(nil/容器)为 nil
+			if (v.get_type() == variant_type.REAL || v.get_type() == variant_type.INT)
 			{
-				// 整数形式的字符串转为INT,其余转REAL
-				ret.set_int(Long.valueOf(str));
+				ret = v;
 			}
-			catch (NumberFormatException e)
+			else if (v.get_type() == variant_type.UUID)
 			{
-				ret.set_real(Double.valueOf(str));
+				ret = new variant();
+				ret.set_real((double) (long) (Long) v.get_data());
 			}
 		}
-		else if (v.get_type() == variant_type.REAL)
+		else
 		{
-			ret.set_real((double) (Double) v.get_data());
+			// 显式 base 路径(tointegertable):首参非字符串直接抛错
+			throw new Exception("bad argument #1 to 'tonumber' (string expected)");
 		}
-		else if (v.get_type() == variant_type.INT)
+
+		f.ps.clear();
+		variant out = f.ps.push_and_get();
+		if (ret != null)
 		{
-			ret.copy_from(v);
+			out.copy_from(ret);
 		}
-		else if (v.get_type() == variant_type.UUID)
+		else
 		{
-			ret.set_real((double) (long) (Long) v.get_data());
+			out.set_nil();
 		}
-		f.ps.push_and_get().copy_from(ret);
 	}
 
 	public static void builtin_tolong(fake f, interpreter inter) throws Exception
