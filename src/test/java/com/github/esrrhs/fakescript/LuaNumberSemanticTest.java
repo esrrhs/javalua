@@ -632,6 +632,161 @@ public class LuaNumberSemanticTest {
         assertEquals(-6L, fk.run(f, "bnot", 5));
     }
 
+    // ---------- INT/REAL 跨类型精确比较(Lua 5.4 lvm.c 语义) ----------
+    // 期望值全部取自真实 lua 实测:INT 与 REAL 不经 double 中转精确比较,
+    // 2^53 以上不丢精度
+
+    private long cond(String c)
+    {
+        String script = "func f()\n    if " + c + " then\n        return 1\n    end\n    return 0\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object r = fk.run(f, "f");
+        assertFalse(fk.error(f), fk.geterror(f));
+        return ((Long) r).longValue();
+    }
+
+    @Test
+    public void testExactCrossTypeEquality()
+    {
+        // 精确可表示的小整数与边界照旧相等
+        assertEquals(1, cond("1 == 1.0"));
+        assertEquals(1, cond("3 == 3.0"));
+        assertEquals(1, cond("0 == -0.0"));
+        assertEquals(1, cond("0.0 == -0.0"));
+        assertEquals(1, cond("9007199254740992 == 9007199254740992.0")); // 2^53
+        assertEquals(1, cond("9007199254740994 == 9007199254740994.0")); // 2^53+2
+        assertEquals(1, cond("1.0/0.0 == 1.0/0.0"));                     // inf == inf
+        // MININT 与 -2^63 浮点是同一值
+        assertEquals(1, cond("tonumber(\"-9223372036854775808\") == tonumber(\"-9223372036854775808\") - 0.0"));
+        // 超过 double 精度:浮点视图已变,不再相等(Lua 5.4 精确比较)
+        assertEquals(0, cond("9007199254740993 == 9007199254740993.0"));
+        assertEquals(0, cond("tonumber(\"9223372036854775807\") == tonumber(\"9223372036854775807\") + 0.0"));
+        // NaN 不等于自身;!= 取反
+        assertEquals(0, cond("0.0/0.0 == 0.0/0.0"));
+        assertEquals(1, cond("9007199254740993 != 9007199254740993.0"));
+        assertEquals(0, cond("1 != 1.0"));
+    }
+
+    @Test
+    public void testExactCrossTypeOrdering()
+    {
+        // 普通混合比较不受影响
+        assertEquals(1, cond("1.5 < 2"));
+        assertEquals(0, cond("2 <= 1.5"));
+        assertEquals(1, cond("2 > 1.5"));
+        assertEquals(0, cond("1.5 >= 2"));
+        assertEquals(1, cond("1.5 > 1"));
+        // 2^53+1 的浮点字面量实为 2^53:INT 更大
+        assertEquals(0, cond("9007199254740993 < 9007199254740993.0"));
+        assertEquals(1, cond("9007199254740993 > 9007199254740993.0"));
+        assertEquals(0, cond("9007199254740993 <= 9007199254740992.0"));
+        assertEquals(0, cond("9007199254740993 >= 9007199254740994.0"));
+        assertEquals(1, cond("9007199254740992.0 < 9007199254740993"));
+        // MAXINT+0.0 即 2^63,超出 int64:MAXINT 更小
+        assertEquals(1, cond("tonumber(\"9223372036854775807\") < tonumber(\"9223372036854775807\") + 0.0"));
+        assertEquals(1, cond("tonumber(\"9223372036854775807\") + 0.0 > tonumber(\"9223372036854775807\")"));
+        assertEquals(0, cond("tonumber(\"9223372036854775807\") >= tonumber(\"9223372036854775807\") + 0.0"));
+        assertEquals(0, cond("tonumber(\"9223372036854775807\") + 0.0 < tonumber(\"9223372036854775807\")"));
+        // MININT-0.0 即 -2^63,可精确表示:等于 MININT
+        assertEquals(0, cond("tonumber(\"-9223372036854775808\") < tonumber(\"-9223372036854775808\") - 0.0"));
+        assertEquals(1, cond("tonumber(\"-9223372036854775808\") <= tonumber(\"-9223372036854775808\") - 0.0"));
+        assertEquals(0, cond("tonumber(\"-9223372036854775808\") - 0.0 > tonumber(\"-9223372036854775808\")"));
+    }
+
+    @Test
+    public void testCrossTypeMapKeySemantics()
+    {
+        // Lua 表键规范化:浮点键具备整数表示时与整键同键,否则分键
+        String same = "func f()\n" +
+                "    var m = map()\n" +
+                "    m[1] = 10\n" +
+                "    m[1.0] = 20\n" +
+                "    return size(m), m[1]\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, same), fk.geterror(f));
+        Object[] r = fk.runmulti(f, "f");
+        assertEquals(2, r.length, fk.geterror(f));
+        assertEquals(1L, ((Long) r[0]).longValue());
+        assertEquals(20L, ((Long) r[1]).longValue());
+
+        String diff = "func f()\n" +
+                "    var m = map()\n" +
+                "    m[9007199254740993] = 1\n" +
+                "    m[9007199254740993.0] = 2\n" +
+                "    return size(m)\n" +
+                "end\n";
+        f = fk.newfake(new fkconfig());
+        fk.openbaselib(f);
+        assertTrue(fk.parsestr(f, diff), fk.geterror(f));
+        r = fk.runmulti(f, "f");
+        assertEquals(1, r.length, fk.geterror(f));
+        assertEquals(2L, ((Long) r[0]).longValue());
+
+        String exact = "func f()\n" +
+                "    var m = map()\n" +
+                "    m[9007199254740994] = 1\n" +
+                "    m[9007199254740994.0] = 2\n" +
+                "    return size(m), m[9007199254740994.0]\n" +
+                "end\n";
+        f = fk.newfake(new fkconfig());
+        fk.openbaselib(f);
+        assertTrue(fk.parsestr(f, exact), fk.geterror(f));
+        r = fk.runmulti(f, "f");
+        assertEquals(2, r.length, fk.geterror(f));
+        assertEquals(1L, ((Long) r[0]).longValue());
+        assertEquals(2L, ((Long) r[1]).longValue());
+    }
+
+    @Test
+    public void testVariantCrossTypeEqualsDirect()
+    {
+        // 9007199254740993.0 这个 Java 字面量本身就是 9007199254740992.0
+        variant i = new variant();
+        i.set_int(9007199254740993L);
+        variant f = new variant();
+        f.set_real(9007199254740993.0);
+        assertFalse(i.equals(f));
+        assertFalse(f.equals(i));
+
+        // 2^53+2 可精确表示,跨类型相等且同哈希(hashCode 契约)
+        variant i2 = new variant();
+        i2.set_int(9007199254740994L);
+        variant f2 = new variant();
+        f2.set_real(9007199254740994.0);
+        assertTrue(i2.equals(f2));
+        assertTrue(f2.equals(i2));
+        assertEquals(i2.hashCode(), f2.hashCode());
+
+        // MININT 与 -2^63 浮点相等
+        variant min = new variant();
+        min.set_int(Long.MIN_VALUE);
+        variant minf = new variant();
+        minf.set_real(-9223372036854775808.0);
+        assertTrue(min.equals(minf));
+
+        // NaN 与任何数值不相等
+        variant nan = new variant();
+        nan.set_real(Double.NaN);
+        variant one = new variant();
+        one.set_int(1);
+        assertFalse(nan.equals(one));
+        assertFalse(one.equals(nan));
+
+        // +2^63 超出 int64:isint 必须为假(此前 (long) 饱和导致误判)
+        assertFalse(types.isint(9223372036854775808.0));
+        assertTrue(types.isint(-9223372036854775808.0));
+        assertTrue(types.isint(9007199254740992.0));
+        // 注意:Java 字面量 9007199254740993.0 编译期即舍入为 9007199254740992.0,
+        // 2^53+1 不存在对应 double;非整数 double 取 2^52 附近的 .5
+        assertFalse(types.isint(4503599627370495.5));
+        assertFalse(types.isint(1.5));
+        assertFalse(types.isint(Double.NaN));
+        assertFalse(types.isint(Double.POSITIVE_INFINITY));
+        assertFalse(types.isint(Double.NEGATIVE_INFINITY));
+        assertTrue(types.isint(-0.0));
+        assertTrue(types.isint(0.0));
+    }
+
     // ---------- types 静态工具直接测试 ----------
 
     @Test

@@ -477,7 +477,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		set_cmp_ret(l, r, l.get_real() < r.get_real());
+		set_cmp_ret(l, r, cmp_num(l, r) < 0);
 	}
 
 	public void more(variant l, variant r) throws Exception
@@ -490,7 +490,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		set_cmp_ret(l, r, l.get_real() > r.get_real());
+		set_cmp_ret(l, r, cmp_num(l, r) > 0);
 	}
 
 	public void equal(variant l, variant r) throws Exception
@@ -509,7 +509,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		set_cmp_ret(l, r, l.get_real() <= r.get_real());
+		set_cmp_ret(l, r, cmp_num(l, r) <= 0);
 	}
 
 	public void more_equal(variant l, variant r) throws Exception
@@ -522,7 +522,64 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		set_cmp_ret(l, r, l.get_real() >= r.get_real());
+		set_cmp_ret(l, r, cmp_num(l, r) >= 0);
+	}
+
+	// Lua 5.4 跨类型数值比较:INT 与 REAL 精确比较,不经 double 中转,
+	// 避免 2^53 以上丢精度(9007199254740993 == 9007199254740993.0 为假,
+	// math.maxinteger < math.maxinteger + 0.0 为真)。返回 2 表示不可比较
+	// (涉及 NaN,所有关系运算为假)
+	private static final double TWO_POW_63 = 9223372036854775808.0;
+
+	// 三路比较 INT i 与 REAL f,语义对齐 Lua lvm.c(LTintfloat/LEintfloat)
+	private static int cmp_int_real(long i, double f)
+	{
+		if (Double.isNaN(f))
+		{
+			return 2;
+		}
+		// f 具备精确整数表示:按整数比较(Lua 的 F2Ieq 路径)
+		if (types.isint(f))
+		{
+			return Long.compare(i, (long) f);
+		}
+		// |i| 在 double 精确表示范围内(double 比较无损)
+		if (i >= -9007199254740992L && i <= 9007199254740992L)
+		{
+			return Double.compare((double) i, f);
+		}
+		// i 超出 double 精度:|f| >= 2^53 时 double 必为整数,不会落到这里,
+		// 落此仅剩越界情形:f >= 2^63 大于任何 int64,f < -2^63 小于任何 int64
+		if (f >= TWO_POW_63)
+		{
+			return -1;
+		}
+		return 1;
+	}
+
+	// 数值三路比较:-1/0/1,NaN 不可比较返回 2
+	private static int cmp_num(variant l, variant r) throws Exception
+	{
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
+		{
+			return Long.compare((long) (Long) l.m_data, (long) (Long) r.m_data);
+		}
+		if (l.m_type == variant_type.INT && r.m_type == variant_type.REAL)
+		{
+			return cmp_int_real((long) (Long) l.m_data, (double) (Double) r.m_data);
+		}
+		if (l.m_type == variant_type.REAL && r.m_type == variant_type.INT)
+		{
+			int c = cmp_int_real((long) (Long) r.m_data, (double) (Double) l.m_data);
+			return c == 2 ? 2 : -c;
+		}
+		double a = l.get_real();
+		double b = r.get_real();
+		if (Double.isNaN(a) || Double.isNaN(b))
+		{
+			return 2;
+		}
+		return Double.compare(a, b);
 	}
 
 	// 比较结果1/0,两个INT操作数时结果保持INT
@@ -591,7 +648,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return l.get_real() < r.get_real();
+		return cmp_num(l, r) < 0;
 	}
 
 	public static boolean more_jne(variant l, variant r) throws Exception
@@ -602,7 +659,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return l.get_real() > r.get_real();
+		return cmp_num(l, r) > 0;
 	}
 
 	public static boolean equal_jne(variant l, variant r) throws Exception
@@ -618,7 +675,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return l.get_real() >= r.get_real();
+		return cmp_num(l, r) >= 0;
 	}
 
 	public static boolean less_equal_jne(variant l, variant r) throws Exception
@@ -629,7 +686,7 @@ class variant
 		}
 		l.assert_can_cal();
 		r.assert_can_cal();
-		return l.get_real() <= r.get_real();
+		return cmp_num(l, r) <= 0;
 	}
 
 	public static boolean not_equal_jne(variant l, variant r) throws Exception
@@ -689,13 +746,15 @@ class variant
 			return true;
 		}
 
-		// 数值跨类型按值比较(1与1.0相等),与hashCode的数值规范化配套,保证map键跨类型一致
+		// 数值跨类型按值比较(1与1.0相等),与hashCode的数值规范化配套,保证map键跨类型一致。
+		// Lua 5.4 精确语义:仅当 REAL 具备精确整数表示且等于 INT 时相等
+		// (9007199254740993 != 9007199254740993.0,math.maxinteger != math.maxinteger+0.0)
 		if ((m_type == variant_type.INT && r.m_type == variant_type.REAL)
 				|| (m_type == variant_type.REAL && r.m_type == variant_type.INT))
 		{
-			double a = m_type == variant_type.INT ? (long) (Long) m_data : (double) (Double) m_data;
-			double b = r.m_type == variant_type.INT ? (long) (Long) r.m_data : (double) (Double) r.m_data;
-			return a == b;
+			long i = m_type == variant_type.INT ? (long) (Long) m_data : (long) (Long) r.m_data;
+			double d = m_type == variant_type.REAL ? (double) (Double) m_data : (double) (Double) r.m_data;
+			return types.isint(d) && (long) d == i;
 		}
 
 		if (m_type != r.m_type)
