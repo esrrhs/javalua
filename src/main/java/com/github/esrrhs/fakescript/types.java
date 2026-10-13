@@ -393,11 +393,18 @@ class types
 		}
 	}
 
-	public static boolean isint(double d)
+public static boolean isint(double d)
+{
+	// 必须先做范围检查:(long) 强转对 |d| >= 2^63 饱和到 MIN/MAX,
+	// 饱和值提升回 double 后恰等于 ±2^63,会把 2^63 误判为可表示整数
+	// (MAXINT == MAXINT + 0.0 会错误成立)
+	if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0))
 	{
-		long l = (long) d;
-		return l == d;
+		return false;
 	}
+	long l = (long) d;
+	return l == d;
+}
 
 	public static String pointertoa(Object o)
 	{
