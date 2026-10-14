@@ -351,6 +351,40 @@ public class LuaNumberSemanticTest {
         assertRunError("\"x\" .. array()");
     }
 
+    // ---------- 字符串转义(Lua 5.4: hex/dec/unicode/\a/\v/\z) ----------
+    // 注:Java 源码预处理会拦截字面 backslash-u 序列,Unicode 转义测试用反斜杠变量拼接构造
+
+    @Test
+    public void testStringEscapes() {
+        // \xHH 十六进制字节转义
+        assertStrings(
+                "tostring(\"\\x41\"), tostring(\"\\x7e\"), tostring(\"\\xff\")",
+                "A", "~", "\u00ff");
+        // \ddd 十进制字节转义(0-255)
+        assertStrings(
+                "tostring(\"\\65\"), tostring(\"\\255\"), tostring(\"\\0\")",
+                "A", "\u00ff", "\u0000");
+        // Unicode 转义:用反斜杠变量拼接,避免 Java 源码 backslash-u 序列
+        String bs = "\\";
+        assertEquals("\u4e2d", returns("tostring(\"" + bs + "u{4e2d}\")")[0]);
+        assertEquals("A", returns("tostring(\"" + bs + "u{41}\")")[0]);
+        assertEquals(new String(Character.toChars(0x1f600)),
+                returns("tostring(\"" + bs + "u{1f600}\")")[0]);
+        // \a(0x07) \v(0x0B)
+        assertStrings(
+                "tostring(\"\\a\"), tostring(\"\\v\")",
+                "\u0007", "\u000b");
+        // \z 跳过后续空白(空格/制表)
+        assertStrings(
+                "tostring(\"a\\z   b\"), tostring(\"x\\z\ty\")",
+                "ab", "xy");
+        // 组合转义拼出完整单词
+        assertStrings(
+                "tostring(\"\\x48\\x65\\x6c\\x6c\\x6f\")",
+                "Hello");
+    }
+
+
     // ---------- % 取模 / 除零 / floor / ceil / abs(Lua 5.4 算术语义) ----------
 
     @Test
