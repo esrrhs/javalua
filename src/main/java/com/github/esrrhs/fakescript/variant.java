@@ -217,6 +217,17 @@ class variant
 		}
 	}
 
+	// Lua 5.4 concat 仅接受 string 与 number;本语言 UUID 视同整数可拼接,
+	// 其余类型(NIL/POINTER/ARRAY/MAP)报错,对齐 "attempt to concatenate a X value"
+	public void assert_can_cat() throws Exception
+	{
+		if (m_type != variant_type.STRING && m_type != variant_type.INT
+				&& m_type != variant_type.REAL && m_type != variant_type.UUID)
+		{
+			throw new Exception("attempt to concatenate a " + m_type.toString().toLowerCase() + " value");
+		}
+	}
+
 	// Lua 5.4 算术语义:数值字符串参与算术时按 Lua 词法强转
 	// ("10"+1 == 11," 10 "+1 == 11,"0x10"+0 == 16,"10.0"+1 == 11.0);
 	// 非数值字符串仍抛原风格错误。位运算与比较不强转(与 Lua 一致)
@@ -344,8 +355,12 @@ class variant
 		}
 	}
 
+	// Lua 5.4 concat:仅 string 与 number 可拼接,nil/table 等报错;
+	// number(含 INT/REAL/UUID)按 tostring 格式化为字符串后拼接
 	public void string_cat(variant l, variant r) throws Exception
 	{
+		l.assert_can_cat();
+		r.assert_can_cat();
 		set_string(l.toString() + r.toString());
 	}
 

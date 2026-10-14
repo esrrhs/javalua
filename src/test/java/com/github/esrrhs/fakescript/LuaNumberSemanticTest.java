@@ -327,6 +327,30 @@ public class LuaNumberSemanticTest {
                 "0.33333333333333", "1.2345678901234e+14", "v=-1.0 end");
     }
 
+    // ---------- concat 类型限制(Lua 5.4:仅 string/number 可拼接) ----------
+    // Lua 5.4: nil/table/boolean 参与 .. 报错 "attempt to concatenate a X value";
+    // 本语言 true/false 编译为 REAL,故可拼接;null 映射为 POINTER,table 映射为 MAP/ARRAY
+
+    @Test
+    public void testConcatTypeRestrictions() {
+        // string / number 两两组合均可
+        assertStrings(
+                "\"a\" .. \"b\", 1 .. 2, 1 .. \"x\", \"x\" .. 2, " +
+                "1.5 .. 2.5, \"n=\" .. 0, 0 .. \"\"",
+                "ab", "12", "1x", "x2", "1.52.5", "n=0", "0");
+        // UUID(整数字面量加 u 后缀)可拼接,视同整数
+        assertStrings("123u .. \"!\"", "123!");
+
+        // null(POINTER)/map/array 参与 .. 报错
+        assertRunError("null .. 1");
+        assertRunError("1 .. null");
+        assertRunError("\"\" .. null");
+        assertRunError("map() .. 1");
+        assertRunError("1 .. map()");
+        assertRunError("array() .. 1");
+        assertRunError("\"x\" .. array()");
+    }
+
     // ---------- % 取模 / 除零 / floor / ceil / abs(Lua 5.4 算术语义) ----------
 
     @Test
