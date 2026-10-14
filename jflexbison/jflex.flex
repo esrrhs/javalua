@@ -282,47 +282,51 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.FKUUID;
 }
 
-/* 十六进制浮点:0x1p4、0X1.8p1、0x.8p0、0x1.8 */
--?0[xX]([0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+ {
+/* 十六进制浮点:0x1p4、0X1.8p1、0x.8p0、0x1.8
+
+   注:数值规则一律不接受前导 -,负号由 yylex() 的上下文判定转成 UNARY_MINUS。
+   若在此处允许 -,JFlex 最长匹配会把 x-1 切成 IDENTIFIER(x) + NUMBER(-1),
+   中间没有运算符 -> 语法错误(x - 1 带空格反而正常) */
+0[xX]([0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.FKFLOAT;
 }
--?0[xX]([0-9a-fA-F]+\.[0-9a-fA-F]*|\.[0-9a-fA-F]+) {
+0[xX]([0-9a-fA-F]+\.[0-9a-fA-F]*|\.[0-9a-fA-F]+) {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.FKFLOAT;
 }
 
-/* 十六进制整数:0xff、-0x10,按 uint64 位模式解析 */
--?0[xX][0-9a-fA-F]+ {
+/* 十六进制整数:0xff,按 uint64 位模式解析;-0x10 走 UNARY_MINUS */
+0[xX][0-9a-fA-F]+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.NUMBER;
 }
 
-/* Lua 风格浮点:带指数(指数可带 +/-)的一定是浮点,如 1e20、-3.0E+5 */
--?[0-9]+(\.[0-9]*)?[Ee][+-]?[0-9]+ {
+/* Lua 风格浮点:带指数(指数可带 +/-)的一定是浮点,如 1e20 */
+[0-9]+(\.[0-9]*)?[Ee][+-]?[0-9]+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.FKFLOAT;
 }
 
 /* .5 形式浮点 */
--?\.[0-9]+([Ee][+-]?[0-9]+)? {
+\.[0-9]+([Ee][+-]?[0-9]+)? {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.FKFLOAT;
 }
 
 /* 1. / 1.5 形式浮点(小数点后可无数字) */
--?[0-9]+\.[0-9]* {
+[0-9]+\.[0-9]* {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.FKFLOAT;
 }
 
--?[0-9]+ {
+[0-9]+ {
 	yylval = new ParserVal(yytext());
 	yylval.ival = yyline + 1;
 	return YYParser.Lexer.NUMBER;

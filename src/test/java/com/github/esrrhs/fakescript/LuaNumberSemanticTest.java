@@ -1018,6 +1018,64 @@ public class LuaNumberSemanticTest {
         assertCondError("\"10\" < 9");
     }
 
+    private Object runScript(String body) {
+        String script = "func f()\n" + body + "\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object r = fk.run(f, "f");
+        assertFalse(fk.error(f), fk.geterror(f));
+        return r;
+    }
+
+    // ---------- 词法:二元减 vs 负数字面量 ----------
+
+    @Test
+    public void testBinaryMinusAdjacentToNumberLiteral() {
+        // 数值词法规则曾允许前导 -,JFlex 最长匹配把 x-1 切成 IDENTIFIER + NUMBER(-1),
+        // 中间没有运算符 -> 语法错误(x - 1 带空格反而正常)。现负号一律交给 yylex
+        // 的上下文判定(UNARY_MINUS),二元减夺回优先,负字面量仍然可用
+        assertStrings(
+                "tostring(1-1), tostring(10-2), tostring(0-1), tostring(1 - -1), " +
+                "tostring(-1 - 1), tostring(abs(-3)), tostring(-0x10), tostring(-1.5), " +
+                "tostring(-1e2), tostring(-7 % 3)",
+                "0", "8", "-1", "2", "-2", "3", "-16", "-1.5", "-100.0", "2");
+    }
+
+    @Test
+    public void testBinaryMinusInSubscriptAndArguments() {
+        // 下标与实参位置紧跟负数字面量,曾同样报语法错误
+        Object r = runScript("var arr = array()\narr[0] = 7\narr[1] = 9\nvar i = 1\nreturn arr[i-1]");
+        assertEquals(7L, ((Long) r).longValue());
+
+        Object r2 = runScript("var x = 9\nreturn sqrt(x-5)");
+        assertEquals(2.0, (Double) r2, 0.0);
+
+        Object r3 = runScript("var x = 10\nreturn x-1.5");
+        assertEquals(8.5, (Double) r3, 0.0);
+    }
+
+    // ---------- 运算符优先级 ----------
+
+    @Test
+    public void testArithmeticPrecedence() {
+        // 同优先级的运算符必须写在同一行声明,每多一行就多一档优先级。此前
+        // DIVIDE/MULTIPLY 各占一行 -> MULTIPLY 更高,a/b*c 被归约为 a/(b*c) 得 1;
+        // PLUS/MINUS 同样问题,10-2+3 得 10
+        assertStrings(
+                "tostring(10/2*5), tostring(10*2/5), tostring(1+2-3), " +
+                "tostring(10-2+3), tostring(1+2*3-4/2), tostring(100/5/2)",
+                "25.0", "4.0", "0", "11", "5.0", "10.0");
+    }
+
+    @Test
+    public void testConcatPrecedenceBelowArithmetic() {
+        // Lua 5.4:.. 低于所有算术运算符,且是右结合。此前声明在算术之后
+        // (即优先级最高)且为 %left,"n=" .. 1 + 2 会拼成 ("n="..1) 再 +2 而报错
+        assertStrings(
+                "tostring(\"n=\" .. 1 + 2), tostring(\"n=\" .. 2 * 3), " +
+                "tostring(1 + 2 .. \"x\"), tostring(\"v=\" .. 1 .. \"!\")",
+                "n=3", "n=6", "3x", "v=1!");
+    }
+
     // ---------- types 静态工具直接测试 ----------
 
     @Test
