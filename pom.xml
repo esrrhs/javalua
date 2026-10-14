@@ -18,6 +18,7 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
+        <jazzer.version>0.30.0</jazzer.version>
     </properties>
 
     <licenses>
@@ -42,6 +43,32 @@
         <url>git@github.com:esrrhs/fakescript-java.git</url>
     </scm>
 
+    <dependencyManagement>
+        <dependencies>
+            <!--
+              锁定 JUnit Platform 版本。jazzer-junit 会传递引入 junit-platform
+              1.9.0，与 junit-jupiter 5.10.2 所需的 1.10.2 并存时，engine 与
+              commons 版本错配，表现为 "TestEngine with ID 'junit-jupiter'
+              failed to discover tests"。统一到 1.10.2 即可。
+            -->
+            <dependency>
+                <groupId>org.junit.platform</groupId>
+                <artifactId>junit-platform-commons</artifactId>
+                <version>1.10.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.platform</groupId>
+                <artifactId>junit-platform-engine</artifactId>
+                <version>1.10.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.platform</groupId>
+                <artifactId>junit-platform-launcher</artifactId>
+                <version>1.10.2</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>edu.princeton.cup</groupId>
@@ -52,6 +79,28 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          覆盖率引导的模糊测试引擎(基于 libFuzzer,OSS-Fuzz 对 JVM 项目的官方方案)。
+          字节码是 Java 8 级别,因此不影响 JDK 8 起编。
+
+          两种运行模式:
+          - 默认(不设 JAZZER_FUZZ):只回放 inputs 目录中已保存的输入,当作回归测试,
+            行为与普通单元测试一致,不启动 fuzzing 引擎
+          - JAZZER_FUZZ=1:启动 libFuzzer 持续变异探索,命中新覆盖或崩溃的输入
+            会落盘到 inputs 目录,供后续回归模式重放
+        -->
+        <dependency>
+            <groupId>com.code-intelligence</groupId>
+            <artifactId>jazzer-junit</artifactId>
+            <version>${jazzer.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.code-intelligence</groupId>
+            <artifactId>jazzer-api</artifactId>
+            <version>${jazzer.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

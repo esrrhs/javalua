@@ -2,6 +2,12 @@ target/
 *.class
 *.jar
 *.log
+
+# Jazzer 模糊测试产物：语料库与 crash 复现文件由本地 fuzzing 生成，
+# 只有经过确认并落到 JazzerFuzzTestInputs 的输入才应当入库
+.cifuzz-corpus/
+crash-*
+
 .idea/
 *.iml
 .project

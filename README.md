@@ -276,6 +276,30 @@ Build and run tests using the included Maven Wrapper:
 ./mvnw package
 ```
 
+### Fuzzing
+
+Fuzzing is layered, each layer targeting a different class of defect:
+
+* `FuzzTest` — random token/character soup; guarantees no input escapes the error
+  handling mechanism (crash safety)
+* `SemanticFuzzTest` — generates random expression ASTs and evaluates them in
+  equivalent renderings (compact, spaced, fully parenthesized), requiring the
+  results to be identical. This is what catches **silently wrong results** —
+  e.g. a mis-declared precedence making `a/b*c` evaluate as `a/(b*c)`.
+  Fixed seed, runs in CI as a regression test
+* `JazzerFuzzTest` — wired to [Jazzer](https://github.com/CodeIntelligenceTesting/jazzer),
+  a coverage-guided engine based on libFuzzer. It reuses the same invariants but
+  swaps the random source for libFuzzer mutations, reaching paths that plain
+  random generation never touches
+
+```bash
+# Regression mode: replay saved inputs only, behaves like a normal unit test
+./mvnw test -Dtest=JazzerFuzzTest
+
+# Continuous mode: libFuzzer keeps mutating; hits are saved to the inputs dir
+JAZZER_FUZZ=1 ./mvnw test -Dtest=JazzerFuzzTest
+```
+
 Additional build profiles:
 
 ```bash

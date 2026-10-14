@@ -276,6 +276,26 @@ Object[] rets = fk.resume(f, "main"); // 每帧调用一次,直到返回非null
 ./mvnw package
 ```
 
+### 模糊测试
+
+测试分三层，各自覆盖不同类型的缺陷：
+
+* `FuzzTest` —— 随机 token / 字符乱炖，保证任何输入都不逃逸错误处理机制（崩溃安全）
+* `SemanticFuzzTest` —— 随机生成表达式 AST，用紧凑写法、带空格写法、完全括号化写法
+  分别求值并要求结果守恒。**不崩但算错**的缺陷（例如优先级错位导致 `a/b*c` 算成
+  `a/(b*c)`）正是靠这一层发现的。固定种子，进 CI 当回归测试
+* `JazzerFuzzTest` —— 接 [Jazzer](https://github.com/CodeIntelligenceTesting/jazzer)
+  （基于 libFuzzer 的覆盖率引导引擎）。它复用上面同一套不变式，只是把随机源换成
+  libFuzzer 的变异，能主动探索到手搓随机到不了的路径
+
+```bash
+# 回归模式：只回放 inputs 目录中已保存的输入，行为等同普通单元测试
+./mvnw test -Dtest=JazzerFuzzTest
+
+# 持续模式：libFuzzer 不断变异探索，命中的输入落盘到 inputs 目录供后续回归
+JAZZER_FUZZ=1 ./mvnw test -Dtest=JazzerFuzzTest
+```
+
 其他构建profile：
 
 ```bash
