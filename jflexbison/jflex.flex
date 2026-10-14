@@ -510,6 +510,15 @@ WhiteSpace = {LineTerminator} | [ \t\f]
   "\\'"                          { string.append( '\'' ); }
   "\\\\"                         { string.append( '\\' ); }
 
+  /* Lua 5.4 扩展转义 */
+  "\\a"                          { string.append( (char)0x07 ); }
+  "\\v"                          { string.append( (char)0x0B ); }
+  "\\x"[0-9a-fA-F]{2}            { string.append( (char)Integer.parseInt(yytext().substring(2), 16) ); }
+  "\\u{"[0-9a-fA-F]+"}"          { int cp = Integer.parseInt(yytext().substring(3, yytext().length()-1), 16);
+                                  string.append( new String(Character.toChars(cp)) ); }
+  "\\z"({WhiteSpace})*            { /* Lua \z: 跳过后续空白 */ }
+  "\\"[0-9]{1,3}                 { string.append( (char)Integer.parseInt(yytext().substring(1)) ); }
+
 }
 
 /* error fallback */
