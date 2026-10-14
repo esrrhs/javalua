@@ -891,8 +891,9 @@ public class FeatureTest {
 
     @Test
     public void testRuntimeErrorPaths() {
-        // 除零
-        assertTrue(fk.parsestr(f, "func f()\n    return 1 / 0\nend\n"), fk.geterror(f));
+        // 整数除零
+        // 注:/ 是浮点除法(1/0 == inf,不再报错),故用 // 整除除零来触发错误
+        assertTrue(fk.parsestr(f, "func f()\n    return 1 // 0\nend\n"), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f));
         assertTrue(fk.geterror(f).contains("divide"), fk.geterror(f));
@@ -1039,11 +1040,14 @@ public class FeatureTest {
         rav.set_real(1);
         assertEquals(iav.hashCode(), rav.hashCode());
 
-        // 零除:Lua 5.4 整数除零抛错,浮点除零按 IEEE 754 得 inf/nan
+        // 零除:Lua 5.4 / 是纯浮点除法,整数操作数除零同样按 IEEE 754 得 inf;
+        // 只有 %(取模)与 //(整除)的零除数才抛错
         variant zero = new variant();
         zero.set_int(0);
-        assertThrows(Exception.class, () -> ret.divide(i1, zero));
+        ret.divide(i1, zero);
+        assertEquals(Double.POSITIVE_INFINITY, ret.get_real(), 0.0);
         assertThrows(Exception.class, () -> ret.divide_mod(i1, zero));
+        assertThrows(Exception.class, () -> ret.floor_divide(i1, zero));
         ret.divide(a, zero);
         assertEquals(Double.POSITIVE_INFINITY, ret.get_real(), 0.0);
         variant realZero = new variant();
