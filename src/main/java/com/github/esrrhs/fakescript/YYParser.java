@@ -36,7 +36,7 @@
 
 
 /* First part of user prologue.  */
-/* "jflexbison/YYParser.y":1  */
+/* "YYParser.y":1  */
 
 package com.github.esrrhs.fakescript;
 
@@ -44,14 +44,14 @@ import com.github.esrrhs.fakescript.syntree.*;
 import java.io.*;
 
 
-/* "src/main/java/com/github/esrrhs/fakescript/YYParser.java":48  */
+/* "/Users/mingming/project/fakescript_java/src/main/java/com/github/esrrhs/fakescript/YYParser.java":48  */
 
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
 
 /**
- * A Bison parser, automatically generated from <tt>jflexbison/YYParser.y</tt>.
+ * A Bison parser, automatically generated from <tt>YYParser.y</tt>.
  *
  * @author LALR (1) parser skeleton written by Paolo Bonzini.
  */
@@ -791,7 +791,7 @@ class YYParser
       {
           case 3: /* body: %empty  */
   if (yyn == 3)
-    /* "jflexbison/YYParser.y":120  */
+    /* "YYParser.y":126  */
         {
 	};
   break;
@@ -799,7 +799,7 @@ class YYParser
 
   case 6: /* function_declaration: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET block END  */
   if (yyn == 6)
-    /* "jflexbison/YYParser.y":130  */
+    /* "YYParser.y":136  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET block END");
 		func_desc_node p = ((Yylex)yylexer).new_node(func_desc_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
@@ -814,7 +814,7 @@ class YYParser
 
   case 7: /* function_declaration: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET END  */
   if (yyn == 7)
-    /* "jflexbison/YYParser.y":141  */
+    /* "YYParser.y":147  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FUNC IDENTIFIER OPEN_BRACKET function_declaration_arguments CLOSE_BRACKET END");
 		func_desc_node p = ((Yylex)yylexer).new_node(func_desc_node.class, ((ParserVal)((ParserVal)yystack.valueAt (4))).ival);
@@ -828,7 +828,7 @@ class YYParser
 
   case 8: /* function_declaration_arguments: %empty  */
   if (yyn == 8)
-    /* "jflexbison/YYParser.y":153  */
+    /* "YYParser.y":159  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty");
 	};
@@ -837,7 +837,7 @@ class YYParser
 
   case 9: /* function_declaration_arguments: function_declaration_arguments ARG_SPLITTER arg  */
   if (yyn == 9)
-    /* "jflexbison/YYParser.y":158  */
+    /* "YYParser.y":164  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_declaration_arguments ARG_SPLITTER arg ");
 		func_desc_arglist_node p = (func_desc_arglist_node)((ParserVal)yystack.valueAt (2)).obj;
@@ -852,7 +852,7 @@ class YYParser
 
   case 10: /* function_declaration_arguments: arg  */
   if (yyn == 10)
-    /* "jflexbison/YYParser.y":169  */
+    /* "YYParser.y":175  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: arg");
 		func_desc_arglist_node p = ((Yylex)yylexer).new_node(func_desc_arglist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -867,7 +867,7 @@ class YYParser
 
   case 11: /* arg: IDENTIFIER  */
   if (yyn == 11)
-    /* "jflexbison/YYParser.y":182  */
+    /* "YYParser.y":188  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER");
 		identifier_node p = ((Yylex)yylexer).new_node(identifier_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -882,7 +882,7 @@ class YYParser
 
   case 12: /* function_call: IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 12)
-    /* "jflexbison/YYParser.y":196  */
+    /* "YYParser.y":202  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
@@ -900,7 +900,7 @@ class YYParser
 
   case 13: /* function_call: IDENTIFIER_DOT OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 13)
-    /* "jflexbison/YYParser.y":210  */
+    /* "YYParser.y":216  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER_DOT OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
@@ -918,7 +918,7 @@ class YYParser
 
   case 14: /* function_call: function_call OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 14)
-    /* "jflexbison/YYParser.y":224  */
+    /* "YYParser.y":230  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
@@ -936,7 +936,7 @@ class YYParser
 
   case 15: /* function_call: variable COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 15)
-    /* "jflexbison/YYParser.y":238  */
+    /* "YYParser.y":244  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
@@ -959,7 +959,7 @@ class YYParser
 
   case 16: /* function_call: function_call COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET  */
   if (yyn == 16)
-    /* "jflexbison/YYParser.y":257  */
+    /* "YYParser.y":263  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call COLON IDENTIFIER OPEN_BRACKET function_call_arguments CLOSE_BRACKET ");
 		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
@@ -982,7 +982,7 @@ class YYParser
 
   case 17: /* function_call_arguments: %empty  */
   if (yyn == 17)
-    /* "jflexbison/YYParser.y":278  */
+    /* "YYParser.y":284  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty ");
 	};
@@ -991,7 +991,7 @@ class YYParser
 
   case 18: /* function_call_arguments: function_call_arguments ARG_SPLITTER arg_expr  */
   if (yyn == 18)
-    /* "jflexbison/YYParser.y":283  */
+    /* "YYParser.y":289  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call_arguments ARG_SPLITTER arg_expr ");
 		function_call_arglist_node p = (function_call_arglist_node)((ParserVal)yystack.valueAt (2)).obj;
@@ -1006,7 +1006,7 @@ class YYParser
 
   case 19: /* function_call_arguments: arg_expr  */
   if (yyn == 19)
-    /* "jflexbison/YYParser.y":294  */
+    /* "YYParser.y":300  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: arg_expr ");
 		function_call_arglist_node p = ((Yylex)yylexer).new_node(function_call_arglist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1021,7 +1021,7 @@ class YYParser
 
   case 20: /* arg_expr: expr_value  */
   if (yyn == 20)
-    /* "jflexbison/YYParser.y":307  */
+    /* "YYParser.y":313  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1031,7 +1031,7 @@ class YYParser
 
   case 21: /* block: block stmt  */
   if (yyn == 21)
-    /* "jflexbison/YYParser.y":317  */
+    /* "YYParser.y":323  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: block stmt ");
 		block_node p = (block_node)((ParserVal)yystack.valueAt (1)).obj;
@@ -1046,7 +1046,7 @@ class YYParser
 
   case 22: /* block: stmt  */
   if (yyn == 22)
-    /* "jflexbison/YYParser.y":328  */
+    /* "YYParser.y":334  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: stmt");
 		block_node p = ((Yylex)yylexer).new_node(block_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1061,7 +1061,7 @@ class YYParser
 
   case 23: /* stmt: while_stmt  */
   if (yyn == 23)
-    /* "jflexbison/YYParser.y":341  */
+    /* "YYParser.y":347  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: while_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1071,7 +1071,7 @@ class YYParser
 
   case 24: /* stmt: if_stmt  */
   if (yyn == 24)
-    /* "jflexbison/YYParser.y":347  */
+    /* "YYParser.y":353  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: if_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1081,7 +1081,7 @@ class YYParser
 
   case 25: /* stmt: return_stmt  */
   if (yyn == 25)
-    /* "jflexbison/YYParser.y":353  */
+    /* "YYParser.y":359  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1091,7 +1091,7 @@ class YYParser
 
   case 26: /* stmt: assign_stmt  */
   if (yyn == 26)
-    /* "jflexbison/YYParser.y":359  */
+    /* "YYParser.y":365  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: assign_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1101,7 +1101,7 @@ class YYParser
 
   case 27: /* stmt: multi_assign_stmt  */
   if (yyn == 27)
-    /* "jflexbison/YYParser.y":365  */
+    /* "YYParser.y":371  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: multi_assign_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1111,7 +1111,7 @@ class YYParser
 
   case 28: /* stmt: break  */
   if (yyn == 28)
-    /* "jflexbison/YYParser.y":371  */
+    /* "YYParser.y":377  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: break");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1121,7 +1121,7 @@ class YYParser
 
   case 29: /* stmt: continue  */
   if (yyn == 29)
-    /* "jflexbison/YYParser.y":377  */
+    /* "YYParser.y":383  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: continue");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1131,7 +1131,7 @@ class YYParser
 
   case 30: /* stmt: expr  */
   if (yyn == 30)
-    /* "jflexbison/YYParser.y":383  */
+    /* "YYParser.y":389  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1141,7 +1141,7 @@ class YYParser
 
   case 31: /* stmt: math_assign_stmt  */
   if (yyn == 31)
-    /* "jflexbison/YYParser.y":389  */
+    /* "YYParser.y":395  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_assign_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1151,7 +1151,7 @@ class YYParser
 
   case 32: /* stmt: for_stmt  */
   if (yyn == 32)
-    /* "jflexbison/YYParser.y":395  */
+    /* "YYParser.y":401  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: for_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1161,7 +1161,7 @@ class YYParser
 
   case 33: /* stmt: for_loop_stmt  */
   if (yyn == 33)
-    /* "jflexbison/YYParser.y":401  */
+    /* "YYParser.y":407  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: for_loop_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1171,7 +1171,7 @@ class YYParser
 
   case 34: /* stmt: fake_call_stmt  */
   if (yyn == 34)
-    /* "jflexbison/YYParser.y":407  */
+    /* "YYParser.y":413  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: fake_call_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1181,7 +1181,7 @@ class YYParser
 
   case 35: /* stmt: sleep  */
   if (yyn == 35)
-    /* "jflexbison/YYParser.y":413  */
+    /* "YYParser.y":419  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: sleep_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1191,7 +1191,7 @@ class YYParser
 
   case 36: /* stmt: yield  */
   if (yyn == 36)
-    /* "jflexbison/YYParser.y":419  */
+    /* "YYParser.y":425  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: yield_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1201,7 +1201,7 @@ class YYParser
 
   case 37: /* stmt: switch_stmt  */
   if (yyn == 37)
-    /* "jflexbison/YYParser.y":425  */
+    /* "YYParser.y":431  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: switch_stmt");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1211,7 +1211,7 @@ class YYParser
 
   case 38: /* fake_call_stmt: FAKE function_call  */
   if (yyn == 38)
-    /* "jflexbison/YYParser.y":433  */
+    /* "YYParser.y":439  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FAKE function_call");
 		function_call_node p = (function_call_node)((ParserVal)yystack.valueAt (0)).obj;
@@ -1226,7 +1226,7 @@ class YYParser
 
   case 39: /* for_stmt: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END  */
   if (yyn == 39)
-    /* "jflexbison/YYParser.y":446  */
+    /* "YYParser.y":452  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END");
 		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (7))).ival);
@@ -1244,7 +1244,7 @@ class YYParser
 
   case 40: /* for_stmt: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END  */
   if (yyn == 40)
-    /* "jflexbison/YYParser.y":460  */
+    /* "YYParser.y":466  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END");
 		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (6))).ival);
@@ -1262,7 +1262,7 @@ class YYParser
 
   case 41: /* for_loop_stmt: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END  */
   if (yyn == 41)
-    /* "jflexbison/YYParser.y":476  */
+    /* "YYParser.y":482  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END");
 		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (9))).ival);
@@ -1281,7 +1281,7 @@ class YYParser
 
   case 42: /* for_loop_stmt: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END  */
   if (yyn == 42)
-    /* "jflexbison/YYParser.y":491  */
+    /* "YYParser.y":497  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END");
 		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (8))).ival);
@@ -1300,7 +1300,7 @@ class YYParser
 
   case 43: /* while_stmt: WHILE cmp THEN block END  */
   if (yyn == 43)
-    /* "jflexbison/YYParser.y":508  */
+    /* "YYParser.y":514  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp THEN block END ");
 		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
@@ -1316,7 +1316,7 @@ class YYParser
 
   case 44: /* while_stmt: WHILE cmp THEN END  */
   if (yyn == 44)
-    /* "jflexbison/YYParser.y":520  */
+    /* "YYParser.y":526  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp THEN END ");
 		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1332,7 +1332,7 @@ class YYParser
 
   case 45: /* if_stmt: IF cmp THEN block elseif_stmt_list else_stmt END  */
   if (yyn == 45)
-    /* "jflexbison/YYParser.y":534  */
+    /* "YYParser.y":540  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IF cmp THEN block elseif_stmt_list else_stmt END");
 		if_stmt p = ((Yylex)yylexer).new_node(if_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (5))).ival);
@@ -1350,7 +1350,7 @@ class YYParser
 
   case 46: /* if_stmt: IF cmp THEN elseif_stmt_list else_stmt END  */
   if (yyn == 46)
-    /* "jflexbison/YYParser.y":548  */
+    /* "YYParser.y":554  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IF cmp THEN elseif_stmt_list else_stmt END");
 		if_stmt p = ((Yylex)yylexer).new_node(if_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (4))).ival);
@@ -1368,7 +1368,7 @@ class YYParser
 
   case 47: /* elseif_stmt_list: %empty  */
   if (yyn == 47)
-    /* "jflexbison/YYParser.y":564  */
+    /* "YYParser.y":570  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty");
 		
@@ -1381,7 +1381,7 @@ class YYParser
 
   case 48: /* elseif_stmt_list: elseif_stmt_list elseif_stmt  */
   if (yyn == 48)
-    /* "jflexbison/YYParser.y":573  */
+    /* "YYParser.y":579  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: elseif_stmt_list elseif_stmt");
 		elseif_stmt_list p = (elseif_stmt_list)((ParserVal)yystack.valueAt (1)).obj;
@@ -1396,7 +1396,7 @@ class YYParser
 
   case 49: /* elseif_stmt_list: elseif_stmt  */
   if (yyn == 49)
-    /* "jflexbison/YYParser.y":584  */
+    /* "YYParser.y":590  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: elseif_stmt");
 		elseif_stmt_list p = ((Yylex)yylexer).new_node(elseif_stmt_list.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1411,7 +1411,7 @@ class YYParser
 
   case 50: /* elseif_stmt: ELSEIF cmp THEN block  */
   if (yyn == 50)
-    /* "jflexbison/YYParser.y":597  */
+    /* "YYParser.y":603  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSEIF cmp THEN block");
 		elseif_stmt p = ((Yylex)yylexer).new_node(elseif_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1427,7 +1427,7 @@ class YYParser
 
   case 51: /* elseif_stmt: ELSEIF cmp THEN  */
   if (yyn == 51)
-    /* "jflexbison/YYParser.y":609  */
+    /* "YYParser.y":615  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSEIF cmp THEN");
 		elseif_stmt p = ((Yylex)yylexer).new_node(elseif_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
@@ -1443,7 +1443,7 @@ class YYParser
 
   case 52: /* else_stmt: %empty  */
   if (yyn == 52)
-    /* "jflexbison/YYParser.y":623  */
+    /* "YYParser.y":629  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty");
 		
@@ -1456,7 +1456,7 @@ class YYParser
 
   case 53: /* else_stmt: ELSE block  */
   if (yyn == 53)
-    /* "jflexbison/YYParser.y":632  */
+    /* "YYParser.y":638  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSE block");
 		else_stmt p = ((Yylex)yylexer).new_node(else_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1471,7 +1471,7 @@ class YYParser
 
   case 54: /* else_stmt: ELSE  */
   if (yyn == 54)
-    /* "jflexbison/YYParser.y":643  */
+    /* "YYParser.y":649  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: ELSE");
 		else_stmt p = ((Yylex)yylexer).new_node(else_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
@@ -1486,7 +1486,7 @@ class YYParser
 
   case 55: /* cmp: OPEN_BRACKET cmp CLOSE_BRACKET  */
   if (yyn == 55)
-    /* "jflexbison/YYParser.y":656  */
+    /* "YYParser.y":662  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET cmp CLOSE_BRACKET");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (1)));
@@ -1496,7 +1496,7 @@ class YYParser
 
   case 56: /* cmp: cmp AND cmp  */
   if (yyn == 56)
-    /* "jflexbison/YYParser.y":662  */
+    /* "YYParser.y":668  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp AND cmp");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1513,7 +1513,7 @@ class YYParser
 
   case 57: /* cmp: cmp OR cmp  */
   if (yyn == 57)
-    /* "jflexbison/YYParser.y":675  */
+    /* "YYParser.y":681  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp OR cmp");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1530,7 +1530,7 @@ class YYParser
 
   case 58: /* cmp: cmp_value LESS cmp_value  */
   if (yyn == 58)
-    /* "jflexbison/YYParser.y":688  */
+    /* "YYParser.y":694  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value LESS cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1547,7 +1547,7 @@ class YYParser
 
   case 59: /* cmp: cmp_value MORE cmp_value  */
   if (yyn == 59)
-    /* "jflexbison/YYParser.y":701  */
+    /* "YYParser.y":707  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value MORE cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1564,7 +1564,7 @@ class YYParser
 
   case 60: /* cmp: cmp_value EQUAL cmp_value  */
   if (yyn == 60)
-    /* "jflexbison/YYParser.y":714  */
+    /* "YYParser.y":720  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value EQUAL cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1581,7 +1581,7 @@ class YYParser
 
   case 61: /* cmp: cmp_value MORE_OR_EQUAL cmp_value  */
   if (yyn == 61)
-    /* "jflexbison/YYParser.y":727  */
+    /* "YYParser.y":733  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value MORE_OR_EQUAL cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1598,7 +1598,7 @@ class YYParser
 
   case 62: /* cmp: cmp_value LESS_OR_EQUAL cmp_value  */
   if (yyn == 62)
-    /* "jflexbison/YYParser.y":740  */
+    /* "YYParser.y":746  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value LESS_OR_EQUAL cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1615,7 +1615,7 @@ class YYParser
 
   case 63: /* cmp: cmp_value NOT_EQUAL cmp_value  */
   if (yyn == 63)
-    /* "jflexbison/YYParser.y":753  */
+    /* "YYParser.y":759  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value NOT_EQUAL cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1632,7 +1632,7 @@ class YYParser
 
   case 64: /* cmp: cmp_value  */
   if (yyn == 64)
-    /* "jflexbison/YYParser.y":769  */
+    /* "YYParser.y":775  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1649,7 +1649,7 @@ class YYParser
 
   case 65: /* cmp: IS cmp_value  */
   if (yyn == 65)
-    /* "jflexbison/YYParser.y":782  */
+    /* "YYParser.y":788  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IS cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1666,7 +1666,7 @@ class YYParser
 
   case 66: /* cmp: NOT cmp_value  */
   if (yyn == 66)
-    /* "jflexbison/YYParser.y":795  */
+    /* "YYParser.y":801  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NOT cmp_value");
 		cmp_stmt p = ((Yylex)yylexer).new_node(cmp_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1683,7 +1683,7 @@ class YYParser
 
   case 67: /* cmp_value: expr_value  */
   if (yyn == 67)
-    /* "jflexbison/YYParser.y":813  */
+    /* "YYParser.y":819  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1693,7 +1693,7 @@ class YYParser
 
   case 68: /* return_stmt: RETURN return_value_list  */
   if (yyn == 68)
-    /* "jflexbison/YYParser.y":821  */
+    /* "YYParser.y":827  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: RETURN return_value_list");
 		return_stmt p = ((Yylex)yylexer).new_node(return_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1708,7 +1708,7 @@ class YYParser
 
   case 69: /* return_stmt: RETURN  */
   if (yyn == 69)
-    /* "jflexbison/YYParser.y":832  */
+    /* "YYParser.y":838  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: RETURN");
 		return_stmt p = ((Yylex)yylexer).new_node(return_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
@@ -1723,7 +1723,7 @@ class YYParser
 
   case 70: /* return_value_list: return_value_list ARG_SPLITTER return_value  */
   if (yyn == 70)
-    /* "jflexbison/YYParser.y":845  */
+    /* "YYParser.y":851  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_value_list ARG_SPLITTER return_value");
 		return_value_list_node p = (return_value_list_node)((ParserVal)yystack.valueAt (2)).obj;
@@ -1738,7 +1738,7 @@ class YYParser
 
   case 71: /* return_value_list: return_value  */
   if (yyn == 71)
-    /* "jflexbison/YYParser.y":856  */
+    /* "YYParser.y":862  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: return_value");
 		return_value_list_node p = ((Yylex)yylexer).new_node(return_value_list_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1753,7 +1753,7 @@ class YYParser
 
   case 72: /* return_value: explicit_value  */
   if (yyn == 72)
-    /* "jflexbison/YYParser.y":869  */
+    /* "YYParser.y":875  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1763,7 +1763,7 @@ class YYParser
 
   case 73: /* return_value: variable  */
   if (yyn == 73)
-    /* "jflexbison/YYParser.y":875  */
+    /* "YYParser.y":881  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1773,7 +1773,7 @@ class YYParser
 
   case 74: /* return_value: expr  */
   if (yyn == 74)
-    /* "jflexbison/YYParser.y":881  */
+    /* "YYParser.y":887  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1783,7 +1783,7 @@ class YYParser
 
   case 75: /* assign_stmt: var ASSIGN assign_value  */
   if (yyn == 75)
-    /* "jflexbison/YYParser.y":889  */
+    /* "YYParser.y":895  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var ASSIGN assign_value");
 		assign_stmt p = ((Yylex)yylexer).new_node(assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1800,7 +1800,7 @@ class YYParser
 
   case 76: /* assign_stmt: var NEW_ASSIGN assign_value  */
   if (yyn == 76)
-    /* "jflexbison/YYParser.y":902  */
+    /* "YYParser.y":908  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var NEW_ASSIGN assign_value");
 		assign_stmt p = ((Yylex)yylexer).new_node(assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1817,7 +1817,7 @@ class YYParser
 
   case 77: /* multi_assign_stmt: var_list ASSIGN function_call  */
   if (yyn == 77)
-    /* "jflexbison/YYParser.y":917  */
+    /* "YYParser.y":923  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var_list ASSIGN function_call");
 		multi_assign_stmt p = ((Yylex)yylexer).new_node(multi_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1834,7 +1834,7 @@ class YYParser
 
   case 78: /* multi_assign_stmt: var_list NEW_ASSIGN function_call  */
   if (yyn == 78)
-    /* "jflexbison/YYParser.y":930  */
+    /* "YYParser.y":936  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var_list NEW_ASSIGN function_call");
 		multi_assign_stmt p = ((Yylex)yylexer).new_node(multi_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1851,7 +1851,7 @@ class YYParser
 
   case 79: /* var_list: var_list ARG_SPLITTER var  */
   if (yyn == 79)
-    /* "jflexbison/YYParser.y":945  */
+    /* "YYParser.y":951  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var_list ARG_SPLITTER var");
 		var_list_node p = (var_list_node)((ParserVal)yystack.valueAt (2)).obj;
@@ -1866,7 +1866,7 @@ class YYParser
 
   case 80: /* var_list: var  */
   if (yyn == 80)
-    /* "jflexbison/YYParser.y":956  */
+    /* "YYParser.y":962  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: var");
 		var_list_node p = ((Yylex)yylexer).new_node(var_list_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -1881,7 +1881,7 @@ class YYParser
 
   case 81: /* assign_value: explicit_value  */
   if (yyn == 81)
-    /* "jflexbison/YYParser.y":969  */
+    /* "YYParser.y":975  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1891,7 +1891,7 @@ class YYParser
 
   case 82: /* assign_value: variable  */
   if (yyn == 82)
-    /* "jflexbison/YYParser.y":975  */
+    /* "YYParser.y":981  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1901,7 +1901,7 @@ class YYParser
 
   case 83: /* assign_value: expr  */
   if (yyn == 83)
-    /* "jflexbison/YYParser.y":981  */
+    /* "YYParser.y":987  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -1911,7 +1911,7 @@ class YYParser
 
   case 84: /* math_assign_stmt: variable PLUS_ASSIGN assign_value  */
   if (yyn == 84)
-    /* "jflexbison/YYParser.y":989  */
+    /* "YYParser.y":995  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable PLUS_ASSIGN assign_value");
 		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1928,7 +1928,7 @@ class YYParser
 
   case 85: /* math_assign_stmt: variable MINUS_ASSIGN assign_value  */
   if (yyn == 85)
-    /* "jflexbison/YYParser.y":1002  */
+    /* "YYParser.y":1008  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable MINUS_ASSIGN assign_value");
 		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1945,7 +1945,7 @@ class YYParser
 
   case 86: /* math_assign_stmt: variable DIVIDE_ASSIGN assign_value  */
   if (yyn == 86)
-    /* "jflexbison/YYParser.y":1015  */
+    /* "YYParser.y":1021  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable DIVIDE_ASSIGN assign_value");
 		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1962,7 +1962,7 @@ class YYParser
 
   case 87: /* math_assign_stmt: variable DIVIDE_FLOOR_ASSIGN assign_value  */
   if (yyn == 87)
-    /* "jflexbison/YYParser.y":1028  */
+    /* "YYParser.y":1034  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable DIVIDE_FLOOR_ASSIGN assign_value");
 		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1979,7 +1979,7 @@ class YYParser
 
   case 88: /* math_assign_stmt: variable MULTIPLY_ASSIGN assign_value  */
   if (yyn == 88)
-    /* "jflexbison/YYParser.y":1041  */
+    /* "YYParser.y":1047  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable MULTIPLY_ASSIGN assign_value");
 		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -1996,7 +1996,7 @@ class YYParser
 
   case 89: /* math_assign_stmt: variable DIVIDE_MOD_ASSIGN assign_value  */
   if (yyn == 89)
-    /* "jflexbison/YYParser.y":1054  */
+    /* "YYParser.y":1060  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable DIVIDE_MOD_ASSIGN assign_value");
 		math_assign_stmt p = ((Yylex)yylexer).new_node(math_assign_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2013,7 +2013,7 @@ class YYParser
 
   case 90: /* math_assign_stmt: variable INC  */
   if (yyn == 90)
-    /* "jflexbison/YYParser.y":1067  */
+    /* "YYParser.y":1073  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable INC");
 		explicit_value_node pp = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
@@ -2034,7 +2034,7 @@ class YYParser
 
   case 91: /* var: VAR_BEGIN IDENTIFIER  */
   if (yyn == 91)
-    /* "jflexbison/YYParser.y":1086  */
+    /* "YYParser.y":1092  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: VAR_BEGIN IDENTIFIER");
 		var_node p = ((Yylex)yylexer).new_node(var_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2049,7 +2049,7 @@ class YYParser
 
   case 92: /* var: variable  */
   if (yyn == 92)
-    /* "jflexbison/YYParser.y":1097  */
+    /* "YYParser.y":1103  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2059,7 +2059,7 @@ class YYParser
 
   case 93: /* variable: IDENTIFIER  */
   if (yyn == 93)
-    /* "jflexbison/YYParser.y":1105  */
+    /* "YYParser.y":1111  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER");
 		variable_node p = ((Yylex)yylexer).new_node(variable_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2074,7 +2074,7 @@ class YYParser
 
   case 94: /* variable: IDENTIFIER OPEN_SQUARE_BRACKET expr_value CLOSE_SQUARE_BRACKET  */
   if (yyn == 94)
-    /* "jflexbison/YYParser.y":1116  */
+    /* "YYParser.y":1122  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER OPEN_SQUARE_BRACKET expr_value CLOSE_SQUARE_BRACKET");
 		container_get_node p = ((Yylex)yylexer).new_node(container_get_node.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
@@ -2090,7 +2090,7 @@ class YYParser
 
   case 95: /* variable: IDENTIFIER_POINTER  */
   if (yyn == 95)
-    /* "jflexbison/YYParser.y":1128  */
+    /* "YYParser.y":1134  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER_POINTER");
 		struct_pointer_node p = ((Yylex)yylexer).new_node(struct_pointer_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2105,7 +2105,7 @@ class YYParser
 
   case 96: /* variable: IDENTIFIER_DOT  */
   if (yyn == 96)
-    /* "jflexbison/YYParser.y":1139  */
+    /* "YYParser.y":1145  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER_DOT");
 		variable_node p = ((Yylex)yylexer).new_node(variable_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2120,7 +2120,7 @@ class YYParser
 
   case 97: /* math_expr: OPEN_BRACKET expr_value CLOSE_BRACKET  */
   if (yyn == 97)
-    /* "jflexbison/YYParser.y":1155  */
+    /* "YYParser.y":1161  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BRACKET expr_value CLOSE_BRACKET");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (1)));
@@ -2130,7 +2130,7 @@ class YYParser
 
   case 98: /* math_expr: expr_value PLUS expr_value  */
   if (yyn == 98)
-    /* "jflexbison/YYParser.y":1161  */
+    /* "YYParser.y":1167  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value PLUS expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2147,7 +2147,7 @@ class YYParser
 
   case 99: /* math_expr: expr_value MINUS expr_value  */
   if (yyn == 99)
-    /* "jflexbison/YYParser.y":1174  */
+    /* "YYParser.y":1180  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value MINUS expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2164,7 +2164,7 @@ class YYParser
 
   case 100: /* math_expr: expr_value MULTIPLY expr_value  */
   if (yyn == 100)
-    /* "jflexbison/YYParser.y":1187  */
+    /* "YYParser.y":1193  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value MULTIPLY expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2181,7 +2181,7 @@ class YYParser
 
   case 101: /* math_expr: expr_value DIVIDE expr_value  */
   if (yyn == 101)
-    /* "jflexbison/YYParser.y":1200  */
+    /* "YYParser.y":1206  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value DIVIDE expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2198,7 +2198,7 @@ class YYParser
 
   case 102: /* math_expr: expr_value DIVIDE_MOD expr_value  */
   if (yyn == 102)
-    /* "jflexbison/YYParser.y":1213  */
+    /* "YYParser.y":1219  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value DIVIDE_MOD expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2215,7 +2215,7 @@ class YYParser
 
   case 103: /* math_expr: expr_value DIVIDE_FLOOR expr_value  */
   if (yyn == 103)
-    /* "jflexbison/YYParser.y":1226  */
+    /* "YYParser.y":1232  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value DIVIDE_FLOOR expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2232,7 +2232,7 @@ class YYParser
 
   case 104: /* math_expr: expr_value BIT_AND expr_value  */
   if (yyn == 104)
-    /* "jflexbison/YYParser.y":1239  */
+    /* "YYParser.y":1245  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value BIT_AND expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2249,7 +2249,7 @@ class YYParser
 
   case 105: /* math_expr: expr_value BIT_OR expr_value  */
   if (yyn == 105)
-    /* "jflexbison/YYParser.y":1252  */
+    /* "YYParser.y":1258  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value BIT_OR expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2266,7 +2266,7 @@ class YYParser
 
   case 106: /* math_expr: expr_value WAVE expr_value  */
   if (yyn == 106)
-    /* "jflexbison/YYParser.y":1265  */
+    /* "YYParser.y":1271  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value WAVE expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2283,7 +2283,7 @@ class YYParser
 
   case 107: /* math_expr: expr_value SHIFT_LEFT expr_value  */
   if (yyn == 107)
-    /* "jflexbison/YYParser.y":1278  */
+    /* "YYParser.y":1284  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value SHIFT_LEFT expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2300,7 +2300,7 @@ class YYParser
 
   case 108: /* math_expr: expr_value SHIFT_RIGHT expr_value  */
   if (yyn == 108)
-    /* "jflexbison/YYParser.y":1291  */
+    /* "YYParser.y":1297  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value SHIFT_RIGHT expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2317,7 +2317,7 @@ class YYParser
 
   case 109: /* math_expr: expr_value STRING_CAT expr_value  */
   if (yyn == 109)
-    /* "jflexbison/YYParser.y":1304  */
+    /* "YYParser.y":1310  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: expr_value STRING_CAT expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2334,7 +2334,7 @@ class YYParser
 
   case 110: /* expr_value: math_expr  */
   if (yyn == 110)
-    /* "jflexbison/YYParser.y":1320  */
+    /* "YYParser.y":1326  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2344,7 +2344,7 @@ class YYParser
 
   case 111: /* expr_value: unary_expr  */
   if (yyn == 111)
-    /* "jflexbison/YYParser.y":1326  */
+    /* "YYParser.y":1332  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: unary_expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2354,7 +2354,7 @@ class YYParser
 
   case 112: /* expr_value: explicit_value  */
   if (yyn == 112)
-    /* "jflexbison/YYParser.y":1332  */
+    /* "YYParser.y":1338  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2364,7 +2364,7 @@ class YYParser
 
   case 113: /* expr_value: function_call  */
   if (yyn == 113)
-    /* "jflexbison/YYParser.y":1338  */
+    /* "YYParser.y":1344  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2374,7 +2374,7 @@ class YYParser
 
   case 114: /* expr_value: variable  */
   if (yyn == 114)
-    /* "jflexbison/YYParser.y":1344  */
+    /* "YYParser.y":1350  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2384,7 +2384,7 @@ class YYParser
 
   case 115: /* unary_expr: UNARY_MINUS expr_value  */
   if (yyn == 115)
-    /* "jflexbison/YYParser.y":1356  */
+    /* "YYParser.y":1362  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: UNARY MINUS expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2401,7 +2401,7 @@ class YYParser
 
   case 116: /* unary_expr: UNARY_WAVE expr_value  */
   if (yyn == 116)
-    /* "jflexbison/YYParser.y":1369  */
+    /* "YYParser.y":1375  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: UNARY WAVE expr_value");
 		math_expr_node p = ((Yylex)yylexer).new_node(math_expr_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2418,7 +2418,7 @@ class YYParser
 
   case 117: /* expr: function_call  */
   if (yyn == 117)
-    /* "jflexbison/YYParser.y":1387  */
+    /* "YYParser.y":1393  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: function_call");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2428,7 +2428,7 @@ class YYParser
 
   case 118: /* expr: math_expr  */
   if (yyn == 118)
-    /* "jflexbison/YYParser.y":1393  */
+    /* "YYParser.y":1399  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: math_expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2438,7 +2438,7 @@ class YYParser
 
   case 119: /* expr: unary_expr  */
   if (yyn == 119)
-    /* "jflexbison/YYParser.y":1399  */
+    /* "YYParser.y":1405  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: unary_expr");
 		yyval = ((ParserVal)((ParserVal)yystack.valueAt (0)));
@@ -2448,7 +2448,7 @@ class YYParser
 
   case 120: /* break: BREAK  */
   if (yyn == 120)
-    /* "jflexbison/YYParser.y":1407  */
+    /* "YYParser.y":1413  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: BREAK");
 		break_stmt p = ((Yylex)yylexer).new_node(break_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
@@ -2462,7 +2462,7 @@ class YYParser
 
   case 121: /* continue: CONTINUE  */
   if (yyn == 121)
-    /* "jflexbison/YYParser.y":1419  */
+    /* "YYParser.y":1425  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: CONTINUE");
 		continue_stmt p = ((Yylex)yylexer).new_node(continue_stmt.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
@@ -2476,7 +2476,7 @@ class YYParser
 
   case 122: /* sleep: SLEEP expr_value  */
   if (yyn == 122)
-    /* "jflexbison/YYParser.y":1431  */
+    /* "YYParser.y":1437  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SLEEP");
 		sleep_stmt p = ((Yylex)yylexer).new_node(sleep_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2491,7 +2491,7 @@ class YYParser
 
   case 123: /* yield: YIELD expr_value  */
   if (yyn == 123)
-    /* "jflexbison/YYParser.y":1444  */
+    /* "YYParser.y":1450  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: YIELD");
 		yield_stmt p = ((Yylex)yylexer).new_node(yield_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2506,7 +2506,7 @@ class YYParser
 
   case 124: /* switch_stmt: SWITCH cmp_value switch_case_list DEFAULT block END  */
   if (yyn == 124)
-    /* "jflexbison/YYParser.y":1457  */
+    /* "YYParser.y":1463  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SWITCH cmp_value switch_case_list DEFAULT block END");
 		switch_stmt p = ((Yylex)yylexer).new_node(switch_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (4))).ival);
@@ -2523,7 +2523,7 @@ class YYParser
 
   case 125: /* switch_stmt: SWITCH cmp_value switch_case_list DEFAULT END  */
   if (yyn == 125)
-    /* "jflexbison/YYParser.y":1470  */
+    /* "YYParser.y":1476  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SWITCH cmp_value switch_case_list DEFAULT END");
 		switch_stmt p = ((Yylex)yylexer).new_node(switch_stmt.class, ((ParserVal)((ParserVal)yystack.valueAt (3))).ival);
@@ -2540,7 +2540,7 @@ class YYParser
 
   case 126: /* switch_case_list: switch_case_define  */
   if (yyn == 126)
-    /* "jflexbison/YYParser.y":1485  */
+    /* "YYParser.y":1491  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: switch_case_define");
 		switch_caselist_node p = ((Yylex)yylexer).new_node(switch_caselist_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2555,7 +2555,7 @@ class YYParser
 
   case 127: /* switch_case_list: switch_case_list switch_case_define  */
   if (yyn == 127)
-    /* "jflexbison/YYParser.y":1496  */
+    /* "YYParser.y":1502  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: switch_case_list switch_case_define");
 		switch_caselist_node p = (switch_caselist_node)((ParserVal)yystack.valueAt (1)).obj;
@@ -2570,7 +2570,7 @@ class YYParser
 
   case 128: /* switch_case_define: CASE cmp_value THEN block  */
   if (yyn == 128)
-    /* "jflexbison/YYParser.y":1509  */
+    /* "YYParser.y":1515  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: CASE cmp_value THEN block");
 		switch_case_node p = ((Yylex)yylexer).new_node(switch_case_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2586,7 +2586,7 @@ class YYParser
 
   case 129: /* switch_case_define: CASE cmp_value THEN  */
   if (yyn == 129)
-    /* "jflexbison/YYParser.y":1521  */
+    /* "YYParser.y":1527  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: CASE cmp_value THEN");
 		switch_case_node p = ((Yylex)yylexer).new_node(switch_case_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
@@ -2602,7 +2602,7 @@ class YYParser
 
   case 130: /* package_head: %empty  */
   if (yyn == 130)
-    /* "jflexbison/YYParser.y":1535  */
+    /* "YYParser.y":1541  */
         {
 	};
   break;
@@ -2610,7 +2610,7 @@ class YYParser
 
   case 131: /* package_head: PACKAGE IDENTIFIER  */
   if (yyn == 131)
-    /* "jflexbison/YYParser.y":1539  */
+    /* "YYParser.y":1545  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: PACKAGE IDENTIFIER ");
 		((Yylex)yylexer).get_mybison().set_package(((ParserVal)yystack.valueAt (0)).sval);
@@ -2620,7 +2620,7 @@ class YYParser
 
   case 132: /* package_head: PACKAGE IDENTIFIER_DOT  */
   if (yyn == 132)
-    /* "jflexbison/YYParser.y":1545  */
+    /* "YYParser.y":1551  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: PACKAGE IDENTIFIER_DOT ");
 		((Yylex)yylexer).get_mybison().set_package(((ParserVal)yystack.valueAt (0)).sval);
@@ -2630,7 +2630,7 @@ class YYParser
 
   case 133: /* include_head: %empty  */
   if (yyn == 133)
-    /* "jflexbison/YYParser.y":1553  */
+    /* "YYParser.y":1559  */
         {
 	};
   break;
@@ -2638,7 +2638,7 @@ class YYParser
 
   case 136: /* include_define: INCLUDE STRING_DEFINITION  */
   if (yyn == 136)
-    /* "jflexbison/YYParser.y":1563  */
+    /* "YYParser.y":1569  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: INCLUDE STRING_DEFINITION ");
 		((Yylex)yylexer).get_mybison().add_include(((ParserVal)yystack.valueAt (0)).sval);
@@ -2648,7 +2648,7 @@ class YYParser
 
   case 137: /* struct_head: %empty  */
   if (yyn == 137)
-    /* "jflexbison/YYParser.y":1571  */
+    /* "YYParser.y":1577  */
         {
 	};
   break;
@@ -2656,7 +2656,7 @@ class YYParser
 
   case 140: /* struct_define: STRUCT IDENTIFIER struct_mem_declaration END  */
   if (yyn == 140)
-    /* "jflexbison/YYParser.y":1581  */
+    /* "YYParser.y":1587  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: STRUCT IDENTIFIER struct_mem_declaration END ");
 		((Yylex)yylexer).get_mybison().add_struct_desc(((ParserVal)yystack.valueAt (2)).sval);
@@ -2666,7 +2666,7 @@ class YYParser
 
   case 141: /* struct_mem_declaration: struct_mem_declaration IDENTIFIER  */
   if (yyn == 141)
-    /* "jflexbison/YYParser.y":1589  */
+    /* "YYParser.y":1595  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: struct_mem_declaration IDENTIFIER ");
 	};
@@ -2675,7 +2675,7 @@ class YYParser
 
   case 142: /* struct_mem_declaration: IDENTIFIER  */
   if (yyn == 142)
-    /* "jflexbison/YYParser.y":1594  */
+    /* "YYParser.y":1600  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: IDENTIFIER ");
 	};
@@ -2684,7 +2684,7 @@ class YYParser
 
   case 143: /* const_head: %empty  */
   if (yyn == 143)
-    /* "jflexbison/YYParser.y":1601  */
+    /* "YYParser.y":1607  */
         {
 	};
   break;
@@ -2692,7 +2692,7 @@ class YYParser
 
   case 146: /* const_define: FCONST IDENTIFIER ASSIGN explicit_value  */
   if (yyn == 146)
-    /* "jflexbison/YYParser.y":1611  */
+    /* "YYParser.y":1617  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FCONST IDENTIFIER ASSIGN explicit_value ");
 		((Yylex)yylexer).get_mybison().add_const_desc(((ParserVal)yystack.valueAt (2)).sval, (syntree_node)((ParserVal)yystack.valueAt (0)).obj);
@@ -2702,7 +2702,7 @@ class YYParser
 
   case 147: /* explicit_value: NULL  */
   if (yyn == 147)
-    /* "jflexbison/YYParser.y":1619  */
+    /* "YYParser.y":1625  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NULL ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
@@ -2717,7 +2717,7 @@ class YYParser
 
   case 148: /* explicit_value: FTRUE  */
   if (yyn == 148)
-    /* "jflexbison/YYParser.y":1630  */
+    /* "YYParser.y":1636  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FTRUE ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
@@ -2732,7 +2732,7 @@ class YYParser
 
   case 149: /* explicit_value: FFALSE  */
   if (yyn == 149)
-    /* "jflexbison/YYParser.y":1641  */
+    /* "YYParser.y":1647  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FFALSE ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
@@ -2747,7 +2747,7 @@ class YYParser
 
   case 150: /* explicit_value: NUMBER  */
   if (yyn == 150)
-    /* "jflexbison/YYParser.y":1652  */
+    /* "YYParser.y":1658  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: NUMBER ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2763,7 +2763,7 @@ class YYParser
 
   case 151: /* explicit_value: FKUUID  */
   if (yyn == 151)
-    /* "jflexbison/YYParser.y":1664  */
+    /* "YYParser.y":1670  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FKUUID ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2779,7 +2779,7 @@ class YYParser
 
   case 152: /* explicit_value: STRING_DEFINITION  */
   if (yyn == 152)
-    /* "jflexbison/YYParser.y":1676  */
+    /* "YYParser.y":1682  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: STRING_DEFINITION ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2795,7 +2795,7 @@ class YYParser
 
   case 153: /* explicit_value: FKFLOAT  */
   if (yyn == 153)
-    /* "jflexbison/YYParser.y":1688  */
+    /* "YYParser.y":1694  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FKFLOAT ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2811,7 +2811,7 @@ class YYParser
 
   case 154: /* explicit_value: OPEN_BIG_BRACKET const_map_list_value CLOSE_BIG_BRACKET  */
   if (yyn == 154)
-    /* "jflexbison/YYParser.y":1700  */
+    /* "YYParser.y":1706  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET const_map_list_value CLOSE_BIG_BRACKET ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
@@ -2827,7 +2827,7 @@ class YYParser
 
   case 155: /* explicit_value: OPEN_SQUARE_BRACKET const_array_list_value CLOSE_SQUARE_BRACKET  */
   if (yyn == 155)
-    /* "jflexbison/YYParser.y":1712  */
+    /* "YYParser.y":1718  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET const_array_list_value CLOSE_BIG_BRACKET ");
 		explicit_value_node p = ((Yylex)yylexer).new_node(explicit_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (1))).ival);
@@ -2843,7 +2843,7 @@ class YYParser
 
   case 156: /* const_map_list_value: %empty  */
   if (yyn == 156)
-    /* "jflexbison/YYParser.y":1727  */
+    /* "YYParser.y":1733  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty ");
 		const_map_list_value_node p = ((Yylex)yylexer).new_node(const_map_list_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
@@ -2857,7 +2857,7 @@ class YYParser
 
   case 157: /* const_map_list_value: const_map_value  */
   if (yyn == 157)
-    /* "jflexbison/YYParser.y":1737  */
+    /* "YYParser.y":1743  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: const_map_value ");
 		const_map_list_value_node p = ((Yylex)yylexer).new_node(const_map_list_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2872,7 +2872,7 @@ class YYParser
 
   case 158: /* const_map_list_value: const_map_list_value const_map_value  */
   if (yyn == 158)
-    /* "jflexbison/YYParser.y":1748  */
+    /* "YYParser.y":1754  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: const_map_list_value const_map_value ");
 		const_map_list_value_node p = (const_map_list_value_node)((ParserVal)yystack.valueAt (1)).obj;
@@ -2887,7 +2887,7 @@ class YYParser
 
   case 159: /* const_map_value: explicit_value COLON explicit_value  */
   if (yyn == 159)
-    /* "jflexbison/YYParser.y":1762  */
+    /* "YYParser.y":1768  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value COLON explicit_value ");
 		const_map_value_node p = ((Yylex)yylexer).new_node(const_map_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (2))).ival);
@@ -2903,7 +2903,7 @@ class YYParser
 
   case 160: /* const_array_list_value: %empty  */
   if (yyn == 160)
-    /* "jflexbison/YYParser.y":1776  */
+    /* "YYParser.y":1782  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: empty ");
 		const_array_list_value_node p = ((Yylex)yylexer).new_node(const_array_list_value_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line());
@@ -2917,7 +2917,7 @@ class YYParser
 
   case 161: /* const_array_list_value: explicit_value  */
   if (yyn == 161)
-    /* "jflexbison/YYParser.y":1786  */
+    /* "YYParser.y":1792  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: explicit_value ");
 		const_array_list_value_node p = ((Yylex)yylexer).new_node(const_array_list_value_node.class, ((ParserVal)((ParserVal)yystack.valueAt (0))).ival);
@@ -2932,7 +2932,7 @@ class YYParser
 
   case 162: /* const_array_list_value: const_array_list_value explicit_value  */
   if (yyn == 162)
-    /* "jflexbison/YYParser.y":1797  */
+    /* "YYParser.y":1803  */
         {
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: const_array_list_value explicit_value ");
 		const_array_list_value_node p = (const_array_list_value_node)((ParserVal)yystack.valueAt (1)).obj;
@@ -2946,7 +2946,7 @@ class YYParser
 
 
 
-/* "src/main/java/com/github/esrrhs/fakescript/YYParser.java":2950  */
+/* "/Users/mingming/project/fakescript_java/src/main/java/com/github/esrrhs/fakescript/YYParser.java":2950  */
 
         default: break;
       }
@@ -3309,33 +3309,33 @@ class YYParser
   {
     return new short[]
     {
-      53,    12,    49,    15,  -221,  -221,  -221,   100,   -24,  -221,
-    -221,   106,  -221,   132,  -221,   109,   133,  -221,    11,  -221,
-    -221,   164,   112,   137,   165,  -221,  -221,  -221,  -221,    25,
-     150,  -221,  -221,  -221,  -221,  -221,  -221,  -221,    25,    25,
-    -221,  -221,   168,  -221,     7,   154,   219,  -221,  -221,    -1,
-    -221,  -221,  -221,    25,  -221,  -221,   168,   576,  -221,  -221,
-     182,  1554,  -221,   464,   464,  -221,    -3,  1554,  1551,    57,
-     173,  -221,  -221,  1554,  1554,  1554,  1554,  1554,  1593,   651,
+      30,    10,    32,    -1,  -221,  -221,  -221,    51,   104,  -221,
+    -221,   106,  -221,   -29,  -221,   133,   137,  -221,     0,  -221,
+    -221,    14,   151,   168,   179,  -221,  -221,  -221,  -221,    25,
+     156,  -221,  -221,  -221,  -221,  -221,  -221,  -221,    25,    25,
+    -221,  -221,   173,  -221,     7,   148,   219,  -221,  -221,    12,
+    -221,  -221,  -221,    25,  -221,  -221,   173,   576,  -221,  -221,
+     175,  1554,  -221,   464,   464,  -221,    -3,  1554,  1551,    57,
+     160,  -221,  -221,  1554,  1554,  1554,  1554,  1554,  1593,   651,
     -221,  -221,  -221,  -221,  -221,  -221,  -221,  -221,  -221,    16,
-    -221,   -18,   863,   843,   993,  1068,  -221,  -221,  -221,  -221,
-    -221,  -221,  -221,  -221,   180,  -221,  1615,  -221,  1143,   464,
-    1554,  1554,    38,   128,   280,   167,  -221,   993,  -221,   256,
-    1554,  1554,   768,   726,   -17,    38,   167,  1554,   993,   993,
-     146,  -221,  -221,  1554,   198,  -221,  -221,   122,    57,    57,
-    1554,  1554,  1554,  1554,  1554,  1554,  1554,   201,  -221,  1554,
+    -221,   -17,   863,   843,   993,  1068,  -221,  -221,  -221,  -221,
+    -221,  -221,  -221,  -221,   176,  -221,  1615,  -221,  1143,   464,
+    1554,  1554,   -21,    91,   280,   158,  -221,   993,  -221,   103,
+    1554,  1554,   768,   726,     2,   -21,   158,  1554,   993,   993,
+     141,  -221,  -221,  1554,   182,  -221,  -221,    52,    57,    57,
+    1554,  1554,  1554,  1554,  1554,  1554,  1554,   189,  -221,  1554,
     1554,  1554,  1554,  1554,  1554,  1554,  1554,  1554,  1554,  1554,
-    1554,  1554,  1554,   266,   768,  -221,  -221,   801,   464,   464,
-    1554,  1554,  1554,  1554,  1554,  1554,   876,     0,  -221,   993,
-    1625,  -221,   464,  1554,    19,  1554,   127,  -221,    58,   190,
-     178,  -221,  -221,  -221,    38,    38,  -221,  1615,  -221,  1143,
-    -221,  -221,  -221,  -221,  -221,  -221,   195,  -221,    29,   136,
-       2,   -10,    30,  -221,   875,    95,  1218,   625,   400,   169,
-    -221,  -221,  -221,   951,   185,   185,  -221,  -221,  -221,  -221,
-    -221,  -221,   464,   876,    -2,  -221,  1554,  -221,  -221,   156,
-     166,  -221,   218,  1026,  -221,  -221,  1554,  1554,  -221,   261,
-      -2,  1551,  -221,   223,  -221,  1551,  1554,  1551,  -221,  1101,
-     121,   159,  1551,   224,  1551,  -221,  1176,   222,  1551,  -221,
+    1554,  1554,  1554,   145,   768,  -221,  -221,   801,   464,   464,
+    1554,  1554,  1554,  1554,  1554,  1554,   876,    19,  -221,   993,
+    1625,  -221,   464,  1554,    44,  1554,    34,  -221,    58,   177,
+     164,  -221,  -221,  -221,   -21,   -21,  -221,  1615,  -221,  1143,
+    -221,  -221,  -221,  -221,  -221,  -221,   185,  -221,  -221,    -5,
+      -5,  -221,  -221,   400,   875,    95,  1218,   625,   400,  -221,
+    -221,  -221,  -221,   951,   147,   147,  -221,  -221,  -221,  -221,
+    -221,  -221,   464,   876,    -4,  -221,  1554,  -221,  -221,   140,
+     142,  -221,   202,  1026,  -221,  -221,  1554,  1554,  -221,   128,
+      -4,  1551,  -221,   205,  -221,  1551,  1554,  1551,  -221,  1101,
+     121,   139,  1551,   206,  1551,  -221,  1176,   207,  1551,  -221,
     -221,  -221,  1551,  -221,  1251,  1554,  -221,  1326,   693,  -221,
     1401,  -221,  1476,  -221
     };
@@ -3387,12 +3387,12 @@ class YYParser
   {
     return new short[]
     {
-    -221,  -221,  -221,   228,  -221,   191,   -11,  -124,    20,   -12,
-      70,  -221,  -221,  -221,  -221,  -221,    26,  -220,    23,   -62,
-     -74,  -221,  -221,   108,  -221,  -221,  -221,   171,  -221,   -63,
+    -221,  -221,  -221,   197,  -221,   174,   -11,  -124,    -7,   -12,
+      70,  -221,  -221,  -221,  -221,  -221,    -9,  -220,   -16,   -62,
+     -74,  -221,  -221,    74,  -221,  -221,  -221,   171,  -221,   -63,
      -57,   135,   393,   181,     1,  -221,  -221,  -221,  -221,  -221,
-    -221,    88,  -221,  -221,   274,  -221,   270,  -221,  -221,   273,
-     345,  -221,   242,  -221
+    -221,    55,  -221,  -221,   229,  -221,   234,  -221,  -221,   238,
+     345,  -221,   213,  -221
     };
   }
 
@@ -3419,37 +3419,37 @@ class YYParser
   {
     return new short[]
     {
-      92,   130,   119,   184,   106,   124,   140,   183,   150,   188,
-     251,    92,   126,   154,   252,    32,    33,    23,    56,   236,
-     150,    34,    92,    35,   153,   154,     7,     4,   120,    11,
-     252,    57,   237,    32,    33,   137,   165,   166,   236,    34,
-     138,    35,    36,   121,   141,   141,    78,   163,   150,     6,
-      78,   241,    37,    38,    51,   155,   123,    78,   125,    16,
-      36,   232,   107,     5,   161,     7,    92,   155,    78,   133,
-      37,    38,    66,    39,   192,    40,   161,   236,   139,   134,
+      92,   130,   119,   184,   106,   124,    23,   140,   251,   188,
+     133,    92,   126,   150,   252,    32,    33,   153,   154,    16,
+     134,    34,    92,    35,    11,     4,   183,    27,   120,    28,
+     252,    56,     6,    32,    33,   137,   165,   166,   236,    34,
+     138,    35,    36,   121,    57,   141,    78,   163,    16,     7,
+      78,   237,    37,    38,    51,    60,   123,    78,   125,   232,
+      36,     5,   107,   236,   141,    10,    92,   190,    78,   161,
+      37,    38,    66,    39,   192,    40,   241,   236,   139,     1,
      193,   126,   126,   197,   197,   197,   197,   197,   197,   197,
-     245,    39,   197,    40,   155,   155,   226,   227,   228,   229,
-     230,   231,     1,   161,   161,   106,   224,   225,    70,    71,
-      92,   242,    78,   150,    10,   151,   152,   153,   154,    92,
-     239,    15,   260,   261,    20,    60,   197,   194,   195,    78,
-      78,    78,    78,    78,    78,    78,    29,   190,    78,   167,
-     236,   198,   198,   198,   198,   198,   198,   198,    22,   136,
-     198,    78,    30,   270,   150,   223,    78,   152,   153,   154,
+     245,    39,   197,    40,   185,   243,   226,   227,   228,   229,
+     230,   231,   167,   191,    71,   106,   224,   225,    70,    71,
+      92,   242,    78,   150,   176,   151,   152,   153,   154,    92,
+     239,    15,   260,   261,   168,   169,   197,   194,   195,    78,
+      78,    78,    78,    78,    78,    78,   168,   169,    78,   262,
+     236,   198,   198,   198,   198,   198,   198,   198,    20,   136,
+     198,    78,    22,   270,     7,   223,    78,    11,   236,   255,
      155,   168,   169,   107,   233,    78,    92,   159,   160,   161,
-     249,    23,    78,   191,    71,   255,    92,    27,   236,    28,
-      16,    42,   267,    48,   198,    11,    92,   185,   243,   168,
-     169,   271,    93,   136,    92,    53,    93,   103,    92,   162,
-      92,   155,    92,    93,   127,    92,   185,    92,   147,    92,
-     161,    92,    78,   189,    93,    92,   206,    92,   168,   169,
-      92,   246,    78,    92,   121,    92,   247,    32,    33,   257,
-     256,   259,    78,    34,   155,    35,   265,   273,    95,   264,
-      78,   275,    95,   266,    78,   268,    78,    59,    78,    95,
-     272,    78,    31,    78,    36,    78,   254,    78,    93,   250,
-      95,    78,   277,    78,    37,    38,    78,   176,   282,    78,
-     220,    78,   262,   263,   244,    93,    93,    93,    93,    93,
-      93,    93,    12,    17,    93,    39,    54,    40,    55,   168,
-     169,    26,     0,   136,   168,   169,     0,    93,   221,   168,
-     169,     0,    93,   136,    95,   170,   171,   172,   173,   174,
+     249,   271,    78,   168,   169,    29,    92,   221,   168,   169,
+     168,   169,   267,    30,   198,    23,    92,    42,    48,    53,
+     103,   127,    93,   136,    92,   162,    93,   189,    92,   147,
+      92,   185,    92,    93,   206,    92,   256,    92,   246,    92,
+     121,    92,    78,   257,    93,    92,   247,    92,   265,   273,
+      92,    31,    78,    92,   250,    92,   275,    32,    33,   254,
+      59,   259,    78,    34,   263,    35,   220,    12,    95,   264,
+      78,   244,    95,   266,    78,   268,    78,    17,    78,    95,
+     272,    78,     0,    78,    36,    78,    26,    78,    93,    55,
+      95,    78,   277,    78,    37,    38,    78,     0,   282,    78,
+       0,    78,     0,     0,     0,    93,    93,    93,    93,    93,
+      93,    93,     0,     0,    93,    39,    54,    40,     0,     0,
+       0,     0,     0,   136,     0,     0,     0,    93,     0,     0,
+       0,     0,    93,   136,    95,   170,   171,   172,   173,   174,
      175,    93,   200,   201,   202,   203,   204,   205,    93,     0,
      207,    95,    95,    95,    95,    95,    95,    95,     0,   136,
       95,     0,     0,     0,   136,     0,   136,     0,   136,     0,
@@ -3597,37 +3597,37 @@ private static final short[] yycheck_ = yycheck_init();
   {
     return new short[]
     {
-      57,    75,    64,   127,    61,    68,    24,    24,    18,   133,
-      12,    68,    69,    23,   234,     8,     9,     6,    19,    19,
-      18,    14,    79,    16,    22,    23,    50,    15,    31,    53,
-     250,    32,    32,     8,     9,    19,   110,   111,    19,    14,
-      24,    16,    35,    46,    62,    62,    57,   109,    18,     0,
-      61,    32,    45,    46,    47,    65,    68,    68,    69,    48,
-      35,    63,    61,    51,    74,    50,   123,    65,    79,    31,
-      45,    46,    15,    66,   137,    68,    74,    19,    62,    41,
+      57,    75,    64,   127,    61,    68,     6,    24,    12,   133,
+      31,    68,    69,    18,   234,     8,     9,    22,    23,    48,
+      41,    14,    79,    16,    53,    15,    24,    13,    31,    15,
+     250,    19,     0,     8,     9,    19,   110,   111,    19,    14,
+      24,    16,    35,    46,    32,    62,    57,   109,    48,    50,
+      61,    32,    45,    46,    47,     3,    68,    68,    69,    63,
+      35,    51,    61,    19,    62,    14,   123,    15,    79,    74,
+      45,    46,    15,    66,   137,    68,    32,    19,    62,    49,
      137,   138,   139,   140,   141,   142,   143,   144,   145,   146,
-      32,    66,   149,    68,    65,    65,   170,   171,   172,   173,
-     174,   175,    49,    74,    74,   162,   168,   169,    51,    52,
-     167,   185,   123,    18,    14,    20,    21,    22,    23,   176,
-     182,    15,   246,   247,    15,     3,   183,   138,   139,   140,
-     141,   142,   143,   144,   145,   146,    24,    15,   149,    11,
+      32,    66,   149,    68,    60,    61,   170,   171,   172,   173,
+     174,   175,    11,    51,    52,   162,   168,   169,    51,    52,
+     167,   185,   123,    18,    11,    20,    21,    22,    23,   176,
+     182,    15,   246,   247,    33,    34,   183,   138,   139,   140,
+     141,   142,   143,   144,   145,   146,    33,    34,   149,    11,
       19,   140,   141,   142,   143,   144,   145,   146,    15,    79,
-     149,   162,    15,    32,    18,   167,   167,    21,    22,    23,
+     149,   162,    15,    32,    50,   167,   167,    53,    19,    19,
       65,    33,    34,   162,   176,   176,   223,    72,    73,    74,
-     232,     6,   183,    51,    52,    19,   233,    13,    19,    15,
-      48,    31,   256,    15,   183,    53,   243,    60,    61,    33,
-      34,    32,    57,   123,   251,    41,    61,    15,   255,    19,
-     257,    65,   259,    68,    31,   262,    60,   264,    41,   266,
-      74,   268,   223,    15,    79,   272,    15,   274,    33,    34,
-     277,    31,   233,   280,    46,   282,    31,     8,     9,    11,
-      64,   243,   243,    14,    65,    16,    13,    13,    57,   251,
-     251,    19,    61,   255,   255,   257,   257,    56,   259,    68,
-     262,   262,    24,   264,    35,   266,   236,   268,   123,   233,
-      79,   272,   274,   274,    45,    46,   277,    11,   280,   280,
-     162,   282,    11,   250,   186,   140,   141,   142,   143,   144,
-     145,   146,     8,    13,   149,    66,    67,    68,    46,    33,
-      34,    18,    -1,   223,    33,    34,    -1,   162,    32,    33,
-      34,    -1,   167,   233,   123,    25,    26,    27,    28,    29,
+     232,    32,   183,    33,    34,    24,   233,    32,    33,    34,
+      33,    34,   256,    15,   183,     6,   243,    31,    15,    41,
+      15,    31,    57,   123,   251,    19,    61,    15,   255,    41,
+     257,    60,   259,    68,    15,   262,    64,   264,    31,   266,
+      46,   268,   223,    11,    79,   272,    31,   274,    13,    13,
+     277,    24,   233,   280,   233,   282,    19,     8,     9,   236,
+      56,   243,   243,    14,   250,    16,   162,     8,    57,   251,
+     251,   186,    61,   255,   255,   257,   257,    13,   259,    68,
+     262,   262,    -1,   264,    35,   266,    18,   268,   123,    46,
+      79,   272,   274,   274,    45,    46,   277,    -1,   280,   280,
+      -1,   282,    -1,    -1,    -1,   140,   141,   142,   143,   144,
+     145,   146,    -1,    -1,   149,    66,    67,    68,    -1,    -1,
+      -1,    -1,    -1,   223,    -1,    -1,    -1,   162,    -1,    -1,
+      -1,    -1,   167,   233,   123,    25,    26,    27,    28,    29,
       30,   176,   141,   142,   143,   144,   145,   146,   183,    -1,
      149,   140,   141,   142,   143,   144,   145,   146,    -1,   259,
      149,    -1,    -1,    -1,   264,    -1,   266,    -1,   268,    -1,
@@ -3927,6 +3927,6 @@ private static final short[] yycheck_ = yycheck_init();
 
 
 }
-/* "jflexbison/YYParser.y":1808  */
+/* "YYParser.y":1814  */
 
 

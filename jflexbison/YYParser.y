@@ -86,19 +86,25 @@ import java.io.*;
 %token UNARY_WAVE;
 
 /* Precedences 低 -> 高,对齐 Lua 5.4:
-   or and 比较 | ~ & << >> .. + - * / // % 一元 */
+   or and 比较 | ~ & << >> .. + - * / // % 一元
+
+   实现约束:同一优先级的运算符必须写在同一行声明,每多一行就多一档优先级。
+   此前存在三处错误:
+   - PLUS / MINUS 各占一行 -> MINUS 高于 PLUS
+   - DIVIDE / MULTIPLY / DIVIDE_MOD / DIVIDE_FLOOR 占四行 -> 四档递增,
+     于是 a/b*c 被归约为 a/(b*c) 得 1 而正确答案应为 25
+   - STRING_CAT 声明在算术之后(即优先级最高)且为 %left,而 Lua 中 .. 低于
+     所有算术运算符且是右结合
+
+   or / and / 比较仍在文法层(cmp_value 与 cmp 各自成层),不与算术 token 交叉 */
 %left BIT_OR;
 %left WAVE;
 %left BIT_AND;
 %left SHIFT_LEFT;
 %left SHIFT_RIGHT;
-%left PLUS;
-%left MINUS;
-%left DIVIDE;
-%left MULTIPLY;
-%left DIVIDE_MOD;
-%left DIVIDE_FLOOR;
-%left STRING_CAT;
+%right STRING_CAT;
+%left PLUS MINUS;
+%left DIVIDE MULTIPLY DIVIDE_MOD DIVIDE_FLOOR;
 /* 一元运算最高优先级 */
 %right UNARY_MINUS;
 %right UNARY_WAVE;
