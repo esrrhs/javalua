@@ -462,14 +462,15 @@ public class LuaNumberSemanticTest {
 
     @Test
     public void testDivisionByZeroSemantics() {
-        // 整数除零/取模零:抛错
-        assertRunError("1 / 0");
-        assertRunError("1 % 0");
-        // 浮点除零:IEEE 754
+        // Lua 5.4:/ 是纯浮点除法,没有整数除零错误——整数操作数除零同样按
+        // IEEE 754 得 inf/-inf/nan;只有 //(整除)与 %(取模)的零除数才抛错
         assertStrings(
+                "tostring(1 / 0), tostring(-1 / 0), tostring(0 / 0), " +
                 "tostring(1.0 / 0.0), tostring(-1.0 / 0.0), tostring(0.0 / 0.0), " +
-                "tostring(5 / 0.0), typeof(1.0 / 0.0)",
-                "inf", "-inf", "nan", "inf", "REAL");
+                "tostring(5 / 0.0), typeof(1 / 0)",
+                "inf", "-inf", "nan", "inf", "-inf", "nan", "inf", "REAL");
+        assertRunError("1 % 0");
+        assertRunError("1 // 0");
     }
 
     @Test
@@ -945,6 +946,76 @@ public class LuaNumberSemanticTest {
         assertEquals(5.0, (Double) r[5], 0.0);
         assertEquals(150.0, (Double) r[6], 0.0);
         assertEquals(1.0E21, (Double) r[7], 0.0);
+    }
+
+    // ---------- Lua 5.4 字符串字典序关系比较 ----------
+
+    // 关系运算的结果走 if 条件求值;return 语句不承载 cmp_value(fakescript 语法限制),
+    // 故 variant 层的四个关系方法直接用 API 驱动
+    private double strCmp(String op, String l, String r) throws Exception {
+        variant a = new variant();
+        a.set_string(l);
+        variant b = new variant();
+        b.set_string(r);
+        variant ret = new variant();
+        if ("<".equals(op)) {
+            ret.less(a, b);
+        } else if (">".equals(op)) {
+            ret.more(a, b);
+        } else if ("<=".equals(op)) {
+            ret.less_equal(a, b);
+        } else {
+            ret.more_equal(a, b);
+        }
+        return ret.get_real();
+    }
+
+    private void assertCondError(String condExpr) {
+        fkconfig config = new fkconfig();
+        f = fk.newfake(config);
+        fk.openbaselib(f);
+        String script = "func f()\n    if " + condExpr + " then\n        return 1\n    end\n    return 0\nend\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        fk.run(f, "f");
+        assertTrue(fk.error(f), "expected runtime error for: " + condExpr);
+    }
+
+    @Test
+    public void testStringRelationalCompare() throws Exception {
+        // Lua 5.4:两个字符串按字典序比较。"10" < "9" 为真——按首字符 '1'(0x31)
+        // 与 '9'(0x39) 比,而非数值大小;关系运算不做字符串到数值的强转
+        assertEquals(1.0, strCmp("<", "a", "b"), 0.0);
+        assertEquals(0.0, strCmp("<", "b", "a"), 0.0);
+        assertEquals(0.0, strCmp("<", "a", "a"), 0.0);
+        assertEquals(1.0, strCmp("<=", "a", "a"), 0.0);
+        assertEquals(1.0, strCmp(">=", "a", "a"), 0.0);
+        assertEquals(1.0, strCmp(">", "abc", "ab"), 0.0);
+        assertEquals(0.0, strCmp(">=", "ab", "abc"), 0.0);
+        assertEquals(1.0, strCmp("<", "", "a"), 0.0);
+        assertEquals(1.0, strCmp("<", "10", "9"), 0.0);
+        assertEquals(1.0, strCmp("<", "A", "a"), 0.0);
+    }
+
+    @Test
+    public void testStringCompareInCondition() {
+        // if 条件走 OPCODE_JNE 的 *_jne 路径,行为必须与 variant 层一致
+        assertEquals(1, cond("\"a\" < \"b\""));
+        assertEquals(0, cond("\"b\" < \"a\""));
+        assertEquals(1, cond("\"a\" <= \"a\""));
+        assertEquals(1, cond("\"a\" >= \"a\""));
+        assertEquals(1, cond("\"abc\" > \"ab\""));
+        assertEquals(0, cond("\"ab\" >= \"abc\""));
+        assertEquals(1, cond("\"a\" == \"a\""));
+        assertEquals(0, cond("\"a\" != \"a\""));
+    }
+
+    @Test
+    public void testStringCompareWithNumberErrors() {
+        // Lua 5.4:string 与 number 混入关系比较仍然报错
+        // ("attempt to compare string with number"),不做数值强转
+        assertCondError("\"a\" < 1");
+        assertCondError("1 < \"a\"");
+        assertCondError("\"10\" < 9");
     }
 
     // ---------- types 静态工具直接测试 ----------

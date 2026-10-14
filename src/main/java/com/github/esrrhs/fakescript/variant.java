@@ -297,18 +297,14 @@ class variant
 	}
 
 	// 除法恒为浮点,4/2得到2.0,1/2得到0.5
-	// Lua 5.4:整数除零抛错;浮点除零按 IEEE 754 得 inf/-inf/nan
+	// Lua 5.4:/ 是纯浮点除法,不存在整数除零错误——1/0 得 inf,-1/0 得 -inf,
+	// 0/0 得 nan;只有 //(floor 整除)除零才报 "attempt to perform 'n//0'"
 	public void divide(variant l, variant r) throws Exception
 	{
 		l = coerce_arith(l);
 		r = coerce_arith(r);
 		l.assert_can_cal();
 		r.assert_can_cal();
-		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT
-				&& (long) (Long) r.m_data == 0)
-		{
-			throw new Exception("variant can not be divide, the variant is INT 0");
-		}
 		m_data = l.get_real() / r.get_real();
 		m_type = variant_type.REAL;
 	}
@@ -512,8 +508,28 @@ class variant
 		m_type = variant_type.REAL;
 	}
 
+	// Lua 5.4 字符串关系比较:两个 STRING 按字典序比较("a" < "b" 为真);
+	// STRING 与数值混比仍然报错(Lua 的 "attempt to compare string with number")。
+	// 返回 null 表示不适用(非双侧 STRING),调用方回落到数值比较路径。
+	// 注:取 String.compareTo 即 UTF-16 码元序;ASCII 与 BMP 内与 Lua 字节序一致,
+	// 仅含代理对的增补平面字符次序可能与码点序有差异,实践中极少触发
+	private static Integer cmp_string(variant l, variant r)
+	{
+		if (l.m_type != variant_type.STRING || r.m_type != variant_type.STRING)
+		{
+			return null;
+		}
+		return Integer.valueOf(((String) l.m_data).compareTo((String) r.m_data));
+	}
+
 	public void less(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			set_cmp_ret(l, r, cs.intValue() < 0);
+			return;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = ((long) (Long) l.m_data < (long) (Long) r.m_data) ? (long) 1 : (long) 0;
@@ -527,6 +543,12 @@ class variant
 
 	public void more(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			set_cmp_ret(l, r, cs.intValue() > 0);
+			return;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = ((long) (Long) l.m_data > (long) (Long) r.m_data) ? (long) 1 : (long) 0;
@@ -546,6 +568,12 @@ class variant
 
 	public void less_equal(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			set_cmp_ret(l, r, cs.intValue() <= 0);
+			return;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = ((long) (Long) l.m_data <= (long) (Long) r.m_data) ? (long) 1 : (long) 0;
@@ -559,6 +587,12 @@ class variant
 
 	public void more_equal(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			set_cmp_ret(l, r, cs.intValue() >= 0);
+			return;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			m_data = ((long) (Long) l.m_data >= (long) (Long) r.m_data) ? (long) 1 : (long) 0;
@@ -687,6 +721,11 @@ class variant
 
 	public static boolean less_jne(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			return cs.intValue() < 0;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			return (long) (Long) l.m_data < (long) (Long) r.m_data;
@@ -698,6 +737,11 @@ class variant
 
 	public static boolean more_jne(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			return cs.intValue() > 0;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			return (long) (Long) l.m_data > (long) (Long) r.m_data;
@@ -714,6 +758,11 @@ class variant
 
 	public static boolean more_equal_jne(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			return cs.intValue() >= 0;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			return (long) (Long) l.m_data >= (long) (Long) r.m_data;
@@ -725,6 +774,11 @@ class variant
 
 	public static boolean less_equal_jne(variant l, variant r) throws Exception
 	{
+		Integer cs = cmp_string(l, r);
+		if (cs != null)
+		{
+			return cs.intValue() <= 0;
+		}
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
 			return (long) (Long) l.m_data <= (long) (Long) r.m_data;

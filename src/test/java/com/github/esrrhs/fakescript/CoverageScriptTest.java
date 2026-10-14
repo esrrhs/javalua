@@ -186,7 +186,8 @@ public class CoverageScriptTest {
         assertEquals(42L, ((Long) ret).longValue());
 
         // 出错脚本:错误被记录而非逃逸
-        assertTrue(fk.parsestr(f, "func g()\n    return 1 / 0\nend\n"), fk.geterror(f));
+        // 注:/ 是浮点除法(1/0 == inf,不再报错),故用 // 整除除零来触发错误
+        assertTrue(fk.parsestr(f, "func g()\n    return 1 // 0\nend\n"), fk.geterror(f));
         System.setIn(new java.io.ByteArrayInputStream("c\n".getBytes(StandardCharsets.UTF_8)));
         Object ret2 = fk.debugrun(f, "g");
         System.setIn(new java.io.ByteArrayInputStream(new byte[0]));
