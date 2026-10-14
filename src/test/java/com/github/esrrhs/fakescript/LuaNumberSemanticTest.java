@@ -787,6 +787,108 @@ public class LuaNumberSemanticTest {
         assertTrue(types.isint(0.0));
     }
 
+    // ---------- 算术字符串强转(Lua 5.4 算术语义) ----------
+    // 期望值全部取自真实 lua 实测:数值字符串按 Lua 词法强转后参与算术,
+    // 结果类型跟随强转后的数值("10"+1 为 INT,"10.0"+1 为 REAL);
+    // 位运算与比较不强转(与 Lua 一致)
+
+    @Test
+    public void testStringArithmeticCoercion()
+    {
+        Object[] r = returns(
+                "\"10\" + 1, \"3\" * \"4\", \" 10 \" + 1, \"0x10\" + 0, " +
+                "\"10.0\" + 1, \"1e2\" + 0, \"10.5\" + 0, " +
+                "\"10\" % 3, \"10\" // 3, \"10\" / 4, \"10\" - 20, " +
+                "typeof(\"10\" + 1), typeof(\"10.0\" + 1)");
+        assertEquals(13, r.length, fk.geterror(f));
+        long[] ints = {11L, 12L, 11L, 16L};
+        for (int i = 0; i < ints.length; i++)
+        {
+            assertEquals(ints[i], ((Long) r[i]).longValue(), "index " + i);
+        }
+        assertEquals(11.0, (Double) r[4], 0.0);
+        assertEquals(100.0, (Double) r[5], 0.0);
+        assertEquals(10.5, (Double) r[6], 0.0);
+        assertEquals(1L, ((Long) r[7]).longValue());
+        assertEquals(3L, ((Long) r[8]).longValue());
+        assertEquals(2.5, (Double) r[9], 0.0);
+        assertEquals(-10L, ((Long) r[10]).longValue());
+        assertEquals("INT", r[11]);
+        assertEquals("REAL", r[12]);
+
+        // 一元负号同样强转
+        r = returns("-\"10\", - \" 10 \", -\"0x10\"");
+        assertEquals(3, r.length, fk.geterror(f));
+        assertEquals(-10L, ((Long) r[0]).longValue());
+        assertEquals(-10L, ((Long) r[1]).longValue());
+        assertEquals(-16L, ((Long) r[2]).longValue());
+    }
+
+    @Test
+    public void testStringArithmeticCoercionInStatements()
+    {
+        // 变量与复合赋值路径
+        String script = "func f()\n" +
+                "    var s = \"21\"\n" +
+                "    var a = \"10\"\n" +
+                "    a += 5\n" +
+                "    return s * 2, a, typeof(a)\n" +
+                "end\n";
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        Object[] r = fk.runmulti(f, "f");
+        assertEquals(3, r.length, fk.geterror(f));
+        assertEquals(42L, ((Long) r[0]).longValue());
+        assertEquals(15L, ((Long) r[1]).longValue());
+        assertEquals("INT", r[2]);
+
+        // 强转结果参与比较与拼接
+        script = "func f()\n" +
+                "    if \"1\" + 1 == 2 then\n" +
+                "        return \"n=\" .. (\"5\" + 5)\n" +
+                "    end\n" +
+                "    return \"no\"\n" +
+                "end\n";
+        f = fk.newfake(new fkconfig());
+        fk.openbaselib(f);
+        assertTrue(fk.parsestr(f, script), fk.geterror(f));
+        assertEquals("n=10", fk.run(f, "f"));
+    }
+
+    @Test
+    public void testStringArithmeticCoercionFailures()
+    {
+        // 非数值字符串、空串:报错(与 Lua 一致,消息保持本库风格)
+        assertRunError("\"abc\" + 1");
+        assertRunError("\"\" + 1");
+        assertRunError("\"10f\" + 1"); // Java 浮点后缀不是 Lua 词法
+        assertRunError("\"inf\" + 1");
+        assertRunError("\"12abc\" * 2");
+        // 位运算不强转字符串(与 Lua 5.4 一致)
+        assertRunError("\"10\" & 3");
+        assertRunError("\"abc\" & 1");
+        // UUID 依旧不参与算术
+        assertRunError("123u + \"1\"");
+    }
+
+    @Test
+    public void testLuaFloatLexicalStrictness()
+    {
+        // Double.parseDouble 特有的 f/d 后缀必须拒绝(Lua strtod 不接受)
+        Object[] r = returns(
+                "tonumber(\"10f\"), tonumber(\"1.5d\"), tonumber(\"10F\"), " +
+                "tonumber(\"1e3\"), tonumber(\".5\"), tonumber(\"5.\"), " +
+                "tonumber(\"+1.5e2\"), tonumber(\"999999999999999999999\")");
+        assertEquals(8, r.length, fk.geterror(f));
+        assertNull(r[0]);
+        assertNull(r[1]);
+        assertNull(r[2]);
+        assertEquals(1000.0, (Double) r[3], 0.0);
+        assertEquals(0.5, (Double) r[4], 0.0);
+        assertEquals(5.0, (Double) r[5], 0.0);
+        assertEquals(150.0, (Double) r[6], 0.0);
+        assertEquals(1.0E21, (Double) r[7], 0.0);
+    }
+
     // ---------- types 静态工具直接测试 ----------
 
     @Test

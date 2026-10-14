@@ -149,6 +149,12 @@ class types
 			{
 				return iv;
 			}
+			// Double.parseDouble 接受 Java 特有的 f/d 后缀("10f" -> 10.0),
+			// Lua strtod 不接受;先过一遍 Lua 十进制浮点词法再解析
+			if (!is_lua_decimal_float(trimmed))
+			{
+				return null;
+			}
 			try
 			{
 				double dv = Double.parseDouble(trimmed);
@@ -195,6 +201,56 @@ class types
 		{
 			return null;
 		}
+	}
+
+	// Lua strtod 十进制浮点词法:[+-]?(digits[.digits?]|.digits)([eE][+-]?digits)?
+	// 用于在 Double.parseDouble 前拦截 Java 特有的 f/d/F/D 后缀与其它非法形态
+	private static boolean is_lua_decimal_float(String s)
+	{
+		int i = 0;
+		int n = s.length();
+		if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-'))
+		{
+			i++;
+		}
+		int digits = 0;
+		while (i < n && s.charAt(i) >= '0' && s.charAt(i) <= '9')
+		{
+			i++;
+			digits++;
+		}
+		if (i < n && s.charAt(i) == '.')
+		{
+			i++;
+			while (i < n && s.charAt(i) >= '0' && s.charAt(i) <= '9')
+			{
+				i++;
+				digits++;
+			}
+		}
+		if (digits == 0)
+		{
+			return false;
+		}
+		if (i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E'))
+		{
+			i++;
+			if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-'))
+			{
+				i++;
+			}
+			int expDigits = 0;
+			while (i < n && s.charAt(i) >= '0' && s.charAt(i) <= '9')
+			{
+				i++;
+				expDigits++;
+			}
+			if (expDigits == 0)
+			{
+				return false;
+			}
+		}
+		return i == n;
 	}
 
 	// 从 digitsStart 起按 base 解析整数,语义同 Lua 5.4 l_str2int:
