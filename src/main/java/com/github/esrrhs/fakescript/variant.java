@@ -217,8 +217,27 @@ class variant
 		}
 	}
 
+	// Lua 5.4 算术语义:数值字符串参与算术时按 Lua 词法强转
+	// ("10"+1 == 11," 10 "+1 == 11,"0x10"+0 == 16,"10.0"+1 == 11.0);
+	// 非数值字符串仍抛原风格错误。位运算与比较不强转(与 Lua 一致)
+	private static variant coerce_arith(variant v) throws Exception
+	{
+		if (v.m_type != variant_type.STRING)
+		{
+			return v;
+		}
+		variant n = types.parse_lua_number(types.trim_lua((String) v.m_data), null);
+		if (n == null)
+		{
+			throw new Exception("variant can not calculate, the variant is STRING " + v.m_data);
+		}
+		return n;
+	}
+
 	public void plus(variant l, variant r) throws Exception
 	{
+		l = coerce_arith(l);
+		r = coerce_arith(r);
 		// INT×INT快路径:类型已知可算,跳过断言调用
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
@@ -234,6 +253,8 @@ class variant
 
 	public void minus(variant l, variant r) throws Exception
 	{
+		l = coerce_arith(l);
+		r = coerce_arith(r);
 		// INT×INT快路径:类型已知可算,跳过断言调用
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
@@ -249,6 +270,8 @@ class variant
 
 	public void multiply(variant l, variant r) throws Exception
 	{
+		l = coerce_arith(l);
+		r = coerce_arith(r);
 		// INT×INT快路径:类型已知可算,跳过断言调用
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
 		{
@@ -266,6 +289,8 @@ class variant
 	// Lua 5.4:整数除零抛错;浮点除零按 IEEE 754 得 inf/-inf/nan
 	public void divide(variant l, variant r) throws Exception
 	{
+		l = coerce_arith(l);
+		r = coerce_arith(r);
 		l.assert_can_cal();
 		r.assert_can_cal();
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT
@@ -280,6 +305,8 @@ class variant
 	// Lua 5.4 floor 取模:结果符号与除数一致,-1 % 3 == 2,1 % -3 == -2
 	public void divide_mod(variant l, variant r) throws Exception
 	{
+		l = coerce_arith(l);
+		r = coerce_arith(r);
 		l.assert_can_cal();
 		r.assert_can_cal();
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
@@ -326,6 +353,8 @@ class variant
 	// 任一操作数为浮点则结果恒为浮点 floor(a/b),除零按 IEEE 754 得 inf/nan
 	public void floor_divide(variant l, variant r) throws Exception
 	{
+		l = coerce_arith(l);
+		r = coerce_arith(r);
 		l.assert_can_cal();
 		r.assert_can_cal();
 		if (l.m_type == variant_type.INT && r.m_type == variant_type.INT)
@@ -449,6 +478,7 @@ class variant
 	// Lua 5.4 一元负号:INT MIN 取负超过 int64,按 Lua 结果为浮点 9.2233720368548e+18
 	public void negate(variant l) throws Exception
 	{
+		l = coerce_arith(l);
 		if (l.m_type == variant_type.INT)
 		{
 			long a = (long) (Long) l.m_data;
