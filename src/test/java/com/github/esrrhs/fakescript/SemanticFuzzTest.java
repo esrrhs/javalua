@@ -126,6 +126,103 @@ public class SemanticFuzzTest {
         }
     }
 
+    /* ---------- Lua 新语法不变式 ---------- */
+
+    /**
+     * 下面几条覆盖的是最近才加进来的语法：D10 的数值 for、D13 的运行时表构造。
+     * 已有的表达式/标准库 oracle 碰不到它们，所以这里单独建了一套，构件在
+     * {@link LuaSyntaxFuzzSupport}。
+     */
+
+    /** 数值 for 的迭代序列必须与 Lua 5.4 的参考模型逐步吻合（带步长写法） */
+    @Test
+    @Timeout(300)
+    public void fuzzLuaNumericForAgainstModel() {
+        Random r = new Random(SEED + 7);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 400; i++) {
+            StdlibFuzzSupport.Case c = LuaSyntaxFuzzSupport.genLuaForCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "数值 for 与 Lua 参考模型不一致 —— " + c.describe("lua-for", i) + "  actual = " + actual);
+        }
+    }
+
+    /** 省略步长（默认 1）走的是另一条文法候选，单独覆盖 */
+    @Test
+    @Timeout(300)
+    public void fuzzLuaNumericForNoStepAgainstModel() {
+        Random r = new Random(SEED + 8);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 300; i++) {
+            StdlibFuzzSupport.Case c = LuaSyntaxFuzzSupport.genLuaForNoStepCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "省略步长的数值 for 与参考模型不一致 —— " + c.describe("lua-for-nostep", i) + "  actual = " + actual);
+        }
+    }
+
+    /** 表构造必须与它脱糖后的显式构造逐字节相同 */
+    @Test
+    @Timeout(300)
+    public void fuzzTableConstructorMatchesDesugaredForm() {
+        Random r = new Random(SEED + 9);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 300; i++) {
+            StdlibFuzzSupport.Case c = LuaSyntaxFuzzSupport.genTableCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "表构造与显式构造结果不一致 —— 脱糖可能写错了\n" + c.describe("table", i) + "  actual = " + actual);
+        }
+    }
+
+    /** 元素为表达式（含函数调用）时，表构造仍必须与显式构造一致 */
+    @Test
+    @Timeout(300)
+    public void fuzzTableExprElementsMatchDesugaredForm() {
+        Random r = new Random(SEED + 10);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 250; i++) {
+            StdlibFuzzSupport.Case c = LuaSyntaxFuzzSupport.genTableExprElemCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "含表达式元素的表构造与显式构造不一致 —— " + c.describe("table-expr", i) + "  actual = " + actual);
+        }
+    }
+
+    /**
+     * 同一函数里两个表构造不能共用临时变量。
+     * <p>
+     * 这条是反向验证逼出来的：把临时变量名改成常量后，其他表构造 oracle 全绿，
+     * 只有这条会红——先有能红的用例，前面的覆盖才有意义。
+     */
+    @Test
+    @Timeout(300)
+    public void fuzzTwoTablesDoNotCollide() {
+        Random r = new Random(SEED + 12);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 250; i++) {
+            StdlibFuzzSupport.Case c = LuaSyntaxFuzzSupport.genTwoTablesCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "同一函数里两个表构造互相串了 —— " + c.describe("two-tables", i) + "  actual = " + actual);
+        }
+    }
+
+    /** 循环体内构造表：每次迭代必须是全新的容器，不能互相串 */
+    @Test
+    @Timeout(300)
+    public void fuzzTableInLoop() {
+        Random r = new Random(SEED + 11);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 200; i++) {
+            StdlibFuzzSupport.Case c = LuaSyntaxFuzzSupport.genTableInLoopCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "循环内构造的表与参考模型不一致 —— " + c.describe("table-in-loop", i) + "  actual = " + actual);
+        }
+    }
+
     /* ---------- 不变式 ---------- */
 
     @Test

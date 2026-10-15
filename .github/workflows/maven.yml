@@ -81,6 +81,35 @@ jobs:
         fi
         echo "fuzzing exited with $code"
         exit "$code"
+    - name: Fuzz Lua numeric for against model
+      env:
+        JAZZER_FUZZ: '1'
+      run: |
+        # 数值 for 是新语法(D10),老的两套 oracle 覆盖不到,单独给一段预算。
+        # 它最危险的失败模式是「静默少跑一次」,只有逐项比对参考模型才看得见。
+        code=0
+        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzLuaNumericForAgainstModel' -Djacoco.skip=true || code=$?
+        if [ "$code" -eq 124 ]; then
+          echo "reached time limit without findings"
+          exit 0
+        fi
+        echo "fuzzing exited with $code"
+        exit "$code"
+    - name: Fuzz table constructor against desugared form
+      env:
+        JAZZER_FUZZ: '1'
+      run: |
+        # 运行时表构造(D13)。oracle 是「与它脱糖后的显式构造逐字节相同」,
+        # 因此不需要另写容器模型,但也就意味着显式构造本身出错时它测不出来——
+        # 那一半由标准库差分 oracle 负责。
+        code=0
+        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzTableConstructorMatchesDesugaredForm' -Djacoco.skip=true || code=$?
+        if [ "$code" -eq 124 ]; then
+          echo "reached time limit without findings"
+          exit 0
+        fi
+        echo "fuzzing exited with $code"
+        exit "$code"
     - name: Upload findings
       if: failure()
       uses: actions/upload-artifact@v7

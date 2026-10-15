@@ -206,6 +206,35 @@ D10 的落地形态：`FOR IDENTIFIER ASSIGN expr ARG_SPLITTER expr [ARG_SPLITTE
 > `t[1][0]` 链式下标（既有限制，与 D13 无关）。
 > 冲突数 59 → **69**（+10，全 shift/reduce，0 reduce/reduce）。
 
+### 已知分歧：数值 for 的两处与 Lua 不一致（尚未修）
+
+给 D10/D13 补 fuzz oracle 时顺手探出来的。**都不是 D10 引入的** —— 既有的 `->`
+与 C 式写法同样如此，只是 Lua 化之后会有更多人照 Lua 的直觉来用，从而踩到：
+
+| # | 写法 | Lua 5.4 | 本实现 | 严重度 |
+|---|---|---|---|---|
+| 1 | `for i = a, b, 0 do`（且 `a >= b`） | 报 `'for' step is zero` | **死循环**，跑满 `max_run_cmd_num`（1 亿条指令）才被掐断 | **高** |
+| 2 | `for i = 1, n do ... n = 100 ... end` | 边界只求值一次，跑 3 次得 6 | `m_end` / `m_add` 每轮重新求值，一路跑到 100 得 5050 | 中 |
+
+第 1 条的成因：`interpreter` 的 FORBEGIN 只在 `add > 0` 时才用 `<=` 判越界，
+否则走 `>=` 分支；步长 0 落到后者，`a >= b` 时不跳转 → 进循环体 → `i += 0` 恒不变
+→ 永远满足继续条件。嵌入式场景里这是实打实的拒绝服务面（宿主脚本卡死）。
+
+第 2 条的成因：`compiler.compile_for_loop_stmt` 把 `m_end` / `m_add` **编译了两次**
+（循环头一次、`continuepos` 处一次）。对 C 式 `for local i = 0, i < n, i++ do`
+来说条件必须每轮求值，这是刻意设计；但 Lua 形态要求只求值一次。
+
+两处都由 `LuaSyntaxTest` 里的 `testZeroStepIsNotRejected` 与
+`testForBoundsAreReevaluatedEachIteration` 钉住当前行为。
+**注意第 1 条只钉了 `a < b` 那个方向**（静默 0 次迭代）——`a >= b` 的方向故意不写成
+用例，它会跑满一亿条指令把套件拖垮。
+
+修法待定：
+- 第 1 条可以在 FORBEGIN 里加「步长为 0 直接报错」，但那是行为变更
+  （原本静默 0 次迭代的 `a < b` 情形会开始报错），需要确认是否接受
+- 第 2 条若只改 Lua 形态（把边界提到隐藏临时变量里）则不影响既有写法，
+  代价是 for 的 codegen 要分两条路
+
 ### Stage D —— 架构级（本方案只列不落地）
 D16 一等函数与闭包、D14 泛型 for、D15 变长参数、D17 metatable、D18 协程
 
