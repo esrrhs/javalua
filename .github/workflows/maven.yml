@@ -35,6 +35,40 @@ jobs:
     - name: Regenerate parser and test
       run: ./mvnw -B clean test -Pgrammar
 
+  fuzz:
+    # 覆盖率引导的模糊测试(Jazzer/libFuzzer)。
+    #
+    # 语料库不入库,所以默认 mvn test 的回归模式只能回放极少量输入;真正的
+    # 探索依赖这个 job 的限时 fuzzing。退出码 124 表示 libFuzzer 跑满时限
+    # 仍未发现缺陷,视为通过;任何其他非零码说明找到了反例,让 job 变红。
+    runs-on: ubuntu-latest
+    name: Fuzzing (Jazzer)
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up JDK 17
+      uses: actions/setup-java@v6
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'maven'
+    - name: Fuzz expression invariants
+      env:
+        JAZZER_FUZZ: '1'
+      run: |
+        # fuzzing 模式下每次运行只执行一个 fuzz test,故分别指定
+        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzExpressionRenderingInvariants' -Djacoco.skip=true
+        code=$?
+        if [ $code -eq 124 ]; then echo "reached time limit without findings"; exit 0; fi
+        echo "fuzzing exited with $code"
+        exit $code
+    - name: Upload findings
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: jazzer-findings
+        path: crash-*
+        if-no-files-found: ignore
+
   quality:
     # spotbugs静态分析报告(报告模式,不阻断)
     runs-on: ubuntu-latest
