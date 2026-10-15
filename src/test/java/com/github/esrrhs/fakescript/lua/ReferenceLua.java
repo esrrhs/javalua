@@ -127,6 +127,46 @@ final class ReferenceLua {
         }
     }
 
+    /**
+     * 把<b>原始字节</b>写成脚本文件并跑它。
+     * <p>
+     * 不走 {@link #run(String)} 是因为后者按 UTF-8 编码写文件：词法用例里会有
+     * 非法 UTF-8 字节（{@code \x80} 之类），而参考实现读的是字节流，
+     * 用 Java String 中转会把用例改写成另一份输入。
+     * <p>
+     * 路径要短：参考实现的 {@code luaO_chunkid} 会把超过 {@code LUA_IDSIZE}
+     * 的源名截成 {@code ...xxx}，{@code java.io.tmpdir} 下那串随机临时文件名
+     * 必然超长，比对就没法做了。
+     */
+    static FileResult runBytes(byte[] content, String path) {
+        String bin = find();
+        if (bin == null) {
+            throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
+        }
+        try {
+            java.nio.file.Path p = Paths.get(path);
+            java.nio.file.Path parent = p.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.write(p, content);
+            Result r = runFile(path);
+            return new FileResult(r, path);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to run reference lua: " + e, e);
+        }
+    }
+
+    static final class FileResult {
+        final Result result;
+        final String path;
+
+        FileResult(Result result, String path) {
+            this.result = result;
+            this.path = path;
+        }
+    }
+
     private static String readAll(InputStream in) {
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();

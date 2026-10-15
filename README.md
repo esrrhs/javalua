@@ -184,8 +184,9 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 0 — foundations.** The previous fakescript language implementation has been
-removed from `master`; see *Migration* below.
+**Phase 1 — lexer.** The previous fakescript language implementation has been
+removed from `master`; see *Migration* below. Phase 0 (foundations) and the lexer
+half of Phase 1 are in.
 
 Landed so far:
 
@@ -197,7 +198,18 @@ Landed so far:
 | `StringPool` | `lstring.c` `strt` | interned weakly, so unused strings do not pin the heap |
 | `LuaTable` | `ltable.c` | array part + hash part, `rehash`, `#t` borders, integral-float key normalisation |
 | `LuaError` | `lua_error` | carries a Lua value; only this type is caught by `pcall` |
+| `Zio` | `lzio.c` | byte input stream; `EOZ` is `-1`, bytes are unsigned |
+| `LCType` | `lctype.c` | the `luai_ctype_` table copied byte for byte, so `lislalpha` treats `_` as a letter exactly as upstream does |
+| `Numeral` | `lobject.c` `luaO_str2num` | int-first-then-float; strict decimal syntax, so `1d`/`inf`/`nan` are rejected the way C's `strtod` rejects them |
+| `Lexer` | `llex.c` | full token set, all escapes incl. `\z` / `\xXX` / `\u{XXX}` / `\ddd`, long strings & comments, byte-exact error messages |
 | `ConformanceTest` | — | runs a real `lua5.4` binary as the oracle |
+
+The lexer is validated by **differential comparison, not by self-declared
+expectations**: a table of deliberately-broken sources is written to disk, run
+through a real `lua5.4`, and the resulting message compared verbatim with what
+`Lexer` produces (including the `near '<token>'` part, whose quoting rules differ
+between `<eof>` and everything else). A second table runs the other direction —
+sources the reference accepts must not raise here.
 
 Two decisions in this phase were settled by running the reference implementation
 rather than by reading the manual:
@@ -209,7 +221,9 @@ rather than by reading the manual:
 
 Both are locked by tests that run against real Lua 5.4 in `ConformanceTest`.
 
-Next: Phase 1 (lexer) and Phase 2 (bytecode).
+Next: the parser half of Phase 1 (`lparser.c`) and Phase 2 (bytecode:
+`lopcodes`, `lcode`, `lfunc`). The parser cannot land alone — it emits code as it
+parses, so the two are being built as one unit.
 
 Target API shape (will firm up as Phase 0 lands):
 
