@@ -63,6 +63,57 @@ public class EdgeCaseTest {
         }
     }
 
+    /**
+     * 词法层不再静默吞掉未识别字符。
+     * <p>
+     * 原先 jflex 的 error fallback 是 {@code [^] { }} —— JFlex 里 {@code [^]} 是
+     * 「否定空集」,等价于匹配任意字符。于是 {@code return 1 @ 2} 会先被吞掉 {@code @}
+     * 变成 {@code return 1 2},再由语法层在离真正出错位置很远的地方报一个莫名的错;
+     * 更糟的是某些写法会被截断后照常「解析成功」,把拼写错误变成静默算错。
+     */
+    @Test
+    public void testIllegalCharacterIsReported() {
+        String[] bad = {
+                "func f()\n    return 1 @ 2\nend\n",
+                "func f()\n    return 1 # 2\nend\n",
+                "func f()\n    return 1 $ 2\nend\n",
+                "func f()\n    return 1 ? 2\nend\n",
+                "func f()\n    var x = 1 \\ 2\nend\n",
+                "func f()\n    return 12 ^ 10\nend\n", // ^ 不是运算符,异或用 ~
+        };
+
+        for (String script : bad) {
+            boolean ok = fk.parsestr(f, script);
+            assertFalse(ok, "非法字符必须解析失败,不能被静默跳过: " + printable(script));
+            assertTrue(fk.geterror(f).contains("lex fail"),
+                    "应在词法层就报错: " + printable(script) + " -> " + fk.geterror(f));
+            f.clearerr();
+        }
+    }
+
+    /**
+     * 二元 {@code ~} 是异或(对齐 Lua 5.4),一元 {@code ~} 是按位取非。
+     * 二者同符不同义,靠词法的位置上下文区分,这里锁住语义不被改坏。
+     */
+    @Test
+    public void testBitwiseXorIsTilde() {
+        assertTrue(fk.parsestr(f, "func f()\n    return 12 ~ 10\nend\n"), fk.geterror(f));
+        assertEquals(6L, ((Long) fk.run(f, "f")).longValue());
+
+        f.clearerr();
+        assertTrue(fk.parsestr(f, "func g()\n    return ~0\nend\n"), fk.geterror(f));
+        assertEquals(-1L, ((Long) fk.run(f, "g")).longValue());
+
+        // 优先级:& 高于 ~ 高于 |,与 Lua 5.4 一致
+        f.clearerr();
+        assertTrue(fk.parsestr(f, "func h()\n    return 1 | 2 & 3, 1 ~ 2 | 3, 1 | 2 ~ 3\nend\n"),
+                fk.geterror(f));
+        Object[] r = fk.runmulti(f, "h");
+        assertEquals(3L, ((Long) r[0]).longValue());
+        assertEquals(3L, ((Long) r[1]).longValue());
+        assertEquals(1L, ((Long) r[2]).longValue());
+    }
+
     // ==================== 编译错误矩阵 ====================
 
     @Test

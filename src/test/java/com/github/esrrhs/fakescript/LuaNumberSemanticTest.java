@@ -113,7 +113,11 @@ public class LuaNumberSemanticTest {
     @Test
     public void testTonumberIntegers() {
         Object[] r = returns(
-                "tonumber(\"  123  \"), tonumber(\"\t12\n\"), tonumber(\"+12\"), " +
+                // 这里用 \\t / \\n 转义而非把真实制表符、换行写进源码:
+                // fakescript 的字符串字面量不接受裸换行(StringCharacter 排除 \r\n),
+                // 早先只是被词法兜底规则静默吞掉才碰巧通过。转义后经词法还原出的
+                // 字符串值与原先一致,trim_lua 的覆盖强度不变
+                "tonumber(\"  123  \"), tonumber(\"\\t12\\n\"), tonumber(\"+12\"), " +
                 "tonumber(\"0xff\"), tonumber(\"0XFF\"), tonumber(\"-0x10\"), " +
                 "tonumber(\"9223372036854775807\"), tonumber(\"-9223372036854775808\")");
         assertEquals(8, r.length, fk.geterror(f));
