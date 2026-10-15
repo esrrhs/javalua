@@ -120,11 +120,14 @@ import java.io.*;
    文法再动一下就可能把 #t + 1 静默变成 #(t + 1)。显式声明是买保险。 */
 
 /* 冲突基线演进:HEAD 57 → Stage A(while/for 的 then -> do、新增 SHARP)58
-   → Stage B D10(Lua 数值 for)59。
+   → D10(Lua 数值 for)59 → D13(运行期表构造)69。
+   D13 这 +10 全部是 shift/reduce,来源是 `{` 既要开编译期常量表
+   (const 的 {k : v},走 explicit_value)又要开运行期表({1, 2} / {k = v});
+   两者靠元素内部区分,没有 reduce/reduce。
    改动文法后必须重新测量并同步这里的数字,%expect 会把漂移变成硬错误;
    另外本文件只允许 shift/reduce,一旦出现 reduce/reduce 说明新规则和既有
    规则抢同一串归约,应当停下换写法(Stage A 的 then/do 并存就栽在这里) */
-%expect 59
+%expect 69
 
 %%
 
@@ -1417,6 +1420,94 @@ expr_value :
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: variable");
 		$$ = ((ParserVal)((ParserVal)$1));
 	}
+	|
+	table_constructor
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: table_constructor");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	;
+
+/* Lua 5.4 运行期表构造式。与 const 里的编译期表([1,2] / {k : v},走
+   explicit_value 的 EVT_ARRAY/EVT_MAP)是两套东西:这里的元素是任意表达式。
+   两者都以 { 开头,靠元素内部区分 —— const 用冒号、运行期用逗号/等号,
+   单记号 lookahead 足够分开(实测 0 reduce/reduce)。
+   编译侧是纯 AST 脱糖,不新增 opcode,见 compiler.compile_table_constructor。 */
+table_constructor :
+	OPEN_BIG_BRACKET CLOSE_BIG_BRACKET
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET CLOSE_BIG_BRACKET");
+		table_constructor_node p = ((Yylex)yylexer).new_node(table_constructor_node.class, ((Yylex)yylexer).get_mybison().get_jflex().get_line() + 1);
+		p.m_is_array = true;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	OPEN_BIG_BRACKET table_array_list CLOSE_BIG_BRACKET
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET table_array_list CLOSE_BIG_BRACKET");
+		$$ = ((ParserVal)((ParserVal)$2));
+	}
+	|
+	OPEN_BIG_BRACKET table_map_list CLOSE_BIG_BRACKET
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: OPEN_BIG_BRACKET table_map_list CLOSE_BIG_BRACKET");
+		$$ = ((ParserVal)((ParserVal)$2));
+	}
+	;
+
+table_array_list :
+	expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: table_array_list expr_value");
+		table_constructor_node p = ((Yylex)yylexer).new_node(table_constructor_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_is_array = true;
+		p.m_values.add((syntree_node)((ParserVal)$1).obj);
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	table_array_list ARG_SPLITTER expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: table_array_list ARG_SPLITTER expr_value");
+		table_constructor_node p = (table_constructor_node)((ParserVal)$1).obj;
+		p.m_values.add((syntree_node)((ParserVal)$3).obj);
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	;
+
+table_map_list :
+	IDENTIFIER ASSIGN expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: table_map_list IDENTIFIER ASSIGN expr_value");
+		table_constructor_node p = ((Yylex)yylexer).new_node(table_constructor_node.class, ((ParserVal)((ParserVal)$1)).ival);
+		p.m_is_array = false;
+		p.m_keys.add(((ParserVal)$1).sval);
+		p.m_values.add((syntree_node)((ParserVal)$3).obj);
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
+	|
+	table_map_list ARG_SPLITTER IDENTIFIER ASSIGN expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: table_map_list ARG_SPLITTER IDENTIFIER ASSIGN expr_value");
+		table_constructor_node p = (table_constructor_node)((ParserVal)$1).obj;
+		p.m_keys.add(((ParserVal)$3).sval);
+		p.m_values.add((syntree_node)((ParserVal)$5).obj);
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+		$$ = ret;
+	}
 	;
 
 	/* 一元运算独立成层,不放进 math_expr,避免 MINUS 同时进入
@@ -1495,6 +1586,16 @@ expr :
 	unary_expr
 	{
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: unary_expr");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	|
+	/* 表构造式也要能出现在「右值」位置。assign_value / return_value 都是
+	   explicit_value | variable | expr 三层结构,不含 expr_value,只在
+	   expr_value 上加候选的话 `local t = {1, 2}` 与 `return {1, 2}` 都到不了。
+	   放在 expr 这一层可以一处覆盖赋值、return 与实参 */
+	table_constructor
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: table_constructor");
 		$$ = ((ParserVal)((ParserVal)$1));
 	}
 	;

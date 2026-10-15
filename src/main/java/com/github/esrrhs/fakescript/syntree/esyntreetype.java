@@ -40,4 +40,5 @@ public enum esyntreetype
 	est_constmaplist,
 	est_constmapvalue,
 	est_constarraylist,
+	est_table_constructor,
 }

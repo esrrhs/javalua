@@ -2,8 +2,28 @@
 
 > 状态：**Stage A 已完成**（`local` / `function` / `do` / `~=` / `#` / `--[[ ]]` 六项全部落地，
 > 旧写法 `var` / `func` / `&&` / `||` / `!` / `!=` 及循环后的 `then` 已从词法与文法中移除；
-> 测试与 README 同步迁移，271 个用例全绿）。Stage B/C/D 仍为方案，未开工。
+> 测试与 README 同步迁移）。**Stage C 的 D10（Lua 数值 for）与 D13（运行时表构造）也已落地**，
+> 276 个用例全绿。Stage B 的 D8、Stage C 的 D11/D12、Stage D 仍为方案，未开工。
 > 依据：仓库实际词法/文法/编译器/解释器的逐条核查结果，见第 1 节的现状盘点。
+
+### Stage C 落地纪要（回填）
+
+| 项 | 落地方式 | 踩到的坑 |
+| --- | --- | --- |
+| D10 数值 for | 新增 `*_CLOSED` opcode + `m_closed` 标志，既有 `->` 写法保持半开 | 半开/闭区间不同，直接复用会静默少跑一次 |
+| D13 运行时表构造 | AST 层脱糖成「临时变量 + `array()`/`map()` + 逐元素赋值」，**不加 opcode** | 只挂在 `expr_value` 上够不到 `local t = {1,2}` 与 `return {1,2}`；`return` 容器返回 null 是既有行为 |
+
+两条新增教训：
+1. **挂规则要看清非终极符的"可达面"**。D13 第一版只把 `table_constructor` 加进 `expr_value`，
+   实测 `{}`、`f({1,2})` 能用，但 `local t = {1,2}` 与 `return {1,2}` 全部 PARSE_FAIL ——
+   因为 `assign_value` / `return_value` 的定义是 `explicit_value | variable | expr`，
+   **并不包含 `expr_value`**。补挂到 `expr` 上才通。判断"新语法能否出现在某处"的正确做法是
+   顺着 `expr_value → expr → assign_value` 这条链查一遍，而不是试几个样例就算数。
+2. **先分清「新缺陷」和「既有行为」，再决定修不修**。`local t = {1,2} return t` 返回 null 看起来
+   像 D13 的 bug，用 `fk.dumpfunc` 打出字节码确认构造与赋值都对，再用既有写法对照：
+   `return array()` 与 `return map()` **同样**返回 null。这是既有的 return 语义限制，
+   不在本项范围内。为此专门加了 `testReturningContainerIsNilIsPreexisting` 把它钉住 ——
+   将来若修 return，这个用例会先失败，提示范围已经变了。
 
 ### Stage A 落地纪要（回填）
 
@@ -81,7 +101,7 @@
 | D10 | Lua 数值 for | 已落地（`for i = 1, n, s do`） | `for i = 1, n, s do` | **L2**（区间语义不同，需 `*_CLOSED` opcode） | 无（并存） |
 | D11 | **比较表达式作值** | `return a < b`、`var x = a < b`、`print(a<b)` 全 PARSE_FAIL | 比较是普通表达式 | **L2 需新 opcode** | 无 |
 | D12 | 布尔类型 | `typeof(true)` = **REAL 1.0**、`typeof(false)` = REAL 0.0 | Lua 有 boolean 类型 | L2 类型系统 | **有**（影响现有 `typeof`/JSON） |
-| D13 | 运行时表构造 | `{}` 只在 `const` 里；运行期 `var t = {1,2}` PARSE_FAIL | `t = {1,2}` | L2 需构造 opcode | 无 |
+| D13 | 运行时表构造 | **已落地**（`t = {1,2}` / `t = {a=1,b=2}`） | `t = {1,2}` | **L1**（AST 脱糖，无需新 opcode） | 无（并存） |
 | D14 | 泛型 for | 无 `in`/`pairs` 记号 | `for k,v in pairs(t) do` | L2 迭代器协议 | 无 |
 | D15 | 变长参数 | 无 `...` 记号 | `function f(...)` | L2 | 无 |
 | D16 | 一等函数 | `var x = g` PARSE_FAIL，无匿名函数、无闭包 | 函数是值 | **L3 架构** | 有 |
@@ -152,7 +172,7 @@
 > 前必须先问「它对边界、类型、求值次数的约定和目标语言一致吗」。
 
 ### Stage C —— 表达式能力（真正的硬骨头）
-**范围**：D10 Lua 数值 for（已做完）、D11 比较作值、D12 布尔类型、D13 运行时表构造
+**范围**：D10 Lua 数值 for（已做完）、D13 运行时表构造（已做完）、D11 比较作值、D12 布尔类型
 
 D10 的落地形态：`FOR IDENTIFIER ASSIGN expr ARG_SPLITTER expr [ARG_SPLITTER expr] DO block END`
 四条候选（带/不带步长 × 带/不带循环体），构造动作收在 `Yylex.make_lua_for`；
@@ -168,6 +188,24 @@ D10 的落地形态：`FOR IDENTIFIER ASSIGN expr ARG_SPLITTER expr [ARG_SPLITTE
 
 **排序建议**：D13 运行时表构造先于 D11。`const` 版本已有 AST 与求值路径（`explicit_value_node` 的 `EVT_MAP`/`EVT_ARRAY`），复用到运行期比从零做比较值更稳，也先享受 Stage A 的成果。
 
+> **D13 落地形态（回填）**：
+> ```
+> table_constructor : '{' '}' | '{' table_array_list '}' | '{' table_map_list '}'
+> table_array_list  : expr_value | table_array_list ',' expr_value
+> table_map_list    : IDENTIFIER '=' expr_value | table_map_list ',' IDENTIFIER '=' expr_value
+> ```
+> `table_constructor` 同时挂在 **`expr_value` 和 `expr`** 两个非终极符下（只挂前者够不到
+> `local t = {1,2}`，见开头回填的第 1 条）。编译期在 `compile_table_constructor` 里脱糖成
+> 临时变量 `__fktable_N` + `array()`/`map()` 调用 + 逐元素 `container_get` 赋值，
+> 最后把临时变量作为表达式的值 —— **没有新增 opcode**，与原方案「L2 需构造 opcode」的预估不同，
+> 这也说明"复用现有节点/指令"这条路比想象中宽。
+>
+> 支持范围（有测试锁定）：`{1,2,3}`、`{a=1,b=2}`、`{}`、元素为表达式或函数调用、嵌套
+> （`{1,{2,3}}` 经临时变量取内层）、作实参（`size({1,2,3})`）、循环内构造。
+> **不支持**（干净地 PARSE_FAIL，有用例锁定）：`{["a"]=1}` 表达式键、`{a=1, 2}` 混合键、
+> `t[1][0]` 链式下标（既有限制，与 D13 无关）。
+> 冲突数 59 → **69**（+10，全 shift/reduce，0 reduce/reduce）。
+
 ### Stage D —— 架构级（本方案只列不落地）
 D16 一等函数与闭包、D14 泛型 for、D15 变长参数、D17 metatable、D18 协程
 
@@ -178,7 +216,7 @@ D16 一等函数与闭包、D14 泛型 for、D15 变长参数、D17 metatable、
 ## 4. 每个 Stage 的验证方法（必须先落地再往前走）
 
 1. **冲突数可度量**：基线 **57 shift/reduce、0 reduce/reduce**（`%expect 57` 恰好被满足），
-   现为 **59**（Stage A +1、Stage B/D10 +1）。每个 Stage 记录 delta；出现任何 reduce/reduce
+   现为 **69**（Stage A +1、D10 +1、D13 +10）。每个 Stage 记录 delta；出现任何 reduce/reduce
    都要给出书面理由，不接受「bison 自己会选」
 2. **生成文件同步**：`YYParser.java` 只能由 bison 重生成并提交，**禁止手改**。CI 的 `Grammar regeneration` job 就是这道闸
 3. **回归测试**：全量 `./mvnw clean test` 绿 + JaCoCo 行覆盖门禁 0.85
@@ -203,10 +241,11 @@ D16 一等函数与闭包、D14 泛型 for、D15 变长参数、D17 metatable、
 | 顺序 | 内容 | 预估量级 | 建议 |
 |---|---|---|---|
 | 1 | Stage A 全部 | 小 | **立即做**，性价比最高 |
-| 2 | Stage B 的 D10 数值 for | 小–中 | 做；先在 branch 上验证 |
-| 3 | Stage C 的 D13 运行时表构造 | 中 | 做，为后续铺路 |
-| 4 | Stage C 的 D11 比较作值 + D12 布尔 | 中–大 | 做，但先就「真假值表示」达成一致 |
+| 2 | Stage B 的 D10 数值 for | 小–中 | **已完成** |
+| 3 | Stage C 的 D13 运行时表构造 | 中 | **已完成**（实际为 L1 脱糖，量级比预估小） |
+| 4 | Stage C 的 D11 比较作值 + D12 布尔 | 中–大 | 下一步；先就「真假值表示」达成一致 |
 | 5 | Stage B 的 D8 全局赋值 | 中 | **先出语义说明**，再决定 |
 | 6 | Stage D | 大 | 单独立项 |
 
 第一步落地前需要确认两点：是否接受「`local`/`function`/`do` 走别名」这种加法路线（而非替换），以及 Stage A 是否一次性全做完还是拆六个 PR。
+（**已确认**：走替换路线且 Stage A 一次性做完，见开头纪要。）

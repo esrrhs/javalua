@@ -16,6 +16,8 @@ class compiler
 	private ArrayList<Integer> m_loop_continue_pos_stack = new ArrayList<Integer>();
 	private ArrayList<ArrayList<Integer>> m_continue_end_pos_stack = new ArrayList<ArrayList<Integer>>();
 	private boolean m_cmp_jne;
+	/* 表构造脱糖用的临时变量名序号,保证同名不撞车 */
+	private int m_table_seq = 0;
 	private long m_cur_addr;
 	private ArrayList<Long> m_cur_addrs = new ArrayList<Long>();
 	private int m_cmp_deps;
@@ -400,6 +402,15 @@ class compiler
 			{
 				for_loop_stmt fs = (for_loop_stmt) (node);
 				if (!compile_for_loop_stmt(cg, fs))
+				{
+					return false;
+				}
+				break;
+			}
+			case est_table_constructor:
+			{
+				table_constructor_node tc = (table_constructor_node) (node);
+				if (!compile_table_constructor(cg, tc))
 				{
 					return false;
 				}
@@ -1824,5 +1835,98 @@ class compiler
 		cg.pop_stack_identifiers();
 
 		return true;
+	}
+
+	/**
+	 * Lua 5.4 运行期表构造式 {@code {1, 2, 3}} / {@code {a = 1, b = 2}}。
+	 * <p>
+	 * 走纯 AST 脱糖,不新增 opcode —— 展开成:
+	 * <pre>
+	 *   __fktable_N = array()        // 或 map()
+	 *   __fktable_N[0]   = e1        // 数组式:下标从 0 起,与 fakescript 一致
+	 *   __fktable_N["a"] = e2        // map 式:键为标识符
+	 *   &lt;本表达式的值&gt;  = __fktable_N
+	 * </pre>
+	 * 四步全部复用既有的 var / assign / container_get / function_call 编译路径。
+	 */
+	public boolean compile_table_constructor(codegen cg, table_constructor_node tc) throws Exception
+	{
+		// 临时名带前缀且全局递增,嵌套构造也不会撞车,也不会撞上用户变量
+		String tmp = "__fktable_" + (m_table_seq++);
+		int lno = tc.lineno();
+
+		// 1) 声明临时变量
+		var_node decl = new var_node();
+		decl.m_str = tmp;
+		decl.m_lno = lno;
+		if (!compile_var_node(cg, decl))
+		{
+			return false;
+		}
+
+		// 2) tmp = array() / map()
+		function_call_node fc = new function_call_node();
+		fc.m_fuc = tc.m_is_array ? "array" : "map";
+		fc.m_arglist = null;
+		fc.m_fakecall = false;
+		fc.m_classmem_call = false;
+		fc.m_lno = lno;
+
+		assign_stmt init = new assign_stmt();
+		init.m_var = make_variable(tmp, lno);
+		init.m_value = fc;
+		init.m_isnew = false;
+		init.m_lno = lno;
+		if (!compile_assign_stmt(cg, init))
+		{
+			return false;
+		}
+
+		// 3) 逐个元素塞进容器
+		for (int i = 0; i < tc.m_values.size(); i++)
+		{
+			container_get_node cn = new container_get_node();
+			cn.m_container = tmp;
+			cn.m_key = make_table_key(tc, i, lno);
+			cn.m_lno = lno;
+
+			assign_stmt as = new assign_stmt();
+			as.m_var = cn;
+			as.m_value = tc.m_values.get(i);
+			as.m_isnew = false;
+			as.m_lno = lno;
+			if (!compile_assign_stmt(cg, as))
+			{
+				return false;
+			}
+		}
+
+		// 4) 本表达式的值就是那个临时变量
+		return compile_variable_node(cg, make_variable(tmp, lno));
+	}
+
+	private variable_node make_variable(String name, int lno)
+	{
+		variable_node vn = new variable_node();
+		vn.m_str = name;
+		vn.m_lno = lno;
+		return vn;
+	}
+
+	private explicit_value_node make_table_key(table_constructor_node tc, int i, int lno)
+	{
+		explicit_value_node kn = new explicit_value_node();
+		kn.m_lno = lno;
+		if (tc.m_is_array)
+		{
+			kn.m_str = String.valueOf(i);
+			kn.m_type = explicit_value_type.EVT_NUM;
+		}
+		else
+		{
+			kn.m_str = tc.m_keys.get(i);
+			kn.m_type = explicit_value_type.EVT_STR;
+		}
+		return kn;
 	}
 }
