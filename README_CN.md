@@ -5,320 +5,219 @@
 [![Maven Central](https://img.shields.io/maven-central/v/com.github.esrrhs/fakescript-java)](https://central.sonatype.com/artifact/com.github.esrrhs/fakescript-java)
 [![Build Status](https://github.com/esrrhs/fakescript_java/actions/workflows/maven.yml/badge.svg?branch=master)](https://github.com/esrrhs/fakescript_java/actions)
 
-轻量级纯 Java 编写的嵌入式脚本语言。
+**纯 Java 实现的 Lua 5.4 —— 不自己实现 GC，内存回收全部交给 JVM。**
 
 [English](./README.md)
 
 ---
 
-## 项目简介
+## 设计目标
 
-**fakescript-java** 是一款纯 Java 编写的轻量级嵌入式脚本语言。语法设计借鉴了 Lua、Go 和 Erlang。底层基于 JFlex 与 Bison 生成语法树，将其编译为高效的字节码并由内置虚拟机解释器执行。
+> 让现有的 Lua 项目**一行代码都不用改**就能跑在 JVM 上。
 
-## 核心特性
+本项目是 **Lua 5.4 参考实现（`lua-5.4.x` C 源码）到 Java 的逐模块翻译**。
+它不是一门"借鉴了 Lua 的"语言——它就是 Lua 5.4，只是把内存管理那一层摘掉、
+交给了宿主运行时。
 
-* **简洁易学**：类似 Lua 的清晰语法结构。
-* **纯函数式模型**：一切皆函数，支持函数多返回值。
-* **丰富容器支持**：内置动态数组（`array()`）与哈希映射（`map()`、`_G()`），支持任意嵌套。
-* **轻量级协程机制**：支持使用 `fake func(args)` 产生协程执行单元，结合 `sleep` / `yield` 实现非阻塞协同多任务。
-* **无缝 Java 双向互操作**：支持使用 `@fakescript` 注解直接反射绑定 Java 静态方法与类成员函数。
-* **结构体支持**：支持轻量级自定义数据结构体（`struct`）。
-* **模块化与命名空间**：支持 `package` 与 `include` 实现代码模块化与包隔离。
-* **丰富数据类型**：支持 Int64（`UUID`）、`const` 常量定义、浮点数以及字符串。
-* **内置性能分析器**：内置 Profiler，可采集并输出脚本各函数执行时间。
-* **支持热重载**：支持在宿主运行时动态解析并热更新脚本逻辑。
+| | |
+|---|---|
+| **目标** | 完整的 Lua 5.4 语言语义 + 完整的标准库 |
+| **方法** | 逐模块直译 C 参考实现 |
+| **GC** | **不实现**。对象生命周期完全交给 JVM（G1/ZGC 本身就是并发收集器） |
+| **运行环境** | Java 21+（协程依赖虚拟线程） |
+| **兼容范围** | 纯 Lua 项目；C 扩展模块（`.so` / `luaopen_*`）本阶段不做 |
 
----
+### 为什么不写 GC
 
-## 脚本语法示例
+C 实现的 `lgc.c` 是最复杂的部分之一：三色增量标记、分代模式、写屏障、终结器、弱表。
+它做的事，JVM 已经做得更好——并发、且调优过。所以这个文件整体删除，
+**只有那些"依赖回收动作"的语义**用 JVM 原语重建：
 
-```fakescript
--- 定义包名
-package mypackage.test
+| Lua 概念 | C 实现机制 | 本实现 |
+|---|---|---|
+| 对象生命周期 | `lgc.c` 三色标记 | **JVM GC**（G1 / ZGC） |
+| 弱表（`__mode = "k"/"v"/"kv"`） | `lgc.c` 里清扫弱链 | `WeakReference` + `ReferenceQueue` |
+| `__gc` 终结器 | `luaC_checkfinalizer` / `GCTM` | `java.lang.ref.Cleaner` |
+| 短字符串驻留 | `lstring.c` 的驻留表需抵抗回收 | 弱引用驻留池，无人引用即释放 |
 
--- 引入依赖脚本
-include "common.fk"
-
--- 结构体定义
-struct User
-    id
-    name
-    extra
-end
-
--- 常量定义
-const MAX_COUNT = 100
-const DEFAULT_NAME = "Guest"
-const CONFIG_MAP = {1 : "Alpha" 2 : "Beta"}
-
--- 函数定义
-function process_user(arg1, arg2)
-
-    -- 调用已绑定的 Java 静态函数
-    local sum = MathUtils.add(arg1, 10)
-
-    -- 分支控制
-    if arg1 < arg2 then
-        -- 启动一个轻量级协程
-        fake background_task(arg1, arg2)
-    elseif arg1 == arg2 then
-        print("两值相等")
-    else
-        print("arg1 大于 arg2")
-    end
-
-    -- For 循环
-    for local i = 0, i < arg2, i++ do
-        print("当前循环索引: ", i)
-    end
-
-    -- 动态数组
-    local arr = array()
-    arr[0] = 100
-    arr[1] = 200
-
-    -- 动态哈希 Map
-    local m = map()
-    m["key"] = "value"
-    m[1] = arr
-
-    -- 结构体实例化与访问
-    local u = User()
-    u->id = 1001
-    u->name = "Alice"
-
-    -- Switch 语句
-    switch arg1
-        case 1 then
-            print("分支 1")
-        case "a" then
-            print("分支 a")
-        default
-            print("默认分支")
-    end
-
-    -- 返回多个值
-    return sum, m["key"]
-end
-```
+其余部分——词法、语法、代码生成、虚拟机、元方法、协程、标准库——都是直译。
 
 ---
 
-## Java 嵌入示例
+## 架构
 
-### 1. 声明并绑定 Java 方法
-通过 `@fakescript` 标记供脚本调用的静态方法：
+包结构一比一对应 C 源码，拿着 `lua-5.4.x` 对照即可定位：
+
+| Lua 5.4 C 源码 | Java |
+|---|---|
+| `lobject.h` / `lobject.c` | `LuaValue`、`LuaString`、`LuaTable`、`Proto`、`Closure`、`Upvalue` |
+| `lstring.c` | `StringPool` |
+| `ltable.c` | `LuaTable` |
+| `lfunc.c` | `Proto`、`Closure`、`Upvalue` |
+| `lstate.c` | `LuaState`、`CallInfo`、`GlobalState` |
+| `lzio.c` | `Zio` |
+| `llex.c` | `Lexer` |
+| `lparser.c` | `Parser`（与上游一致的手写递归下降） |
+| `lcode.c` / `lopcodes.h` | `FuncState`、`Codegen`、`OpCode` |
+| `lvm.c` | `Interpreter` |
+| `ldo.c` | 调用帧、保护调用、错误传播 |
+| `ltm.c` | `Meta`（元方法派发） |
+| `ldebug.c` | `Debug`、错误信息、栈回溯 |
+| `lapi.c` / `lauxlib.c` | `LuaState` 上的操作、`AuxLib` |
+| `lundump.c` / `ldump.c` | 字节码载入 / 转储 |
+| `lbaselib.c`、`lcorolib.c`、`loadlib.c`、`lstrlib.c`、`ltablib.c`、`lmathlib.c`、`liolib.c`、`loslib.c`、`lutf8lib.c`、`ldblib.c` | 对应的 `lib.*` 类 |
+| `lgc.c` | **不存在** —— 见上 |
+
+`lauxlib.c` 等辅助层一并搬过来，因为标准库是照着它们写的。
+
+---
+
+## 关键设计决策
+
+以下几处是"把 C 翻译成 Java"不能机械照搬的地方，选错了后面要花很大代价才补得回来。
+
+### 1. Lua 字符串是字节串，所以不能用 Java `String`
+
+Lua 字符串可以包含 `\0`；`#s` 数的是**字节**；`s:byte(i)` 返回一个字节。
+Java 的 `String` 是 UTF-16，且不接受孤立代理项。任何处理二进制数据、UTF-8 文本
+或含 `\0` 的真实 Lua 项目，只要字符串底层用 `String` 就会出错。
+因此 Lua 字符串底层用 `byte[]`，所有字符串库函数按字节实现。
+
+### 2. 值保留整数/浮点子类型区分
+
+Lua 5.4 区分 `1`（integer）与 `1.0`（float）：二者比较相等，但 `math.type` 不同，
+`//` 与 `/` 不同，`1/2` 是 `0.5` 而 `1//2` 是 `0`，转字符串分别是 `1` 与 `1.0`。
+值采用**可变槽**结构（`type` 标签 + `long` + `double` + `Object` 载荷），
+对应 C 的 `TValue`：既避免装箱，也让 VM 能原地写栈槽。
+
+### 3. 表保留数组部分/哈希部分的分离
+
+照搬 `ltable.c`，包括"这个整数键是否足够密集、能否放进数组部分"的迁移逻辑。
+整数键与字符串键是不同的项：`t[1]` 与 `t["1"]` 是两个不同的条目，与 Lua 一致。
+
+### 4. 协程跑在虚拟线程上
+
+Lua 协程可以在任意深度的栈上 yield——`pcall` 内部、元方法内部、`for` 迭代器内部。
+用显式状态机复刻这一点是重写 `lvm.c` 时最难的部分。这里的做法是：每个 Lua 协程
+跑在一个 Java **虚拟线程**上，`coroutine.yield` 即 park、`resume` 即 unpark。
+因为 Lua 函数也是由解释器在同一个线程上执行的，任意深度的 yield 就自然成立了，
+而虚拟线程足够廉价，可以支撑成千上万个协程。这也是把 Java 21 设为下限的原因。
+
+协程层被隔离在一个接口后面，将来换成状态机实现时不必改动调用方。
+
+### 5. 错误用 Java 异常，不用 `setjmp` / `longjmp`
+
+`lua_error` 变成抛出携带 Lua 错误值的异常。`pcall` / `xpcall` 捕获它，协程边界
+同样处理。需要小心处理：非字符串的错误值、带 `__tostring` 的错误对象、
+以及跨越协程边界传播的错误——都要与上游行为一致。
+
+### 6. 不再用 JFlex / Bison
+
+Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉了构建期代码生成这一步，
+以及旧架构里"生成物漂移"的问题。
+
+### 7. 元方法：全部实现，包括那些别扭的规则
+
+`__index`、`__newindex`、`__call`、`__concat`、`__len`、`__eq`、`__lt`、`__le`、
+`__unm`、`__add` …… `__idiv`、`__close`、`__gc`、`__mode`、`__name`、`__metatable`、
+`__pairs`、`__ipairs`。包括容易做错的部分：只有 `__lt` 时 `__le` 退化为
+`not (b < a)`；`__eq` 只在类型可比时触发；表上的 `__len` 忽略非整数结果；
+`__index` 的链式查找。
+
+---
+
+## 实施路线
+
+每一阶段结束都必须测试全绿；红着不许往下走。
+
+| 阶段 | 内容 | 上游对应 |
+|---|---|---|
+| **0** | 地基：`LuaValue`、`LuaString` 与驻留、`LuaTable`、`LuaState`、错误类型、`Zio` | `lobject`、`lstring`、`ltable`、`lstate`、`lzio` |
+| **1** | 词法 + 递归下降语法分析，按上游方式直接产出而不单独建树 | `llex`、`lparser` |
+| **2** | 字节码：完整 Lua 5.4 指令集、代码生成、常量折叠、upvalue 解析 | `lopcodes`、`lcode`、`lfunc` |
+| **3** | 解释器主循环：调用/返回、带类型转换的算术与比较、元方法派发 | `lvm`、`ldo`、`ltm` |
+| **4** | 闭包与 open/closed upvalue、`goto`/label、变长参数、多重赋值与多返回值 | `lparser`、`lvm` |
+| **5** | 虚拟线程上的协程、`coroutine.*`、错误与 yield 跨边界 | `lcorolib`、`ldo` |
+| **6** | 依赖回收的语义：弱表、`__gc`、弱字符串驻留池 | *（取代 `lgc.c`）* |
+| **7** | 标准库：`base`、`coroutine`、`package`、`string`、`table`、`math`、`io`、`os`、`utf8`、`debug` | `l*lib.c`、`loadlib.c` |
+| **8** | `load` / `loadstring` / `dump`、`require` 搜索器、`package.path` / `cpath` | `lundump`、`ldump`、`loadlib` |
+| **9** | 一致性验证：上游测试套件 + 与真实 `lua5.4` 二进制的差分测试 | — |
+
+---
+
+## 怎么证明"它真的是 Lua"
+
+一个只是**看起来像** Lua 的重写是没有价值的。四道闸门，强度递增：
+
+1. **上游测试套件**。直接跑 `lua-5.4.x/tests/*.lua`（`alls.lua`、`big.lua`、
+   `strings.lua`、`coroutine.lua`、`pm.lua` 等），不做任何修改。这是主闸门——
+   上游自己的测试集比这里手写的任何用例都刁钻。
+2. **差分测试**。同一份脚本分别在本实现与真实的 `lua5.4` 二进制下运行，
+   stdout 必须逐字节相同。CI 里装 `lua5.4` 后自动跑。
+3. **差分模糊测试**。生成程序与参考二进制对比——这一条专门抓"不崩但算错"那类缺陷。
+4. **覆盖率门禁**（JaCoCo 行覆盖率）。
+
+一个阶段只有在适用于它的闸门全绿之后才算完成。
+
+---
+
+## 现状
+
+**阶段 0（地基）。** 旧的 fakescript 语言实现已从 `master` 移除，见下文 *迁移说明*。
+
+已落地：
+
+| 部件 | 上游对应 | 说明 |
+|---|---|---|
+| `Lua` 类型标签 | `lua.h`、`lobject.h` | 保留整数/浮点两个变体子类型 |
+| `LuaValue` | `TValue` | 可变槽，让 VM 能原地写栈槽 |
+| `LuaString` | `TString` | 底层 `byte[]`；`\0`、任意字节与非法 UTF-8 都原样保存 |
+| `StringPool` | `lstring.c` 的 `strt` | 弱引用驻留，不再引用的字符串不会钉住堆 |
+| `LuaTable` | `ltable.c` | 数组部分 + 哈希部分、`rehash`、`#t` 边界、整值浮点键规范化 |
+| `LuaError` | `lua_error` | 携带 Lua 值；只有这个类型会被 `pcall` 捕获 |
+| `ConformanceTest` | — | 以真实的 `lua5.4` 二进制作为裁判 |
+
+本阶段有两条语义是**跑参考实现实测**定下来的，而不是照手册推的：
+
+* 整值浮点作键时，写入会**规范化成整数键**
+  （`t[1.0]` 之后 `math.type(next(t))` 是 `"integer"`，`#t` 是 1）；
+* 写 **NaN** 键报 `table index is NaN`，而**读** NaN 键静默返回 `nil`。
+
+两条都由 `ConformanceTest` 里跑真实 Lua 5.4 的用例锁住。
+
+下一步：阶段 1（词法）与阶段 2（字节码）。
+
+目标 API 形态（随阶段 0 落地后固定）：
 
 ```java
-package com.example;
-
-import com.github.esrrhs.fakescript.fakescript;
-
-public class MathUtils {
-    @fakescript
-    public static int add(int a, int b) {
-        return a + b;
-    }
-}
-```
-
-### 2. 在 Java 中执行脚本
-
-```java
-import com.github.esrrhs.fakescript.fake;
-import com.github.esrrhs.fakescript.fk;
-import com.github.esrrhs.fakescript.fkconfig;
-
-public class Main {
-    public static void main(String[] args) throws Exception {
-        // 1. 初始化 fake 实例
-        fake f = fk.newfake(new fkconfig());
-        fk.openbaselib(f);
-
-        // 2. 注册 Java 类或包
-        fk.regclass(f, MathUtils.class);
-
-        // 3. 解析脚本字符串或脚本文件
-        String script = 
-                "function calc(x, y)\n" +
-                "    return MathUtils.add(x, y) * 2\n" +
-                "end\n";
-        fk.parsestr(f, script);
-
-        // 4. 执行函数并获取结果
-        Object result = fk.run(f, "calc", 10, 20);
-        System.out.println("Result: " + result); // 输出: 60.0
-    }
-}
+LuaState L = new LuaState();
+Libs.openLibs(L);              // 打开全部标准库
+L.loadString("print('hello from Lua')");
+L.call(0, 0);
 ```
 
 ---
 
-## 引入依赖
+## 从旧 fakescript 语言迁移
 
-### Maven
+这是一次**破坏性重写**。旧 fakescript 语法整体移除：`package`、`include`、
+`struct`、`const`、`->` 式 `for`、`array()`、`map()`、`fake` 协程、`:=`、
+Java 绑定注解、以及性能剖析器。
 
-在项目的 `pom.xml` 中添加依赖：
-
-```xml
-<dependency>
-    <groupId>com.github.esrrhs</groupId>
-    <artifactId>fakescript-java</artifactId>
-    <version>1.0.16</version>
-</dependency>
-```
-
-### Gradle
-
-```groovy
-implementation 'com.github.esrrhs:fakescript-java:1.0.16'
-```
+既有的 fakescript 脚本需要改写成 Lua——而这正是重点：改完之后跑的是 Lua 5.4，
+脚本可以在任意其他 Lua 5.4 实现之间来回移植。仍需要旧语言的用户请锁定到
+重写前的最后一个提交。
 
 ---
 
-## 性能剖析
-
-内置按函数统计的profiler:
-
-```java
-fk.openprofile(f);
-fk.run(f, "main");
-fk.closeprofile(f);
-System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗时与单次耗时
-```
-
----
-
-## 语法说明
-
-* 字符串拼接用`..`(Lua风格):`"key" .. 1`。`+`仅用于算术。
-* 多返回值的声明式接收是`a, b := f()`;`a, b = f()`要求变量已声明。
-* 睡眠中的协程不忙等:`fk.run`会睡到最近的唤醒点。
-* 关键字对齐 Lua 5.4:`local`、`function`、`and`/`or`/`not`、`~=`(不等于)、`#t`(取长度,等价于`size(t)`)。
-* 循环以`do`收尾:`while ... do ... end`、`for ... do ... end`;`if`/`elseif`仍用`then`。
-* 数值`for`支持 Lua 形态`for i = 1, n[, step] do ... end`(步长省略为 1),**含两端**。
-  注意本语言原有的`for local i = a -> b, step do`是**不含右端**的半开区间,两种写法不要混用。
-* 运行期表构造:`local t = {1, 2, 3}`(数组,下标从 0 起)、`local m = {a = 1, b = 2}`(映射),`{}`为
-  空数组。元素可以是表达式、函数调用或嵌套的表构造。不支持计算键`{["a"] = 1}`,也不支持同一个
-  构造里混用键值项与位置项。
-* **破坏性变更**:旧写法`var`、`func`、`&&`、`||`、`!`、`!=`以及循环后的`then`已移除,脚本需按上两条迁移。
-
-## 标准库
-
-脚本可用的内置函数:
-
-* **值**: `print`、`format`、`typeof`、`tonumber`、`tostring`、`tolong`、`size`、`range`、`getconst`、`isfunc`
-* **容器**: `array`、`map`、`_G`、`new`(受`new_class_white_list`限制)
-* **数组操作**: `push`、`pop`、`insert`、`remove`、`sort`(就地排序;数值按值、字符串按字典序,混用报错)
-* **映射操作**: `keys`、`values`(遍历序为HashMap序,非插入序)
-* **数据**: `copy`(深拷贝,64层上限)、`tojson`、`fromjson` —— JSON整数与脚本INT/REAL往返保真,UUID输出为整数,map键仅支持字符串/数值
-* **数学与时间**: `abs`(INT保持INT)、`floor`、`ceil`(返回INT)、`sqrt`、`pow`、`random()`(REAL,范围[0,1)) / `random(n)`(INT,范围[0,n))、`time`(毫秒时间戳)
-* **字符串**: `substr(s, start, len)`、`find(s, sub)`(0起,不存在为-1)、`upper`、`lower`、`trim`、`replace`(字面量替换)、`split`(字面量分隔符,保留空段)
-* **动态**: `dostring`、`dofile`(受`allow_dofile`限制)、`getcurfile`、`getcurline`、`getcurfunc`、`getcurcallstack`、`dumpfunc`、`dumpallfunc`
-
----
-
-## 数值类型
-
-数值分两类:
-
-* **INT** —— 64位有符号整数。整数字面量(`42`)与纯整数运算(`+`、`-`、`*`、`%`、比较)产生INT,全程64位精度(2^53以上不再有double舍入误差),溢出与C一致按位回绕。
-* **REAL** —— 64位双精度浮点。浮点字面量(`4.2`)以及任何INT与REAL混合的表达式提升为REAL。
-
-需要注意的语义:
-
-* 除法恒为浮点:`4 / 2` 得到 `2.0`,`1 / 2` 得到 `0.5`。
-* 相等判断跨数值类型按值比较:`1 == 1.0` 为真,二者作为map键也是同一个键。
-* `UUID`值(整数加`u`后缀,如`123u`)不参与任何算术运算。
-* 宿主侧:`Integer`/`Short`/`Byte`参数映射为INT,`Float`/`Double`映射为REAL,`Long`默认映射为UUID(历史约定)——设置`fkconfig.long_as_int = true`可让`Long`映射为INT。脚本INT返回值在Java侧为`Long`。
-
----
-
-## 运行时安全与控制
-
-嵌入脚本时，可以通过 `fkconfig` 限制失控脚本，并用 `fk.stop` 取消执行：
-
-```java
-fkconfig config = new fkconfig();
-config.max_run_cmd_num = 1000000;    // 单次run总命令数上限;默认1亿条兜底死循环,0表示不限制
-config.run_timeout_ms = 1000;        // 单次run墙钟时间上限(毫秒),默认0不限制
-config.container_max_size = 1000000; // 单个容器(array/map)元素个数上限;默认千万级,0表示不限制
-config.new_class_white_list = new String[] { "com.example.script." }; // 沙箱:内置new()允许实例化的类名前缀,null表示不限制
-
-fake f = fk.newfake(config);
-fk.openbaselib(f);
-fk.parsestr(f, script);
-Object ret = fk.run(f, "funcname", args);         // 返回第一个返回值
-Object[] rets = fk.runmulti(f, "funcname", args); // 返回全部返回值
-
-fk.stop(f); // 在下一条命令边界取消当前run
-```
-
-运行时错误会在fake上记录错误标记;`fk.geterror(f)` 返回错误信息、Java堆栈以及脚本级调用栈。
-
-## 协程与分帧执行
-
-脚本内用 `fake func(args)` 启动协程，用 `sleep`/`yield` 挂起。宿主有两种驱动方式：
-
-```java
-// 方式一:run()阻塞到入口函数及其所有协程结束
-Object ret = fk.run(f, "main");
-
-// 方式二:resume()每次最多执行per_frame_cmd_num条命令后返回,
-// 未结束返回null,适合游戏/框架主循环按帧驱动
-Object[] rets = fk.resume(f, "main"); // 每帧调用一次,直到返回非null
-```
-
-`resume` 在所有协程结束前返回 `null`，结束后返回完整的返回值数组。结束后再用新的函数名调用 `resume` 可以启动新一轮执行。
-
-注意:`fake` 实例(及从它获取的对象)**不是线程安全的**——请在单一线程中驱动。运行时内置并发检测:两个线程同时进入同一个fake会得到 `fake is busy` 错误而不是状态损坏(并发误用下错误标记为last-writer-wins);不同线程间**顺序**使用不受影响。
-
----
-
-## 源码构建
-
-使用自带的 Maven Wrapper 即可进行构建与测试：
+## 构建
 
 ```bash
-./mvnw clean test
-./mvnw package
+./mvnw clean test          # 需要 JDK 21+
 ```
 
-### 模糊测试
+---
 
-测试分三层，各自覆盖不同类型的缺陷：
+## 许可证
 
-* `FuzzTest` —— 随机 token / 字符乱炖，保证任何输入都不逃逸错误处理机制（崩溃安全）
-* `SemanticFuzzTest` —— 两类 oracle，均固定种子，进 CI 当回归测试：
-  * **表达式不变式**：随机生成表达式 AST，用紧凑写法、带空格写法、完全括号化写法
-    分别求值并要求结果守恒。**不崩但算错**的缺陷（例如优先级错位导致 `a/b*c` 算成
-    `a/(b*c)`）正是靠这一层发现的
-  * **标准库差分**：把随机的数组 / 字符串 / map 操作序列同时喂给脚本与一份独立的
-    Java 参考模型（`StdlibFuzzSupport`），再补上 `tojson` → `fromjson` 往返。
-    容器与字符串内置函数即使全错也不会抛异常，只有外部参考模型能把它逼出来
-* `JazzerFuzzTest` —— 接 [Jazzer](https://github.com/CodeIntelligenceTesting/jazzer)
-  （基于 libFuzzer 的覆盖率引导引擎）。它复用上面同一套不变式，只是把随机源换成
-  libFuzzer 的变异，能主动探索到手搓随机到不了的路径
-
-```bash
-# 回归模式：只回放 inputs 目录中已保存的输入，行为等同普通单元测试
-./mvnw test -Dtest=JazzerFuzzTest
-
-# 持续模式：libFuzzer 不断变异探索，命中的输入落盘到 inputs 目录供后续回归
-JAZZER_FUZZ=1 ./mvnw test -Dtest=JazzerFuzzTest
-```
-
-其他构建profile：
-
-```bash
-./mvnw verify -Pquality -DskipTests   # SpotBugs静态分析报告
-./mvnw clean test -Pgrammar           # 重新生成YYParser.java(需要bison >= 3.0)
-```
-
-微基准(趋势观察,非JMH精度):
-
-```bash
-./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=com.github.esrrhs.fakescript.Benchmark
-```
-
-词法分析器(`Yylex.java`)由JFlex Maven插件在每次构建时从 `jflexbison/jflex.flex` 自动生成。语法分析器(`YYParser.java`)提交在仓库中，语法变更后使用 `grammar` profile 重新生成。每次 `test` 构建会在 `target/site/jacoco/` 下生成测试覆盖率报告。
+MIT

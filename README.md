@@ -5,322 +5,244 @@
 [![Maven Central](https://img.shields.io/maven-central/v/com.github.esrrhs/fakescript-java)](https://central.sonatype.com/artifact/com.github.esrrhs/fakescript-java)
 [![Build Status](https://github.com/esrrhs/fakescript_java/actions/workflows/maven.yml/badge.svg?branch=master)](https://github.com/esrrhs/fakescript_java/actions)
 
-A lightweight embedded scripting language written in pure Java.
+**Lua 5.4 in pure Java — no GC of its own; the JVM does the collecting.**
 
 [简体中文](./README_CN.md)
 
 ---
 
-## Overview
+## Design Goal
 
-**fakescript-java** is a lightweight, embeddable scripting language implemented in Java. Its syntax draws inspiration from Lua, Go, and Erlang. The compiler utilizes JFlex and Bison to construct syntax trees, compiles source code into bytecode, and executes it via an internal virtual machine interpreter.
+> Run existing Lua projects on the JVM **without changing a single line of their Lua code.**
 
-## Key Features
+This project is a **module-by-module port of the Lua 5.4 reference implementation**
+(`lua-5.4.x` C sources) to Java. It is not a Lua-inspired language that merely looks
+similar — it is Lua 5.4, with the memory-management layer removed and handed to the
+host runtime.
 
-* **Clean Syntax**: Lua-inspired, concise, and clean grammar.
-* **Pure Functional**: Everything is modeled as functions; supports multiple return values.
-* **Rich Containers**: Built-in dynamic arrays (`array()`) and maps (`map()`, `_G()`) with arbitrary nesting.
-* **Coroutines / Routines**: Lightweight cooperative concurrency using `fake func(args)` and `sleep` / `yield`.
-* **Seamless Java Interop**: Direct, zero-boilerplate reflection binding for Java static methods and class member functions via `@fakescript` annotation.
-* **Struct Support**: Lightweight user-defined data structures (`struct`).
-* **Package & Modular System**: Modular namespace separation using `package` and `include`.
-* **Types & Constants**: Built-in support for Int64 (`UUID`), `const` values, floating-point numbers, and strings.
-* **Built-in Profiler**: Integrated performance profiling to measure execution time per script function.
-* **Hot Reloading**: Supports dynamic parsing, script reloading, and bytecode updates at runtime.
+| | |
+|---|---|
+| **Target** | Full Lua 5.4 language semantics + complete standard library |
+| **Method** | Direct, module-by-module translation of the C reference sources |
+| **GC** | **Not implemented.** Object lifetime is entirely the JVM's job (G1/ZGC are concurrent collectors already) |
+| **Runtime** | Java 21+ (coroutines rely on virtual threads) |
+| **Compatibility** | Pure-Lua projects; C extension modules (`.so` / `luaopen_*`) are out of scope for now |
 
----
+### Why there is no GC
 
-## FakeScript Syntax Example
+`lgc.c` is one of the most intricate parts of the C implementation: tri-colour
+incremental marking, generational mode, write barriers, finalizers, weak tables.
+All of it exists to do what the JVM already does — concurrently, and better tuned
+than a hand-rolled collector written in Java would be. The file is deleted
+outright. Only the *semantics that depend on collection happening* are rebuilt on
+JVM primitives:
 
-```fakescript
--- Define package namespace
-package mypackage.test
+| Lua concept | C mechanism | This implementation |
+|---|---|---|
+| Object lifetime | `lgc.c` tri-colour marking | **JVM GC** (G1 / ZGC) |
+| Weak tables (`__mode = "k"/"v"/"kv"`) | weak links swept in `lgc.c` | `WeakReference` + `ReferenceQueue` |
+| `__gc` finalizers | `luaC_checkfinalizer` / `GCTM` | `java.lang.ref.Cleaner` |
+| Short-string interning | `lstring.c` table pinned against collection | weak intern pool; entries die when unreferenced |
 
--- Include external script files
-include "common.fk"
-
--- Struct definition
-struct User
-    id
-    name
-    extra
-end
-
--- Constants
-const MAX_COUNT = 100
-const DEFAULT_NAME = "Guest"
-const CONFIG_MAP = {1 : "Alpha" 2 : "Beta"}
-
--- Function definition
-function process_user(arg1, arg2)
-
-    -- Calling bound Java static functions
-    local sum = MathUtils.add(arg1, 10)
-
-    -- Conditional statements
-    if arg1 < arg2 then
-        -- Spawn a lightweight coroutine
-        fake background_task(arg1, arg2)
-    elseif arg1 == arg2 then
-        print("Values are equal")
-    else
-        print("arg1 is greater than arg2")
-    end
-
-    -- For loop
-    for local i = 0, i < arg2, i++ do
-        print("Loop index: ", i)
-    end
-
-    -- Dynamic Array
-    local arr = array()
-    arr[0] = 100
-    arr[1] = 200
-
-    -- Dynamic Map
-    local m = map()
-    m["key"] = "value"
-    m[1] = arr
-
-    -- Struct usage
-    local u = User()
-    u->id = 1001
-    u->name = "Alice"
-
-    -- Switch case
-    switch arg1
-        case 1 then
-            print("case 1")
-        case "a" then
-            print("case a")
-        default
-            print("default")
-    end
-
-    -- Return multiple values
-    return sum, m["key"]
-end
-```
+Everything else — lexer, parser, code generator, VM, metamethods, coroutines,
+standard library — is a direct port.
 
 ---
 
-## Java Integration Example
+## Architecture
 
-### 1. Bind Java Methods
-Annotate methods with `@fakescript`:
+The package layout mirrors the C sources one-to-one, so a reader holding
+`lua-5.4.x` side by side can find their way around:
+
+| Lua 5.4 C source | Java |
+|---|---|
+| `lobject.h` / `lobject.c` | `LuaValue`, `LuaString`, `LuaTable`, `Proto`, `Closure`, `Upvalue` |
+| `lstring.c` | `StringPool` |
+| `ltable.c` | `LuaTable` |
+| `lfunc.c` | `Proto`, `Closure`, `Upvalue` |
+| `lstate.c` | `LuaState`, `CallInfo`, `GlobalState` |
+| `lzio.c` | `Zio` |
+| `llex.c` | `Lexer` |
+| `lparser.c` | `Parser` (hand-written recursive descent, as upstream) |
+| `lcode.c` / `lopcodes.h` | `FuncState`, `Codegen`, `OpCode` |
+| `lvm.c` | `Interpreter` |
+| `ldo.c` | call frames, protected calls, error propagation |
+| `ltm.c` | `Meta` (metamethod dispatch) |
+| `ldebug.c` | `Debug`, error messages, stack traces |
+| `lapi.c` / `lauxlib.c` | operations on `LuaState`, `AuxLib` |
+| `lundump.c` / `ldump.c` | bytecode load / dump |
+| `lbaselib.c`, `lcorolib.c`, `loadlib.c`, `lstrlib.c`, `ltablib.c`, `lmathlib.c`, `liolib.c`, `loslib.c`, `lutf8lib.c`, `ldblib.c` | corresponding `lib.*` classes |
+| `lgc.c` | **absent** — see above |
+
+The auxiliary layer (`lauxlib.c` and friends) comes along, because the standard
+library is written against it.
+
+---
+
+## Key Design Decisions
+
+These are the places where translating C to Java is not mechanical, and where a
+wrong call costs correctness that is expensive to recover later.
+
+### 1. Lua strings are byte strings, so Java `String` cannot be used
+
+A Lua string may contain `\0`; `#s` counts **bytes**; `s:byte(i)` returns a byte.
+Java `String` is UTF-16 and rejects lone surrogates. Any real-world Lua project
+that touches binary data, UTF-8 text, or embedded `\0` will break if strings are
+backed by `String`. Lua strings are therefore backed by `byte[]`, and every string
+library function is implemented byte-wise.
+
+### 2. Values keep the integer/float subtype split
+
+Lua 5.4 distinguishes `1` (integer) from `1.0` (float): they compare equal, but
+`math.type` differs, `//` differs from `/`, `1/2` is `0.5` while `1//2` is `0`,
+and coercion to string yields `1` vs `1.0`. Values are a **mutable slot** type
+(a `type` tag plus `long`, `double` and an `Object` payload) mirroring C's `TValue`
+— this avoids boxing and lets the VM write stack slots in place.
+
+### 3. Tables keep the array part / hash part split
+
+Ported from `ltable.c`, including the migration logic that decides whether an
+integer key is dense enough to live in the array part. Integer keys and string keys
+are distinct entries: `t[1]` and `t["1"]` are different, as in Lua.
+
+### 4. Coroutines run on virtual threads
+
+Lua coroutines can yield from arbitrarily deep stacks — inside `pcall`, inside a
+metamethod, inside a `for` iterator. Reproducing that with an explicit state
+machine is the hardest part of rewriting `lvm.c`. Instead, each Lua coroutine runs
+on a Java **virtual thread**: `coroutine.yield` parks it, `resume` unparks it.
+Because Lua functions are executed by the interpreter on that same thread, yields
+at any depth fall out naturally, and virtual threads are cheap enough to run
+thousands of coroutines. This is why Java 21 is the floor.
+
+The coroutine layer sits behind an interface so a state-machine implementation can
+replace it later without touching callers.
+
+### 5. Errors use Java exceptions, not `setjmp` / `longjmp`
+
+`lua_error` becomes a thrown error carrying the Lua error value. `pcall` / `xpcall`
+catch it, as does the coroutine boundary. Care is needed so that non-string error
+values, error objects carrying `__tostring`, and errors crossing a coroutine
+boundary all behave as upstream does.
+
+### 6. No JFlex / Bison
+
+The Lua reference parser is hand-written recursive descent. Porting it directly
+removes the build-time code-generation step, along with the generated-parser drift
+problem the previous architecture had.
+
+### 7. Metamethods: all of them, including the awkward rules
+
+`__index`, `__newindex`, `__call`, `__concat`, `__len`, `__eq`, `__lt`, `__le`,
+`__unm`, `__add` … `__idiv`, `__close`, `__gc`, `__mode`, `__name`, `__metatable`,
+`__pairs`, `__ipairs`. Including the parts that are easy to get wrong: `__le`
+degrading to `not (b < a)` when only `__lt` exists; `__eq` firing only for
+comparable types; `__len` on tables ignoring non-integer results; and `__index`
+chain traversal.
+
+---
+
+## Roadmap
+
+Each phase ends with tests green. Nothing advances on a red phase.
+
+| Phase | Content | Upstream reference |
+|---|---|---|
+| **0** | Foundations: `LuaValue`, `LuaString` + interning, `LuaTable`, `LuaState`, error type, `Zio` | `lobject`, `lstring`, `ltable`, `lstate`, `lzio` |
+| **1** | Lexer + recursive-descent parser; emits directly as upstream does, with no separate tree | `llex`, `lparser` |
+| **2** | Bytecode: full Lua 5.4 instruction set, code generator, constant folding, upvalue resolution | `lopcodes`, `lcode`, `lfunc` |
+| **3** | Interpreter main loop: calls/returns, arithmetic & comparison with coercion, metamethod dispatch | `lvm`, `ldo`, `ltm` |
+| **4** | Closures & open/closed upvalues, `goto`/labels, varargs, multiple assignment and returns | `lparser`, `lvm` |
+| **5** | Coroutines on virtual threads, `coroutine.*`, error & yield across boundaries | `lcorolib`, `ldo` |
+| **6** | Collection-dependent semantics: weak tables, `__gc`, weak string pool | *(replaces `lgc.c`)* |
+| **7** | Standard library: `base`, `coroutine`, `package`, `string`, `table`, `math`, `io`, `os`, `utf8`, `debug` | `l*lib.c`, `loadlib.c` |
+| **8** | `load` / `loadstring` / `dump`, `require` searchers, `package.path` / `cpath` | `lundump`, `ldump`, `loadlib` |
+| **9** | Conformance: upstream test suite + differential testing against a real `lua5.4` binary | — |
+
+---
+
+## How "it is actually Lua" gets verified
+
+A rewrite that merely *looks* like Lua is worthless. Four gates, in increasing
+order of strength:
+
+1. **Upstream test suite.** The `lua-5.4.x/tests/*.lua` files (`alls.lua`,
+   `big.lua`, `strings.lua`, `coroutine.lua`, `pm.lua`, …) run unmodified. This is
+   the primary gate — upstream's own suite is far more adversarial than anything
+   written by hand here.
+2. **Differential testing.** The same script runs under this implementation and
+   under a real `lua5.4` binary; stdout must match byte for byte. Wired into CI
+   with `lua5.4` installed.
+3. **Differential fuzzing.** Generated programs compared against the reference
+   binary — this is what catches the "no crash but wrong answer" class.
+4. **Coverage gate** (JaCoCo line ratio).
+
+A phase is done only when the gates that apply to it are green.
+
+---
+
+## Status
+
+**Phase 0 — foundations.** The previous fakescript language implementation has been
+removed from `master`; see *Migration* below.
+
+Landed so far:
+
+| Piece | Upstream | Notes |
+|---|---|---|
+| `Lua` type tags | `lua.h`, `lobject.h` | integer/float subtypes kept as distinct variants |
+| `LuaValue` | `TValue` | mutable slot, so the VM can write stack slots in place |
+| `LuaString` | `TString` | `byte[]`-backed; `\0`, arbitrary and invalid-UTF-8 bytes all preserved |
+| `StringPool` | `lstring.c` `strt` | interned weakly, so unused strings do not pin the heap |
+| `LuaTable` | `ltable.c` | array part + hash part, `rehash`, `#t` borders, integral-float key normalisation |
+| `LuaError` | `lua_error` | carries a Lua value; only this type is caught by `pcall` |
+| `ConformanceTest` | — | runs a real `lua5.4` binary as the oracle |
+
+Two decisions in this phase were settled by running the reference implementation
+rather than by reading the manual:
+
+* an integral float used as a key **is normalised to an integer** on write
+  (`t[1.0]` yields `math.type(next(t)) == "integer"` and `#t == 1`);
+* writing a **NaN** key raises `table index is NaN`, while *reading* one silently
+  returns `nil`.
+
+Both are locked by tests that run against real Lua 5.4 in `ConformanceTest`.
+
+Next: Phase 1 (lexer) and Phase 2 (bytecode).
+
+Target API shape (will firm up as Phase 0 lands):
 
 ```java
-package com.example;
-
-import com.github.esrrhs.fakescript.fakescript;
-
-public class MathUtils {
-    @fakescript
-    public static int add(int a, int b) {
-        return a + b;
-    }
-}
-```
-
-### 2. Execute Script in Java
-
-```java
-import com.github.esrrhs.fakescript.fake;
-import com.github.esrrhs.fakescript.fk;
-import com.github.esrrhs.fakescript.fkconfig;
-
-public class Main {
-    public static void main(String[] args) throws Exception {
-        // 1. Initialize environment
-        fake f = fk.newfake(new fkconfig());
-        fk.openbaselib(f);
-
-        // 2. Register Java classes or packages
-        fk.regclass(f, MathUtils.class);
-
-        // 3. Parse script code or file
-        String script = 
-                "function calc(x, y)\n" +
-                "    return MathUtils.add(x, y) * 2\n" +
-                "end\n";
-        fk.parsestr(f, script);
-
-        // 4. Run script function
-        Object result = fk.run(f, "calc", 10, 20);
-        System.out.println("Result: " + result); // Output: 60.0
-    }
-}
+LuaState L = new LuaState();
+Libs.openLibs(L);              // opens all standard libraries
+L.loadString("print('hello from Lua')");
+L.call(0, 0);
 ```
 
 ---
 
-## Installation
+## Migration from the old fakescript language
 
-### Maven
+This is a **breaking rewrite**. The old fakescript syntax is gone entirely:
+`package`, `include`, `struct`, `const`, `->`-style `for`, `array()`, `map()`,
+`fake` coroutines, `:=`, the Java binding annotations, and the profiler.
 
-Add the dependency to your `pom.xml`:
-
-```xml
-<dependency>
-    <groupId>com.github.esrrhs</groupId>
-    <artifactId>fakescript-java</artifactId>
-    <version>1.0.16</version>
-</dependency>
-```
-
-### Gradle
-
-```groovy
-implementation 'com.github.esrrhs:fakescript-java:1.0.16'
-```
+Existing fakescript scripts must be rewritten as Lua — which is the point: after
+this change, what runs is Lua 5.4, and scripts are portable to and from any other
+Lua 5.4 implementation. Users who still need the old language should pin to the
+last commit before the rewrite.
 
 ---
 
-## Profiling
-
-Built-in per-function profiler:
-
-```java
-fk.openprofile(f);
-fk.run(f, "main");
-fk.closeprofile(f);
-System.out.println(fk.dumpprofile(f)); // calls, total & per-call time per function
-```
-
----
-
-## Language Notes
-
-* String concatenation uses `..` (Lua style): `"key" .. 1`. The `+` operator is arithmetic only.
-* Multi-return declaration assignment is `a, b := f()`; `a, b = f()` assigns to pre-declared variables.
-* Sleeping coroutines do not busy-wait: `fk.run` sleeps until the nearest wake-up point.
-* Keywords follow Lua 5.4: `local`, `function`, `and` / `or` / `not`, `~=` (not equal), `#t` (length, same as `size(t)`).
-* Loops end with `do` (`while ... do ... end`, `for ... do ... end`); `if` / `elseif` still take `then`.
-* Lua-style numeric `for i = 1, n[, step] do ... end` (step defaults to 1) is **inclusive** on both ends. The pre-existing `for local i = a -> b, step do` is **half-open** (`b` excluded) — do not mix the two forms.
-* Table constructors work at runtime: `local t = {1, 2, 3}` (array, 0-based) and `local m = {a = 1, b = 2}` (map), plus `{}` for an empty array. Elements may be expressions, calls or nested constructors. Not supported: computed keys (`{["a"] = 1}`) and mixing keyed/positional items in one constructor.
-* **Breaking change**: the pre-Lua spellings `var`, `func`, `&&`, `||`, `!`, `!=` and the loop-closing `then` have been removed — scripts must be migrated to the two lines above.
-
-## Standard Library
-
-Built-in functions available to scripts:
-
-* **Values**: `print`, `format`, `typeof`, `tonumber`, `tostring`, `tolong`, `size`, `range`, `getconst`, `isfunc`
-* **Containers**: `array`, `map`, `_G`, `new` (subject to `new_class_white_list`)
-* **Array ops**: `push`, `pop`, `insert`, `remove`, `sort` (in-place; numbers by value, strings lexicographic, mixing fails)
-* **Map ops**: `keys`, `values` (iteration order is HashMap order, not insertion order)
-* **Data**: `copy` (deep copy, 64-level cap), `tojson`, `fromjson` — JSON numbers round-trip as INT/REAL, UUID as integer, map keys must be string/number
-* **Math & time**: `abs` (INT-preserving), `floor`, `ceil` (return INT), `sqrt`, `pow`, `random()` (REAL in [0,1)) / `random(n)` (INT in [0,n)), `time` (epoch millis)
-* **Strings**: `substr(s, start, len)`, `find(s, sub)` (0-based, -1 if absent), `upper`, `lower`, `trim`, `replace` (literal), `split` (literal separator, keeps empty parts)
-* **Dynamic**: `dostring`, `dofile` (subject to `allow_dofile`), `getcurfile`, `getcurline`, `getcurfunc`, `getcurcallstack`, `dumpfunc`, `dumpallfunc`
-
----
-
-## Numeric Types
-
-Numbers come in two flavors:
-
-* **INT** — signed 64-bit integers. Integer literals (`42`) and integer-only arithmetic (`+`, `-`, `*`, `%`, comparisons) produce INT, with full 64-bit precision (no double rounding above 2^53) and C-style overflow wrap.
-* **REAL** — 64-bit doubles. Float literals (`4.2`) and any expression mixing INT and REAL promote to REAL.
-
-Semantics worth knowing:
-
-* Division is always floating point: `4 / 2` is `2.0`, `1 / 2` is `0.5`.
-* Equality is value-based across numeric types: `1 == 1.0` is true, and both act as the same map key.
-* `UUID` values (integer literals with a `u` suffix, e.g. `123u`) never participate in arithmetic.
-* Host-side: `Integer`/`Short`/`Byte` arguments become INT, `Float`/`Double` become REAL, and `Long` becomes UUID (legacy convention) — set `fkconfig.long_as_int = true` to map `Long` to INT instead. Script INT results are returned to Java as `Long`.
-
----
-
-## Runtime Safety & Control
-
-When embedding scripts, use `fkconfig` to cap runaway scripts and `fk.stop` to cancel execution:
-
-```java
-fkconfig config = new fkconfig();
-config.max_run_cmd_num = 1000000;  // max total commands per run; default 100M (dead-loop backstop), 0 = unlimited
-config.run_timeout_ms = 1000;      // wall-clock limit per run (ms), 0 (default) = unlimited
-config.container_max_size = 1000000; // max elements per array/map; default 10M, 0 = unlimited
-config.new_class_white_list = new String[] { "com.example.script." }; // sandbox: classes new() may instantiate, null = unlimited
-
-fake f = fk.newfake(config);
-fk.openbaselib(f);
-fk.parsestr(f, script);
-Object ret = fk.run(f, "funcname", args);       // returns the first return value
-Object[] rets = fk.runmulti(f, "funcname", args); // returns ALL return values
-
-fk.stop(f); // cancels the current run at the next command boundary
-```
-
-Runtime errors set the error flag on the fake; `fk.geterror(f)` returns the message, the Java stack trace, and the script-level call stack.
-
-## Coroutines & Frame-Sliced Execution
-
-Scripts spawn coroutines with `fake func(args)` and can `sleep` / `yield`. Two hosting styles:
-
-```java
-// Style 1: run() blocks until the entry function and all its coroutines finish
-Object ret = fk.run(f, "main");
-
-// Style 2: resume() executes at most per_frame_cmd_num commands per call,
-// returning null while unfinished - drive it from your game/framework loop
-Object[] rets = fk.resume(f, "main"); // call once per frame until non-null
-```
-
-`resume` returns `null` while any coroutine is still alive, and the full return-value array once finished. After it finishes, calling `resume` again with a new function name starts a fresh run.
-
-Note: a `fake` instance (and the objects obtained from it) is **not thread-safe** — drive it from a single thread. Concurrent access from two threads is detected at runtime and rejected with a `fake is busy` error instead of corrupting state (the error flag is last-writer-wins under such misuse); sequential use across different threads is fine.
-
----
-
-## Building from Source
-
-Build and run tests using the included Maven Wrapper:
+## Build
 
 ```bash
-./mvnw clean test
-./mvnw package
+./mvnw clean test          # requires JDK 21+
 ```
 
-### Fuzzing
+---
 
-Fuzzing is layered, each layer targeting a different class of defect:
+## License
 
-* `FuzzTest` — random token/character soup; guarantees no input escapes the error
-  handling mechanism (crash safety)
-* `SemanticFuzzTest` — two families of oracles, both fixed-seed so they run in CI
-  as regression tests:
-  * *expression invariants* — generates random expression ASTs and evaluates them
-    in equivalent renderings (compact, spaced, fully parenthesized), requiring
-    identical results. This is what catches **silently wrong results** — e.g. a
-    mis-declared precedence making `a/b*c` evaluate as `a/(b*c)`
-  * *stdlib differential* — replays random sequences of array / string / map
-    operations against an independent Java reference model (`StdlibFuzzSupport`),
-    plus `tojson` → `fromjson` round-trips. Container and string builtins can be
-    wrong without ever throwing, so only an external model exposes it
-* `JazzerFuzzTest` — wired to [Jazzer](https://github.com/CodeIntelligenceTesting/jazzer),
-  a coverage-guided engine based on libFuzzer. It reuses the same invariants but
-  swaps the random source for libFuzzer mutations, reaching paths that plain
-  random generation never touches
-
-```bash
-# Regression mode: replay saved inputs only, behaves like a normal unit test
-./mvnw test -Dtest=JazzerFuzzTest
-
-# Continuous mode: libFuzzer keeps mutating; hits are saved to the inputs dir
-JAZZER_FUZZ=1 ./mvnw test -Dtest=JazzerFuzzTest
-```
-
-Additional build profiles:
-
-```bash
-./mvnw verify -Pquality -DskipTests   # SpotBugs static analysis report
-./mvnw clean test -Pgrammar           # regenerate YYParser.java (requires bison >= 3.0)
-```
-
-A micro benchmark (trend observation, not JMH-precise):
-
-```bash
-./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=com.github.esrrhs.fakescript.Benchmark
-```
-
-The lexer (`Yylex.java`) is regenerated from `jflexbison/jflex.flex` on every build via the JFlex Maven plugin. The parser (`YYParser.java`) is checked in; regenerate it with the `grammar` profile when the grammar changes. Test coverage reports are generated under `target/site/jacoco/` on every `test` run.
+MIT

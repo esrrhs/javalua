@@ -4,119 +4,53 @@ on: [push]
 
 jobs:
   build:
+    # 只跑 JDK 21：协程依赖虚拟线程(JEP 444),这是本实现的下限。
+    # 旧的多版本矩阵(8/11/17)在引入 release=21 之后已经无意义。
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        java: ['8', '11', '17', '21']
-    name: Build (JDK ${{ matrix.java }})
+    name: Build (JDK 21)
     steps:
     - uses: actions/checkout@v7
-    - name: Set up JDK ${{ matrix.java }}
+    - name: Set up JDK 21
       uses: actions/setup-java@v6
       with:
-        java-version: ${{ matrix.java }}
+        java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
     - name: Build with Maven Wrapper
       run: ./mvnw -B test package
 
-  grammar:
-    # 验证YYParser.java可以从语法文件重新生成(ubuntu自带bison 3.x)
-    runs-on: ubuntu-latest
-    name: Grammar regeneration
-    steps:
-    - uses: actions/checkout@v7
-    - name: Set up JDK 17
-      uses: actions/setup-java@v6
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: 'maven'
-    - name: Regenerate parser and test
-      run: ./mvnw -B clean test -Pgrammar
-
-  fuzz:
-    # 覆盖率引导的模糊测试(Jazzer/libFuzzer)。
+  conformance:
+    # 一致性测试:拿真实的 lua5.4 当裁判。
     #
-    # 语料库不入库,所以默认 mvn test 的回归模式只能回放极少量输入;真正的
-    # 探索依赖这个 job 的限时 fuzzing。退出码 124 表示 libFuzzer 跑满时限
-    # 仍未发现缺陷,视为通过;任何其他非零码说明找到了反例,让 job 变红。
+    # 这是本项目的主闸门——「看起来像 Lua」没有价值,唯一能证明「真的是 Lua」
+    # 的办法是同一份脚本在两边跑出逐字节相同的 stdout。所以这个 job 先从源码
+    # 构建一份参考实现,再把它的路径交给测试。
+    #
+    # 从源码构建而不是 apt install,是因为发行版里的 lua 版本不受控(可能是
+    # 5.1/5.3/5.5),拿错版本当参考会得出错误的「不一致」结论,那比没有参考更糟。
     runs-on: ubuntu-latest
-    name: Fuzzing (Jazzer)
+    name: Conformance (against lua5.4)
     steps:
     - uses: actions/checkout@v7
-    - name: Set up JDK 17
+    - name: Set up JDK 21
       uses: actions/setup-java@v6
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Fuzz expression invariants
-      env:
-        JAZZER_FUZZ: '1'
+    - name: Build reference lua5.4
       run: |
-        # fuzzing 模式下每次运行只执行一个 fuzz test,故显式指定目标
-        #
-        # 注意:本步骤默认 bash -e,而 timeout 超时会返回 124(非零),会直接终止
-        # 脚本让后面的判断根本执行不到。必须用 || 接住退出码。
-        code=0
-        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzExpressionRenderingInvariants' -Djacoco.skip=true || code=$?
-        if [ "$code" -eq 124 ]; then
-          echo "reached time limit without findings"
-          exit 0
-        fi
-        echo "fuzzing exited with $code"
-        exit "$code"
-    - name: Fuzz stdlib differential invariants
+        set -e
+        curl -sL -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.4.7.tar.gz
+        mkdir -p target
+        tar xzf /tmp/lua.tar.gz -C target
+        mv target/lua-5.4.7 target/lua54
+        make -C target/lua54 -j2 linux
+        ./target/lua54/src/lua -v
+    - name: Run conformance tests
       env:
-        JAZZER_FUZZ: '1'
-      run: |
-        # 同一套 timeout 退出码处理。标准库差分 oracle 与表达式不变式是两类
-        # 不同的缺陷面,各给一段探索预算
-        code=0
-        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzArrayOpsAgainstModel' -Djacoco.skip=true || code=$?
-        if [ "$code" -eq 124 ]; then
-          echo "reached time limit without findings"
-          exit 0
-        fi
-        echo "fuzzing exited with $code"
-        exit "$code"
-    - name: Fuzz Lua numeric for against model
-      env:
-        JAZZER_FUZZ: '1'
-      run: |
-        # 数值 for 是新语法(D10),老的两套 oracle 覆盖不到,单独给一段预算。
-        # 它最危险的失败模式是「静默少跑一次」,只有逐项比对参考模型才看得见。
-        code=0
-        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzLuaNumericForAgainstModel' -Djacoco.skip=true || code=$?
-        if [ "$code" -eq 124 ]; then
-          echo "reached time limit without findings"
-          exit 0
-        fi
-        echo "fuzzing exited with $code"
-        exit "$code"
-    - name: Fuzz table constructor against desugared form
-      env:
-        JAZZER_FUZZ: '1'
-      run: |
-        # 运行时表构造(D13)。oracle 是「与它脱糖后的显式构造逐字节相同」,
-        # 因此不需要另写容器模型,但也就意味着显式构造本身出错时它测不出来——
-        # 那一半由标准库差分 oracle 负责。
-        code=0
-        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzTableConstructorMatchesDesugaredForm' -Djacoco.skip=true || code=$?
-        if [ "$code" -eq 124 ]; then
-          echo "reached time limit without findings"
-          exit 0
-        fi
-        echo "fuzzing exited with $code"
-        exit "$code"
-    - name: Upload findings
-      if: failure()
-      uses: actions/upload-artifact@v7
-      with:
-        name: jazzer-findings
-        path: crash-*
-        if-no-files-found: ignore
+        LUA54_BIN: target/lua54/src/lua
+      run: ./mvnw -B test -Dtest='ConformanceTest' -Djacoco.skip=true
 
   quality:
     # spotbugs静态分析报告(报告模式,不阻断)
@@ -124,10 +58,10 @@ jobs:
     name: Static analysis
     steps:
     - uses: actions/checkout@v7
-    - name: Set up JDK 17
+    - name: Set up JDK 21
       uses: actions/setup-java@v6
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
     - name: SpotBugs
