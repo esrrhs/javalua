@@ -55,12 +55,18 @@ jobs:
       env:
         JAZZER_FUZZ: '1'
       run: |
-        # fuzzing 模式下每次运行只执行一个 fuzz test,故分别指定
-        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzExpressionRenderingInvariants' -Djacoco.skip=true
-        code=$?
-        if [ $code -eq 124 ]; then echo "reached time limit without findings"; exit 0; fi
+        # fuzzing 模式下每次运行只执行一个 fuzz test,故显式指定目标
+        #
+        # 注意:本步骤默认 bash -e,而 timeout 超时会返回 124(非零),会直接终止
+        # 脚本让后面的判断根本执行不到。必须用 || 接住退出码。
+        code=0
+        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzExpressionRenderingInvariants' -Djacoco.skip=true || code=$?
+        if [ "$code" -eq 124 ]; then
+          echo "reached time limit without findings"
+          exit 0
+        fi
         echo "fuzzing exited with $code"
-        exit $code
+        exit "$code"
     - name: Upload findings
       if: failure()
       uses: actions/upload-artifact@v7
