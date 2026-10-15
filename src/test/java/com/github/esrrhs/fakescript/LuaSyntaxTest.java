@@ -101,6 +101,43 @@ public class LuaSyntaxTest {
         assertEquals(1L, run("function f()\n    if 1 < 2 then\n        return 1\n    end\n    return 0\nend\n"));
     }
 
+    /**
+     * Lua 数值 for:{@code for i = begin, end[, step] do ... end},步长省略时为 1。
+     * <p>
+     * 最要紧的是**闭区间**:Lua 的 {@code for i = 1, 4 do} 跑 1/2/3/4,而既有的
+     * {@code for local i = 1 -> 4, 1 do} 是半开区间只跑 1/2/3。两者共用同一个
+     * for_loop_stmt 节点,靠 m_closed 选 *_CLOSED 变体 —— 若这条退化成半开,
+     * 从 Lua 抄来的循环会**静默少跑一次**,比解析失败更糟。
+     */
+    @Test
+    public void testLuaNumericFor() {
+        // 步长省略
+        assertEquals(10L, run("function f()\n    local s = 0\n    for i = 1, 4 do\n        s = s + i\n    end\n    return s\nend\n"));
+        // 显式步长
+        assertEquals(25L, run("function f()\n    local s = 0\n    for i = 1, 10, 2 do\n        s = s + i\n    end\n    return s\nend\n"));
+        // 负步长倒序,同样闭区间
+        assertEquals(55L, run("function f()\n    local s = 0\n    for i = 10, 1, -1 do\n        s = s + i\n    end\n    return s\nend\n"));
+        // 边界可以是任意表达式
+        assertEquals(25L, run("function f()\n    local n = 5\n    local s = 0\n    for i = 1, n * 2, n - 3 do\n        s = s + i\n    end\n    return s\nend\n"));
+        // 起点已越过终点:一次都不跑
+        assertEquals(7L, run("function f()\n    local s = 7\n    for i = 5, 1 do\n        s = s + i\n    end\n    return s\nend\n"));
+        // 嵌套:闭区间下应为 (1+2+3)*(1+2+3)
+        assertEquals(36L, run("function f()\n    local s = 0\n    for i = 1, 3 do\n        for j = 1, 3 do\n            s = s + i * j\n        end\n    end\n    return s\nend\n"));
+        // break 仍然有效
+        assertEquals(6L, run("function f()\n    local s = 0\n    for i = 1, 10 do\n        if i > 3 then\n            break\n        end\n        s = s + i\n    end\n    return s\nend\n"));
+        // 空循环体(带/不带步长两条规则都要能解析)
+        assertEquals(9L, run("function f()\n    for i = 1, 3 do\n    end\n    return 9\nend\n"));
+        assertEquals(9L, run("function f()\n    for i = 1, 3, 1 do\n    end\n    return 9\nend\n"));
+    }
+
+    /** 既有的 -> 写法是半开区间 [begin, end),不能被 Lua 化顺手改成闭区间 */
+    @Test
+    public void testArrowForStaysHalfOpen() {
+        assertEquals(6L, run("function f()\n    local s = 0\n    for local i = 1 -> 4, 1 do\n        s = s + i\n    end\n    return s\nend\n"));
+        // C 式 for 也照旧
+        assertEquals(6L, run("function f()\n    local s = 0\n    for local i = 0, i < 4, i++ do\n        s = s + i\n    end\n    return s\nend\n"));
+    }
+
     /** 逻辑运算符统一成 Lua 的 and / or / not */
     @Test
     public void testLogicalKeywords() {

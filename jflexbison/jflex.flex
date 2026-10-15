@@ -61,6 +61,45 @@ import com.github.esrrhs.fakescript.syntree.*;
 	}
   }
 
+  /* Lua 5.4 数值 for 的构造入口:for i = begin, end[, step] do block end
+     脱糖成既有的 for_loop_stmt(与 `for local i = begin -> end, step do` 同构),
+     因此不引入新的 opcode 或 AST 节点。step 省略时补常量 1。
+     放在这里而不是文法动作里,是为了让四条候选规则(带/不带 step、
+     带/不带 block)共用同一段构造代码。 */
+  public ParserVal make_lua_for(ParserVal idv, ParserVal beginv, ParserVal endv,
+                                ParserVal addv, ParserVal blockv)
+  {
+	var_node v = new_node(var_node.class, idv.ival);
+	v.m_str = idv.sval;
+
+	for_loop_stmt p = new_node(for_loop_stmt.class, idv.ival);
+	p.m_var = (syntree_node) v;
+	p.m_begin = (syntree_node) beginv.obj;
+	p.m_end = (syntree_node) endv.obj;
+
+	if (addv != null)
+	{
+		p.m_add = (syntree_node) addv.obj;
+	}
+	else
+	{
+		explicit_value_node one = new_node(explicit_value_node.class, idv.ival);
+		one.m_str = "1";
+		one.m_type = explicit_value_type.EVT_NUM;
+		p.m_add = one;
+	}
+
+	p.m_block = (blockv == null) ? null : (block_node) blockv.obj;
+
+	// Lua 的数值 for 是闭区间 [begin, end];既有的 -> 写法是半开区间,
+	// 靠这个标志选 *_CLOSED 变体,避免抄来的 Lua 循环少跑一次
+	p.m_closed = true;
+
+	ParserVal ret = new ParserVal(p);
+	ret.ival = p.m_lno;
+	return ret;
+  }
+
   public int get_line()
   {
 	return yyline;

@@ -196,6 +196,8 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 * 睡眠中的协程不忙等:`fk.run`会睡到最近的唤醒点。
 * 关键字对齐 Lua 5.4:`local`、`function`、`and`/`or`/`not`、`~=`(不等于)、`#t`(取长度,等价于`size(t)`)。
 * 循环以`do`收尾:`while ... do ... end`、`for ... do ... end`;`if`/`elseif`仍用`then`。
+* 数值`for`支持 Lua 形态`for i = 1, n[, step] do ... end`(步长省略为 1),**含两端**。
+  注意本语言原有的`for local i = a -> b, step do`是**不含右端**的半开区间,两种写法不要混用。
 * **破坏性变更**:旧写法`var`、`func`、`&&`、`||`、`!`、`!=`以及循环后的`then`已移除,脚本需按上两条迁移。
 
 ## 标准库

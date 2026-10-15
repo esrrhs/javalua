@@ -1225,7 +1225,12 @@ class interpreter
 					}
 						break;
 					case command.OPCODE_FORBEGIN:
+					case command.OPCODE_FORBEGIN_CLOSED:
 					{
+						// closed 即 Lua 的闭区间 [begin, end]:跳出条件从
+						// "已越过" 收紧一档为 "刚好越过",其余与半开区间完全一致
+						boolean closed = (code == command.OPCODE_FORBEGIN_CLOSED);
+
 						// 赋值dest，必须为栈上或容器内
 						if (!CHECK_DST_POS(m_fb, m_ip))
 						{
@@ -1259,7 +1264,8 @@ class interpreter
 						if (addv.get_real() > 0)
 						{
 							// 判断是否超出
-							if (varv.get_real() >= endv.get_real())
+							if (closed ? (varv.get_real() > endv.get_real())
+									   : (varv.get_real() >= endv.get_real()))
 							{
 								m_ip = jneip;
 							}
@@ -1267,7 +1273,8 @@ class interpreter
 						else
 						{
 							// 判断是否小
-							if (varv.get_real() <= endv.get_real())
+							if (closed ? (varv.get_real() < endv.get_real())
+									   : (varv.get_real() <= endv.get_real()))
 							{
 								m_ip = jneip;
 							}
@@ -1275,7 +1282,10 @@ class interpreter
 					}
 						break;
 					case command.OPCODE_FORLOOP:
+					case command.OPCODE_FORLOOP_CLOSED:
 					{
+						boolean closed = (code == command.OPCODE_FORLOOP_CLOSED);
+
 						// var
 						variant varv = GET_VARIANT(m_fb, m_bp, m_ip);
 						m_ip++;
@@ -1298,7 +1308,8 @@ class interpreter
 						if (addv.get_real() > 0)
 						{
 							// 判断是否超出
-							if (varv.get_real() < endv.get_real())
+							if (closed ? (varv.get_real() <= endv.get_real())
+									   : (varv.get_real() < endv.get_real()))
 							{
 								m_ip = continueip;
 							}
@@ -1306,7 +1317,8 @@ class interpreter
 						else
 						{
 							// 判断是否小
-							if (varv.get_real() > endv.get_real())
+							if (closed ? (varv.get_real() >= endv.get_real())
+									   : (varv.get_real() > endv.get_real()))
 							{
 								m_ip = continueip;
 							}

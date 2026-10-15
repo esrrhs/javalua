@@ -1750,7 +1750,8 @@ class compiler
 		long add = m_cur_addr;
 
 		// 塞for头
-		cg.push(command.MAKE_OPCODE(command.OPCODE_FORBEGIN), fs.lineno());
+		cg.push(command.MAKE_OPCODE(fs.m_closed ? command.OPCODE_FORBEGIN_CLOSED
+												: command.OPCODE_FORBEGIN), fs.lineno());
 		cg.push(var, fs.lineno());
 		cg.push(begin, fs.lineno());
 		cg.push(end, fs.lineno());
@@ -1791,7 +1792,8 @@ class compiler
 		add = m_cur_addr;
 
 		// 塞for loop
-		cg.push(command.MAKE_OPCODE(command.OPCODE_FORLOOP), fs.lineno());
+		cg.push(command.MAKE_OPCODE(fs.m_closed ? command.OPCODE_FORLOOP_CLOSED
+												: command.OPCODE_FORLOOP), fs.lineno());
 		cg.push(var, fs.lineno());
 		cg.push(end, fs.lineno());
 		cg.push(add, fs.lineno());

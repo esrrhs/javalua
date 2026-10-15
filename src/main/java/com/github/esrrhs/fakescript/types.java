@@ -594,6 +594,10 @@ public static boolean isint(double d)
 				return "SHIFT_LEFT";
 			case command.OPCODE_SHIFT_RIGHT:
 				return "SHIFT_RIGHT";
+			case command.OPCODE_FORBEGIN_CLOSED:
+				return "FORBEGIN_CLOSED";
+			case command.OPCODE_FORLOOP_CLOSED:
+				return "FORLOOP_CLOSED";
 		}
 		return "unknown";
 	}

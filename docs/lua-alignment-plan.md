@@ -78,7 +78,7 @@
 | D7 | `do` 块关键字 | `while`/`for` 后只用 `then`，写 `do` PARSE_FAIL | `while ... do` | L1（作 `then` 别名） | 无 |
 | D8 | 全局赋值 | 必须 `var`，裸 `x = 5` PARSE_FAIL | `x = 5` | L1+作用域语义 | **需先定语义** |
 | D9 | 多值赋值 | `var a, b = g()` PARSE_FAIL | `local a, b = f()` | L2 需返回值传递 | 无 |
-| D10 | Lua 数值 for | `for i = 1, 10, 2 do` PARSE_FAIL；现为 C 式 `for var i = 0, i < n, i++ then` | `for i = 1, n, s do` | L1 新增规则 | 无（并存） |
+| D10 | Lua 数值 for | 已落地（`for i = 1, n, s do`） | `for i = 1, n, s do` | **L2**（区间语义不同，需 `*_CLOSED` opcode） | 无（并存） |
 | D11 | **比较表达式作值** | `return a < b`、`var x = a < b`、`print(a<b)` 全 PARSE_FAIL | 比较是普通表达式 | **L2 需新 opcode** | 无 |
 | D12 | 布尔类型 | `typeof(true)` = **REAL 1.0**、`typeof(false)` = REAL 0.0 | Lua 有 boolean 类型 | L2 类型系统 | **有**（影响现有 `typeof`/JSON） |
 | D13 | 运行时表构造 | `{}` 只在 `const` 里；运行期 `var t = {1,2}` PARSE_FAIL | `t = {1,2}` | L2 需构造 opcode | 无 |
@@ -132,13 +132,33 @@
 收益：**这一步做完，日常写法层面已经很难分辨 fakescript 与 Lua。**
 
 ### Stage B —— 语句形态
-**范围**：D10 Lua 数值 for、D8 全局赋值（需先定语义）
+**范围**：只剩 D8 全局赋值（需先定语义）
 
-- D10：新增独立语句形态 `FOR IDENTIFIER ASSIGN expr ARG_SPLITTER expr [ARG_SPLITTER expr] DO block END`，与现有 C 式 for 并存。编译器侧优先尝试**脱糖**进现有 for 节点，脱糖不通再新增节点类型
+~~D10 Lua 数值 for~~ **已上移至 Stage C**，原因见下。
+
 - D8：**先出语义说明书再动手**。fakescript 现在所有变量都是函数局部的吗？裸赋值是「赋值已存在变量」还是「创建」？这一条不定清楚就无法实施，建议单独一轮讨论
 
+> **D10 上移的教训（回填）**：方案原本把 D10 判为 L1「新增一条文法规则即可」，实际做下去发现
+> 文法确实只要 1 个 shift/reduce（58 → 59，0 reduce/reduce），但**语义对不上**：
+> `OPCODE_FORBEGIN/FORLOOP` 判的是**半开区间** `[begin, end)`，而 Lua 的数值 for 是
+> **闭区间** `[begin, end]`。若直接脱糖复用，`for i = 1, 4 do` 会跑成 1/2/3（和是 6 而非 10），
+> 从 Lua 抄来的循环**静默少跑一次** —— 正是第 2 节那条「比报错更糟」的失败模式。
+>
+> 最终做法：新增 `OPCODE_FORBEGIN_CLOSED` / `OPCODE_FORLOOP_CLOSED` 两个变体，
+> `interpreter` 用 fall-through 复用同一段代码只改判定方向（`>=`→`>`、`<`→`<=`），
+> `for_loop_stmt` 加 `m_closed` 标志选择 opcode，既有的 `->` 写法保持半开不动。
+>
+> 判据更新：**凡是「写法一样但语义细节不同」的项，都不能按 L1 估算。** 复用现有 opcode
+> 前必须先问「它对边界、类型、求值次数的约定和目标语言一致吗」。
+
 ### Stage C —— 表达式能力（真正的硬骨头）
-**范围**：D11 比较作值、D12 布尔类型、D13 运行时表构造
+**范围**：D10 Lua 数值 for（已做完）、D11 比较作值、D12 布尔类型、D13 运行时表构造
+
+D10 的落地形态：`FOR IDENTIFIER ASSIGN expr ARG_SPLITTER expr [ARG_SPLITTER expr] DO block END`
+四条候选（带/不带步长 × 带/不带循环体），构造动作收在 `Yylex.make_lua_for`；
+第一段用**裸 IDENTIFIER**而不是 `var`，否则会和 C 式 `for_stmt` 的 `FOR block` 前缀
+抢 `local i = 1` 这一串的归约（那串既是 `var_stmt` 又是 `var ASSIGN assign_value`，
+单记号 lookahead 分不开）。区间问题见 Stage B 的回填。
 
 按 D11 拆出的四个子项推进：
 1. `command.java` 新增约 8 个值模式 opcode（`LESS/MORE/EQUAL/MOREEQUAL/LESSEQUAL/NOTEQUAL/NOT` 及值模式 `AND/OR`）
@@ -157,7 +177,9 @@ D16 一等函数与闭包、D14 泛型 for、D15 变长参数、D17 metatable、
 
 ## 4. 每个 Stage 的验证方法（必须先落地再往前走）
 
-1. **冲突数可度量**：基线 **57 shift/reduce、0 reduce/reduce**（`%expect 57` 恰好被满足）。每个 Stage 记录 delta；出现任何 reduce/reduce 都要给出书面理由，不接受「bison 自己会选」
+1. **冲突数可度量**：基线 **57 shift/reduce、0 reduce/reduce**（`%expect 57` 恰好被满足），
+   现为 **59**（Stage A +1、Stage B/D10 +1）。每个 Stage 记录 delta；出现任何 reduce/reduce
+   都要给出书面理由，不接受「bison 自己会选」
 2. **生成文件同步**：`YYParser.java` 只能由 bison 重生成并提交，**禁止手改**。CI 的 `Grammar regeneration` job 就是这道闸
 3. **回归测试**：全量 `./mvnw clean test` 绿 + JaCoCo 行覆盖门禁 0.85
 4. **新增用例**：每条差异项至少 1 个正向用例 + 1 个「旧写法仍可用」的保兼容性用例，集中放进 `EdgeCaseTest`
