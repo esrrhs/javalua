@@ -281,9 +281,13 @@ Object[] rets = fk.resume(f, "main"); // 每帧调用一次,直到返回非null
 测试分三层，各自覆盖不同类型的缺陷：
 
 * `FuzzTest` —— 随机 token / 字符乱炖，保证任何输入都不逃逸错误处理机制（崩溃安全）
-* `SemanticFuzzTest` —— 随机生成表达式 AST，用紧凑写法、带空格写法、完全括号化写法
-  分别求值并要求结果守恒。**不崩但算错**的缺陷（例如优先级错位导致 `a/b*c` 算成
-  `a/(b*c)`）正是靠这一层发现的。固定种子，进 CI 当回归测试
+* `SemanticFuzzTest` —— 两类 oracle，均固定种子，进 CI 当回归测试：
+  * **表达式不变式**：随机生成表达式 AST，用紧凑写法、带空格写法、完全括号化写法
+    分别求值并要求结果守恒。**不崩但算错**的缺陷（例如优先级错位导致 `a/b*c` 算成
+    `a/(b*c)`）正是靠这一层发现的
+  * **标准库差分**：把随机的数组 / 字符串 / map 操作序列同时喂给脚本与一份独立的
+    Java 参考模型（`StdlibFuzzSupport`），再补上 `tojson` → `fromjson` 往返。
+    容器与字符串内置函数即使全错也不会抛异常，只有外部参考模型能把它逼出来
 * `JazzerFuzzTest` —— 接 [Jazzer](https://github.com/CodeIntelligenceTesting/jazzer)
   （基于 libFuzzer 的覆盖率引导引擎）。它复用上面同一套不变式，只是把随机源换成
   libFuzzer 的变异，能主动探索到手搓随机到不了的路径

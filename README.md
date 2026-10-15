@@ -282,11 +282,16 @@ Fuzzing is layered, each layer targeting a different class of defect:
 
 * `FuzzTest` — random token/character soup; guarantees no input escapes the error
   handling mechanism (crash safety)
-* `SemanticFuzzTest` — generates random expression ASTs and evaluates them in
-  equivalent renderings (compact, spaced, fully parenthesized), requiring the
-  results to be identical. This is what catches **silently wrong results** —
-  e.g. a mis-declared precedence making `a/b*c` evaluate as `a/(b*c)`.
-  Fixed seed, runs in CI as a regression test
+* `SemanticFuzzTest` — two families of oracles, both fixed-seed so they run in CI
+  as regression tests:
+  * *expression invariants* — generates random expression ASTs and evaluates them
+    in equivalent renderings (compact, spaced, fully parenthesized), requiring
+    identical results. This is what catches **silently wrong results** — e.g. a
+    mis-declared precedence making `a/b*c` evaluate as `a/(b*c)`
+  * *stdlib differential* — replays random sequences of array / string / map
+    operations against an independent Java reference model (`StdlibFuzzSupport`),
+    plus `tojson` → `fromjson` round-trips. Container and string builtins can be
+    wrong without ever throwing, so only an external model exposes it
 * `JazzerFuzzTest` — wired to [Jazzer](https://github.com/CodeIntelligenceTesting/jazzer),
   a coverage-guided engine based on libFuzzer. It reuses the same invariants but
   swaps the random source for libFuzzer mutations, reaching paths that plain

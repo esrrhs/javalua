@@ -67,6 +67,20 @@ jobs:
         fi
         echo "fuzzing exited with $code"
         exit "$code"
+    - name: Fuzz stdlib differential invariants
+      env:
+        JAZZER_FUZZ: '1'
+      run: |
+        # 同一套 timeout 退出码处理。标准库差分 oracle 与表达式不变式是两类
+        # 不同的缺陷面,各给一段探索预算
+        code=0
+        timeout 120 ./mvnw -B test -Dtest='JazzerFuzzTest#fuzzArrayOpsAgainstModel' -Djacoco.skip=true || code=$?
+        if [ "$code" -eq 124 ]; then
+          echo "reached time limit without findings"
+          exit 0
+        fi
+        echo "fuzzing exited with $code"
+        exit "$code"
     - name: Upload findings
       if: failure()
       uses: actions/upload-artifact@v7
