@@ -195,6 +195,36 @@ public class LuaSyntaxTest {
         assertEquals(6L, run("function f()\n    local s = 0\n    for local i = 0, i < 4, i++ do\n        s = s + i\n    end\n    return s\nend\n"));
     }
 
+    /**
+     * 已知分歧（**不是** D10 引入的，既有的 {@code ->} 与 C 式写法同样如此）：
+     * for 的边界与步长<b>每轮重新求值</b>，而 Lua 5.4 是在循环开始前各求值一次。
+     * <p>
+     * 因此 {@code for i = 1, n do ... n = 100 ... end} 在 Lua 里跑 3 次得 6，
+     * 这里会一路跑到 100 得 5050。写这条不是为了认可它，而是把现状钉住：
+     * 一旦决定对齐 Lua，这里会红，正好是改动点。
+     */
+    @Test
+    public void testForBoundsAreReevaluatedEachIteration() {
+        assertEquals(5050L, run("function f()\n    local n = 3\n    local s = 0\n    for i = 1, n do\n        n = 100\n        s = s + i\n    end\n    return s\nend\n"));
+        // 步长同样每轮求值
+        assertEquals(4L, run("function f()\n    local st = 1\n    local s = 0\n    for i = 1, 3, st do\n        st = 2\n        s = s + i\n    end\n    return s\nend\n"));
+        // 既有写法一致,证明这不是 Lua 化带进来的
+        assertEquals(5050L, run("function f()\n    local n = 3\n    local s = 0\n    for local i = 1 -> n + 1, 1 do\n        n = 100\n        s = s + i\n    end\n    return s\nend\n"));
+    }
+
+    /**
+     * 已知分歧：步长 0 不被拒绝。Lua 会报 {@code 'for' step is zero}，
+     * 这里 {@code begin < end} 时静默跑 0 次迭代。
+     * <p>
+     * 反方向（{@code begin >= end}）更糟——是死循环，要跑满 max_run_cmd_num
+     * 一亿条指令才被掐断。那一条<b>故意不写成用例</b>：它会把整个套件拖垮。
+     * 详见 docs/lua-alignment-plan.md。
+     */
+    @Test
+    public void testZeroStepIsNotRejected() {
+        assertEquals(0L, run("function f()\n    local s = 0\n    for i = 1, 4, 0 do\n        s = s + 1\n    end\n    return s\nend\n"));
+    }
+
     /** 逻辑运算符统一成 Lua 的 and / or / not */
     @Test
     public void testLogicalKeywords() {

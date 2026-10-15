@@ -145,6 +145,36 @@ public class JazzerFuzzTest {
         check(c, "JSON 往返结果不守恒");
     }
 
+    /* ---------- Lua 新语法 oracle ---------- */
+
+    /**
+     * 下面几个目标与 {@link SemanticFuzzTest} 的同名用例共用 {@link LuaSyntaxFuzzSupport}
+     * 的构件。它们覆盖的是最近才加进来的语法（D10 数值 for、D13 运行时表构造）——
+     * 表达式与标准库那两套老 oracle 碰不到这两块，不单独开一路就一直没人测。
+     */
+
+    @FuzzTest
+    void fuzzLuaNumericForAgainstModel(FuzzedDataProvider data) {
+        ExprFuzzSupport.Rng rng = rngOf(data);
+        check(rng.nextBoolean() ? LuaSyntaxFuzzSupport.genLuaForCase(rng)
+                : LuaSyntaxFuzzSupport.genLuaForNoStepCase(rng), "数值 for 与 Lua 参考模型不一致");
+    }
+
+    @FuzzTest
+    void fuzzTableConstructorMatchesDesugaredForm(FuzzedDataProvider data) {
+        ExprFuzzSupport.Rng rng = rngOf(data);
+        int kind = rng.nextInt(3);
+        StdlibFuzzSupport.Case c = kind == 0 ? LuaSyntaxFuzzSupport.genTableCase(rng)
+                : kind == 1 ? LuaSyntaxFuzzSupport.genTableExprElemCase(rng)
+                        : LuaSyntaxFuzzSupport.genTwoTablesCase(rng);
+        check(c, "表构造与它脱糖后的显式构造不一致");
+    }
+
+    @FuzzTest
+    void fuzzTableInLoop(FuzzedDataProvider data) {
+        check(LuaSyntaxFuzzSupport.genTableInLoopCase(rngOf(data)), "循环内构造的表与参考模型不一致");
+    }
+
     private static void check(StdlibFuzzSupport.Case c, String msg) {
         String actual = StdlibFuzzSupport.evalBody(c.body);
         assertEquals(c.expected, actual, msg + "\n  expected = " + c.expected + "\n  actual   = " + actual
