@@ -28,8 +28,8 @@ public class CoverageScriptTest {
     public void testNestedLogicViaIf() {
         // 语法限制:&&/||不支持关系比较链式,逻辑组合用嵌套if表达
         String script =
-                "func f(a, b, c)\n" +
-                "    var r1 = 0\n" +
+                "function f(a, b, c)\n" +
+                "    local r1 = 0\n" +
                 "    if a > 0 then\n" +
                 "        if b > 0 then\n" +
                 "            if c > 0 then\n" +
@@ -37,12 +37,12 @@ public class CoverageScriptTest {
                 "            end\n" +
                 "        end\n" +
                 "    end\n" +
-                "    var r4 = 0\n" +
+                "    local r4 = 0\n" +
                 "    if a == 0 then\n" +
                 "        r4 = 1\n" +
                 "    end\n" +
-                "    var r5 = 0\n" +
-                "    if a != 0 then\n" +
+                "    local r5 = 0\n" +
+                "    if a ~= 0 then\n" +
                 "        r5 = 1\n" +
                 "    end\n" +
                 "    return r1, r4, r5\n" +
@@ -65,9 +65,9 @@ public class CoverageScriptTest {
     public void testNotOnBareValue() {
         // !只作用于裸变量/显式值(NOT cmp_value),不能作用于括号比较
         String script =
-                "func f(a)\n" +
-                "    var r = 0\n" +
-                "    if !a then\n" +
+                "function f(a)\n" +
+                "    local r = 0\n" +
+                "    if not a then\n" +
                 "        r = 1\n" +
                 "    end\n" +
                 "    return r\n" +
@@ -81,10 +81,10 @@ public class CoverageScriptTest {
     @Test
     public void testNestedForBreakContinue() {
         String script =
-                "func f()\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < 3, i++ then\n" +
-                "        for var j = 0, j < 3, j++ then\n" +
+                "function f()\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < 3, i++ do\n" +
+                "        for local j = 0, j < 3, j++ do\n" +
                 "            if j == 1 then\n" +
                 "                continue\n" +
                 "            end\n" +
@@ -106,7 +106,7 @@ public class CoverageScriptTest {
     @Test
     public void testElseifChains() {
         String script =
-                "func f(x)\n" +
+                "function f(x)\n" +
                 "    if x == 1 then\n" +
                 "        return \"a\"\n" +
                 "    elseif x == 2 then\n" +
@@ -128,10 +128,10 @@ public class CoverageScriptTest {
     @Test
     public void testRangeAllBranches() {
         String script =
-                "func f()\n" +
-                "    var arr = array()\n" +
+                "function f()\n" +
+                "    local arr = array()\n" +
                 "    push(arr, \"x\")\n" +
-                "    var m = map()\n" +
+                "    local m = map()\n" +
                 "    m[\"k\"] = \"v\"\n" +
                 "    k, v := range(m, 0)\n" +
                 "    return range(arr, 0), range(arr, 5), k, v\n" +
@@ -147,7 +147,7 @@ public class CoverageScriptTest {
         assertEquals("v", rets[3]);
 
         // map越界返回两个false:用双接收语法
-        assertTrue(fk.parsestr(f, "func g()\n    var m = map()\n    a, b := range(m, 9)\n    return a, b\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function g()\n    local m = map()\n    a, b := range(m, 9)\n    return a, b\nend\n"), fk.geterror(f));
         Object[] bad = fk.runmulti(f, "g");
         assertEquals(2, bad.length, fk.geterror(f));
         assertEquals(0.0, ((Double) bad[0]).doubleValue(), 0.0000001);
@@ -164,7 +164,7 @@ public class CoverageScriptTest {
         assertTrue(fk.geterror(f).contains("no func"), fk.geterror(f));
 
         // 无返回值函数:结束返回[null]
-        assertTrue(fk.parsestr(f, "func f()\n    var x = 1\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    local x = 1\nend\n"), fk.geterror(f));
         Object[] done = fk.resume(f, "f");
         assertNotNull(done);
         assertNull(done[0]);
@@ -174,7 +174,7 @@ public class CoverageScriptTest {
     public void testDebugrunPaths() throws Exception {
         // 正常debugrun
         String script =
-                "func f(x)\n" +
+                "function f(x)\n" +
                 "    return x * 2\n" +
                 "end\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
@@ -187,7 +187,7 @@ public class CoverageScriptTest {
 
         // 出错脚本:错误被记录而非逃逸
         // 注:/ 是浮点除法(1/0 == inf,不再报错),故用 // 整除除零来触发错误
-        assertTrue(fk.parsestr(f, "func g()\n    return 1 // 0\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function g()\n    return 1 // 0\nend\n"), fk.geterror(f));
         System.setIn(new java.io.ByteArrayInputStream("c\n".getBytes(StandardCharsets.UTF_8)));
         Object ret2 = fk.debugrun(f, "g");
         System.setIn(new java.io.ByteArrayInputStream(new byte[0]));
@@ -202,7 +202,7 @@ public class CoverageScriptTest {
     @Test
     public void testBuiltinTonumberTolongAllBranches() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return tonumber(\"42\"), tonumber(\"4.5\"), tonumber(7), tonumber(7.5), tolong(3.9), typeof(tolong(\"9\"))\n" +
                 "end\n";
 
@@ -227,7 +227,7 @@ public class CoverageScriptTest {
     @Test
     public void testPrintAndFormatNoArgs() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    print()\n" +
                 "    return format()\n" +
                 "end\n";
@@ -244,11 +244,11 @@ public class CoverageScriptTest {
                 "    x\n" +
                 "    y\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var a = P()\n" +
+                "function f()\n" +
+                "    local a = P()\n" +
                 "    a->x = 1\n" +
                 "    a->y = a->x + 1\n" +
-                "    var b = a\n" +
+                "    local b = a\n" +
                 "    b->x = 10\n" +
                 "    return a->x, a->y, b->x\n" +
                 "end\n";
@@ -265,7 +265,7 @@ public class CoverageScriptTest {
     public void testIsOperator() throws Exception {
         // is是一元存在判断语法(C++移植遗留):is <值> 等价于取该值真假
         String script =
-                "func f(x)\n" +
+                "function f(x)\n" +
                 "    if is x then\n" +
                 "        return \"exists\"\n" +
                 "    end\n" +
@@ -283,9 +283,9 @@ public class CoverageScriptTest {
         // 文件脚本:调试器的list/l带范围、断点enable/disable展示
         Path file = dir.resolve("dbg.fk");
         Files.write(file,
-                ("func f()\n" +
-                "    var i = 0\n" +
-                "    while i < 5 then\n" +
+                ("function f()\n" +
+                "    local i = 0\n" +
+                "    while i < 5 do\n" +
                 "        i = i + 1\n" +
                 "    end\n" +
                 "    return i\n" +
@@ -316,7 +316,7 @@ public class CoverageScriptTest {
         assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
         debug_session s2 = f.dbg.createsession("f");
         String l = s2.execute("l 2");
-        assertTrue(l.contains("var i"), l);
+        assertTrue(l.contains("local i"), l);
         assertTrue(l.contains("func f"), l);
 
         s2.execute("c");
@@ -355,10 +355,10 @@ public class CoverageScriptTest {
     public void testStaleRetNotLeaked() {
         // 回归:同routine内先调用多返回值函数再单值return,陈旧值不得泄漏
         String script =
-                "func g()\n" +
+                "function g()\n" +
                 "    return 1, 2, 3\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    g()\n" +
                 "    return 9\n" +
                 "end\n";
@@ -373,10 +373,10 @@ public class CoverageScriptTest {
     public void testEmptyReturnDestructure() {
         // 回归:空return被多接收解构时,缺失值补nil而非IOOBE
         String script =
-                "func p()\n" +
+                "function p()\n" +
                 "    return\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    a, b := p()\n" +
                 "    return a\n" +
                 "end\n";
@@ -392,17 +392,17 @@ public class CoverageScriptTest {
     public void testBracketedAndOrNonJne() {
         // 括号cmp作为AND/OR操作数时,内层比较走非JNE路径(OPCODE_LESS/MORE/EQUAL非跳版)
         String script =
-                "func f(a, b)\n" +
-                "    var r1 = 0\n" +
-                "    if (a > 0) && (b > 0) then\n" +
+                "function f(a, b)\n" +
+                "    local r1 = 0\n" +
+                "    if (a > 0)  and  (b > 0) then\n" +
                 "        r1 = 1\n" +
                 "    end\n" +
-                "    var r2 = 0\n" +
-                "    if (a > 0) || (b > 0) then\n" +
+                "    local r2 = 0\n" +
+                "    if (a > 0)  or  (b > 0) then\n" +
                 "        r2 = 1\n" +
                 "    end\n" +
-                "    var r3 = 0\n" +
-                "    if (a == 1) && (b == 2) then\n" +
+                "    local r3 = 0\n" +
+                "    if (a == 1)  and  (b == 2) then\n" +
                 "        r3 = 1\n" +
                 "    end\n" +
                 "    return r1, r2, r3\n" +
@@ -425,12 +425,12 @@ public class CoverageScriptTest {
     public void testAndOrUnbracketed() {
         // 无括号的AND/OR
         String script =
-                "func f(a, b)\n" +
-                "    var r = 0\n" +
-                "    if a > 0 && b > 0 then\n" +
+                "function f(a, b)\n" +
+                "    local r = 0\n" +
+                "    if a > 0  and  b > 0 then\n" +
                 "        r = 1\n" +
                 "    end\n" +
-                "    if a > 0 || b > 0 then\n" +
+                "    if a > 0  or  b > 0 then\n" +
                 "        r = r + 10\n" +
                 "    end\n" +
                 "    return r\n" +
@@ -446,9 +446,9 @@ public class CoverageScriptTest {
     public void testNotOnVariableWithComparison() {
         // NOT + 变量:NOT_JNE路径
         String script =
-                "func f(a)\n" +
-                "    var r = 0\n" +
-                "    if !a then\n" +
+                "function f(a)\n" +
+                "    local r = 0\n" +
+                "    if not a then\n" +
                 "        r = 1\n" +
                 "    end\n" +
                 "    return r\n" +
@@ -463,8 +463,8 @@ public class CoverageScriptTest {
     public void testCmpFalseLiteral() {
         // false字面量在cmp中的编译路径
         String script =
-                "func f()\n" +
-                "    var r = 0\n" +
+                "function f()\n" +
+                "    local r = 0\n" +
                 "    if false then\n" +
                 "        r = 1\n" +
                 "    end\n" +
@@ -478,8 +478,8 @@ public class CoverageScriptTest {
     @Test
     public void testMathAssignAllOps() {
         String script =
-                "func f()\n" +
-                "    var a = 10\n" +
+                "function f()\n" +
+                "    local a = 10\n" +
                 "    a += 5\n" +
                 "    a -= 3\n" +
                 "    a *= 2\n" +
@@ -497,9 +497,9 @@ public class CoverageScriptTest {
     public void testSetRunningVariantBranches() throws Exception {
         String script =
                 "const C = 5\n" +
-                "func f()\n" +
-                "    var s = \"old\"\n" +
-                "    var n = 1\n" +
+                "function f()\n" +
+                "    local s = \"old\"\n" +
+                "    local n = 1\n" +
                 "    yield 1\n" +
                 "    return s\n" +
                 "end\n";

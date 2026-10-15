@@ -33,7 +33,7 @@ final class StdlibFuzzSupport {
     static String evalBody(String body) {
         fake f = fk.newfake(ExprFuzzSupport.fuzzConfig());
         fk.openbaselib(f);
-        String script = "func f()\n" + body + "\nend\n";
+        String script = "function f()\n" + body + "\nend\n";
         if (!fk.parsestr(f, script)) {
             return "PARSE_FAIL";
         }
@@ -86,7 +86,7 @@ final class StdlibFuzzSupport {
      */
     static Case genArrayCase(ExprFuzzSupport.Rng r) {
         List<String> model = new ArrayList<>();
-        StringBuilder body = new StringBuilder("    var a = array()\n");
+        StringBuilder body = new StringBuilder("    local a = array()\n");
         StringBuilder expected = new StringBuilder();
         int varIdx = 0;
         List<String> recorded = new ArrayList<>();
@@ -100,7 +100,7 @@ final class StdlibFuzzSupport {
                 body.append("    push(a, ").append(v).append(")\n");
             } else if (kind == 1) {
                 String vn = "q" + (varIdx++);
-                body.append("    var ").append(vn).append(" = pop(a)\n");
+                body.append("    local ").append(vn).append(" = pop(a)\n");
                 recorded.add(model.isEmpty() ? "nil" : model.remove(model.size() - 1));
             } else if (kind == 2) {
                 int i = r.nextInt(model.size() + 3) - 1;
@@ -111,7 +111,7 @@ final class StdlibFuzzSupport {
             } else if (kind == 3) {
                 int i = r.nextInt(model.size() + 3) - 1;
                 String vn = "q" + (varIdx++);
-                body.append("    var ").append(vn).append(" = remove(a, ").append(i).append(")\n");
+                body.append("    local ").append(vn).append(" = remove(a, ").append(i).append(")\n");
                 boolean inRange = i >= 0 && i < model.size();
                 recorded.add(inRange ? model.remove(i) : "nil");
             } else {
@@ -152,7 +152,7 @@ final class StdlibFuzzSupport {
      */
     static Case genStringCase(ExprFuzzSupport.Rng r) {
         String model = "hello world";
-        StringBuilder body = new StringBuilder("    var s = \"hello world\"\n");
+        StringBuilder body = new StringBuilder("    local s = \"hello world\"\n");
         List<String> recorded = new ArrayList<>();
         int varIdx = 0;
 
@@ -163,7 +163,7 @@ final class StdlibFuzzSupport {
                 int start = r.nextInt(20) - 4;
                 int len = r.nextInt(10) - 2;
                 String vn = "q" + (varIdx++);
-                body.append("    var ").append(vn).append(" = substr(s, ").append(start).append(", ")
+                body.append("    local ").append(vn).append(" = substr(s, ").append(start).append(", ")
                         .append(len).append(")\n");
                 int cs = Math.max(0, start);
                 String res;
@@ -176,7 +176,7 @@ final class StdlibFuzzSupport {
             } else if (kind == 1) {
                 String sub = WORDS[r.nextInt(WORDS.length)];
                 String vn = "q" + (varIdx++);
-                body.append("    var ").append(vn).append(" = find(s, \"").append(sub).append("\")\n");
+                body.append("    local ").append(vn).append(" = find(s, \"").append(sub).append("\")\n");
                 recorded.add(String.valueOf(model.indexOf(sub)));
             } else if (kind == 2) {
                 body.append("    s = upper(s)\n");
@@ -227,7 +227,7 @@ final class StdlibFuzzSupport {
      */
     static Case genMapCase(ExprFuzzSupport.Rng r) {
         LinkedHashMap<String, String> model = new LinkedHashMap<>();
-        StringBuilder body = new StringBuilder("    var m = map()\n");
+        StringBuilder body = new StringBuilder("    local m = map()\n");
         List<String> recorded = new ArrayList<>();
         int varIdx = 0;
 
@@ -241,7 +241,7 @@ final class StdlibFuzzSupport {
                 body.append("    m[").append(k).append("] = ").append(v).append('\n');
             } else if (kind == 1) {
                 String vn = "q" + (varIdx++);
-                body.append("    var ").append(vn).append(" = m[").append(k).append("]\n");
+                body.append("    local ").append(vn).append(" = m[").append(k).append("]\n");
                 String got = model.get(String.valueOf(k));
                 if (got == null) {
                     got = "nil";
@@ -250,7 +250,7 @@ final class StdlibFuzzSupport {
                 recorded.add(got);
             } else {
                 String vn = "q" + (varIdx++);
-                body.append("    var ").append(vn).append(" = size(m)\n");
+                body.append("    local ").append(vn).append(" = size(m)\n");
                 recorded.add(String.valueOf(model.size()));
             }
         }
@@ -298,8 +298,8 @@ final class StdlibFuzzSupport {
                 dump.append(unwrap(e)).append(',');
             }
             dump.append(']');
-            String body = "    var __v = array()\n" + pushes
-                    + "    var __r = fromjson(tojson(__v))\n"
+            String body = "    local __v = array()\n" + pushes
+                    + "    local __r = fromjson(tojson(__v))\n"
                     + "    return tostring(__r), typeof(__r), size(__r)\n";
             return new Case(body, dump + "|ARRAY|" + n);
         }
@@ -307,8 +307,8 @@ final class StdlibFuzzSupport {
         String literal = kind == 1 ? "\"a\\\"b\"" : JSON_SCALARS[r.nextInt(JSON_SCALARS.length)];
         String expected = kind == 1 ? "a\"b" : unwrap(literal);
         String type = literal.startsWith("\"") ? "STRING" : (literal.indexOf('.') >= 0 ? "REAL" : "INT");
-        String body = "    var __v = " + literal + "\n"
-                + "    var __r = fromjson(tojson(__v))\n"
+        String body = "    local __v = " + literal + "\n"
+                + "    local __r = fromjson(tojson(__v))\n"
                 + "    return tostring(__r), typeof(__r)\n";
         return new Case(body, expected + "|" + type);
     }

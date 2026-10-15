@@ -244,18 +244,18 @@ public class CoverageDirectTest {
     public void testBuiltinArgCountErrors() {
         // 每个内建函数参数个数错误都应干净报错
         String[] badCalls = {
-                "func f()\n    return size()\nend\n",
-                "func f()\n    return range()\nend\n",
-                "func f()\n    return typeof()\nend\n",
-                "func f()\n    return tonumber()\nend\n",
-                "func f()\n    return tostring()\nend\n",
-                "func f()\n    return tolong()\nend\n",
-                "func f()\n    return substr(\"a\")\nend\n",
-                "func f()\n    return find(\"a\")\nend\n",
-                "func f()\n    return replace(\"a\")\nend\n",
-                "func f()\n    return split()\nend\n",
-                "func f()\n    return push()\nend\n",
-                "func f()\n    return pow(1)\nend\n",
+                "function f()\n    return size()\nend\n",
+                "function f()\n    return range()\nend\n",
+                "function f()\n    return typeof()\nend\n",
+                "function f()\n    return tonumber()\nend\n",
+                "function f()\n    return tostring()\nend\n",
+                "function f()\n    return tolong()\nend\n",
+                "function f()\n    return substr(\"a\")\nend\n",
+                "function f()\n    return find(\"a\")\nend\n",
+                "function f()\n    return replace(\"a\")\nend\n",
+                "function f()\n    return split()\nend\n",
+                "function f()\n    return push()\nend\n",
+                "function f()\n    return pow(1)\nend\n",
         };
 
         for (String script : badCalls) {
@@ -273,11 +273,11 @@ public class CoverageDirectTest {
 
     @Test
     public void testProcessorRoutineInfo() throws Exception {
-        assertTrue(fk.parsestr(f, "func f()\n    return 1\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    return 1\nend\n"), fk.geterror(f));
 
         // 挂起中查看routine信息
-        String loop = "func w()\n    var i = 0\n    while i < 2 then\n        i = i + 1\n        yield 1\n    end\nend\n"
-                + "func main()\n    fake w()\n    yield 1\n    return 1\nend\n";
+        String loop = "function w()\n    local i = 0\n    while i < 2 do\n        i = i + 1\n        yield 1\n    end\nend\n"
+                + "function main()\n    fake w()\n    yield 1\n    return 1\nend\n";
         assertTrue(fk.parsestr(f, loop), fk.geterror(f));
 
         fake f2 = fk.newfake(new fkconfig());

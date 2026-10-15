@@ -129,6 +129,12 @@ import com.github.esrrhs.fakescript.syntree.*;
 LineTerminator = \r|\n|\r\n
 InputCharacter = [^\r\n]
 Comment = "--" {InputCharacter}* {LineTerminator}?
+/* Lua 5.4 长注释 --[[ ... ]]。
+   注意:它必须排在 {Comment} 规则之前。JFlex 取最长匹配,长度相同时取靠前的规则;
+   而 {Comment} 会把 "--[[ x ]]" 整行吃掉(含行尾换行),长度与本规则持平,
+   靠顺序才能选中长注释分支。尾部 {LineTerminator}? 就是为了让长度不至于输。
+   循环体 ([^\]] | "]" [^\]])* 保证在第一个 "]]" 处收尾,与 Lua 一致。 */
+LongComment = "--[[" ([^\]] | "]" [^\]])* "]]" {LineTerminator}?
 StringCharacter = [^\r\n\"\\]
 WhiteSpace = {LineTerminator} | [ \t\f]
 
@@ -138,11 +144,15 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 
 <YYINITIAL> {
 
+{LongComment}                  { /* ignore: Lua 长注释,必须排在行注释之前 */ }
+
 {Comment}                      { /* ignore */ }
 
 \"                           { yybegin(STRING); string.setLength(0); }
 
-"var"	{
+/* Lua 5.4 的变量声明关键字。旧写法 var 已移除:保留两套拼写会让
+   var/local 在错误信息、文档、fuzz 语料里长期分裂,不如一次性切干净 */
+"local"	{
 	return YYParser.Lexer.VAR_BEGIN;
 }
 
@@ -154,7 +164,8 @@ WhiteSpace = {LineTerminator} | [ \t\f]
     return YYParser.Lexer.BREAK;
 }
 
-"func" {
+/* Lua 5.4 的函数定义关键字;旧写法 func 已移除 */
+"function" {
 	return YYParser.Lexer.FUNC;
 }
 
@@ -196,6 +207,10 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 
 "end" {
 	return YYParser.Lexer.END;
+}
+
+"do" {
+	return YYParser.Lexer.DO;
 }
 
 "const" {
@@ -348,6 +363,11 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.INC;
 }
 
+/* Lua 5.4 取长度运算符。动作层脱糖为 size(...),不新增 opcode */
+"#" {
+	return YYParser.Lexer.SHARP;
+}
+
 "+" {
 	return YYParser.Lexer.PLUS;
 }
@@ -420,16 +440,11 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.EQUAL;
 }
 
-"&&" {
-	return YYParser.Lexer.AND;
-}
+/* and / or / not 走关键字规则(见上);C 风格的 && || 已移除,
+   只保留位运算的 & 与 | */
 
 "&" {
 	return YYParser.Lexer.BIT_AND;
-}
-
-"||" {
-	return YYParser.Lexer.OR;
 }
 
 "|" {
@@ -440,6 +455,12 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.WAVE;
 }
 
+/* Lua 5.4 的不等于。~= 比 ~ 长,JFlex 最长匹配会优先选中它,
+   因此 a ~= b 不会被误切成 a ~ (= b) */
+"~=" {
+	return YYParser.Lexer.NOT_EQUAL;
+}
+
 "<<" {
 	return YYParser.Lexer.SHIFT_LEFT;
 }
@@ -448,13 +469,7 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 	return YYParser.Lexer.SHIFT_RIGHT;
 }
 
-"!" {
-	return YYParser.Lexer.NOT;
-}
-
-"!=" {
-	return YYParser.Lexer.NOT_EQUAL;
-}
+/* 旧写法 ! 与 != 已移除:Lua 用 not 与 ~= */
 
 "(" {
 	return YYParser.Lexer.OPEN_BRACKET;

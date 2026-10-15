@@ -25,9 +25,9 @@ public class CoverageDeepTest {
 
     @Test
     public void testBracketedArithInAndOr() {
-        String script = "func f(a, b)\n" +
-                "    var r = 0\n" +
-                "    if (a + 1 > 1) && (b * 2 > 0) then\n" +
+        String script = "function f(a, b)\n" +
+                "    local r = 0\n" +
+                "    if (a + 1 > 1)  and  (b * 2 > 0) then\n" +
                 "        r = 1\n" +
                 "    end\n" +
                 "    return r\n" +
@@ -43,15 +43,15 @@ public class CoverageDeepTest {
                 "    x\n" +
                 "    y\n" +
                 "end\n" +
-                "func make()\n" +
-                "    var p = P()\n" +
+                "function make()\n" +
+                "    local p = P()\n" +
                 "    p->x = 1\n" +
                 "    p->y = 2\n" +
                 "    return p\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var p1 = make()\n" +
-                "    var p2 = make()\n" +
+                "function f()\n" +
+                "    local p1 = make()\n" +
+                "    local p2 = make()\n" +
                 "    p2->x = 100\n" +
                 "    return p1->x, p1->y, p2->x, p2->y\n" +
                 "end\n";
@@ -69,7 +69,7 @@ public class CoverageDeepTest {
     @Test
     public void testMathAssignOnConstContainer() {
         String script = "const ARR = [1 2]\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    ARR[0] += 1\n" +
                 "    return ARR[0]\n" +
                 "end\n";
@@ -81,8 +81,8 @@ public class CoverageDeepTest {
 
     @Test
     public void testAllMathAssignOpsValid() {
-        String script = "func f()\n" +
-                "    var x = 10\n" +
+        String script = "function f()\n" +
+                "    local x = 10\n" +
                 "    x += 1\n" +
                 "    x -= 1\n" +
                 "    x *= 1\n" +
@@ -132,11 +132,11 @@ public class CoverageDeepTest {
     @Test
     public void testDebugRoutineSwitchAndDisa(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("r.fk");
-        Files.write(file, ("func inner()\n" +
-                "    var x = 42\n" +
+        Files.write(file, ("function inner()\n" +
+                "    local x = 42\n" +
                 "    return x\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return inner()\n" +
                 "end\n").getBytes(StandardCharsets.UTF_8));
         assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
@@ -166,8 +166,8 @@ public class CoverageDeepTest {
         String script = "struct P\n" +
                 "    kind\n" +
                 "end\n" +
-                "func f(k)\n" +
-                "    var p = P()\n" +
+                "function f(k)\n" +
+                "    local p = P()\n" +
                 "    p->kind = k\n" +
                 "    switch p->kind\n" +
                 "        case 1 then\n" +
@@ -183,12 +183,12 @@ public class CoverageDeepTest {
 
     @Test
     public void testResumeWithNestedCall() {
-        String script = "func inner()\n" +
+        String script = "function inner()\n" +
                 "    yield 1\n" +
                 "    return 99\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var v = inner()\n" +
+                "function f()\n" +
+                "    local v = inner()\n" +
                 "    return v\n" +
                 "end\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
@@ -208,9 +208,9 @@ public class CoverageDeepTest {
     @Test
     public void testForLoopWithBreakAndContinue() {
         // for循环:FORBEGIN/FORLOOP + break/continue的位置回填
-        String script = "func f(n)\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < n, i++ then\n" +
+        String script = "function f(n)\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < n, i++ do\n" +
                 "        if i == 2 then\n" +
                 "            continue\n" +
                 "        end\n" +
@@ -228,9 +228,9 @@ public class CoverageDeepTest {
 
     @Test
     public void testForLoopContinueOnly() {
-        String script = "func f(n)\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < n, i++ then\n" +
+        String script = "function f(n)\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < n, i++ do\n" +
                 "        if i % 2 == 0 then\n" +
                 "            continue\n" +
                 "        end\n" +
@@ -245,9 +245,9 @@ public class CoverageDeepTest {
 
     @Test
     public void testForLoopZeroIterations() {
-        String script = "func f()\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < 0, i++ then\n" +
+        String script = "function f()\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < 0, i++ do\n" +
                 "        s = s + 1\n" +
                 "    end\n" +
                 "    return s\n" +
@@ -261,7 +261,7 @@ public class CoverageDeepTest {
     @Test
     public void testElseifChainMultiple() {
         // elseif链:每个elseif都会生成JNE+占位+回填
-        String script = "func f(x)\n" +
+        String script = "function f(x)\n" +
                 "    if x == 1 then\n" +
                 "        return \"a\"\n" +
                 "    elseif x == 2 then\n" +
@@ -287,7 +287,7 @@ public class CoverageDeepTest {
 
     @Test
     public void testDebugSystemInIntegration() throws Exception {
-        String script = "func f()\n    return 42\nend\n";
+        String script = "function f()\n    return 42\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
 
         // 喂调试命令流:n(单步)→ c(continue) → EOF
@@ -379,7 +379,7 @@ public class CoverageDeepTest {
 
     @Test
     public void testResumeAfterFinish() {
-        String script = "func f()\n    return 1\nend\n";
+        String script = "function f()\n    return 1\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
 
         // 第一次resume完成
@@ -393,7 +393,7 @@ public class CoverageDeepTest {
 
     @Test
     public void testRunpsEmptyReturn() {
-        String script = "func f()\nend\n";
+        String script = "function f()\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         Object[] rets = fk.runmulti(f, "f");
         assertEquals(1, rets.length);
@@ -460,11 +460,11 @@ public class CoverageDeepTest {
     public void testJsonWriteNested() throws Exception {
         fake f2 = fk.newfake(new fkconfig());
         fk.openbaselib(f2);
-        String script = "func f()\n" +
-                "    var inner = array()\n" +
+        String script = "function f()\n" +
+                "    local inner = array()\n" +
                 "    push(inner, 1)\n" +
                 "    push(inner, \"two\")\n" +
-                "    var m = map()\n" +
+                "    local m = map()\n" +
                 "    m[\"data\"] = inner\n" +
                 "    m[\"flag\"] = true\n" +
                 "    return tojson(m)\n" +
@@ -483,12 +483,12 @@ public class CoverageDeepTest {
                 "    x\n" +
                 "end\n" +
                 "const PI = 3\n" +
-                "func helper(a)\n" +
+                "function helper(a)\n" +
                 "    return a\n" +
                 "end\n" +
-                "func main()\n" +
-                "    var x = PI\n" +
-                "    var s = S()\n" +
+                "function main()\n" +
+                "    local x = PI\n" +
+                "    local s = S()\n" +
                 "    s->x = x\n" +
                 "    if x > 0 then\n" +
                 "        x = x + 1\n" +
@@ -497,11 +497,11 @@ public class CoverageDeepTest {
                 "    else\n" +
                 "        x = x + 3\n" +
                 "    end\n" +
-                "    var i = 0\n" +
-                "    while i < 3 then\n" +
+                "    local i = 0\n" +
+                "    while i < 3 do\n" +
                 "        i += 1\n" +
                 "    end\n" +
-                "    for var j = 0, j < 2, j++ then\n" +
+                "    for local j = 0, j < 2, j++ do\n" +
                 "        if j == 1 then\n" +
                 "            continue\n" +
                 "        end\n" +
@@ -513,9 +513,9 @@ public class CoverageDeepTest {
                 "        default\n" +
                 "            x = 20\n" +
                 "    end\n" +
-                "    var arr = array()\n" +
+                "    local arr = array()\n" +
                 "    push(arr, \"a\")\n" +
-                "    var m2 = map()\n" +
+                "    local m2 = map()\n" +
                 "    m2[\"k\"] = 1\n" +
                 "    sleep 0\n" +
                 "    yield 1\n" +

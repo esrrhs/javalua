@@ -17,65 +17,65 @@ public class Benchmark {
         fk.openbaselib(f);
 
         bench("fib(20) recursion", 3, f,
-                "func fib(n)\n" +
+                "function fib(n)\n" +
                 "    if n < 2 then\n" +
                 "        return n\n" +
                 "    end\n" +
                 "    return fib(n - 1) + fib(n - 2)\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return fib(20)\n" +
                 "end\n", "f", 6765L);
 
         bench("arithmetic loop x100k", 3, f,
-                "func f()\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < 100000, i++ then\n" +
+                "function f()\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < 100000, i++ do\n" +
                 "        s = s + i * 3\n" +
                 "    end\n" +
                 "    return s\n" +
                 "end\n", "f", 14999850000L);
 
         bench("string format x20k", 3, f,
-                "func f()\n" +
-                "    var s = \"\"\n" +
-                "    for var i = 0, i < 20000, i++ then\n" +
+                "function f()\n" +
+                "    local s = \"\"\n" +
+                "    for local i = 0, i < 20000, i++ do\n" +
                 "        s = format(\"item:$\", i)\n" +
                 "    end\n" +
                 "    return size(s)\n" +
                 "end\n", "f", 10L);
 
         bench("map/array ops x50k", 3, f,
-                "func f()\n" +
-                "    var m = map()\n" +
-                "    for var i = 0, i < 50000, i++ then\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
+                "    for local i = 0, i < 50000, i++ do\n" +
                 "        m[i] = i * 2\n" +
                 "    end\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < 50000, i++ then\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < 50000, i++ do\n" +
                 "        s = s + m[i]\n" +
                 "    end\n" +
                 "    return s\n" +
                 "end\n", "f", 2499950000L);
 
         bench("json roundtrip x5k", 3, f,
-                "func f()\n" +
-                "    var m = map()\n" +
-                "    for var i = 0, i < 50, i++ then\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
+                "    for local i = 0, i < 50, i++ do\n" +
                 "        m[\"key\" .. i] = i\n" +
                 "    end\n" +
-                "    var j = tojson(m)\n" +
-                "    var b = fromjson(j)\n" +
+                "    local j = tojson(m)\n" +
+                "    local b = fromjson(j)\n" +
                 "    return size(b)\n" +
                 "end\n", "f", 50L);
 
         bench("script function call x200k", 3, f,
-                "func id(x)\n" +
+                "function id(x)\n" +
                 "    return x\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var s = 0\n" +
-                "    for var i = 0, i < 200000, i++ then\n" +
+                "function f()\n" +
+                "    local s = 0\n" +
+                "    for local i = 0, i < 200000, i++ do\n" +
                 "        s = id(i)\n" +
                 "    end\n" +
                 "    return s\n" +

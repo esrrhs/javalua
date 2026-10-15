@@ -6,13 +6,13 @@ public class PerfProbe {
         f.cfg.max_run_cmd_num = 0;
         fk.openbaselib(f);
         String fibScript =
-                "func fib(n)\n" +
+                "function fib(n)\n" +
                 "    if n < 2 then\n" +
                 "        return n\n" +
                 "    end\n" +
                 "    return fib(n - 1) + fib(n - 2)\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return fib(22)\n" +
                 "end\n";
         if (!fk.parsestr(f, fibScript)) {

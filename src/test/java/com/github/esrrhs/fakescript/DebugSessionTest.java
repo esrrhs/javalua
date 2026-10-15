@@ -27,9 +27,9 @@ public class DebugSessionTest {
     @Test
     public void testStepPrintSetContinue() throws Exception {
         String script =
-                "func f()\n" +      // 1
-                "    var a = 5\n" + // 2
-                "    var b = 10\n" +// 3
+                "function f()\n" +      // 1
+                "    local a = 5\n" + // 2
+                "    local b = 10\n" +// 3
                 "    return a + b\n" +// 4
                 "end\n";            // 5
 
@@ -71,9 +71,9 @@ public class DebugSessionTest {
     @Test
     public void testBreakpointTriggerAndDelete() throws Exception {
         String script =
-                "func f()\n" +              // 1
-                "    var i = 0\n" +         // 2
-                "    while i < 10 then\n" + // 3
+                "function f()\n" +              // 1
+                "    local i = 0\n" +         // 2
+                "    while i < 10 do\n" + // 3
                 "        i = i + 1\n" +     // 4
                 "    end\n" +               // 5
                 "    return i\n" +          // 6
@@ -112,12 +112,12 @@ public class DebugSessionTest {
     @Test
     public void testBacktraceAndFrame() throws Exception {
         String script =
-                "func g(x)\n" +          // 1
-                "    var y = x * 2\n" +  // 2
+                "function g(x)\n" +          // 1
+                "    local y = x * 2\n" +  // 2
                 "    return y\n" +       // 3
                 "end\n" +                // 4
-                "func f()\n" +           // 5
-                "    var r = g(21)\n" +  // 6
+                "function f()\n" +           // 5
+                "    local r = g(21)\n" +  // 6
                 "    return r\n" +       // 7
                 "end\n";                 // 8
 
@@ -147,7 +147,7 @@ public class DebugSessionTest {
 
     @Test
     public void testHelpAndUnknownCommand() throws Exception {
-        String script = "func f()\n    return 1\nend\n";
+        String script = "function f()\n    return 1\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
 
         debug_session s = f.dbg.createsession("f");
@@ -166,12 +166,12 @@ public class DebugSessionTest {
     @Test
     public void testBytecodeSteppingFinishAndDisa() throws Exception {
         String script =
-                "func g(x)\n" +       // 1
-                "    var y = x * 2\n" + // 2
+                "function g(x)\n" +       // 1
+                "    local y = x * 2\n" + // 2
                 "    return y\n" +     // 3
                 "end\n" +              // 4
-                "func f()\n" +         // 5
-                "    var r = g(21)\n" + // 6
+                "function f()\n" +         // 5
+                "    local r = g(21)\n" + // 6
                 "    return r\n" +     // 7
                 "end\n";               // 8
 
@@ -210,7 +210,7 @@ public class DebugSessionTest {
 
     @Test
     public void testCommandArgValidation() throws Exception {
-        String script = "func f()\n    return 1\nend\n";
+        String script = "function f()\n    return 1\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
 
         debug_session s = f.dbg.createsession("f");
@@ -240,17 +240,17 @@ public class DebugSessionTest {
     @Test
     public void testRoutineSwitchAndInfo() throws Exception {
         String script =
-                "func worker()\n" +
-                "    var w = 7\n" +
-                "    while w > 0 then\n" +
+                "function worker()\n" +
+                "    local w = 7\n" +
+                "    while w > 0 do\n" +
                 "        w = w - 1\n" +
                 "        yield 1\n" +
                 "    end\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    fake worker()\n" +
-                "    var i = 0\n" +
-                "    while i < 2 then\n" +
+                "    local i = 0\n" +
+                "    while i < 2 do\n" +
                 "        i = i + 1\n" +
                 "        yield 1\n" +
                 "    end\n" +
@@ -329,9 +329,9 @@ public class DebugSessionTest {
     @Test
     public void testWatchVariable() throws Exception {
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while i < 3 then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while i < 3 do\n" +
                 "        i = i + 1\n" +
                 "    end\n" +
                 "    return i\n" +

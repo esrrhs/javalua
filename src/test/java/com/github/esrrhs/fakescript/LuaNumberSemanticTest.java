@@ -23,7 +23,7 @@ public class LuaNumberSemanticTest {
     }
 
     private Object[] returns(String returnExpr) {
-        String script = "func f()\n    return " + returnExpr + "\nend\n";
+        String script = "function f()\n    return " + returnExpr + "\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         Object[] r = fk.runmulti(f, "f");
         assertFalse(fk.error(f), fk.geterror(f));
@@ -43,7 +43,7 @@ public class LuaNumberSemanticTest {
         fkconfig config = new fkconfig();
         f = fk.newfake(config);
         fk.openbaselib(f);
-        String script = "func f()\n    return " + expr + "\nend\n";
+        String script = "function f()\n    return " + expr + "\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f), "expected runtime error for: " + expr);
@@ -311,7 +311,7 @@ public class LuaNumberSemanticTest {
         assertEquals("REAL", r[4]);
 
         // INT/REAL 数值相等语义:字符串转出来的 123 与整数 123 相等
-        String script = "func f()\n" +
+        String script = "function f()\n" +
                 "    if tonumber(\"123\") == 123 then\n" +
                 "        return 1\n" +
                 "    end\n" +
@@ -450,10 +450,10 @@ public class LuaNumberSemanticTest {
 
     @Test
     public void testModuloCompoundAssignment() {
-        String script = "func f()\n" +
-                "    var a = -1\n" +
+        String script = "function f()\n" +
+                "    local a = -1\n" +
                 "    a %= 3\n" +
-                "    var b = 7\n" +
+                "    local b = 7\n" +
                 "    b %= -3\n" +
                 "    return a, b\n" +
                 "end\n";
@@ -597,8 +597,8 @@ public class LuaNumberSemanticTest {
                 "tostring(-(3 + 4)), tostring(3 - -2), tostring(- -5)",
                 "7", "5", "-6", "-7", "5", "5");
         // 一元负号作用于变量(含 INT MIN 溢出为浮点,与 Lua 5.4 一致)
-        String script = "func neg(x)\n    return -x\nend\n" +
-                "func neg2(y)\n    return -y * 2\nend\n";
+        String script = "function neg(x)\n    return -x\nend\n" +
+                "function neg2(y)\n    return -y * 2\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         // 宿主 Integer 映射为脚本 INT(Long 默认映射为 UUID)
         assertEquals(-5L, fk.run(f, "neg", 5));
@@ -608,10 +608,10 @@ public class LuaNumberSemanticTest {
                 "tostring(-tonumber(\"-9223372036854775808\"))",
                 "9.2233720368548e+18");
         // 函数调用参与减法,验证二元 MINUS 未被一元规则吞掉
-        String sub = "func id(a)\n    return a\nend\n";
+        String sub = "function id(a)\n    return a\nend\n";
         f = fk.newfake(new fkconfig());
         fk.openbaselib(f);
-        assertTrue(fk.parsestr(f, sub + "func g()\n    return id(7) - id(3)\nend\n"),
+        assertTrue(fk.parsestr(f, sub + "function g()\n    return id(7) - id(3)\nend\n"),
                 fk.geterror(f));
         assertEquals(4L, fk.run(f, "g"));
     }
@@ -639,10 +639,10 @@ public class LuaNumberSemanticTest {
         // 整数 floor 除零抛错
         assertRunError("5 // 0");
         // 复合赋值 //=
-        String script = "func f()\n" +
-                "    var a = 7\n" +
+        String script = "function f()\n" +
+                "    local a = 7\n" +
                 "    a //= 2\n" +
-                "    var b = 6.0\n" +
+                "    local b = 6.0\n" +
                 "    b //= 4\n" +
                 "    return a, typeof(a), tostring(b), typeof(b)\n" +
                 "end\n";
@@ -690,7 +690,7 @@ public class LuaNumberSemanticTest {
         assertRunError("\"s\" | 1");
         assertRunError("null | 0");
         // 一元 ~ 作用于变量
-        String script = "func bnot(x)\n    return ~x\nend\n";
+        String script = "function bnot(x)\n    return ~x\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         assertEquals(-6L, fk.run(f, "bnot", 5));
     }
@@ -701,7 +701,7 @@ public class LuaNumberSemanticTest {
 
     private long cond(String c)
     {
-        String script = "func f()\n    if " + c + " then\n        return 1\n    end\n    return 0\nend\n";
+        String script = "function f()\n    if " + c + " then\n        return 1\n    end\n    return 0\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         Object r = fk.run(f, "f");
         assertFalse(fk.error(f), fk.geterror(f));
@@ -726,8 +726,8 @@ public class LuaNumberSemanticTest {
         assertEquals(0, cond("tonumber(\"9223372036854775807\") == tonumber(\"9223372036854775807\") + 0.0"));
         // NaN 不等于自身;!= 取反
         assertEquals(0, cond("0.0/0.0 == 0.0/0.0"));
-        assertEquals(1, cond("9007199254740993 != 9007199254740993.0"));
-        assertEquals(0, cond("1 != 1.0"));
+        assertEquals(1, cond("9007199254740993 ~= 9007199254740993.0"));
+        assertEquals(0, cond("1 ~= 1.0"));
     }
 
     @Test
@@ -760,8 +760,8 @@ public class LuaNumberSemanticTest {
     public void testCrossTypeMapKeySemantics()
     {
         // Lua 表键规范化:浮点键具备整数表示时与整键同键,否则分键
-        String same = "func f()\n" +
-                "    var m = map()\n" +
+        String same = "function f()\n" +
+                "    local m = map()\n" +
                 "    m[1] = 10\n" +
                 "    m[1.0] = 20\n" +
                 "    return size(m), m[1]\n" +
@@ -772,8 +772,8 @@ public class LuaNumberSemanticTest {
         assertEquals(1L, ((Long) r[0]).longValue());
         assertEquals(20L, ((Long) r[1]).longValue());
 
-        String diff = "func f()\n" +
-                "    var m = map()\n" +
+        String diff = "function f()\n" +
+                "    local m = map()\n" +
                 "    m[9007199254740993] = 1\n" +
                 "    m[9007199254740993.0] = 2\n" +
                 "    return size(m)\n" +
@@ -785,8 +785,8 @@ public class LuaNumberSemanticTest {
         assertEquals(1, r.length, fk.geterror(f));
         assertEquals(2L, ((Long) r[0]).longValue());
 
-        String exact = "func f()\n" +
-                "    var m = map()\n" +
+        String exact = "function f()\n" +
+                "    local m = map()\n" +
                 "    m[9007199254740994] = 1\n" +
                 "    m[9007199254740994.0] = 2\n" +
                 "    return size(m), m[9007199254740994.0]\n" +
@@ -891,9 +891,9 @@ public class LuaNumberSemanticTest {
     public void testStringArithmeticCoercionInStatements()
     {
         // 变量与复合赋值路径
-        String script = "func f()\n" +
-                "    var s = \"21\"\n" +
-                "    var a = \"10\"\n" +
+        String script = "function f()\n" +
+                "    local s = \"21\"\n" +
+                "    local a = \"10\"\n" +
                 "    a += 5\n" +
                 "    return s * 2, a, typeof(a)\n" +
                 "end\n";
@@ -905,7 +905,7 @@ public class LuaNumberSemanticTest {
         assertEquals("INT", r[2]);
 
         // 强转结果参与比较与拼接
-        script = "func f()\n" +
+        script = "function f()\n" +
                 "    if \"1\" + 1 == 2 then\n" +
                 "        return \"n=\" .. (\"5\" + 5)\n" +
                 "    end\n" +
@@ -978,7 +978,7 @@ public class LuaNumberSemanticTest {
         fkconfig config = new fkconfig();
         f = fk.newfake(config);
         fk.openbaselib(f);
-        String script = "func f()\n    if " + condExpr + " then\n        return 1\n    end\n    return 0\nend\n";
+        String script = "function f()\n    if " + condExpr + " then\n        return 1\n    end\n    return 0\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f), "expected runtime error for: " + condExpr);
@@ -1010,7 +1010,7 @@ public class LuaNumberSemanticTest {
         assertEquals(1, cond("\"abc\" > \"ab\""));
         assertEquals(0, cond("\"ab\" >= \"abc\""));
         assertEquals(1, cond("\"a\" == \"a\""));
-        assertEquals(0, cond("\"a\" != \"a\""));
+        assertEquals(0, cond("\"a\" ~= \"a\""));
     }
 
     @Test
@@ -1023,7 +1023,7 @@ public class LuaNumberSemanticTest {
     }
 
     private Object runScript(String body) {
-        String script = "func f()\n" + body + "\nend\n";
+        String script = "function f()\n" + body + "\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         Object r = fk.run(f, "f");
         assertFalse(fk.error(f), fk.geterror(f));
@@ -1047,13 +1047,13 @@ public class LuaNumberSemanticTest {
     @Test
     public void testBinaryMinusInSubscriptAndArguments() {
         // 下标与实参位置紧跟负数字面量,曾同样报语法错误
-        Object r = runScript("var arr = array()\narr[0] = 7\narr[1] = 9\nvar i = 1\nreturn arr[i-1]");
+        Object r = runScript("local arr = array()\narr[0] = 7\narr[1] = 9\nlocal i = 1\nreturn arr[i-1]");
         assertEquals(7L, ((Long) r).longValue());
 
-        Object r2 = runScript("var x = 9\nreturn sqrt(x-5)");
+        Object r2 = runScript("local x = 9\nreturn sqrt(x-5)");
         assertEquals(2.0, (Double) r2, 0.0);
 
-        Object r3 = runScript("var x = 10\nreturn x-1.5");
+        Object r3 = runScript("local x = 10\nreturn x-1.5");
         assertEquals(8.5, (Double) r3, 0.0);
     }
 

@@ -52,10 +52,10 @@ const DEFAULT_NAME = "Guest"
 const CONFIG_MAP = {1 : "Alpha" 2 : "Beta"}
 
 -- Function definition
-func process_user(arg1, arg2)
+function process_user(arg1, arg2)
 
     -- Calling bound Java static functions
-    var sum = MathUtils.add(arg1, 10)
+    local sum = MathUtils.add(arg1, 10)
 
     -- Conditional statements
     if arg1 < arg2 then
@@ -68,22 +68,22 @@ func process_user(arg1, arg2)
     end
 
     -- For loop
-    for var i = 0, i < arg2, i++ then
+    for local i = 0, i < arg2, i++ do
         print("Loop index: ", i)
     end
 
     -- Dynamic Array
-    var arr = array()
+    local arr = array()
     arr[0] = 100
     arr[1] = 200
 
     -- Dynamic Map
-    var m = map()
+    local m = map()
     m["key"] = "value"
     m[1] = arr
 
     -- Struct usage
-    var u = User()
+    local u = User()
     u->id = 1001
     u->name = "Alice"
 
@@ -140,7 +140,7 @@ public class Main {
 
         // 3. Parse script code or file
         String script = 
-                "func calc(x, y)\n" +
+                "function calc(x, y)\n" +
                 "    return MathUtils.add(x, y) * 2\n" +
                 "end\n";
         fk.parsestr(f, script);
@@ -194,6 +194,9 @@ System.out.println(fk.dumpprofile(f)); // calls, total & per-call time per funct
 * String concatenation uses `..` (Lua style): `"key" .. 1`. The `+` operator is arithmetic only.
 * Multi-return declaration assignment is `a, b := f()`; `a, b = f()` assigns to pre-declared variables.
 * Sleeping coroutines do not busy-wait: `fk.run` sleeps until the nearest wake-up point.
+* Keywords follow Lua 5.4: `local`, `function`, `and` / `or` / `not`, `~=` (not equal), `#t` (length, same as `size(t)`).
+* Loops end with `do` (`while ... do ... end`, `for ... do ... end`); `if` / `elseif` still take `then`.
+* **Breaking change**: the pre-Lua spellings `var`, `func`, `&&`, `||`, `!`, `!=` and the loop-closing `then` have been removed — scripts must be migrated to the two lines above.
 
 ## Standard Library
 
