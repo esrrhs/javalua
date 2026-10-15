@@ -119,9 +119,12 @@ import java.io.*;
    一致,但那只是默认方向碰巧对了——去掉 %right SHARP 冲突数会从 58 涨到 70,
    文法再动一下就可能把 #t + 1 静默变成 #(t + 1)。显式声明是买保险。 */
 
-/* HEAD 基线 57;Lua 化后(while/for 的 then -> do、新增 SHARP)为 58。
-   改动文法后必须重新测量并同步这里的数字,%expect 会把漂移变成硬错误 */
-%expect 58
+/* 冲突基线演进:HEAD 57 → Stage A(while/for 的 then -> do、新增 SHARP)58
+   → Stage B D10(Lua 数值 for)59。
+   改动文法后必须重新测量并同步这里的数字,%expect 会把漂移变成硬错误;
+   另外本文件只允许 shift/reduce,一旦出现 reduce/reduce 说明新规则和既有
+   规则抢同一串归约,应当停下换写法(Stage A 的 then/do 并存就栽在这里) */
+%expect 59
 
 %%
 
@@ -421,6 +424,12 @@ stmt :
 		$$ = ((ParserVal)((ParserVal)$1));
 	}
 	|
+	for_lua_stmt
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: for_lua_stmt");
+		$$ = ((ParserVal)((ParserVal)$1));
+	}
+	|
 	fake_call_stmt
 	{
 		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: fake_call_stmt");
@@ -523,6 +532,46 @@ for_loop_stmt :
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;
 		$$ = ret;
+	}
+	;
+
+/* Lua 5.4 数值 for:for i = 1, 10, 2 do ... end(步长省略时为 1)。
+   直接复用 for_loop_stmt —— 它与上面 `for local i = 1 -> 10, 2 do` 语义
+   完全等价(初值/终值/步长),所以既不用新增 opcode 也不用新增 AST 节点。
+
+   第一段写成裸 IDENTIFIER 而不是 var,有两个原因:
+   1) Lua 的 for 变量本来就隐含是局部的,不需要 local 关键字;
+   2) 若写成 `FOR var ASSIGN ...`,它会和 C 式 for_stmt 的 `FOR block` 前缀
+      抢 `local i = 1` 这一串的归约 —— 那串既是 var_stmt(可归约成 block)
+      又是 var ASSIGN assign_value,单记号 lookahead 分不开。
+      裸 IDENTIFIER 只在 for 头出现,与 block 无交集。 */
+for_lua_stmt :
+	FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value ARG_SPLITTER expr_value DO block END
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value ARG_SPLITTER expr_value DO block END");
+		$$ = ((ParserVal)((Yylex)yylexer).make_lua_for(
+				((ParserVal)$2), ((ParserVal)$4), ((ParserVal)$6), ((ParserVal)$8), ((ParserVal)$10)));
+	}
+	|
+	FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value DO block END
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value DO block END");
+		$$ = ((ParserVal)((Yylex)yylexer).make_lua_for(
+				((ParserVal)$2), ((ParserVal)$4), ((ParserVal)$6), null, ((ParserVal)$8)));
+	}
+	|
+	FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value ARG_SPLITTER expr_value DO END
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value ARG_SPLITTER expr_value DO END");
+		$$ = ((ParserVal)((Yylex)yylexer).make_lua_for(
+				((ParserVal)$2), ((ParserVal)$4), ((ParserVal)$6), ((ParserVal)$8), null));
+	}
+	|
+	FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value DO END
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR IDENTIFIER ASSIGN expr_value ARG_SPLITTER expr_value DO END");
+		$$ = ((ParserVal)((Yylex)yylexer).make_lua_for(
+				((ParserVal)$2), ((ParserVal)$4), ((ParserVal)$6), null, null));
 	}
 	;
 

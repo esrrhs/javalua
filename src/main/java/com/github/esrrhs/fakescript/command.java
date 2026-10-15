@@ -55,7 +55,13 @@ public class command
 	public static final int OPCODE_BIT_NOT = 44;
 	public static final int OPCODE_SHIFT_LEFT = 45;
 	public static final int OPCODE_SHIFT_RIGHT = 46;
-	public static final int OPCODE_MAX = 47;
+	/* Lua 数值 for 的闭区间变体。FORBEGIN/FORLOOP 判的是 [begin, end),
+	   而 Lua 的 for i = 1, n, s do 是 [begin, end] —— 直接复用会让从 Lua
+	   抄来的循环静默少跑一次。这里只复制判定方向(>= 改 >、< 改 <=),
+	   不改动既有 opcode,保证 `for local i = a -> b, s do` 的语义不变。 */
+	public static final int OPCODE_FORBEGIN_CLOSED = 47;
+	public static final int OPCODE_FORLOOP_CLOSED = 48;
+	public static final int OPCODE_MAX = 49;
 	
 	public static final int ADDR_STACK = 0;
 	public static final int ADDR_CONST = 1;

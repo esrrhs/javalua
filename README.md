@@ -196,6 +196,7 @@ System.out.println(fk.dumpprofile(f)); // calls, total & per-call time per funct
 * Sleeping coroutines do not busy-wait: `fk.run` sleeps until the nearest wake-up point.
 * Keywords follow Lua 5.4: `local`, `function`, `and` / `or` / `not`, `~=` (not equal), `#t` (length, same as `size(t)`).
 * Loops end with `do` (`while ... do ... end`, `for ... do ... end`); `if` / `elseif` still take `then`.
+* Lua-style numeric `for i = 1, n[, step] do ... end` (step defaults to 1) is **inclusive** on both ends. The pre-existing `for local i = a -> b, step do` is **half-open** (`b` excluded) — do not mix the two forms.
 * **Breaking change**: the pre-Lua spellings `var`, `func`, `&&`, `||`, `!`, `!=` and the loop-closing `then` have been removed — scripts must be migrated to the two lines above.
 
 ## Standard Library
