@@ -525,6 +525,13 @@ WhiteSpace = {LineTerminator} | [ \t\f]
 
 }
 
-/* error fallback */
-[^]                              {  }
+/* error fallback
+   注意 JFlex 里 [^] 是「否定空集」,等价于匹配任意字符,而非字面量 ^。
+   原先这里静默跳过未识别字符:1 @ 2 会先被吞掉 @ 变成 1 2,再由语法层在离真正
+   出错位置很远的地方报一个莫名的错;更糟的是 return a b + c 这类写法会丢掉后半
+   段却照常「解析成功」。改为显式报错,让非法字符在词法层就暴露。
+   这里必须抛错而不能改返回 EOF——截断后剩下的半个脚本可能被语法层接受,
+   把一个拼写错误变成「静默算错」。 */
+[^]                              { throw new java.io.IOException(
+                                     String.format("lex fail, illegal character '%s' at line(%d)", yytext(), yyline)); }
 <<EOF>>                          { return YYParser.Lexer.EOF; }
