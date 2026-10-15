@@ -130,6 +130,63 @@ public class LuaSyntaxTest {
         assertEquals(9L, run("function f()\n    for i = 1, 3, 1 do\n    end\n    return 9\nend\n"));
     }
 
+    /**
+     * Lua 5.4 运行期表构造:{@code {1, 2, 3}} 得 ARRAY,{@code {a = 1}} 得 MAP。
+     * <p>
+     * 编译方式是纯 AST 脱糖(临时变量 = {@code array()}/{@code map()} + 逐元素容器赋值),
+     * 所以行为必须和手写 {@code array()}/{@code map()} 完全一致 —— 这里就用
+     * {@code typeof} 和 {@code size} 把这个一致性钉住。
+     */
+    @Test
+    public void testTableConstructor() {
+        assertEquals(6L, run("function f()\n    local t = {1, 2, 3}\n    return t[0] + t[1] + t[2]\nend\n"));
+        assertEquals(3L, run("function f()\n    local t = {1, 2, 3}\n    return size(t)\nend\n"));
+        assertEquals("ARRAY", run("function f()\n    local t = {1, 2}\n    return typeof(t)\nend\n"));
+        // 空表
+        assertEquals(0L, run("function f()\n    local t = {}\n    return size(t)\nend\n"));
+        // map 式,键为标识符
+        assertEquals(3L, run("function f()\n    local t = {a = 1, b = 2}\n    return t[\"a\"] + t[\"b\"]\nend\n"));
+        assertEquals(2L, run("function f()\n    local t = {a = 1, b = 2}\n    return size(t)\nend\n"));
+        assertEquals("MAP", run("function f()\n    local t = {a = 1}\n    return typeof(t)\nend\n"));
+        // 元素是任意表达式,不是编译期常量
+        assertEquals(23L, run("function f()\n    local n = 5\n    local t = {n * 2, n + 1, 7}\n    return t[0] + t[1] + t[2]\nend\n"));
+        assertEquals(4L, run("function f()\n    local t = {size(\"abc\"), 1}\n    return t[0] + t[1]\nend\n"));
+        // 嵌套(fakescript 的容器下标不支持 t[1][0] 链式,取出来再用)
+        assertEquals(6L, run("function f()\n    local t = {1, {2, 3}}\n    local inner = t[1]\n    return t[0] + inner[0] + inner[1]\nend\n"));
+        // 可以当实参直接传
+        assertEquals(3L, run("function f()\n    return size({1, 2, 3})\nend\n"));
+        // 同一作用域里多个表构造不会互相覆盖
+        assertEquals(5L, run("function f()\n    local a = {1, 2}\n    local b = {3, 4}\n    return a[0] + b[1]\nend\n"));
+        // 循环内构造
+        assertEquals(9L, run("function f()\n    local s = 0\n    for i = 0, 2 do\n        local t = {i, i * 2}\n        s = s + t[0] + t[1]\n    end\n    return s\nend\n"));
+        // 与 Stage A 的 # 联动
+        assertEquals(3L, run("function f()\n    local t = {1, 2, 3}\n    return #t\nend\n"));
+        // 构造出来的是普通容器,标准库照样能用
+        assertEquals(3L, run("function f()\n    local t = {1, 2}\n    push(t, 3)\n    return size(t)\nend\n"));
+    }
+
+    /** 编译期常量表（const 的 {k : v}）不能被运行期表构造顶掉 */
+    @Test
+    public void testConstTableUnaffected() {
+        assertEquals("a", run("const M = {1 : \"a\" 2 : \"b\"}\nfunction f()\n    return M[1]\nend\n"));
+        // 运行期的 {k = v} 与常量表的 {k : v} 是两套语法,混写应报错
+        bad("function f()\n    local t = {a = 1, 2}\n    return 1\nend\n");
+        // 表达式键 {[expr] = v} 暂未支持,应该干净失败而不是静默接受
+        bad("function f()\n    local t = {[\"a\"] = 1}\n    return 1\nend\n");
+    }
+
+    /**
+     * 已知限制（**不是**表构造引入的）:容器作为返回值跨函数边界会变 nil。
+     * <p>
+     * {@code return array()} 从来就是 null，表构造只是与它保持一致。
+     * 这条把现状显式钉住——哪天容器返回被修好了，这里会红，正好提醒同步更新。
+     */
+    @Test
+    public void testReturningContainerIsNilIsPreexisting() {
+        assertNull(run("function f()\n    return array()\nend\n"));
+        assertNull(run("function f()\n    local t = {1, 2}\n    return t\nend\n"));
+    }
+
     /** 既有的 -> 写法是半开区间 [begin, end),不能被 Lua 化顺手改成闭区间 */
     @Test
     public void testArrowForStaysHalfOpen() {
