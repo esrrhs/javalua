@@ -113,4 +113,41 @@ public class JazzerFuzzTest {
                 + "\n  literal (reference) =" + literalVer + "\n  variable           =" + varVer
                 + "\n  assigns: " + assigns.toString().replace('\n', ';'));
     }
+
+    /* ---------- 标准库差分 oracle ---------- */
+
+    /**
+     * 下面四个目标与 {@link SemanticFuzzTest} 的同名用例共用同一套参考模型，
+     * 区别只在随机源。让 libFuzzer 去探索操作序列的组合，判断交给模型。
+     */
+
+    @FuzzTest
+    void fuzzArrayOpsAgainstModel(FuzzedDataProvider data) {
+        StdlibFuzzSupport.Case c = StdlibFuzzSupport.genArrayCase(rngOf(data));
+        check(c, "数组操作与参考模型不一致");
+    }
+
+    @FuzzTest
+    void fuzzStringOpsAgainstModel(FuzzedDataProvider data) {
+        StdlibFuzzSupport.Case c = StdlibFuzzSupport.genStringCase(rngOf(data));
+        check(c, "字符串操作与参考模型不一致");
+    }
+
+    @FuzzTest
+    void fuzzMapOpsAgainstModel(FuzzedDataProvider data) {
+        StdlibFuzzSupport.Case c = StdlibFuzzSupport.genMapCase(rngOf(data));
+        check(c, "map 操作与参考模型不一致");
+    }
+
+    @FuzzTest
+    void fuzzJsonRoundTrip(FuzzedDataProvider data) {
+        StdlibFuzzSupport.Case c = StdlibFuzzSupport.genJsonCase(rngOf(data));
+        check(c, "JSON 往返结果不守恒");
+    }
+
+    private static void check(StdlibFuzzSupport.Case c, String msg) {
+        String actual = StdlibFuzzSupport.evalBody(c.body);
+        assertEquals(c.expected, actual, msg + "\n  expected = " + c.expected + "\n  actual   = " + actual
+                + "\n  body:\n" + c.body);
+    }
 }

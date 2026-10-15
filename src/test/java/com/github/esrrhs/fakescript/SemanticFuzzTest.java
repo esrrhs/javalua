@@ -60,6 +60,72 @@ public class SemanticFuzzTest {
         return r.nextBoolean() ? String.valueOf(v) : String.valueOf(-v);
     }
 
+    /* ---------- 标准库差分不变式 ---------- */
+
+    /* ---------- 标准库差分不变式 ---------- */
+
+    /**
+     * 下面四个用例共用一种 oracle：先用 Java 独立实现一遍同样的操作序列得到
+     * 期望值，再与脚本执行结果逐项比对。断言「求值成功」本身也算断言——
+     * 参考模型认为应当算出结果的输入，若实现侧报了错，同样是缺陷。
+     */
+
+    /** 数组 push/pop/insert/remove/sort 的操作序列必须与 Java List 模型逐步吻合 */
+    @Test
+    @Timeout(300)
+    public void fuzzArrayOpsAgainstModel() {
+        Random r = new Random(SEED + 3);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 300; i++) {
+            StdlibFuzzSupport.Case c = StdlibFuzzSupport.genArrayCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "数组操作与参考模型不一致 —— " + c.describe("array", i) + "  actual = " + actual);
+        }
+    }
+
+    /** 字符串 substr/find/upper/lower/trim/replace/.. 必须与 Java String 模型逐步吻合 */
+    @Test
+    @Timeout(300)
+    public void fuzzStringOpsAgainstModel() {
+        Random r = new Random(SEED + 4);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 300; i++) {
+            StdlibFuzzSupport.Case c = StdlibFuzzSupport.genStringCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "字符串操作与参考模型不一致 —— " + c.describe("string", i) + "  actual = " + actual);
+        }
+    }
+
+    /** map 赋值/读取/size/keys/values 必须与 Java LinkedHashMap 模型逐步吻合 */
+    @Test
+    @Timeout(300)
+    public void fuzzMapOpsAgainstModel() {
+        Random r = new Random(SEED + 5);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 250; i++) {
+            StdlibFuzzSupport.Case c = StdlibFuzzSupport.genMapCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "map 操作与参考模型不一致 —— " + c.describe("map", i) + "  actual = " + actual);
+        }
+    }
+
+    /** tojson -> fromjson 往返必须是恒等变换（值与类型都不许变） */
+    @Test
+    @Timeout(300)
+    public void fuzzJsonRoundTrip() {
+        Random r = new Random(SEED + 6);
+        ExprFuzzSupport.Rng rng = rngOf(r);
+        for (int i = 0; i < 200; i++) {
+            StdlibFuzzSupport.Case c = StdlibFuzzSupport.genJsonCase(rng);
+            String actual = StdlibFuzzSupport.evalBody(c.body);
+            assertEquals(c.expected, actual,
+                    "JSON 往返结果不守恒 —— " + c.describe("json", i) + "  actual = " + actual);
+        }
+    }
+
     /* ---------- 不变式 ---------- */
 
     @Test
