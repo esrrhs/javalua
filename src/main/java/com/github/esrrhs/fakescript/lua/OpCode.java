@@ -270,7 +270,13 @@ public final class OpCode {
     };
 
     /** ORDER OP —— 与操作码常量严格同序 */
-    private static final String[] NAMES = {
+    /**
+     * 操作码名字（{@code lopnames.h: opnames}，ORDER OP）。
+     * <p>
+     * 上游把它放在单独的头文件里、只有 {@code luac} 用得上；这里留一份是因为
+     * 差分比对要用它把指令打成可读文本，VM 的 trace 也要用。
+     */
+    public static final String[] NAMES = {
         "MOVE", "LOADI", "LOADF", "LOADK", "LOADKX", "LOADFALSE", "LFALSESKIP",
         "LOADTRUE", "LOADNIL", "GETUPVAL", "SETUPVAL", "GETTABUP", "GETTABLE",
         "GETI", "GETFIELD", "SETTABUP", "SETTABLE", "SETI", "SETFIELD", "NEWTABLE",
