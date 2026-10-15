@@ -88,7 +88,7 @@ class LexerTest {
 
     @Test
     void scansSimpleStatement() {
-        assertEquals("local NAME(x) '=' INT(1)", render("local x = 1"));
+        assertEquals("'local' NAME(x) '=' INT(1)", render("local x = 1"));
     }
 
     @Test
@@ -125,24 +125,24 @@ class LexerTest {
 
     @Test
     void scansOperators() {
-        assertEquals("NAME(a) // NAME(b) .. NAME(c) == NAME(d) >= NAME(e) <= NAME(f) "
-                + "~= NAME(g) << NAME(h) >> NAME(i)",
+        assertEquals("NAME(a) '//' NAME(b) '..' NAME(c) '==' NAME(d) '>=' NAME(e) "
+                + "'<=' NAME(f) '~=' NAME(g) '<<' NAME(h) '>>' NAME(i)",
                 render("a // b .. c == d >= e <= f ~= g << h >> i"));
     }
 
     @Test
     void scansDoubleColonAndSingleColon() {
-        assertEquals(":: NAME(l) :: goto NAME(l)", render("::l:: goto l"));
+        assertEquals("'::' NAME(l) '::' 'goto' NAME(l)", render("::l:: goto l"));
         assertEquals("NAME(a) ':' NAME(b)", render("a:b"));
     }
 
     @Test
     void distinguishesDotConcatAndDots() {
         assertEquals("NAME(a) '.' NAME(b)", render("a.b"));
-        assertEquals("NAME(a) .. NAME(b)", render("a..b"));
-        assertEquals("'(' ... ')'", render("(...)"));
+        assertEquals("NAME(a) '..' NAME(b)", render("a..b"));
+        assertEquals("'(' '...' ')'", render("(...)"));
         assertEquals("'(' '.' ')'", render("(.)"));
-        assertEquals("INT(1) .. INT(2)", render("1 ..2"));
+        assertEquals("INT(1) '..' INT(2)", render("1 ..2"));
     }
 
     /* ---------- 数字 ---------- */

@@ -143,11 +143,20 @@ public final class Lexer {
         }
     }
 
+    /**
+     * {@code luaX_token2str}。
+     * <p>
+     * 保留字要带引号（{@code 'end'}），而 {@code <eof>} / {@code <name>} /
+     * {@code <number>} / {@code <integer>} / {@code <string>} 不带——上游的分界点
+     * 就是 {@code token < TK_EOS}。写反了消息会变成 {@code end expected}
+     * 而不是 {@code 'end' expected}。
+     */
     public static String tokenName(int token) {
         if (token < FIRST_RESERVED) {
             return LCType.isPrint(token) ? "'" + (char) token + "'" : "'<\\" + token + ">'";
         }
-        return TOKENS[token - FIRST_RESERVED];
+        String s = TOKENS[token - FIRST_RESERVED];
+        return token < TK_EOS ? "'" + s + "'" : s;
     }
 
     /* ---------- 状态（对应 LexState） ---------- */
@@ -169,6 +178,11 @@ public final class Lexer {
 
     public int linenumber = 1;
     public int lastline = 1;
+
+    /** 源名的原始字节（Lua 字符串是字节串，不当 {@code String} 处理） */
+    public byte[] sourceBytes() {
+        return sourceBytes;
+    }
 
     /** 当前 token */
     public Token t = new Token();
@@ -328,6 +342,143 @@ public final class Lexer {
     /** {@code luaX_newstring} */
     public LuaString newString(byte[] buf, int off, int len) {
         return strings.intern(LuaString.of(buf, off, len));
+    }
+
+    /* ---------- 常量缓存（lcode.c: addk 用的 ls->h） ---------- */
+
+    /**
+     * {@code ls->h}：<b>整份源码共享</b>的「常量 → 下标」缓存。
+     * <p>
+     * 共享（而不是每个函数一份）会带出两个反直觉的行为，都必须照搬，否则编出来的
+     * 常量表与参考实现不一致：
+     * <ol>
+     *   <li><b>跨函数会串味</b>。内层函数从 0 开始编号，写完就把缓存里的下标改成了
+     *       内层的小下标；回到外层，外层拿这个下标一查——指向的是外层自己的另一个
+     *       常量——校验失败，于是<b>同一个字符串再加一份</b>。上游的常量表里确实会
+     *       出现重复项，不是优化漏了；</li>
+     *   <li><b>整数与浮点在缓存里互相覆盖</b>。Lua 表用 {@code ==} 判键相等，所以
+     *       {@code 1} 与 {@code 1.0} 是<b>同一个键</b>；命中后靠变体标签校验否决，
+     *       但缓存项已经被 {@code 1.0} 的下标覆盖了——下次再写 {@code 1} 又会新建。
+     *       这也是上游常量表会出现「看起来该复用却没复用」的原因。</li>
+     * </ol>
+     */
+    private final Map<Object, Integer> constCache = new HashMap<>();
+
+    /** nil 不能做 Lua 表的键，上游拿表自身当键；这里直接用一个哨兵对象 */
+    private static final Object NIL_KEY = new Object();
+
+    /**
+     * 数值型缓存键，相等性按 Lua 的 {@code ==}（跨整数/浮点也成立）。
+     * <p>
+     * 不能用 {@code Double}：{@code Double.equals} 认为 {@code -0.0 != 0.0}、
+     * {@code NaN == NaN}，而 Lua 恰恰相反（{@code -0.0 == 0.0} 成立；NaN 与
+     * 任何值都不等，所以每个 NaN 字面量各占一个常量槽）。
+     * <p>
+     * 整数要留着原始的 {@code long}：超过 2^53 的整数转 double 会丢精度，
+     * 两个不同的大整数会共用同一个哈希桶——那不要紧（{@link #equals} 判得准），
+     * 但若只存 double 就会把两个不同的常量误判成同一个。
+     */
+    private static final class NumKey {
+        private final boolean isInt;
+        private final long i;
+        private final double d;
+
+        NumKey(boolean isInt, long i, double d) {
+            this.isInt = isInt;
+            this.i = i;
+            this.d = d;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof NumKey)) {
+                return false;
+            }
+            NumKey k = (NumKey) o;
+            if (isInt && k.isInt) {
+                return i == k.i;
+            }
+            if (!isInt && !k.isInt) {
+                return d == k.d;
+            }
+            return isInt ? ((double) i) == k.d : d == ((double) k.i);
+        }
+
+        @Override
+        public int hashCode() {
+            double v = isInt ? (double) i : d;
+            long bits = Double.doubleToLongBits(v == 0.0 ? 0.0 : v);
+            return (int) (bits ^ (bits >>> 32));
+        }
+    }
+
+    /** double 的尾数位数（{@code DBL_MANT_DIG}） */
+    private static final int MANT_DIG = 53;
+
+    /**
+     * 常量缓存键；{@code null} 表示这个值不该进缓存。
+     * <p>
+     * 整值浮点要换一个键（{@code r + r*2^-52}，{@code 0} 取 {@code 2^-52}），
+     * 这是 {@code lcode.c: luaK_numberK} 里刻意的一步：Lua 的表用 {@code ==}
+     * 判键，{@code 100000} 与 {@code 100000.0} 会撞成同一个键，于是两个常量
+     * 互相把对方从缓存里挤掉，每写一次都新建一份。上游因此专门给整值浮点
+     * 造了个「不太可能是整数」的替代键。
+     */
+    static Object constKey(LuaValue v) {
+        if (v.isNil()) {
+            return NIL_KEY;
+        }
+        if (v.isBoolean()) {
+            return v.asBoolean();
+        }
+        if (v.isInteger()) {
+            return new NumKey(true, v.i, 0);
+        }
+        if (v.isFloat()) {
+            double r = v.n;
+            Long ik = Arith.fltToInteger(r, Arith.F2I_EQ);
+            if (ik == null) {
+                return new NumKey(false, 0, r); // 非整值：用自身当键
+            }
+            double q = Math.scalb(1.0, -MANT_DIG + 1);
+            return new NumKey(false, 0, (ik == 0L) ? q : r + r * q);
+        }
+        if (v.isString()) {
+            return v.asString();
+        }
+        return null;
+    }
+
+    /**
+     * {@code addk} 的查询一半：命中<b>且</b>校验通过才返回下标。
+     * <p>
+     * {@code k < fs->nk} 这一句不能省：缓存里的下标可能是内层函数留下的，
+     * 对外层的常量表来说越界了。
+     */
+    Integer lookupConstant(FuncState fs, LuaValue v) {
+        Object key = constKey(v);
+        if (key == null) {
+            return null;
+        }
+        Integer idx = constCache.get(key);
+        if (idx == null || idx >= fs.f.sizek) {
+            return null;
+        }
+        LuaValue existing = fs.f.k[idx];
+        if (existing.tt != v.tt || !LuaValue.rawEqual(existing, v)) {
+            return null;
+        }
+        return idx;
+    }
+
+    /** 追加一个常量并（覆盖）写进缓存，返回下标 */
+    int addConstant(FuncState fs, LuaValue v) {
+        int idx = fs.f.addConstant(v);
+        Object key = constKey(v);
+        if (key != null) {
+            constCache.put(key, idx);
+        }
+        return idx;
     }
 
     /* ---------- 扫描 ---------- */

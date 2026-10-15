@@ -157,6 +157,64 @@ final class ReferenceLua {
         }
     }
 
+    /**
+     * 用参考实现的编译器把脚本编成字节码，再交给 {@code fkdump} 转储。
+     * <p>
+     * 二进制的来源（优先级从高到低）：环境变量 {@code FKDUMP_BIN}、与
+     * {@code lua5.4} 二进制同目录下的 {@code fkdump}、PATH 上的 {@code fkdump}。
+     * 找不到就返回 {@code null}，测试跳过——CI 的 conformance job 会把它编出来。
+     */
+    static String dumpProto(byte[] content, String path) {
+        String bin = findFkdump();
+        if (bin == null) {
+            return null;
+        }
+        try {
+            java.nio.file.Path p = Paths.get(path);
+            java.nio.file.Path parent = p.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.write(p, content);
+            ProcessBuilder pb = new ProcessBuilder(bin, path);
+            pb.redirectErrorStream(true);
+            Process pr = pb.start();
+            String out = readAll(pr.getInputStream());
+            pr.waitFor();
+            return out;
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to run fkdump: " + e, e);
+        }
+    }
+
+    private static String fkdumpCached;
+    private static boolean fkdumpLookedUp;
+
+    static synchronized String findFkdump() {
+        if (fkdumpLookedUp) {
+            return fkdumpCached;
+        }
+        fkdumpLookedUp = true;
+        List<String> candidates = new ArrayList<>();
+        String env = System.getenv("FKDUMP_BIN");
+        if (env != null && !env.isEmpty()) {
+            candidates.add(env);
+        }
+        String lua = find();
+        if (lua != null && lua.contains(File.separator)) {
+            candidates.add(new File(lua).getParent() + File.separator + "fkdump");
+        }
+        candidates.add("fkdump");
+        for (String c : candidates) {
+            File f = new File(c.contains(File.separator) ? c : c);
+            if (f.canExecute()) {
+                fkdumpCached = f.getAbsolutePath();
+                return fkdumpCached;
+            }
+        }
+        return null;
+    }
+
     static final class FileResult {
         final Result result;
         final String path;

@@ -47,10 +47,32 @@ jobs:
         mv target/lua-5.4.7 target/lua54
         make -C target/lua54 -j2 linux
         ./target/lua54/src/lua -v
+    #
+    # 字节码差分的另一半:一个挂在参考实现上的小转储器。
+    # 不用 luac -l 是因为它每个 opcode 打的字段不一样、还夹注释,反解回原始
+    # 字段要抄那个大 switch;这里自己对所有 opcode 统一打印全部字段。
+    # 它必须和参考二进制同目录,测试才知道去哪儿找。
+    - name: Build fkdump (bytecode dumper)
+      run: |
+        set -e
+        gcc -O2 -I target/lua54/src -o target/lua54/src/fkdump \\
+          src/test/resources/fkdump.c target/lua54/src/liblua.a -lm
+        test -x target/lua54/src/fkdump
+    #
+    # 编译期差分的语料:上游自带的测试套件。这批脚本是 Lua 作者自己写的、
+    # 专门用来压边界的,比手写几十条用例强得多。目前只编译不运行。
+    - name: Fetch upstream lua test suite
+      run: |
+        set -e
+        curl -sL -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.4.7-tests.tar.gz
+        mkdir -p target/lua54-tests
+        tar xzf /tmp/tests.tar.gz -C target/lua54-tests --strip-components=1
+        ls target/lua54-tests/*.lua | wc -l
     - name: Run conformance tests
       env:
         LUA54_BIN: target/lua54/src/lua
-      run: ./mvnw -B test -Dtest='ConformanceTest' -Djacoco.skip=true
+        FKDUMP_BIN: target/lua54/src/fkdump
+      run: ./mvnw -B test -Dtest='ConformanceTest,CodegenTest,ParserTest' -Djacoco.skip=true
 
   quality:
     # spotbugs静态分析报告(报告模式,不阻断)

@@ -184,9 +184,12 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 1 — lexer.** The previous fakescript language implementation has been
-removed from `master`; see *Migration* below. Phase 0 (foundations) and the lexer
-half of Phase 1 are in.
+**Phase 2 — bytecode.** The previous fakescript language implementation has been
+removed from `master`; see *Migration* below. Phases 0, 1 and 2 are in: the
+compiler (lexer → parser → code generator) is complete and produces bytecode
+that is **field-for-field identical** to a real `lua5.4`'s.
+
+Nothing runs yet: there is no VM, so no script can execute. That is Phase 3.
 
 Landed so far:
 
@@ -202,14 +205,35 @@ Landed so far:
 | `LCType` | `lctype.c` | the `luai_ctype_` table copied byte for byte, so `lislalpha` treats `_` as a letter exactly as upstream does |
 | `Numeral` | `lobject.c` `luaO_str2num` | int-first-then-float; strict decimal syntax, so `1d`/`inf`/`nan` are rejected the way C's `strtod` rejects them |
 | `Lexer` | `llex.c` | full token set, all escapes incl. `\z` / `\xXX` / `\u{XXX}` / `\ddd`, long strings & comments, byte-exact error messages |
-| `ConformanceTest` | — | runs a real `lua5.4` binary as the oracle |
+| `OpCode` | `lopcodes.h/.c` | all 83 opcodes; order, names and `luaP_opmodes` verified mechanically against upstream headers |
+| `Proto` | `lobject.h`, `lfunc.c` | code / constants / nested protos / upvalues / locals / line info |
+| `Arith` | `lobject.c`, `lvm.c` | the arithmetic used by constant folding — same code path as the VM will use |
+| `ExpDesc`, `FuncState`, `DynData` | `lparser.h` | `expdesc`'s union flattened; block/goto/variable bookkeeping |
+| `Codegen` | `lcode.c` | instruction emission, register allocation, jumps & patching, constant folding, `NEWTABLE`/`SETLIST` |
+| `Parser` | `lparser.c` | hand-written recursive descent, emitting code as it parses |
+| `ConformanceTest`, `CodegenTest`, `ParserTest` | — | run a real `lua5.4` binary as the oracle |
 
-The lexer is validated by **differential comparison, not by self-declared
-expectations**: a table of deliberately-broken sources is written to disk, run
-through a real `lua5.4`, and the resulting message compared verbatim with what
-`Lexer` produces (including the `near '<token>'` part, whose quoting rules differ
-between `<eof>` and everything else). A second table runs the other direction —
-sources the reference accepts must not raise here.
+### The bytecode gate
+
+The compiler is validated by **differential comparison, not by self-declared
+expectations**. `src/test/resources/fkdump.c` is a small dumper compiled against
+the reference `lua5.4` sources; for every script it prints every instruction with
+every field (`a`, `b`, `c`, `k`, `Bx`, `sBx`, `Ax`, `sB`, `sC`, `sJ`), plus the
+line, the constant table and the upvalue table, recursively for nested functions.
+`CodegenTest` compares that against `ProtoDump`'s rendering of our `Proto`,
+requiring the two to be identical.
+
+Two corpora: ~50 hand-written scripts covering every construct, and the 33 files
+of the **upstream `lua-5.4.7` test suite** (`target/lua54-tests`, fetched in CI),
+compiled but not run. All of them match.
+
+Error messages are gated the same way: `ParserTest` writes broken sources to disk,
+runs them through a real `lua5.4`, and compares the message byte for byte —
+`'end' expected (to close 'if' at line 1)`, `label 'a' already defined on line 1`,
+`<goto l> at line 1 jumps into the scope of local 'x'`, and so on. The lexer half
+was already gated like this: a table of deliberately-broken sources is compared
+verbatim, including the `near '<token>'` part whose quoting rules differ between
+`<eof>` and everything else.
 
 Two decisions in this phase were settled by running the reference implementation
 rather than by reading the manual:
@@ -221,9 +245,23 @@ rather than by reading the manual:
 
 Both are locked by tests that run against real Lua 5.4 in `ConformanceTest`.
 
-Next: the parser half of Phase 1 (`lparser.c`) and Phase 2 (bytecode:
-`lopcodes`, `lcode`, `lfunc`). The parser cannot land alone — it emits code as it
-parses, so the two are being built as one unit.
+### Three things the reference binary settled this phase
+
+Each of these looks like a bug and is not; all three are locked by tests.
+
+* **`>>` is a logical shift.** `intop(>>,x,-y)` casts to `lua_Unsigned` first, so
+  `-8 >> 2` is `4611686018427387902`, not `-2`.
+* **Upstream's constant table contains duplicates.** `ls->h` — the
+  "constant → index" cache — is shared by the whole chunk, while each function
+  numbers its own constants from 0. A nested function overwrites cached indices
+  with its own small ones; back in the outer function the index no longer points
+  at the right constant, so the entry is rejected and a duplicate is appended.
+* **Integral floats get a perturbed cache key.** Lua compares table keys with
+  `==`, so `100000` and `100000.0` are the *same* key; without
+  `luaK_numberK`'s `r + r*2^-52` trick they would evict each other from the cache
+  and a constant would be re-created on every use.
+
+Next: Phase 3, the interpreter main loop (`lvm.c`, `ldo.c`, `ltm.c`).
 
 Target API shape (will firm up as Phase 0 lands):
 
