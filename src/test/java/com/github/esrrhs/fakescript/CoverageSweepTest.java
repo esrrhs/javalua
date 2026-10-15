@@ -29,8 +29,8 @@ public class CoverageSweepTest {
     public void testClassMemCallNotRoutable() {
         fk.regclass(f, Widget.class);
         fk.regclass(f, CoverageSweepTest.class);
-        String script = "func f(a, b)\n" +
-                "    var w = CoverageSweepTest.makeWidget()\n" +
+        String script = "function f(a, b)\n" +
+                "    local w = CoverageSweepTest.makeWidget()\n" +
                 "    return w->add(a, b)\n" +
                 "end\n";
         assertFalse(fk.parsestr(f, script), "classmem call should not parse (dead path)");
@@ -51,13 +51,13 @@ public class CoverageSweepTest {
     @Test
     public void testDebugFinishSi(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("fin.fk");
-        Files.write(file, ("func g(x)\n" +
-                "    var y = x + 1\n" +
+        Files.write(file, ("function g(x)\n" +
+                "    local y = x + 1\n" +
                 "    return y\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var r = g(1)\n" +
-                "    var z = r + 1\n" +
+                "function f()\n" +
+                "    local r = g(1)\n" +
+                "    local z = r + 1\n" +
                 "    return z\n" +
                 "end\n").getBytes(StandardCharsets.UTF_8));
         assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
@@ -82,15 +82,15 @@ public class CoverageSweepTest {
     @Test
     public void testDebugListAndRoutine(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("lr.fk");
-        Files.write(file, ("func f()\n" +
-                "    var i = 1\n" +
+        Files.write(file, ("function f()\n" +
+                "    local i = 1\n" +
                 "    return i\n" +
                 "end\n").getBytes(StandardCharsets.UTF_8));
         assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
 
         debug_session s = f.dbg.createsession("f");
         String l = s.execute("l 1");
-        assertTrue(l.contains("var i"), l);
+        assertTrue(l.contains("local i"), l);
         String ir = s.execute("i r");
         assertTrue(ir.contains("f"), ir);
         s.execute("en 9");
@@ -104,7 +104,7 @@ public class CoverageSweepTest {
 
     @Test
     public void testDumpfuncBuiltin() {
-        String script = "func f()\n" +
+        String script = "function f()\n" +
                 "    return dumpfunc(\"f\")\n" +
                 "end\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
@@ -115,11 +115,11 @@ public class CoverageSweepTest {
 
     @Test
     public void testGetcurBuiltinsInScript() {
-        String script = "func f()\n" +
-                "    var a = 0\n" +
-                "    var b = 0\n" +
-                "    var c = 0\n" +
-                "    var d = 0\n" +
+        String script = "function f()\n" +
+                "    local a = 0\n" +
+                "    local b = 0\n" +
+                "    local c = 0\n" +
+                "    local d = 0\n" +
                 "    if size(getcurfile()) == 0 then\n" +
                 "        a = 1\n" +
                 "    end\n" +
@@ -146,7 +146,7 @@ public class CoverageSweepTest {
     @Test
     public void testTonumberBadInput() {
         // Lua 5.4: 无法解析的字符串 tonumber 返回 nil,而不是抛错
-        String script = "func f()\n" +
+        String script = "function f()\n" +
                 "    return tonumber(\"notnum\")\n" +
                 "end\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
@@ -157,11 +157,11 @@ public class CoverageSweepTest {
 
     @Test
     public void testSplitAndSubstrEdges() {
-        String script = "func f()\n" +
-                "    var arr = split(\"abc\", \"x\")\n" +
-                "    var sub = substr(\"abc\", 10, 2)\n" +
-                "    var sub2 = substr(\"abc\", 1, 0)\n" +
-                "    var sub3 = substr(\"abc\", -1, 2)\n" +
+        String script = "function f()\n" +
+                "    local arr = split(\"abc\", \"x\")\n" +
+                "    local sub = substr(\"abc\", 10, 2)\n" +
+                "    local sub2 = substr(\"abc\", 1, 0)\n" +
+                "    local sub3 = substr(\"abc\", -1, 2)\n" +
                 "    return size(arr), arr[0], sub, sub2, sub3\n" +
                 "end\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
@@ -219,14 +219,14 @@ public class CoverageSweepTest {
     @Test
     public void testParseIncludeErrors(@TempDir Path dir) throws Exception {
         Files.write(dir.resolve("main.fk"),
-                "include \"nope.fk\"\nfunc f()\nend\n".getBytes(StandardCharsets.UTF_8));
+                "include \"nope.fk\"\nfunction f()\nend\n".getBytes(StandardCharsets.UTF_8));
         boolean ok = fk.parse(f, dir.resolve("main.fk").toString());
         assertFalse(ok);
         assertTrue(fk.geterror(f).contains("nope"), fk.geterror(f));
 
-        Files.write(dir.resolve("bad.fk"), "func broken(\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(dir.resolve("bad.fk"), "function broken(\n".getBytes(StandardCharsets.UTF_8));
         Files.write(dir.resolve("main2.fk"),
-                "include \"bad.fk\"\nfunc f()\nend\n".getBytes(StandardCharsets.UTF_8));
+                "include \"bad.fk\"\nfunction f()\nend\n".getBytes(StandardCharsets.UTF_8));
         f.clearerr();
         ok = fk.parse(f, dir.resolve("main2.fk").toString());
         assertFalse(ok);
@@ -248,8 +248,8 @@ public class CoverageSweepTest {
     @Test
     public void testProfileSampling() {
         fk.openprofile(f);
-        String script = "func inner()\n    return 1\nend\n" +
-                "func f()\n    return inner()\nend\n";
+        String script = "function inner()\n    return 1\nend\n" +
+                "function f()\n    return inner()\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         fk.run(f, "f");
         fk.closeprofile(f);

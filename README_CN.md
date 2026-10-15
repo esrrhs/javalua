@@ -52,10 +52,10 @@ const DEFAULT_NAME = "Guest"
 const CONFIG_MAP = {1 : "Alpha" 2 : "Beta"}
 
 -- 函数定义
-func process_user(arg1, arg2)
+function process_user(arg1, arg2)
 
     -- 调用已绑定的 Java 静态函数
-    var sum = MathUtils.add(arg1, 10)
+    local sum = MathUtils.add(arg1, 10)
 
     -- 分支控制
     if arg1 < arg2 then
@@ -68,22 +68,22 @@ func process_user(arg1, arg2)
     end
 
     -- For 循环
-    for var i = 0, i < arg2, i++ then
+    for local i = 0, i < arg2, i++ do
         print("当前循环索引: ", i)
     end
 
     -- 动态数组
-    var arr = array()
+    local arr = array()
     arr[0] = 100
     arr[1] = 200
 
     -- 动态哈希 Map
-    var m = map()
+    local m = map()
     m["key"] = "value"
     m[1] = arr
 
     -- 结构体实例化与访问
-    var u = User()
+    local u = User()
     u->id = 1001
     u->name = "Alice"
 
@@ -140,7 +140,7 @@ public class Main {
 
         // 3. 解析脚本字符串或脚本文件
         String script = 
-                "func calc(x, y)\n" +
+                "function calc(x, y)\n" +
                 "    return MathUtils.add(x, y) * 2\n" +
                 "end\n";
         fk.parsestr(f, script);
@@ -194,6 +194,9 @@ System.out.println(fk.dumpprofile(f)); // 每个函数的调用次数、总耗�
 * 字符串拼接用`..`(Lua风格):`"key" .. 1`。`+`仅用于算术。
 * 多返回值的声明式接收是`a, b := f()`;`a, b = f()`要求变量已声明。
 * 睡眠中的协程不忙等:`fk.run`会睡到最近的唤醒点。
+* 关键字对齐 Lua 5.4:`local`、`function`、`and`/`or`/`not`、`~=`(不等于)、`#t`(取长度,等价于`size(t)`)。
+* 循环以`do`收尾:`while ... do ... end`、`for ... do ... end`;`if`/`elseif`仍用`then`。
+* **破坏性变更**:旧写法`var`、`func`、`&&`、`||`、`!`、`!=`以及循环后的`then`已移除,脚本需按上两条迁移。
 
 ## 标准库
 

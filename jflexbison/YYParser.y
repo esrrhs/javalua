@@ -16,6 +16,8 @@ import java.io.*;
 %token FFALSE;
 %token IF;
 %token THEN;
+/* Lua 5.4 的块起始关键字。while / for 用它,if 仍用 then —— Lua 里正是如此 */
+%token DO;
 %token ELSE;
 %token END;
 %token STRING_DEFINITION;
@@ -35,6 +37,8 @@ import java.io.*;
 %token LESS_OR_EQUAL;
 %token EQUAL;
 %token NOT_EQUAL;
+/* Lua 5.4 取长度运算符,文法层脱糖为 size(...) */
+%token SHARP;
 %token OPEN_BRACKET;
 %token CLOSE_BRACKET;
 %token AND;
@@ -105,11 +109,19 @@ import java.io.*;
 %right STRING_CAT;
 %left PLUS MINUS;
 %left DIVIDE MULTIPLY DIVIDE_MOD DIVIDE_FLOOR;
-/* 一元运算最高优先级 */
+/* 一元运算最高优先级:对齐 Lua,# 与一元 - / ~ 一起排在所有二元运算符之上 */
+%right SHARP;
 %right UNARY_MINUS;
 %right UNARY_WAVE;
+/* 上面那行 SHARP 不是可有可无的装饰:规则 SHARP expr_value 的优先级取自它
+   最后一个终结符,不声明就等于「无优先级」,相关冲突会改由 bison 默认的
+   「移进」消解。实测 #t + 1 / #t * 2 / #t .. s 这类写法在两种情况下结果恰好
+   一致,但那只是默认方向碰巧对了——去掉 %right SHARP 冲突数会从 58 涨到 70,
+   文法再动一下就可能把 #t + 1 静默变成 #(t + 1)。显式声明是买保险。 */
 
-%expect 57
+/* HEAD 基线 57;Lua 化后(while/for 的 then -> do、新增 SHARP)为 58。
+   改动文法后必须重新测量并同步这里的数字,%expect 会把漂移变成硬错误 */
+%expect 58
 
 %%
 
@@ -447,10 +459,13 @@ fake_call_stmt :
 	}
 	;
 	
+/* Lua 5.4 的 while/for 都用 do 收尾。这里直接把 then 换成 do(而非并存):
+   并存会让同一前缀派生出两条规则,LALR 无法用单记号区分,直接退化成
+   reduce/reduce 冲突并把新规则判成死规则——实测 34 个 r/r,do 全部失效。 */
 for_stmt :
-	FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END
+	FOR block ARG_SPLITTER cmp ARG_SPLITTER block DO block END
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN block END");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block DO block END");
 		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)$2)).ival);
 		p.m_cmp = (cmp_stmt)((ParserVal)$4).obj;
 		p.m_beginblock = (block_node)((ParserVal)$2).obj;
@@ -462,9 +477,9 @@ for_stmt :
 		$$ = ret;
 	}
 	|
-	FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END
+	FOR block ARG_SPLITTER cmp ARG_SPLITTER block DO END
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block THEN END");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR block ARG_SPLITTER cmp ARG_SPLITTER block DO END");
 		for_stmt p = ((Yylex)yylexer).new_node(for_stmt.class, ((ParserVal)((ParserVal)$2)).ival);
 		p.m_cmp = (cmp_stmt)((ParserVal)$4).obj;
 		p.m_beginblock = (block_node)((ParserVal)$2).obj;
@@ -477,10 +492,12 @@ for_stmt :
 	}
 	;
 
+/* 计数型 for:for local i = 0 -> 10, 1 do ... end
+   注意 -> 后面是终值(不是比较式),由 compiler.compile_for_loop_stmt 走 OPCODE_FORBEGIN */
 for_loop_stmt :
-	FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END
+	FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value DO block END
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN block END");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value DO block END");
 		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)$2)).ival);
 		p.m_var = (syntree_node)((ParserVal)$2).obj;
 		p.m_begin = (syntree_node)((ParserVal)$4).obj;
@@ -493,9 +510,9 @@ for_loop_stmt :
 		$$ = ret;
 	}
 	|
-	FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END
+	FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value DO END
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value THEN END");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: FOR var ASSIGN assign_value RIGHT_POINTER cmp_value ARG_SPLITTER expr_value DO END");
 		for_loop_stmt p = ((Yylex)yylexer).new_node(for_loop_stmt.class, ((ParserVal)((ParserVal)$2)).ival);
 		p.m_var = (syntree_node)((ParserVal)$2).obj;
 		p.m_begin = (syntree_node)((ParserVal)$4).obj;
@@ -508,11 +525,11 @@ for_loop_stmt :
 		$$ = ret;
 	}
 	;
-	
+
 while_stmt :
-	WHILE cmp THEN block END 
+	WHILE cmp DO block END 
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp THEN block END ");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp DO block END ");
 		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)$2)).ival);
 		p.m_cmp = (cmp_stmt)((ParserVal)$2).obj;
 		p.m_block = (block_node)((ParserVal)$4).obj;
@@ -522,9 +539,9 @@ while_stmt :
 		$$ = ret;
 	}
 	|
-	WHILE cmp THEN END 
+	WHILE cmp DO END
 	{
-		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp THEN END ");
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: WHILE cmp DO END ");
 		while_stmt p = ((Yylex)yylexer).new_node(while_stmt.class, ((ParserVal)((ParserVal)$2)).ival);
 		p.m_cmp = (cmp_stmt)((ParserVal)$2).obj;
 		p.m_block = null;
@@ -1378,6 +1395,31 @@ unary_expr :
 		p.m_oper = "~";
 		p.m_unary = true;
 		p.m_right = (syntree_node)((ParserVal)$2).obj;
+
+		ParserVal ret = new ParserVal(p);
+		ret.ival = p.m_lno;
+
+		$$ = ret;
+	}
+	|
+	/* Lua 5.4 取长度 #t。文法层直接脱糖成 size(t)——size 是已注册的内置函数,
+	   复用既有调用路径,不必新增 opcode。
+	   放在 unary_expr 而不是 expr_value:expr_value 无法归约到 return_value
+	   (return_value 只收 explicit_value/variable/expr),放进 unary_expr 才能
+	   同时满足「return #a」与「#a + 1」两种位置 */
+	SHARP expr_value
+	{
+		types.log(((Yylex)yylexer).get_mybison().get_fake(), "[BISON]: SHARP expr_value");
+		int lno = ((ParserVal)((ParserVal)$2)).ival;
+
+		function_call_arglist_node args = ((Yylex)yylexer).new_node(function_call_arglist_node.class, lno);
+		args.add_arg((syntree_node)((ParserVal)$2).obj);
+
+		function_call_node p = ((Yylex)yylexer).new_node(function_call_node.class, lno);
+		p.m_fuc = "size";
+		p.m_arglist = args;
+		p.m_fakecall = false;
+		p.m_classmem_call = false;
 
 		ParserVal ret = new ParserVal(p);
 		ret.ival = p.m_lno;

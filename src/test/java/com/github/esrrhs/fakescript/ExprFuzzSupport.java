@@ -206,7 +206,7 @@ final class ExprFuzzSupport {
     static String evalBody(String body) {
         fake f = fk.newfake(fuzzConfig());
         fk.openbaselib(f);
-        String script = "func f()\n" + body + "\nend\n";
+        String script = "function f()\n" + body + "\nend\n";
         if (!fk.parsestr(f, script)) {
             return "PARSE_FAIL";
         }

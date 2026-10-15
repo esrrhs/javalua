@@ -29,31 +29,31 @@ public class EdgeCaseTest {
     public void testParseErrorMatrix() {
         // 每种畸形输入都必须:干净返回false、带非空错误信息、绝不抛异常
         String[] bad = {
-                "func f()\n",                       // 缺end
+                "function f()\n",                       // 缺end
                 "end\n",                            // 孤立end
-                "func f()\n    var x = \nend\n",    // 缺右值
-                "func f()\n    if x then\nend\n",   // if缺end
-                "func f()\n    while\nend\n",       // while缺条件
-                "func f()\n    for var i then\nend\n",
-                "func f()\n    switch\nend\n",
-                "func f()\n    switch x\nend\n",    // 缺case
-                "func f()\n    var 1 = 2\nend\n",
-                "func 123()\nend\n",
-                "func f()\n    \"unterminated\nend\n",
-                "func f()\n    var x = 1 +\nend\n",
-                "func f()\n    ((\nend\n",
-                "func f()\n    m[ = 1\nend\n",
-                "func f()\n    var x = 1 1\nend\n", // 相邻表达式
+                "function f()\n    local x = \nend\n",    // 缺右值
+                "function f()\n    if x then\nend\n",   // if缺end
+                "function f()\n    while\nend\n",       // while缺条件
+                "function f()\n    for local i do\nend\n",
+                "function f()\n    switch\nend\n",
+                "function f()\n    switch x\nend\n",    // 缺case
+                "function f()\n    local 1 = 2\nend\n",
+                "function 123()\nend\n",
+                "function f()\n    \"unterminated\nend\n",
+                "function f()\n    local x = 1 +\nend\n",
+                "function f()\n    ((\nend\n",
+                "function f()\n    m[ = 1\nend\n",
+                "function f()\n    local x = 1 1\nend\n", // 相邻表达式
                 "const\n",                          // const缺名字
                 "include\n",                        // include缺文件名
                 "package\n",                        // package缺名字
-                "func f()\n    yield\nend\n",       // yield缺表达式
-                "func f()\n    sleep\nend\n",       // sleep缺表达式
-                "func f()\n    var x = 1 ..\nend\n",
-                "func f()\n    a.b = 1\nend\n",     // 裸标识符点链
-                "func f(a, a)\nend\n",              // 重复参数
-                "func f()\n    var x = ;\nend\n",
-                "struct S\nend\nfunc f()\n    return S\nend\n", // struct名当值
+                "function f()\n    yield\nend\n",       // yield缺表达式
+                "function f()\n    sleep\nend\n",       // sleep缺表达式
+                "function f()\n    local x = 1 ..\nend\n",
+                "function f()\n    a.b = 1\nend\n",     // 裸标识符点链
+                "function f(a, a)\nend\n",              // 重复参数
+                "function f()\n    local x = ;\nend\n",
+                "struct S\nend\nfunction f()\n    return S\nend\n", // struct名当值
         };
 
         for (String script : bad) {
@@ -74,12 +74,13 @@ public class EdgeCaseTest {
     @Test
     public void testIllegalCharacterIsReported() {
         String[] bad = {
-                "func f()\n    return 1 @ 2\nend\n",
-                "func f()\n    return 1 # 2\nend\n",
-                "func f()\n    return 1 $ 2\nend\n",
-                "func f()\n    return 1 ? 2\nend\n",
-                "func f()\n    var x = 1 \\ 2\nend\n",
-                "func f()\n    return 12 ^ 10\nend\n", // ^ 不是运算符,异或用 ~
+                "function f()\n    return 1 @ 2\nend\n",
+                // 注意:# 现在是 Lua 的取长度运算符(脱糖为 size),已不是非法字符,
+                // 不能拿它当反例;取长度由 LuaSyntaxTest.testSharpLengthOperator 覆盖
+                "function f()\n    return 1 $ 2\nend\n",
+                "function f()\n    return 1 ? 2\nend\n",
+                "function f()\n    local x = 1 \\ 2\nend\n",
+                "function f()\n    return 12 ^ 10\nend\n", // ^ 不是运算符,异或用 ~
         };
 
         for (String script : bad) {
@@ -97,16 +98,16 @@ public class EdgeCaseTest {
      */
     @Test
     public void testBitwiseXorIsTilde() {
-        assertTrue(fk.parsestr(f, "func f()\n    return 12 ~ 10\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    return 12 ~ 10\nend\n"), fk.geterror(f));
         assertEquals(6L, ((Long) fk.run(f, "f")).longValue());
 
         f.clearerr();
-        assertTrue(fk.parsestr(f, "func g()\n    return ~0\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function g()\n    return ~0\nend\n"), fk.geterror(f));
         assertEquals(-1L, ((Long) fk.run(f, "g")).longValue());
 
         // 优先级:& 高于 ~ 高于 |,与 Lua 5.4 一致
         f.clearerr();
-        assertTrue(fk.parsestr(f, "func h()\n    return 1 | 2 & 3, 1 ~ 2 | 3, 1 | 2 ~ 3\nend\n"),
+        assertTrue(fk.parsestr(f, "function h()\n    return 1 | 2 & 3, 1 ~ 2 | 3, 1 | 2 ~ 3\nend\n"),
                 fk.geterror(f));
         Object[] r = fk.runmulti(f, "h");
         assertEquals(3L, ((Long) r[0]).longValue());
@@ -119,36 +120,36 @@ public class EdgeCaseTest {
     @Test
     public void testCompileErrorMatrix() {
         // break/continue在循环外:修复后应为干净的编译错误而非ArrayList越界
-        boolean ok = fk.parsestr(f, "func f()\n    break\nend\n");
+        boolean ok = fk.parsestr(f, "function f()\n    break\nend\n");
         assertFalse(ok);
         assertTrue(fk.geterror(f).contains("no loop to break"), fk.geterror(f));
 
         f.clearerr();
-        ok = fk.parsestr(f, "func f()\n    continue\nend\n");
+        ok = fk.parsestr(f, "function f()\n    continue\nend\n");
         assertFalse(ok);
         assertTrue(fk.geterror(f).contains("no loop to continue"), fk.geterror(f));
 
         // 未定义变量
         f.clearerr();
-        ok = fk.parsestr(f, "func f()\n    x = 1\nend\n");
+        ok = fk.parsestr(f, "function f()\n    x = 1\nend\n");
         assertFalse(ok);
         assertTrue(fk.geterror(f).contains("not found"), fk.geterror(f));
 
         // 重复定义
         f.clearerr();
-        ok = fk.parsestr(f, "func f()\n    var a = 1\n    var a = 2\nend\n");
+        ok = fk.parsestr(f, "function f()\n    local a = 1\n    local a = 2\nend\n");
         assertFalse(ok);
         assertTrue(fk.geterror(f).contains("has define"), fk.geterror(f));
 
         // 变量与const冲突
         f.clearerr();
-        ok = fk.parsestr(f, "const N = 1\nfunc f()\n    var N = 2\nend\n");
+        ok = fk.parsestr(f, "const N = 1\nfunction f()\n    local N = 2\nend\n");
         assertFalse(ok);
         assertTrue(fk.geterror(f).contains("const"), fk.geterror(f));
 
         // 嵌套超限:600层语法合法的if嵌套,编译深度保护应干净拒绝
         f.clearerr();
-        StringBuilder deep = new StringBuilder("func f()\n");
+        StringBuilder deep = new StringBuilder("function f()\n");
         for (int i = 0; i < 600; i++) {
             deep.append("    if true then\n");
         }
@@ -170,7 +171,7 @@ public class EdgeCaseTest {
         int n = 110;
         for (int i = 0; i < n; i++) {
             Files.write(dir.resolve("c" + i + ".fk"),
-                    ("include \"c" + (i + 1) + ".fk\"\nfunc f" + i + "()\nend\n").getBytes(StandardCharsets.UTF_8));
+                    ("include \"c" + (i + 1) + ".fk\"\nfunction f" + i + "()\nend\n").getBytes(StandardCharsets.UTF_8));
         }
 
         boolean ok = fk.parse(f, dir.resolve("c0.fk").toString());
@@ -206,10 +207,10 @@ public class EdgeCaseTest {
     @Test
     public void testTypeMatrixBuiltins() throws Exception {
         String script =
-                "func f()\n" +
-                "    var arr = array()\n" +
-                "    var m = map()\n" +
-                "    var p = new(\"java.lang.Object\")\n" +
+                "function f()\n" +
+                "    local arr = array()\n" +
+                "    local m = map()\n" +
+                "    local p = new(\"java.lang.Object\")\n" +
                 "    return typeof(null), typeof(1), typeof(1.5), typeof(\"s\"), typeof(arr), typeof(m), " +
                 "typeof(123u), typeof(p),\n" +
                 "        tostring(null), tostring(1), tostring(1.5), tostring(123u),\n" +
@@ -240,8 +241,8 @@ public class EdgeCaseTest {
     @Test
     public void testDostringErrors() {
         String script =
-                "func f()\n" +
-                "    return dostring(\"func broken( end\"), dostring(\"\")\n" +
+                "function f()\n" +
+                "    return dostring(\"function broken( end\"), dostring(\"\")\n" +
                 "end\n";
 
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
@@ -257,16 +258,16 @@ public class EdgeCaseTest {
     @Test
     public void testDumpfuncCoversOpcodes() {
         String script =
-                "func id(x)\n" +
+                "function id(x)\n" +
                 "    return x\n" +
                 "end\n" +
-                "func f(n)\n" +
-                "    var s = id(n)\n" +
-                "    var t = 0\n" +
-                "    for var i = 0, i < n, i++ then\n" +
+                "function f(n)\n" +
+                "    local s = id(n)\n" +
+                "    local t = 0\n" +
+                "    for local i = 0, i < n, i++ do\n" +
                 "        s = s + t\n" +
                 "    end\n" +
-                "    while s > 0 then\n" +
+                "    while s > 0 do\n" +
                 "        s = s - 1\n" +
                 "    end\n" +
                 "    switch n\n" +
@@ -325,7 +326,7 @@ public class EdgeCaseTest {
 
         // stop在未运行时调用无副作用;之后的run正常
         fk.stop(f);
-        String script = "func f()\n    return 9\nend\n";
+        String script = "function f()\n    return 9\nend\n";
         assertTrue(fk.parsestr(f, script), fk.geterror(f));
         assertEquals(9L, ((Long) fk.run(f, "f")).longValue());
     }
@@ -336,8 +337,8 @@ public class EdgeCaseTest {
     public void testMathAssignOperators() {
         // 五个复合赋值操作符
         String script =
-                "func f()\n" +
-                "    var s = 10\n" +
+                "function f()\n" +
+                "    local s = 10\n" +
                 "    s += 5\n" +
                 "    s -= 3\n" +
                 "    s *= 2\n" +
@@ -356,10 +357,10 @@ public class EdgeCaseTest {
         // --注释、负数字面量、降序循环(无自减操作符,用-=)
         String script =
                 "-- 这是注释\n" +
-                "func f()\n" +                       // 行2
-                "    var s = -5\n" +                 // 行3
+                "function f()\n" +                       // 行2
+                "    local s = -5\n" +                 // 行3
                 "    -- 循环内注释\n" +
-                "    for var i = 3, i > 0, i -= 1 then\n" +
+                "    for local i = 3, i > 0, i -= 1 do\n" +
                 "        s = s + i\n" +
                 "    end\n" +
                 "    return s\n" +
@@ -373,12 +374,12 @@ public class EdgeCaseTest {
     @Test
     public void testScriptSideIntrospection() {
         String script =
-                "func helper()\n" +
+                "function helper()\n" +
                 "    return 1\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var has = 0\n" +
-                "    if dumpallfunc() != \"\" then\n" +
+                "function f()\n" +
+                "    local has = 0\n" +
+                "    if dumpallfunc() ~= \"\" then\n" +
                 "        has = 1\n" +
                 "    end\n" +
                 "    return getcurfunc(), isfunc(\"helper\"), isfunc(\"nosuch\"), has\n" +

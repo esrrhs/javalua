@@ -103,7 +103,7 @@ public class JazzerFuzzTest {
 
         StringBuilder assigns = new StringBuilder();
         for (int j = 0; j < leaves.size(); j++) {
-            assigns.append("    var v").append(j).append(" = ").append(leaves.get(j).text).append('\n');
+            assigns.append("    local v").append(j).append(" = ").append(leaves.get(j).text).append('\n');
         }
         String varVer = ExprFuzzSupport.renderWithVars(e);
         String rv = ExprFuzzSupport.evalBody(

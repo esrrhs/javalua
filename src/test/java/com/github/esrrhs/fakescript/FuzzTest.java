@@ -18,25 +18,25 @@ public class FuzzTest {
     private static final long SEED = 0xF00DC0DE;
 
     private static final String[] SEED_SCRIPTS = {
-            "func f()\n    var a = 1\n    if a > 0 then\n        return a\n    end\n    return 0\nend\n",
-            "func f()\n    var m = map()\n    m[\"k\"] = array()\n    push(m[\"k\"], 1)\n    return m[\"k\"][0]\nend\n",
-            "func f(n)\n    if n < 2 then\n        return n\n    end\n    return f(n - 1) + f(n - 2)\nend\n",
-            "func f()\n    var j = tojson({\"a\" : 1})\n    var b = fromjson(j)\n    return b[\"a\"]\nend\n",
-            "package p\nconst N = 3\nfunc f()\n    return N\nend\n",
-            "func f()\n    var arr = array()\n    for var i = 0, i < 10, i++ then\n        push(arr, i * 2)\n    end\n    sort(arr)\n    return arr[5]\nend\n",
-            "func f()\n    var s = \"\"\n    for var i = 0, i < 8, i++ then\n        s = format(\"$$v=$$\", i)\n    end\n    return s\nend\n",
-            "struct P\n    x\n    y\nend\nfunc f()\n    var p = P()\n    p->x = 1\n    return p->y\nend\n",
+            "function f()\n    local a = 1\n    if a > 0 then\n        return a\n    end\n    return 0\nend\n",
+            "function f()\n    local m = map()\n    m[\"k\"] = array()\n    push(m[\"k\"], 1)\n    return m[\"k\"][0]\nend\n",
+            "function f(n)\n    if n < 2 then\n        return n\n    end\n    return f(n - 1) + f(n - 2)\nend\n",
+            "function f()\n    local j = tojson({\"a\" : 1})\n    local b = fromjson(j)\n    return b[\"a\"]\nend\n",
+            "package p\nconst N = 3\nfunction f()\n    return N\nend\n",
+            "function f()\n    local arr = array()\n    for local i = 0, i < 10, i++ do\n        push(arr, i * 2)\n    end\n    sort(arr)\n    return arr[5]\nend\n",
+            "function f()\n    local s = \"\"\n    for local i = 0, i < 8, i++ do\n        s = format(\"$$v=$$\", i)\n    end\n    return s\nend\n",
+            "struct P\n    x\n    y\nend\nfunction f()\n    local p = P()\n    p->x = 1\n    return p->y\nend\n",
     };
 
     private static final String[] TOKENS = {
-            "func", "end", "if", "then", "else", "elseif", "while", "for", "return", "var", "break", "continue",
+            "function", "end", "if", "then", "else", "elseif", "while", "for", "return", "local", "break", "continue",
             "switch", "case", "default", "null", "true", "false", "yield", "sleep", "package", "include", "struct",
             "print", "array", "map", "_G", "push", "pop", "size", "sort", "keys", "values", "copy", "tojson",
             "fromjson", "new", "dostring", "dofile", "tonumber", "tostring", "tolong", "format", "yield", "0", "1",
             "-1", "3.14", "100000000000", "1u", "\"str\"", "\"unterminated", "{", "}", "[", "]", "(", ")", ",", ";",
-            ":=", ":", "=", "==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "&&", "||", "!", "->", ".",
+            ":=", ":", "=", "==", "~=", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", " and ", " or ", "!", "->", ".",
             "\n", "\t", "\\", "$", "中", "é", " ", "+=", "*=", "f", "x", "123u",
-            "!", "&&", "||", "is"
+            "!", " and ", " or ", "is"
     };
 
     private String tokenSoup(Random r) {

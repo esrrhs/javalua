@@ -64,7 +64,7 @@ public class FakeScriptTest {
     @Test
     public void testBasicArithmeticAndReturn() throws Exception {
         String script = 
-                "func calc(a, b)\n" +
+                "function calc(a, b)\n" +
                 "    return a + b * 2\n" +
                 "end\n";
         
@@ -80,11 +80,11 @@ public class FakeScriptTest {
     @Test
     public void testArrayAndMap() throws Exception {
         String script =
-                "func test_container()\n" +
-                "    var arr = array()\n" +
+                "function test_container()\n" +
+                "    local arr = array()\n" +
                 "    arr[0] = 100\n" +
                 "    arr[1] = 200\n" +
-                "    var m = map()\n" +
+                "    local m = map()\n" +
                 "    m[\"sum\"] = arr[0] + arr[1]\n" +
                 "    return m[\"sum\"]\n" +
                 "end\n";
@@ -103,9 +103,9 @@ public class FakeScriptTest {
         fk.regclass(f, FakeScriptTest.class);
 
         String script =
-                "func call_java()\n" +
-                "    var num = FakeScriptTest.add(15, 25)\n" +
-                "    var text = FakeScriptTest.concat(\"hello \", \"fakescript\")\n" +
+                "function call_java()\n" +
+                "    local num = FakeScriptTest.add(15, 25)\n" +
+                "    local text = FakeScriptTest.concat(\"hello \", \"fakescript\")\n" +
                 "    return num\n" +
                 "end\n";
 
@@ -121,12 +121,12 @@ public class FakeScriptTest {
     @Test
     public void testCoroutineFakeExecution() throws Exception {
         String script =
-                "func worker(step)\n" +
-                "    var g = _G()\n" +
+                "function worker(step)\n" +
+                "    local g = _G()\n" +
                 "    g[\"count\"] = g[\"count\"] + step\n" +
                 "end\n" +
-                "func main()\n" +
-                "    var g = _G()\n" +
+                "function main()\n" +
+                "    local g = _G()\n" +
                 "    g[\"count\"] = 0\n" +
                 "    fake worker(10)\n" +
                 "    fake worker(20)\n" +
@@ -146,7 +146,7 @@ public class FakeScriptTest {
     @Test
     public void testPrintWithoutCallback() throws Exception {
         String script =
-                "func hello()\n" +
+                "function hello()\n" +
                 "    print(\"hello\", \" world\")\n" +
                 "end\n";
 
@@ -172,7 +172,7 @@ public class FakeScriptTest {
         });
 
         String script =
-                "func hello()\n" +
+                "function hello()\n" +
                 "    print(\"hello\", \" \", \"callback\")\n" +
                 "end\n";
 
@@ -186,7 +186,7 @@ public class FakeScriptTest {
     @Test
     public void testUuidLiteralAndReturn() throws Exception {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return 123456789012345u\n" +
                 "end\n";
 
@@ -216,9 +216,9 @@ public class FakeScriptTest {
     @Test
     public void testIncludeCycleDetection(@TempDir Path dir) throws Exception {
         Files.write(dir.resolve("a.fk"),
-                "include \"b.fk\"\nfunc fa()\nend\n".getBytes(StandardCharsets.UTF_8));
+                "include \"b.fk\"\nfunction fa()\nend\n".getBytes(StandardCharsets.UTF_8));
         Files.write(dir.resolve("b.fk"),
-                "include \"a.fk\"\nfunc fb()\nend\n".getBytes(StandardCharsets.UTF_8));
+                "include \"a.fk\"\nfunction fb()\nend\n".getBytes(StandardCharsets.UTF_8));
 
         boolean ok = fk.parse(f, dir.resolve("a.fk").toString());
         assertFalse(ok);
@@ -228,7 +228,7 @@ public class FakeScriptTest {
     @Test
     public void testParseFileWithOddLength(@TempDir Path dir) throws Exception {
         // 29字节,不是10的倍数,旧的分块读取会在末尾混入'\0'
-        String content = "func f()\n    return \"OK\"\nend\n";
+        String content = "function f()\n    return \"OK\"\nend\n";
         Files.write(dir.resolve("odd.fk"), content.getBytes(StandardCharsets.UTF_8));
 
         boolean ok = fk.parse(f, dir.resolve("odd.fk").toString());
@@ -242,7 +242,7 @@ public class FakeScriptTest {
     @Test
     public void testFormatWithMultibyteChars() throws Exception {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return format(\"第$个测试\", 3)\n" +
                 "end\n";
 
@@ -257,7 +257,7 @@ public class FakeScriptTest {
     @Test
     public void testFormatEscapingAndPlaceholders() throws Exception {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return format(\"$$a$\", 1)\n" +
                 "end\n";
 
@@ -272,7 +272,7 @@ public class FakeScriptTest {
     @Test
     public void testRunmultiMultipleReturns() throws Exception {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return 1, \"two\", 3.5\n" +
                 "end\n";
 
@@ -289,7 +289,7 @@ public class FakeScriptTest {
     @Test
     public void testRunFirstOfMultipleReturns() throws Exception {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return \"first\", \"second\"\n" +
                 "end\n";
 
@@ -307,9 +307,9 @@ public class FakeScriptTest {
         fk.openbaselib(ff);
 
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while true then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while true do\n" +
                 "        i = i + 1\n" +
                 "    end\n" +
                 "    return i\n" +
@@ -332,9 +332,9 @@ public class FakeScriptTest {
         fk.openbaselib(ff);
 
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while true then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while true do\n" +
                 "        i = i + 1\n" +
                 "    end\n" +
                 "    return i\n" +
@@ -354,9 +354,9 @@ public class FakeScriptTest {
         stopTarget = f;
 
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while true then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while true do\n" +
                 "        i = i + 1\n" +
                 "        FakeScriptTest.stopNow()\n" +
                 "    end\n" +
@@ -382,8 +382,8 @@ public class FakeScriptTest {
         fk.openbaselib(ff);
 
         String arrayScript =
-                "func f()\n" +
-                "    var arr = array()\n" +
+                "function f()\n" +
+                "    local arr = array()\n" +
                 "    arr[15] = 1\n" +
                 "end\n";
 
@@ -397,9 +397,9 @@ public class FakeScriptTest {
         ff.clearerr();
 
         String mapScript =
-                "func f()\n" +
-                "    var m = map()\n" +
-                "    for var i = 0, i < 100, i++ then\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
+                "    for local i = 0, i < 100, i++ do\n" +
                 "        m[i] = i\n" +
                 "    end\n" +
                 "end\n";
@@ -415,11 +415,11 @@ public class FakeScriptTest {
     @Test
     public void testRuntimeErrorContainsScriptCallStack() throws Exception {
         String script =
-                "func g()\n" +
-                "    var arr = array()\n" +
+                "function g()\n" +
+                "    local arr = array()\n" +
                 "    return arr[-1]\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return g()\n" +
                 "end\n";
 
@@ -437,7 +437,7 @@ public class FakeScriptTest {
     public void testHostIntMapping() throws Exception {
         // Integer/Short/Byte默认映射为INT,可参与64位整数运算
         String script =
-                "func f(a, b)\n" +
+                "function f(a, b)\n" +
                 "    return a + b\n" +
                 "end\n";
 
@@ -459,7 +459,7 @@ public class FakeScriptTest {
         fk.openbaselib(ff);
 
         String script =
-                "func f(a)\n" +
+                "function f(a)\n" +
                 "    return a * 2, typeof(a)\n" +
                 "end\n";
 
@@ -481,11 +481,11 @@ public class FakeScriptTest {
     @Test
     public void testStructuredError() throws Exception {
         String script =
-                "func g()\n" +
-                "    var arr = array()\n" +
+                "function g()\n" +
+                "    local arr = array()\n" +
                 "    return arr[-1]\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return g()\n" +
                 "end\n";
 
@@ -525,12 +525,12 @@ public class FakeScriptTest {
 
     @Test
     public void testParseClearsPreviousError() throws Exception {
-        boolean ok = fk.parsestr(f, "func f(\nend\n");
+        boolean ok = fk.parsestr(f, "function f(\nend\n");
         assertFalse(ok);
         assertTrue(fk.error(f));
         assertFalse(fk.geterror(f).isEmpty());
 
-        ok = fk.parsestr(f, "func g()\n    return 1\nend\n");
+        ok = fk.parsestr(f, "function g()\n    return 1\nend\n");
         assertTrue(ok, fk.geterror(f));
         assertFalse(fk.error(f), fk.geterror(f));
     }
@@ -540,11 +540,11 @@ public class FakeScriptTest {
         fk.regclass(f, FakeScriptTest.class);
 
         String script =
-                "func f()\n" +
-                "    var a = FakeScriptTest.toInt(3.7)\n" +
-                "    var b = FakeScriptTest.toBool(2.5)\n" +
-                "    var c = FakeScriptTest.toBool(0)\n" +
-                "    var d = FakeScriptTest.toLong(7.9)\n" +
+                "function f()\n" +
+                "    local a = FakeScriptTest.toInt(3.7)\n" +
+                "    local b = FakeScriptTest.toBool(2.5)\n" +
+                "    local c = FakeScriptTest.toBool(0)\n" +
+                "    local d = FakeScriptTest.toLong(7.9)\n" +
                 "    return a, b, c, d\n" +
                 "end\n";
 
@@ -567,9 +567,9 @@ public class FakeScriptTest {
         fk.openbaselib(ff);
 
         String script =
-                "func f()\n" +
-                "    var a = new(\"java.lang.Object\")\n" +
-                "    var b = new(\"java.io.File\")\n" +
+                "function f()\n" +
+                "    local a = new(\"java.lang.Object\")\n" +
+                "    local b = new(\"java.io.File\")\n" +
                 "    return a, b\n" +
                 "end\n";
 
@@ -587,9 +587,9 @@ public class FakeScriptTest {
     @Test
     public void testResumeFrameSliced() throws Exception {
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while i < 100 then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while i < 100 do\n" +
                 "        i = i + 1\n" +
                 "        yield 1\n" +
                 "    end\n" +
@@ -636,7 +636,7 @@ public class FakeScriptTest {
     @Test
     public void testResumeWithArgs() throws Exception {
         String script =
-                "func f(a, b)\n" +
+                "function f(a, b)\n" +
                 "    return a + b, a - b\n" +
                 "end\n";
 

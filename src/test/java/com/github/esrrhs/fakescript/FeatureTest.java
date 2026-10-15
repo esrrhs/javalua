@@ -38,8 +38,8 @@ public class FeatureTest {
                 "    id\n" +
                 "    name\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var u = User()\n" +
+                "function f()\n" +
+                "    local u = User()\n" +
                 "    u->id = 1001\n" +
                 "    u->name = \"Alice\"\n" +
                 "    return u->name\n" +
@@ -51,9 +51,9 @@ public class FeatureTest {
     @Test
     public void testIncludeSharedFunction(@TempDir Path dir) throws Exception {
         Files.write(dir.resolve("common.fk"),
-                "func common_add(a, b)\n    return a + b\nend\n".getBytes(StandardCharsets.UTF_8));
+                "function common_add(a, b)\n    return a + b\nend\n".getBytes(StandardCharsets.UTF_8));
         Files.write(dir.resolve("main.fk"),
-                "include \"common.fk\"\nfunc f()\n    return common_add(1, 2)\nend\n"
+                "include \"common.fk\"\nfunction f()\n    return common_add(1, 2)\nend\n"
                         .getBytes(StandardCharsets.UTF_8));
 
         boolean ok = fk.parse(f, dir.resolve("main.fk").toString());
@@ -66,7 +66,7 @@ public class FeatureTest {
     @Test
     public void testSwitchStatement() {
         String script =
-                "func f(x)\n" +
+                "function f(x)\n" +
                 "    switch x\n" +
                 "        case 1 then\n" +
                 "            return \"one\"\n" +
@@ -85,16 +85,16 @@ public class FeatureTest {
     @Test
     public void testNestedContainers() {
         String script =
-                "func f()\n" +
-                "    var arr = array()\n" +
+                "function f()\n" +
+                "    local arr = array()\n" +
                 "    arr[0] = 100\n" +
                 "    arr[1] = 200\n" +
-                "    var m = map()\n" +
+                "    local m = map()\n" +
                 "    m[1] = arr\n" +
-                "    var outer = map()\n" +
+                "    local outer = map()\n" +
                 "    outer[\"inner\"] = m\n" +
-                "    var got1 = outer[\"inner\"]\n" +
-                "    var got2 = got1[1]\n" +
+                "    local got1 = outer[\"inner\"]\n" +
+                "    local got2 = got1[1]\n" +
                 "    return got2[0]\n" +
                 "end\n";
 
@@ -106,7 +106,7 @@ public class FeatureTest {
     public void testConstValue() {
         String script =
                 "const MAX_COUNT = 100\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return MAX_COUNT\n" +
                 "end\n";
 
@@ -117,9 +117,9 @@ public class FeatureTest {
     @Test
     public void testForLoop() {
         String script =
-                "func f(n)\n" +
-                "    var sum = 0\n" +
-                "    for var i = 0, i < n, i++ then\n" +
+                "function f(n)\n" +
+                "    local sum = 0\n" +
+                "    for local i = 0, i < n, i++ do\n" +
                 "        sum = sum + i\n" +
                 "    end\n" +
                 "    return sum\n" +
@@ -132,9 +132,9 @@ public class FeatureTest {
     @Test
     public void testWhileLoop() {
         String script =
-                "func f(n)\n" +
-                "    var i = 0\n" +
-                "    while i < n then\n" +
+                "function f(n)\n" +
+                "    local i = 0\n" +
+                "    while i < n do\n" +
                 "        i = i + 2\n" +
                 "    end\n" +
                 "    return i\n" +
@@ -147,7 +147,7 @@ public class FeatureTest {
     @Test
     public void testIfElseifElse() {
         String script =
-                "func f(x)\n" +
+                "function f(x)\n" +
                 "    if x < 0 then\n" +
                 "        return \"neg\"\n" +
                 "    elseif x == 0 then\n" +
@@ -165,12 +165,12 @@ public class FeatureTest {
     @Test
     public void testStringAndTypeBuiltins() {
         String script =
-                "func f()\n" +
-                "    var n = tonumber(\"42\")\n" +
-                "    var s = tostring(42)\n" +
-                "    var t = typeof(n)\n" +
-                "    var l = size(\"hello\")\n" +
-                "    var e = range(\"hello\", 1)\n" +
+                "function f()\n" +
+                "    local n = tonumber(\"42\")\n" +
+                "    local s = tostring(42)\n" +
+                "    local t = typeof(n)\n" +
+                "    local l = size(\"hello\")\n" +
+                "    local e = range(\"hello\", 1)\n" +
                 "    return n, s, t, l, e\n" +
                 "end\n";
 
@@ -189,9 +189,9 @@ public class FeatureTest {
     @Test
     public void testProfiler() {
         String script =
-                "func work()\n" +
-                "    var i = 0\n" +
-                "    for var j = 0, j < 1000, j++ then\n" +
+                "function work()\n" +
+                "    local i = 0\n" +
+                "    for local j = 0, j < 1000, j++ do\n" +
                 "        i = i + j\n" +
                 "    end\n" +
                 "    return i\n" +
@@ -211,8 +211,8 @@ public class FeatureTest {
 
     @Test
     public void testHotReload() {
-        String v1 = "func f()\n    return 1\nend\n";
-        String v2 = "func f()\n    return 2\nend\n";
+        String v1 = "function f()\n    return 1\nend\n";
+        String v2 = "function f()\n    return 2\nend\n";
 
         assertEquals(1L, ((Long) runScript(v1, "f")).longValue());
         assertEquals(2L, ((Long) runScript(v2, "f")).longValue());
@@ -220,7 +220,7 @@ public class FeatureTest {
 
     @Test
     public void testParseErrorReportsError() {
-        boolean ok = fk.parsestr(f, "func f(\n    return 1\nend\n");
+        boolean ok = fk.parsestr(f, "function f(\n    return 1\nend\n");
         assertFalse(ok);
         assertTrue(fk.error(f));
         assertFalse(fk.geterror(f).isEmpty());
@@ -230,8 +230,8 @@ public class FeatureTest {
     public void testRuntimeErrorReportsError() {
         // 对非容器值做下标访问,运行时报错
         String script =
-                "func f()\n" +
-                "    var x = 5\n" +
+                "function f()\n" +
+                "    local x = 5\n" +
                 "    return x[0]\n" +
                 "end\n";
 
@@ -247,7 +247,7 @@ public class FeatureTest {
     @Test
     public void testCustomBindName() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return FeatureTest.myadd(1, 2)\n" +
                 "end\n";
 
@@ -271,7 +271,7 @@ public class FeatureTest {
         // package内的函数以"包名.函数名"注册,宿主按全名调用
         String script =
                 "package mypkg.sub\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return 42\n" +
                 "end\n";
 
@@ -291,10 +291,10 @@ public class FeatureTest {
         String script =
                 "package pkg\n" +
                 "const N = 5\n" +
-                "func inner()\n" +
+                "function inner()\n" +
                 "    return N\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return inner() + N\n" +
                 "end\n";
 
@@ -309,9 +309,9 @@ public class FeatureTest {
     public void testPackageAcrossInclude(@TempDir Path dir) throws Exception {
         // include的文件可以有自己的package;调用方用"包名.函数名"调用
         Files.write(dir.resolve("a.fk"),
-                "package lib\nfunc fa()\n    return 7\nend\n".getBytes(StandardCharsets.UTF_8));
+                "package lib\nfunction fa()\n    return 7\nend\n".getBytes(StandardCharsets.UTF_8));
         Files.write(dir.resolve("main.fk"),
-                "include \"a.fk\"\nfunc f()\n    return lib.fa()\nend\n".getBytes(StandardCharsets.UTF_8));
+                "include \"a.fk\"\nfunction f()\n    return lib.fa()\nend\n".getBytes(StandardCharsets.UTF_8));
 
         boolean ok = fk.parse(f, dir.resolve("main.fk").toString());
         assertTrue(ok, fk.geterror(f));
@@ -325,7 +325,7 @@ public class FeatureTest {
     @Test
     public void testCloneFake() {
         String script =
-                "func f(x)\n" +
+                "function f(x)\n" +
                 "    return x * 2\n" +
                 "end\n";
 
@@ -352,8 +352,8 @@ public class FeatureTest {
         });
 
         String script =
-                "func f()\n" +
-                "    var arr = array()\n" +
+                "function f()\n" +
+                "    local arr = array()\n" +
                 "    return arr[-1]\n" +
                 "end\n";
 
@@ -369,8 +369,8 @@ public class FeatureTest {
     public void testDostring() {
         // dostring在运行时编译并注册新函数,随后即可调用
         String script =
-                "func f()\n" +
-                "    dostring(\"func g() return 9 end\")\n" +
+                "function f()\n" +
+                "    dostring(\"function g() return 9 end\")\n" +
                 "    return g()\n" +
                 "end\n";
 
@@ -385,7 +385,7 @@ public class FeatureTest {
     public void testGetconst() {
         String script =
                 "const VERSION = 7\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return getconst(\"VERSION\")\n" +
                 "end\n";
 
@@ -403,7 +403,7 @@ public class FeatureTest {
         fk.openbaselib(ff);
 
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return dofile(\"no_such_allow.fk\")\n" +
                 "end\n";
 
@@ -418,7 +418,7 @@ public class FeatureTest {
     @Test
     public void testMathBuiltins() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return abs(-7), abs(-7.5), floor(2.7), ceil(2.1), sqrt(16.0), pow(2.0, 10.0), typeof(floor(2.7))\n" +
                 "end\n";
 
@@ -439,10 +439,10 @@ public class FeatureTest {
     @Test
     public void testRandomAndTime() {
         String script =
-                "func f()\n" +
-                "    var r1 = random()\n" +
-                "    var r2 = random(100)\n" +
-                "    var t = time()\n" +
+                "function f()\n" +
+                "    local r1 = random()\n" +
+                "    local r2 = random(100)\n" +
+                "    local t = time()\n" +
                 "    return r1, typeof(r1), r2, typeof(r2), t, typeof(t)\n" +
                 "end\n";
 
@@ -465,8 +465,8 @@ public class FeatureTest {
     @Test
     public void testStringBuiltins() {
         String script =
-                "func f()\n" +
-                "    var s = \"Hello, World\"\n" +
+                "function f()\n" +
+                "    local s = \"Hello, World\"\n" +
                 "    return substr(s, 7, 5), find(s, \"World\"), find(s, \"nope\"), upper(s), lower(s), trim(\"  x  \"), replace(s, \"World\", \"FK\"), size(replace(s, \"World\", \"FK\"))\n" +
                 "end\n";
 
@@ -489,9 +489,9 @@ public class FeatureTest {
     public void testSplitBuiltin() {
         // 分隔符按字面量整体匹配
         String script =
-                "func f()\n" +
-                "    var parts = split(\"a,b,c\", \",\")\n" +
-                "    var multi = split(\"x::y:z\", \":\")\n" +
+                "function f()\n" +
+                "    local parts = split(\"a,b,c\", \",\")\n" +
+                "    local multi = split(\"x::y:z\", \":\")\n" +
                 "    return size(parts), parts[0], parts[2], size(multi), multi[2]\n" +
                 "end\n";
 
@@ -511,14 +511,14 @@ public class FeatureTest {
     @Test
     public void testArrayOps() {
         String script =
-                "func f()\n" +
-                "    var arr = array()\n" +
+                "function f()\n" +
+                "    local arr = array()\n" +
                 "    push(arr, 1)\n" +
                 "    push(arr, 2)\n" +
                 "    push(arr, 3)\n" +
-                "    var p = pop(arr)\n" +
+                "    local p = pop(arr)\n" +
                 "    insert(arr, 0, 0)\n" +
-                "    var r = remove(arr, 1)\n" +
+                "    local r = remove(arr, 1)\n" +
                 "    sort(arr)\n" +
                 "    return size(arr), p, r, arr[0], arr[1]\n" +
                 "end\n";
@@ -538,13 +538,13 @@ public class FeatureTest {
     @Test
     public void testArraySortBuiltin() {
         String script =
-                "func f()\n" +
-                "    var nums = array()\n" +
+                "function f()\n" +
+                "    local nums = array()\n" +
                 "    push(nums, 3.5)\n" +
                 "    push(nums, 1)\n" +
                 "    push(nums, 2.5)\n" +
                 "    sort(nums)\n" +
-                "    var strs = split(\"b,a,c\", \",\")\n" +
+                "    local strs = split(\"b,a,c\", \",\")\n" +
                 "    sort(strs)\n" +
                 "    return nums[0], nums[2], strs[0], strs[2]\n" +
                 "end\n";
@@ -563,14 +563,14 @@ public class FeatureTest {
     @Test
     public void testMapKeysValues() {
         String script =
-                "func f()\n" +
-                "    var m = map()\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
                 "    m[\"a\"] = 1\n" +
                 "    m[\"b\"] = 2\n" +
-                "    var ks = keys(m)\n" +
-                "    var vs = values(m)\n" +
-                "    var sum = 0\n" +
-                "    for var i = 0, i < size(vs), i++ then\n" +
+                "    local ks = keys(m)\n" +
+                "    local vs = values(m)\n" +
+                "    local sum = 0\n" +
+                "    for local i = 0, i < size(vs), i++ do\n" +
                 "        sum = sum + vs[i]\n" +
                 "    end\n" +
                 "    return size(ks), sum\n" +
@@ -588,18 +588,18 @@ public class FeatureTest {
     @Test
     public void testDeepCopy() {
         String script =
-                "func f()\n" +
-                "    var m = map()\n" +
-                "    var arr = array()\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
+                "    local arr = array()\n" +
                 "    push(arr, 1)\n" +
                 "    push(arr, \"x\")\n" +
                 "    m[\"list\"] = arr\n" +
                 "    m[\"n\"] = 5\n" +
-                "    var c = copy(m)\n" +
+                "    local c = copy(m)\n" +
                 "    c[\"n\"] = 100\n" +
-                "    var cl = c[\"list\"]\n" +
+                "    local cl = c[\"list\"]\n" +
                 "    cl[0] = 999\n" +
-                "    var ml = m[\"list\"]\n" +
+                "    local ml = m[\"list\"]\n" +
                 "    return m[\"n\"], ml[0], c[\"n\"], cl[0], cl[1]\n" +
                 "end\n";
 
@@ -619,19 +619,19 @@ public class FeatureTest {
     @Test
     public void testJsonRoundTrip() {
         String script =
-                "func f()\n" +
-                "    var m = map()\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
                 "    m[\"name\"] = \"fake\"\n" +
                 "    m[\"hp\"] = 100\n" +
                 "    m[\"atk\"] = 12.5\n" +
                 "    m[\"dead\"] = false\n" +
-                "    var tags = array()\n" +
+                "    local tags = array()\n" +
                 "    push(tags, \"boss\")\n" +
                 "    push(tags, 42)\n" +
                 "    m[\"tags\"] = tags\n" +
-                "    var j = tojson(m)\n" +
-                "    var back = fromjson(j)\n" +
-                "    var btags = back[\"tags\"]\n" +
+                "    local j = tojson(m)\n" +
+                "    local back = fromjson(j)\n" +
+                "    local btags = back[\"tags\"]\n" +
                 "    return back[\"name\"], back[\"hp\"], back[\"atk\"], btags[0], btags[1]\n" +
                 "end\n";
 
@@ -650,8 +650,8 @@ public class FeatureTest {
     @Test
     public void testJsonTypesAndEscapes() {
         String script =
-                "func f()\n" +
-                "    var j = fromjson(\"{\\\"s\\\":\\\"a\\\\nb\\\",\\\"i\\\":9007199254740993,\\\"f\\\":1.5,\\\"n\\\":null,\\\"t\\\":true}\")\n" +
+                "function f()\n" +
+                "    local j = fromjson(\"{\\\"s\\\":\\\"a\\\\nb\\\",\\\"i\\\":9007199254740993,\\\"f\\\":1.5,\\\"n\\\":null,\\\"t\\\":true}\")\n" +
                 "    return j[\"s\"], size(j[\"s\"]), j[\"i\"], typeof(j[\"i\"]), j[\"f\"], j[\"n\"], j[\"t\"]\n" +
                 "end\n";
 
@@ -673,11 +673,11 @@ public class FeatureTest {
     @Test
     public void testJsonTojsonOutput() {
         String script =
-                "func f()\n" +
-                "    var m = map()\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
                 "    m[\"id\"] = 123u\n" +
                 "    m[\"nil\"] = null\n" +
-                "    var arr = array()\n" +
+                "    local arr = array()\n" +
                 "    push(arr, 1.0)\n" +
                 "    push(arr, 2.5)\n" +
                 "    m[\"arr\"] = arr\n" +
@@ -698,7 +698,7 @@ public class FeatureTest {
     @Test
     public void testJsonErrors() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return fromjson(\"{bad\")\n" +
                 "end\n";
 
@@ -714,10 +714,10 @@ public class FeatureTest {
     @Test
     public void testBreakContinue() {
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    var hits = 0\n" +
-                "    while true then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    local hits = 0\n" +
+                "    while true do\n" +
                 "        i = i + 1\n" +
                 "        if i % 2 == 0 then\n" +
                 "            continue\n" +
@@ -740,9 +740,9 @@ public class FeatureTest {
     @Test
     public void testBreakContinueInFor() {
         String script =
-                "func f()\n" +
-                "    var sum = 0\n" +
-                "    for var j = 0, j < 10, j++ then\n" +
+                "function f()\n" +
+                "    local sum = 0\n" +
+                "    for local j = 0, j < 10, j++ do\n" +
                 "        if j < 3 then\n" +
                 "            continue\n" +
                 "        end\n" +
@@ -764,7 +764,7 @@ public class FeatureTest {
         String script =
                 "const CONFIG_MAP = {1 : \"Alpha\" 2 : \"Beta\"}\n" +
                 "const CONFIG_ARR = [10 20 30]\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return CONFIG_MAP[1], CONFIG_MAP[2], CONFIG_ARR[0], CONFIG_ARR[2], size(CONFIG_ARR)\n" +
                 "end\n";
 
@@ -782,7 +782,7 @@ public class FeatureTest {
     public void testConstContainerIsReadOnly() {
         String script =
                 "const ARR = [1 2]\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    ARR[0] = 9\n" +
                 "    return ARR[0]\n" +
                 "end\n";
@@ -797,10 +797,10 @@ public class FeatureTest {
     public void testMultiAssignFromFunction() {
         // 声明式多赋值用:=;=要求变量已声明
         String script =
-                "func pair()\n" +
+                "function pair()\n" +
                 "    return 1, 2\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    a, b := pair()\n" +
                 "    return a, b, a + b\n" +
                 "end\n";
@@ -816,10 +816,10 @@ public class FeatureTest {
     @Test
     public void testDofilePositive(@TempDir Path dir) throws Exception {
         Files.write(dir.resolve("extra.fk"),
-                "func extra_func()\n    return 77\nend\n".getBytes(StandardCharsets.UTF_8));
+                "function extra_func()\n    return 77\nend\n".getBytes(StandardCharsets.UTF_8));
 
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    dofile(\"" + dir.resolve("extra.fk").toString().replace("\\", "\\\\")
                         + "\")\n" +
                 "    return extra_func()\n" +
@@ -838,7 +838,7 @@ public class FeatureTest {
         assertTrue(fk.isfunc(f, "FakeScriptTest.add"));
 
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return FakeScriptTest.add(2, 3)\n" +
                 "end\n";
 
@@ -849,9 +849,9 @@ public class FeatureTest {
     @Test
     public void testDebugSetVariantInt() throws Exception {
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while i < 100 then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while i < 100 do\n" +
                 "        i = i + 1\n" +
                 "        yield 1\n" +
                 "    end\n" +
@@ -893,14 +893,14 @@ public class FeatureTest {
     public void testRuntimeErrorPaths() {
         // 整数除零
         // 注:/ 是浮点除法(1/0 == inf,不再报错),故用 // 整除除零来触发错误
-        assertTrue(fk.parsestr(f, "func f()\n    return 1 // 0\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    return 1 // 0\nend\n"), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f));
         assertTrue(fk.geterror(f).contains("divide"), fk.geterror(f));
 
         // 调用不存在的函数
         f.clearerr();
-        assertTrue(fk.parsestr(f, "func f()\n    return no_such_func()\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    return no_such_func()\nend\n"), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f));
         assertTrue(fk.geterror(f).contains("no func"), fk.geterror(f));
@@ -908,21 +908,21 @@ public class FeatureTest {
         // 参数个数不匹配
         f.clearerr();
         assertTrue(fk.parsestr(f,
-                "func add(a, b)\n    return a + b\nend\nfunc f()\n    return add(1)\nend\n"), fk.geterror(f));
+                "function add(a, b)\n    return a + b\nend\nfunction f()\n    return add(1)\nend\n"), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f));
         assertTrue(fk.geterror(f).contains("param not match"), fk.geterror(f));
 
         // 容器下标为负
         f.clearerr();
-        assertTrue(fk.parsestr(f, "func f()\n    var a = array()\n    return a[-1]\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    local a = array()\n    return a[-1]\nend\n"), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f));
         assertTrue(fk.geterror(f).contains("index"), fk.geterror(f));
 
         // 非容器取下标
         f.clearerr();
-        assertTrue(fk.parsestr(f, "func f()\n    var x = 5\n    return x[0]\nend\n"), fk.geterror(f));
+        assertTrue(fk.parsestr(f, "function f()\n    local x = 5\n    return x[0]\nend\n"), fk.geterror(f));
         fk.run(f, "f");
         assertTrue(fk.error(f));
         assertTrue(fk.geterror(f).contains("container"), fk.geterror(f));
@@ -932,10 +932,10 @@ public class FeatureTest {
     public void testStackOverflowProtection() {
         // 无穷递归触发stack_max保护
         String script =
-                "func rec(n)\n" +
+                "function rec(n)\n" +
                 "    return rec(n + 1)\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return rec(1)\n" +
                 "end\n";
 
@@ -955,8 +955,8 @@ public class FeatureTest {
     public void testSleepWaitsAndYields() {
         // 整跑模式:sleep应真实等待指定毫秒
         String script =
-                "func f()\n" +
-                "    var start = time()\n" +
+                "function f()\n" +
+                "    local start = time()\n" +
                 "    sleep 200\n" +
                 "    return time() - start\n" +
                 "end\n";
@@ -976,13 +976,13 @@ public class FeatureTest {
     public void testSleepWithMultipleRoutines() {
         // 多协程都睡眠时不忙等,且全部按时唤醒
         String script =
-                "func sleeper(n)\n" +
+                "function sleeper(n)\n" +
                 "    sleep n\n" +
-                "    var g = _G()\n" +
+                "    local g = _G()\n" +
                 "    g[\"done\"] = g[\"done\"] + 1\n" +
                 "end\n" +
-                "func f()\n" +
-                "    var g = _G()\n" +
+                "function f()\n" +
+                "    local g = _G()\n" +
                 "    g[\"done\"] = 0\n" +
                 "    fake sleeper(150)\n" +
                 "    fake sleeper(250)\n" +
@@ -1077,7 +1077,7 @@ public class FeatureTest {
         // 文件脚本:函数定位与源码读取需要真实文件名
         Path file = dir.resolve("obs.fk");
         Files.write(file,
-                "func g(x)\n    yield 1\n    return x * 2\nend\nfunc f()\n    var r = g(21)\n    return r\nend\n"
+                "function g(x)\n    yield 1\n    return x * 2\nend\nfunction f()\n    local r = g(21)\n    return r\nend\n"
                         .getBytes(StandardCharsets.UTF_8));
 
         assertTrue(fk.parse(f, file.toString()), fk.geterror(f));
@@ -1134,7 +1134,7 @@ public class FeatureTest {
     @Test
     public void testConcurrentAccessDetection() throws Exception {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    sleep 300\n" +
                 "    return 7\n" +
                 "end\n";
@@ -1162,7 +1162,7 @@ public class FeatureTest {
     public void testSequentialCrossThreadStillWorks() throws Exception {
         // 线程A创建并解析,线程B执行,线程C再执行:顺序跨线程合法
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return 42\n" +
                 "end\n";
 
@@ -1186,9 +1186,9 @@ public class FeatureTest {
     @Test
     public void testConcurrentStressNoCorruption() throws Exception {
         String script =
-                "func f()\n" +
-                "    var i = 0\n" +
-                "    while i < 100 then\n" +
+                "function f()\n" +
+                "    local i = 0\n" +
+                "    while i < 100 do\n" +
                 "        i = i + 1\n" +
                 "    end\n" +
                 "    return i\n" +
@@ -1234,19 +1234,19 @@ public class FeatureTest {
     public void testHotReloadWhileSuspended() throws Exception {
         // 语义:挂起中的协程按旧字节码跑完;重新解析只影响之后的调用
         String v1 =
-                "func g()\n" +
+                "function g()\n" +
                 "    yield 1\n" +
                 "    return 1\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return g()\n" +
                 "end\n";
         String v2 =
-                "func g()\n" +
+                "function g()\n" +
                 "    yield 1\n" +
                 "    return 2\n" +
                 "end\n" +
-                "func f()\n" +
+                "function f()\n" +
                 "    return g()\n" +
                 "end\n";
 
@@ -1277,7 +1277,7 @@ public class FeatureTest {
     public void testIntegerPrecision() {
         // 2^60+1超出double精度,INT精确到64位
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return 1152921504606846977 + 1\n" +
                 "end\n";
 
@@ -1288,7 +1288,7 @@ public class FeatureTest {
     @Test
     public void testIntegerOverflowWrapsLikeC() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return 9223372036854775807 + 1\n" +
                 "end\n";
 
@@ -1299,9 +1299,9 @@ public class FeatureTest {
     @Test
     public void testDivisionStaysFloating() {
         String script =
-                "func f()\n" +
-                "    var a = 1 / 2\n" +
-                "    var b = 4 / 2\n" +
+                "function f()\n" +
+                "    local a = 1 / 2\n" +
+                "    local b = 4 / 2\n" +
                 "    return a, typeof(a), b, typeof(b)\n" +
                 "end\n";
 
@@ -1319,11 +1319,11 @@ public class FeatureTest {
     @Test
     public void testIntegerModulo() {
         String script =
-                "func f()\n" +
-                "    var a = 7 % 3\n" +
-                "    var b = 7.5 % 3\n" +
-                "    var c = -7 % 3\n" +
-                "    var d = 7 % -3\n" +
+                "function f()\n" +
+                "    local a = 7 % 3\n" +
+                "    local b = 7.5 % 3\n" +
+                "    local c = -7 % 3\n" +
+                "    local d = 7 % -3\n" +
                 "    return a, typeof(a), b, c, typeof(c), d\n" +
                 "end\n";
 
@@ -1346,20 +1346,20 @@ public class FeatureTest {
     public void testMixedNumericComparisonAndEquality() {
         // 注意:比较表达式只能出现在if/while等条件位置,不能作赋值右值
         String script =
-                "func f()\n" +
-                "    var a = 0\n" +
+                "function f()\n" +
+                "    local a = 0\n" +
                 "    if 1 < 1.5 then\n" +
                 "        a = 1\n" +
                 "    end\n" +
-                "    var b = 0\n" +
+                "    local b = 0\n" +
                 "    if 1 == 1.0 then\n" +
                 "        b = 1\n" +
                 "    end\n" +
-                "    var c = 0\n" +
+                "    local c = 0\n" +
                 "    if 2 == 1.0 then\n" +
                 "        c = 1\n" +
                 "    end\n" +
-                "    var d = 1 + 0.5\n" +
+                "    local d = 1 + 0.5\n" +
                 "    return a, b, c, d, typeof(d)\n" +
                 "end\n";
 
@@ -1379,8 +1379,8 @@ public class FeatureTest {
     public void testMapKeyCrossTypeNumeric() {
         // INT 1 与 REAL 1.0 是同一个键
         String script =
-                "func f()\n" +
-                "    var m = map()\n" +
+                "function f()\n" +
+                "    local m = map()\n" +
                 "    m[1] = \"a\"\n" +
                 "    return m[1.0]\n" +
                 "end\n";
@@ -1391,7 +1391,7 @@ public class FeatureTest {
     @Test
     public void testUuidNotCalculable() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return 123u + 1\n" +
                 "end\n";
 
@@ -1406,7 +1406,7 @@ public class FeatureTest {
     @Test
     public void testNumberConversionBuiltins() {
         String script =
-                "func f()\n" +
+                "function f()\n" +
                 "    return tonumber(\"42\"), typeof(tonumber(\"42\")), tonumber(\"4.2\"), tolong(\"42\"), typeof(tolong(\"42\"))\n" +
                 "end\n";
 
