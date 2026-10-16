@@ -1,5 +1,6 @@
 package com.github.esrrhs.fakescript.lua;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -163,11 +164,129 @@ public final class LuaState {
         }
     }
 
+    /**
+     * 主线程上登记的所有线程（含它自己），弱引用。
+     * <p>
+     * 唯一用途是 {@link #clearDeadStackSlices}：C 版在 GC 的 atomic 阶段会遍历
+     * <b>每一个</b>线程，把 {@code [top, stack_last)} 清掉；这里要清就得找得到
+     * 所有协程。用弱引用是因为协程本身是 Lua 值，它死活由脚本决定，不该被这份
+     * 登记表拖住。
+     */
+    private final List<WeakReference<LuaState>> threads = new ArrayList<>();
+
     /** {@code lua_newthread} */
     public LuaState newThread() {
         LuaState nl = new LuaState(mainThread);
         nl.top = 1; // 第 0 格留给 base_ci.func，主体函数从下标 1 开始
+        mainThread.threads.add(new java.lang.ref.WeakReference<>(nl));
         return nl;
+    }
+
+    /**
+     * {@code lgc.c: traversethread} 的 atomic 分支：把所有栈 {@code [top, ...)}
+     * 那一段置 nil。
+     * <p>
+     * 为什么是「收集时才清」而不是「每次 {@code top} 下降就清」——这是照着 C 版
+     * 来的，也是踩出来的：C 只在 GC 的 atomic 阶段清死区，中间那些 {@code top}
+     * 变动一律不清。急切清会撞上两处，而且都很难看出来：
+     * <ul>
+     *   <li>{@code luaT_callTMres} 写完结果才弹栈，而<b>目标寄存器可能就是弹出
+     *       的那一格</b>；清早一步就把刚写好的结果抹了（{@code __lt} / {@code __eq}
+     *       全军覆没）。</li>
+     *   <li>{@code LuaError.value} 直接别名了栈槽（{@code error('boom', 0)} 里
+     *       {@code L.arg(0)} 就是活槽）。{@code pcall} 的收尾会把 {@code top}
+     *       降回去，一清就把错误对象清成 nil（{@code pcall} 变成 {@code false nil}）。</li>
+     * </ul>
+     * 反过来，等到收集时再清是<b>精确</b>的：此刻 {@code top} 之上的东西按定义
+     * 就是死的，C 的 mark 阶段也只看得到 {@code [stack, top)}。
+     */
+    void clearDeadStackSlices() {
+        clearDeadSlice(this);
+        for (WeakReference<LuaState> r : mainThread.threads) {
+            LuaState t = r.get();
+            if (t != null) {
+                clearDeadSlice(t);
+            }
+        }
+    }
+
+    private static void clearDeadSlice(LuaState t) {
+        for (int i = t.top; i < t.stack.length; i++) {
+            t.stack[i].setNil();
+        }
+    }
+
+    /* ==================== __gc ==================== */
+
+    /**
+     * 所有挂过 {@code __gc} 的表，弱引用。
+     * <p>
+     * 只用于 {@link #close}：C 版 {@code lua_close} 会<b>不管还活不活</b>把清单上
+     * 的终结器全跑一遍（{@code callallpendingfinalizers}），所以退出时不能只看
+     * 「已经不可达的那些」。
+     */
+    private final List<WeakReference<LuaTable>> finalizables = new ArrayList<>();
+
+    /**
+     * 已经不可达、等着跑 {@code __gc} 的表。
+     * <p>
+     * 由 {@link GcSentinel#finalize} 从 <b>JVM 终结线程</b>填进来，只能在 Lua 线程
+     * 上排空，所以下面的存取都要锁。
+     */
+    private final List<LuaTable> pendingFinalizers = new ArrayList<>();
+
+    void registerFinalizable(LuaTable t) {
+        synchronized (finalizables) {
+            finalizables.add(new WeakReference<>(t));
+        }
+    }
+
+    /** {@link GcSentinel#finalize} 用：把表拽回可达集合并排队 */
+    void enqueueFinalizer(LuaTable t) {
+        synchronized (pendingFinalizers) {
+            pendingFinalizers.add(t);
+        }
+    }
+
+    /**
+     * 排空待终结队列，在 {@code L} 上跑它们的 {@code __gc}（{@code lgc.c: GCTM}）。
+     * <p>
+     * 后进先出：实测参考实现里三个对象的 {@code __gc} 顺序是 {@code 3,2,1}，
+     * 也就是<b>创建顺序的逆序</b>。Lua 没规定顺序，但差分测的是逐字节一致，
+     * 照它来最省事。
+     */
+    void drainFinalizers(LuaState L) {
+        while (true) {
+            LuaTable t;
+            synchronized (pendingFinalizers) {
+                if (pendingFinalizers.isEmpty()) {
+                    return;
+                }
+                t = pendingFinalizers.remove(pendingFinalizers.size() - 1);
+            }
+            t.runGcMetamethod(L);
+        }
+    }
+
+    /**
+     * {@code lua_close}：把还没跑过的 {@code __gc} 全跑一遍。
+     * <p>
+     * 实测参考实现：脚本退出时不调 {@code collectgarbage}，{@code __gc} 照样会跑。
+     * 少了这一步，「不调 collectgarbage 的 {@code __gc} 用例」两边就对不上。
+     * <p>
+     * 顺序无所谓（Lua 没规定），可达的与已入队的两批都过一遍。
+     */
+    public void close() {
+        synchronized (finalizables) {
+            for (WeakReference<LuaTable> r : finalizables) {
+                LuaTable t = r.get();
+                if (t != null) {
+                    t.runGcMetamethod(this);
+                }
+            }
+            finalizables.clear();
+        }
+        drainFinalizers(this);
     }
 
     /* ==================== 线程查询 ==================== */
@@ -234,6 +353,12 @@ public final class LuaState {
         if (n <= 0) {
             return;
         }
+        /*
+         * 只降 top，<b>不</b>顺手清槽：接下来还要从 {@code from.top + i} 把值读出来。
+         * C 版也是先 {@code from->top -= n} 再拷，拷的是新 top 之上的那几格——
+         * 那些格子对 GC 已经不可见，但对这段代码还得是可读的。
+         * 清掉它们的工作交给 {@link #clearDeadStackSlices}，时机才对。
+         */
         from.top -= n;
         to.checkStack(n);
         for (int i = 0; i < n; i++) {

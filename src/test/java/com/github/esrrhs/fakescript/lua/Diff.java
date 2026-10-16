@@ -112,6 +112,13 @@ final class Diff {
              */
             return normalize(messageOf(e) + "\n");
         }
+        /*
+         * 参考实现的 lua.c 在退出前会 lua_close，而 lua_close 会把还没跑的 __gc
+         * 全跑一遍。不补这一步，「不调 collectgarbage 的 __gc 用例」两边就差一截
+         * 输出——而且差的是脚本<b>结束之后</b>才打印的那部分，很容易误判成
+         * 「__gc 根本没实现」。
+         */
+        L.close();
         String stdout = new String(bos.toByteArray(), StandardCharsets.UTF_8);
         /*
          * 出错时<b>不能把 stdout 丢掉</b>。参考实现的 stdout 与 stderr 被合并

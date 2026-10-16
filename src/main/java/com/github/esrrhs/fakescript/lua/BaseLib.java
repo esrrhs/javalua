@@ -549,6 +549,8 @@ public final class BaseLib {
             throw L.libError("cannot change a protected metatable");
         }
         t.asTable().setMetatable(mt.isNil() ? null : mt.asTable());
+        // __gc 只在设元表的当下登记一次，之后往元表里塞 __gc 不生效（实测参考实现如此）
+        t.asTable().markFinalizable(L);
         L.push(t);
         return 1;
     }
@@ -575,12 +577,39 @@ public final class BaseLib {
     }
 
     /**
-     * {@code luaB_collectgarbage}：无自己的 GC，只接受调用并返回 0。
+     * {@code luaB_collectgarbage}。
      * <p>
-     * 不假装统计内存——返回任何具体数字都是谎报。真正依赖
-     * {@code collectgarbage("count")} 的脚本到阶段 6 再决定怎么给。
+     * 这里做两件事：请求 JVM 做一次完整收集，然后递增「收集轮次」——弱表靠
+     * 轮次决定什么时候清扫失效条目，这一点与 C 版一致（Lua 是在 GC 周期末尾
+     * 清弱表，不是键一不可达就立刻消失）。
+     * <p>
+     * 返回值一律 0。不假装统计内存：{@code collectgarbage("count")} 报任何具体
+     * 数字都是谎报（我们连自己的堆都摸不到），宁可让依赖它的脚本拿到 0，
+     * 也不要编一个看起来合理的数。
      */
     private static int collectgarbage(LuaState L) {
+        /*
+         * 先把所有栈的「死区」清掉，再请求收集。顺序不能反：
+         * {@code lgc.c: traversethread} 的 atomic 分支做的正是这件事——
+         * mark 只扫 {@code [stack, top)}，扫完把 {@code [top, stack_last)}
+         * 整段置 nil。也就是说 {@code top} 之上的槽在 Lua 里<b>对 GC 不可见</b>。
+         * <p>
+         * 这里必须显式做，因为 {@code stack} 是一条 Java 数组：数组里每个槽
+         * 对 JVM 都是活引用。不清的话，凡是「寄存器落在 {@code top} 之上」的
+         * 对象都收不掉——循环里最后一次迭代建的表就挂在这样的寄存器上
+         * （{@code for i = 1, 5 do t[i] = {i} end} 之后 {@code {5}} 还留在
+         * 寄存器里，而 {@code top} 只到调用参数处），于是弱表清不掉它。
+         */
+        L.clearDeadStackSlices();
+        System.gc();
+        /*
+         * 光 gc 不够：不可达对象的 {@code finalize} 是由 JVM 的终结线程跑的，
+         * 不主动催一下，哨兵还没入队我们就往下走了。{@code runFinalization} 会
+         * 尽量把队列排干，之后才能排空待终结队列。
+         */
+        System.runFinalization();
+        L.mainThread.drainFinalizers(L);
+        LuaTable.gcGeneration++;
         L.push(LuaValue.ofInteger(0));
         return 1;
     }

@@ -200,12 +200,17 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 5 — coroutines.** The previous fakescript language implementation has been
-removed from `master`; see *Migration* below. Phases 0 through 5 are in: the
-compiler produces bytecode that is **field-for-field identical** to a real
-`lua5.4`'s, and the VM executes it — **stdout matches a real `lua5.4` byte for
-byte** across 158 + 121 + 60 differential scripts and 2100 generated programs, and
-error messages match line for line.
+**Phase 6 — collection-dependent semantics.** The previous fakescript language
+implementation has been removed from `master`; see *Migration* below. Phases 0
+through 6 are in: the compiler produces bytecode that is **field-for-field
+identical** to a real `lua5.4`'s, and the VM executes it — **stdout matches a
+real `lua5.4` byte for byte** across 158 + 121 + 60 + 32 differential scripts and
+2100 generated programs, and error messages match line for line.
+
+Phase 6 is the one phase where "no GC of our own" costs real ground. Weak tables,
+`__gc` and the string pool are all rebuilt on JVM reachability, which is *not* the
+same thing as Lua's mark-and-sweep; three places where it cannot be made to match
+are listed below under *Known divergences*.
 
 Landed so far:
 
@@ -246,6 +251,13 @@ Landed so far:
 | `Vm.finishOp` | `luaV_finishOp` | completes the half-executed instruction a yield interrupted |
 | `CoroutineTest` (test) | — | Phase 5 gate: 60 differential scripts, incl. yield inside every metamethod |
 | `FuzzTest` (test) | — | 1500 seeded programs + 600 more run inside a coroutine with random yields |
+| `LuaTable.WeakRef` | `iscleared` in `lgc.c` | a weak payload *is* the stored form; keeps the identity hash, since `identityHashCode(null)` is 0 and would collapse every dead key onto bucket 0 |
+| `LuaTable.purge` / `rewrap` | `cleartable` / `traverseweakvalue` | dead entries are dropped at the end of a collection round, and re-wrapped when `__mode` changes |
+| `LuaState.clearDeadStackSlices` | `traversethread`'s atomic branch | nils `[top, stack_last)` on every thread, inside `collectgarbage` |
+| `GcSentinel` | `GCTM` in `lgc.c` | sentinel whose `finalize` resurrects the table onto a pending queue; drained on the Lua thread |
+| `LuaState.close` | `lua_close` → `callallpendingfinalizers` | runs `__gc` for every object that still has one, at exit |
+| `WeakTableTest` (test) | — | Phase 6 gate: 20 differential scripts, split into a collection-dependent half and an always-true half |
+| `GcTest` (test) | — | Phase 6 gate: 12 scripts — once-only, errors swallowed, late `__gc` ignored |
 
 ### The bytecode gate
 
@@ -413,8 +425,72 @@ it is the only gate that finds "does not crash, but the value is wrong".
   and the remaining elements concatenated — possibly yielding again. Skipping it
   silently yields the *operand table* instead of the concatenation result.
 
-Next: Phase 6, collection-dependent semantics — weak tables, `__gc`, and a weak
-string pool.
+### Five things the reference binary settled in Phase 6
+
+* **The GC-visible stack ends at `L->top`, and that is load-bearing.**
+  `lgc.c: traversethread` marks only `[stack, top)` and then, in the atomic
+  phase, nils out `[top, stack_last)` — the source comment calls it "clear dead
+  stack slice". So a value sitting in a register *above* `top` is invisible to
+  the collector, and gets collected. Two shapes depend on this: a value pushed
+  by a C function such as `next` (the call returns, `top` drops back, the slot
+  still holds the key), and the table built by the last iteration of a loop
+  (`for i = 1, 5 do t[i] = {i} end` leaves `{5}` in a register while `L->top`
+  only reaches the call's arguments). Our `stack` is a Java array, so **every
+  slot is a live reference** — `LuaState.clearDeadStackSlices` reproduces that
+  clearance, and has to run *inside* `collectgarbage`, not on every `top`
+  change (see the next bullet).
+* **…but clearing eagerly on every `top` change breaks two things.** C only
+  clears during the atomic phase. Doing it inline silently destroyed both
+  `luaT_callTMres`'s result (the destination register can *be* the slot being
+  popped) and the error object of `pcall` (`LuaError.value` aliases a live stack
+  slot, because `error('boom', 0)` throws `L.arg(0)` itself — so `pcall` started
+  returning `false nil`). Waiting until `collectgarbage` is both faithful and
+  exactly as precise.
+* **A weak table's storage has to *be* weak, not merely carry a `WeakReference`
+  beside it.** The payload in the slot is the `WeakReference`; a strong payload
+  means nothing is ever released. That has a consequence: `LuaTable.get` must
+  hand back a *copy* for weak tables, so the write fast path
+  (`OP_SETTABLE`'s "slot found, write into it") cannot be used on them —
+  writing into a copy is a no-op, and `t.f = g` would leave `t.f` equal to `f`.
+* **`__mode` is read dynamically, and re-wraps everything that is already in the
+  table.** Building a table, filling it, and *then* calling
+  `setmetatable(t, {__mode = 'k'})` still lets those entries be collected —
+  measured. Since our weakness is a storage form, changing the mode has to walk
+  the table and re-wrap in place, and a weak table must keep everything in the
+  hash part (array slots are plain `LuaValue`s and cannot hold a `WeakRef`).
+* **`__gc` needs the object *alive*, which no JVM reference type can give you.**
+  Every "it's dead" notification (`WeakReference` cleared, `Cleaner`,
+  `PhantomReference`) arrives after the object is unreachable, and the reference
+  cannot be recovered. Only `finalize()` runs while `this` is still usable, and
+  it is allowed to *resurrect*. So a table with `__gc` gets a sentinel that only
+  it points to; when both go unreachable the sentinel's `finalize` pushes the
+  table onto a pending queue, and the next `collectgarbage` drains that queue on
+  the **Lua thread** — never on the JVM finalizer thread, where calling into a
+  `LuaState` would race and any exception would vanish without a trace.
+
+### Three known divergences from the reference
+
+These are not oversights; each is a place where the JVM has no primitive to
+match, and each is documented rather than papered over.
+
+* **Ephemeron tables only handle the case where the value *is* the key.**
+  `__mode='k'` with `t[k] = k` clears the entry (matching the reference), and
+  the usual cache shape `cache[obj] = {fresh data}` keeps its value (also
+  matching). But `t[k] = {k}` — value *contains* key, key otherwise
+  unreachable — keeps the entry where Lua would drop it. The two halves are
+  mutually exclusive in Java: holding the value strongly keeps the key alive;
+  holding it weakly loses the value whenever the key is alive but the value is
+  not otherwise referenced, which is exactly the common cache. Data loss is
+  worse than retention, so we retain.
+* **A weak entry whose key has a `__gc` is dropped one cycle early.** Lua marks
+  finalizable objects, so the entry survives the cycle that schedules the
+  finalizer. Ours keys off `WeakReference` clearing, which happens in the same
+  cycle.
+* **Objects with `__gc` are only reclaimed when `collectgarbage` runs.** The
+  JVM never tells us an object is unreachable except by collecting it, so there
+  is no way to schedule a finalizer without an explicit cycle.
+
+Next: Phase 7, the standard library — the `l*lib.c` files and `loadlib.c`.
 
 ---
 

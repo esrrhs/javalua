@@ -1,5 +1,6 @@
 package com.github.esrrhs.fakescript.lua;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,11 +43,213 @@ public final class LuaTable {
     /** 元表 */
     LuaTable metatable;
 
+    /** 挂了 {@code __gc} 时创建的哨兵；没挂则为 {@code null}。见 {@link GcSentinel} */
+    private GcSentinel gcSentinel;
+
+    /** {@code __gc} 是否已经跑过。只跑一次，与参考实现一致（实测确认） */
+    private boolean gcDone;
+
     /** 哈希节点：键 + 值 + 同链下一跳（下标，-1 表示链尾） */
     static final class Node {
         final LuaValue key = new LuaValue();
         final LuaValue val = new LuaValue();
         int next = -1;
+    }
+
+    /* ==================== 弱表 ==================== */
+
+    /**
+     * 弱引用包装。弱表里的键（或值）把<b>这个</b>放进 {@code LuaValue.o}，
+     * 而不是直接放对象本身。
+     * <p>
+     * 为什么必须换掉载荷：如果槽里直接放对象，那就是一条强引用，JVM 永远
+     * 不会回收它，弱表也就永远不会释放任何东西——弱引用必须是<b>存储形式</b>，
+     * 不能只是旁边挂一个 {@code WeakReference} 做样子。
+     */
+    static final class WeakRef extends WeakReference<Object> {
+
+        /**
+         * 建引用<b>那一刻</b>的身份哈希。
+         * <p>
+         * 不能等到用的时候再 {@code System.identityHashCode(get())}：引用失效后
+         * {@code get()} 是 {@code null}，而 {@code identityHashCode(null)} 恒为 0，
+         * 于是所有失效键的主位置一起塌到 0 号桶。链地址法靠主位置走链，主位置一变
+         * 就找不到前驱——表现是 {@code newKey} 里 {@code node[-1]} 越界。
+         */
+        final int hash;
+
+        WeakRef(Object referent) {
+            super(referent);
+            hash = System.identityHashCode(referent);
+        }
+    }
+
+    /** {@code __mode} 里的 {@code 'k'} / {@code 'v'} */
+    private boolean weakKey;
+
+    private boolean weakValue;
+
+    /** 上次清扫时的收集轮次；用来保证一轮里只清一次，避免 {@code pairs} 变 O(n²) */
+    private int purgeGen = -1;
+
+    /**
+     * 全局收集轮次，{@code collectgarbage} 时递增。
+     * <p>
+     * 弱条目只在「一轮收集结束」时被摘掉，这一点与 C 版一致：Lua 是在 GC 周期的
+     * 末尾清弱表，不是键一变成不可达就立刻消失。所以自发发生的 JVM 收集不会
+     * 让条目提前消失——这与参考实现的行为更接近。
+     */
+    static int gcGeneration = 0;
+
+    /** 取槽里真正的对象：弱引用解一层，引用已失效返回 {@code null} */
+    static Object payload(LuaValue v) {
+        Object o = v.o;
+        return (o instanceof WeakRef) ? ((WeakRef) o).get() : o;
+    }
+
+    /** 这一项是否已经失效（弱引用被回收） */
+    static boolean isDead(LuaValue v) {
+        return (v.o instanceof WeakRef) && ((WeakRef) v.o).get() == null;
+    }
+
+    /**
+     * 会不会被弱表清掉。
+     * <p>
+     * 只有「有显式构造」的对象才会被清：表、函数、线程、userdata。
+     * <b>字符串不算</b>——它虽然可收集，但没有显式构造，所以
+     * {@code __mode='kv'} 的表里 {@code t['a']='b'} 永远不会被摘掉（实测确认）。
+     * 数字、布尔同理。
+     */
+    private static boolean isCollectable(LuaValue v) {
+        switch (Lua.noVariant(v.tt)) {
+        case Lua.TTABLE:
+        case Lua.TFUNCTION:
+        case Lua.TTHREAD:
+        case Lua.TUSERDATA:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    /**
+     * 写入时把可收集的对象包成弱引用。
+     *
+     * @param doWrap 这一侧（键或值）是不是弱的
+     */
+    private static LuaValue weakWrap(LuaValue v, boolean doWrap) {
+        /*
+         * 已经包过的不能再包。{@code purge} 与 {@code resize} 搬的是<b>槽里现有的
+         * LuaValue</b>，它的 {@code o} 已经是 {@code WeakRef}；再包一层就成了
+         * WeakRef 套 WeakRef，解引用拿到的是内层引用对象而不是表，所有按身份
+         * 比较的查找就此失效。
+         */
+        if (!doWrap || !isCollectable(v) || (v.o instanceof WeakRef)) {
+            return v;
+        }
+        LuaValue r = new LuaValue();
+        r.set(v);
+        r.o = new WeakRef(v.o);
+        return r;
+    }
+
+    /** 本表是不是弱表 */
+    boolean isWeak() {
+        return weakKey || weakValue;
+    }
+
+    /**
+     * 需要清扫时清掉失效条目。
+     * <p>
+     * 放在每个公开方法的入口，于是下面的算法（查找、rehash、遍历）都只需要处理
+     * 「活条目」——失效项不会在算法中途冒出来。用轮次挡一层是为了让
+     * {@code for k in pairs(t)} 是 O(n) 而不是 O(n²)：一轮收集里只清一次。
+     */
+    private void purgeIfNeeded() {
+        if (!isWeak() || purgeGen == gcGeneration) {
+            return;
+        }
+        purgeGen = gcGeneration;
+        purge();
+    }
+
+    /** 摘掉所有已经失效的条目。弱表不用数组部分，所以只看哈希部分 */
+    private void purge() {
+        if (nodeSize == 0) {
+            return;
+        }
+        List<LuaValue[]> live = new ArrayList<>();
+        for (int i = 0; i < nodeSize; i++) {
+            Node n = node[i];
+            if (n.val.isNil()) {
+                continue;
+            }
+            if (isDead(n.key) || isDead(n.val)) {
+                continue;
+            }
+            live.add(new LuaValue[] { n.key, n.val });
+        }
+        if (live.size() == countLiveNodes()) {
+            return; // 一项都没失效，不用重建
+        }
+        int size = nodeSize;
+        node = null;
+        nodeSize = 0;
+        lastFree = 0;
+        setNodeVector(size);
+        for (LuaValue[] kv : live) {
+            insertNoRehash(kv[0], kv[1]);
+        }
+    }
+
+    private int countLiveNodes() {
+        int n = 0;
+        for (int i = 0; i < nodeSize; i++) {
+            if (!node[i].val.isNil()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 读出时把弱引用解成普通值。
+     * <p>
+     * 这一层是必须的：槽里的 {@code WeakRef} 绝不能泄漏到 VM 里，否则
+     * {@code (LClosure) v.o} 这类取载荷的地方会直接抛 {@code ClassCastException}。
+     */
+    private static LuaValue weakUnwrap(LuaValue v) {
+        if (!(v.o instanceof WeakRef)) {
+            return v;
+        }
+        Object o = ((WeakRef) v.o).get();
+        LuaValue r = new LuaValue();
+        if (o == null) {
+            // 引用已经失效：还成一个 nil，绝不能带着 tt=TABLE 而载荷是 null
+            r.setNil();
+            return r;
+        }
+        r.set(v);
+        r.o = o;
+        return r;
+    }
+
+    /**
+     * 弱键比较：两边至少有一边是弱引用时按「解引用后同一对象」判等。
+     * <p>
+     * 两边都失效时<b>必须判不等</b>：否则任意两个死条目会互相匹配（解出来都是
+     * {@code null}），一次查找就会命中一个和它毫无关系的槽。
+     */
+    private static boolean slotKeyEquals(LuaValue a, LuaValue b) {
+        if (a.o instanceof WeakRef || b.o instanceof WeakRef) {
+            if (a.tt != b.tt) {
+                return false;
+            }
+            Object pa = payload(a);
+            Object pb = payload(b);
+            return pa != null && pa == pb;
+        }
+        return LuaValue.rawEqual(a, b);
     }
 
     public LuaTable() {
@@ -77,8 +280,19 @@ public final class LuaTable {
         case Lua.TBOOLEAN:
             return (int) key.i & (nodeSize - 1);
         default:
-            return System.identityHashCode(key.o) & (nodeSize - 1);
+            return objectHash(key.o) & (nodeSize - 1);
         }
+    }
+
+    /**
+     * 对象键的哈希。
+     * <p>
+     * 弱键走 {@link WeakRef#hash}——建引用时记下的那份；直接用
+     * {@code identityHashCode(payload(key))} 会在引用失效后算出 0（见
+     * {@link WeakRef#hash} 的注释）。
+     */
+    private static int objectHash(Object o) {
+        return (o instanceof WeakRef) ? ((WeakRef) o).hash : System.identityHashCode(o);
     }
 
     /**
@@ -113,6 +327,21 @@ public final class LuaTable {
      * {@code TValue*} 一致，也是「数组部分优先于哈希部分」这个优化能成立的前提。
      */
     public LuaValue get(LuaValue key) {
+        purgeIfNeeded();
+        LuaValue slot = rawGet(key);
+        if (slot == null) {
+            return null;
+        }
+        /*
+         * 弱表必须返回<b>副本</b>而不是活槽：槽里放的是 WeakRef，直接交出去
+         * 会让取载荷的代码炸掉。强表照旧返回活槽——那是写入路径依赖的优化，
+         * 不能为了弱表把它改掉。
+         */
+        return isWeak() ? weakUnwrap(slot) : slot;
+    }
+
+    /** {@code luaH_get} 的原实现，返回活槽（含弱引用载荷），供内部使用 */
+    private LuaValue rawGet(LuaValue key) {
         if (key.tt == Lua.VNUMINT) {
             return getInt(key.i);
         }
@@ -197,7 +426,7 @@ public final class LuaTable {
         }
         Node n = node[mainPosition(key)];
         while (true) {
-            if (LuaValue.rawEqual(n.key, key)) {
+            if (slotKeyEquals(n.key, key)) {
                 return n.val;
             }
             if (n.next < 0) {
@@ -228,7 +457,30 @@ public final class LuaTable {
     /* ==================== 存 ==================== */
 
     public void set(LuaValue key, LuaValue value) {
-        ensureSlot(key).set(value);
+        purgeIfNeeded();
+        ensureSlot(key).set(weakWrap(value, weakValueFor(key, value)));
+    }
+
+    /**
+     * 值这一侧要不要弱引用。
+     * <p>
+     * 通常是 {@code weakValue}，但弱键表多一条：<b>值就是键本身</b>时也必须弱存。
+     * 否则值会强引用键，键永远死不掉、条目永远清不掉。实测参考实现：
+     * {@code t[k] = k} 之后 {@code collectgarbage()}，{@code next(t)} 是 nil。
+     * <p>
+     * 这个特例是<b>安全</b>的：值与键是同一个对象，键活着值就活着，键死了条目
+     * 本来也要摘掉——弱存不会丢任何东西。
+     * <p>
+     * 反过来，{@code t[k] = {k}} 这种「值里套着键」的形态<b>不</b>在这里弱存：
+     * 两者不是同一个对象，一旦弱存，值会在键还活着的时候被回收，
+     * {@code t[k]} 凭空变成 nil。那是数据丢失，比漏摘条目严重得多。
+     * 这是本实现已知的一处与参考实现不一致，README 里记着。
+     */
+    private boolean weakValueFor(LuaValue key, LuaValue value) {
+        if (weakValue) {
+            return true;
+        }
+        return weakKey && isCollectable(value) && payload(key) == payload(value);
     }
 
     public void set(long k, LuaValue value) {
@@ -254,7 +506,7 @@ public final class LuaTable {
      */
     private LuaValue ensureSlot(LuaValue rawKey) {
         LuaValue key = normalizeKeyForWrite(rawKey);
-        LuaValue slot = get(key);
+        LuaValue slot = rawGet(key);
         if (slot != null) {
             return slot;
         }
@@ -269,7 +521,7 @@ public final class LuaTable {
                 }
                 rehash(key);
             }
-            slot = get(key);
+            slot = rawGet(key);
             if (slot != null) {
                 return slot;
             }
@@ -313,7 +565,7 @@ public final class LuaTable {
                 mp = node[f];
             }
         }
-        mp.key.set(key);
+        mp.key.set(weakWrap(key, weakKey));
         mp.val.setNil();
         return mp;
     }
@@ -346,6 +598,17 @@ public final class LuaTable {
      * 的原因，也是为什么乱序赋值（先 {@code t[1000]=1}）不会撑出一百万长的数组。
      */
     private void rehash(LuaValue extraKey) {
+        /*
+         * 弱表先清一遍失效条目。
+         * <p>
+         * 不清会出两种事故：一是失效条目占着槽，{@code getFreePos} 找不到空位，
+         * 于是 {@code newKey} 返回 {@code null} → rehash → 还是找不到 → 死循环；
+         * 二是 {@code numUseHash} 把它们也算进 {@code totalUse}，哈希部分按一个
+         * 虚高的用量扩容，永远缩不回去。
+         */
+        if (isWeak()) {
+            purge();
+        }
         int[] nums = new int[Lua.MAXABITS + 1];
         int na = numUseArray(nums);
         int totalUse = na;
@@ -361,6 +624,22 @@ public final class LuaTable {
 
         int[] outNa = { na };
         int newArraySize = computeSizes(nums, outNa);
+        /*
+         * 弱表一律不用数组部分。数组槽是普通的 LuaValue，放不了 WeakRef，
+         * 而给数组另配一套弱存储会把查找路径撕成两份。哈希部分是唯一存储，
+         * 于是 {__mode='v'} 的表里 t[1] = {} 也能正常被回收。
+         */
+        if (isWeak()) {
+            newArraySize = 0;
+            /*
+             * 哈希大小必须重算，不能用 {@code totalUse - outNa[0]}：outNa[0] 是
+             * 「会被安排进数组部分」的个数，而弱表的数组部分恒为 0，那部分键
+             * 全部得留在哈希里。照抄原来的算式会算出 0 个哈希槽，于是
+             * newKey 永远返回 null、ensureSlot 无限重试——表现是整个测试挂死。
+             */
+            resize(0, Math.max(totalUse, 1));
+            return;
+        }
         resize(newArraySize, Math.max(totalUse - outNa[0], 0));
     }
 
@@ -467,8 +746,10 @@ public final class LuaTable {
         // 旧哈希部分的存活条目
         if (oldNodes != null) {
             for (int i = 0; i < oldNodeSize; i++) {
-                if (!oldNodes[i].val.isNil()) {
-                    moved.add(new LuaValue[] { oldNodes[i].key, oldNodes[i].val });
+                Node n = oldNodes[i];
+                // 失效条目不搬：搬过去也是垃圾，还白占一个槽
+                if (!n.val.isNil() && !isDead(n.key) && !isDead(n.val)) {
+                    moved.add(new LuaValue[] { n.key, n.val });
                 }
             }
         }
@@ -494,7 +775,7 @@ public final class LuaTable {
      * 那样 {@code get} 会在数组槽上拿到 nil 就返回，哈希里那份数据再也读不到。
      */
     private void insertNoRehash(LuaValue key, LuaValue value) {
-        LuaValue slot = get(key);
+        LuaValue slot = rawGet(key);
         if (slot != null) {
             slot.set(value);
             return;
@@ -546,7 +827,8 @@ public final class LuaTable {
      * （数组部分优先于哈希部分，读的时候只会看到数组里的那份）。
      */
     public void setArrayRaw(long k, LuaValue value) {
-        if (k <= 0) {
+        if (k <= 0 || isWeak()) {
+            // 弱表没有数组部分，表构造也得走哈希
             set(LuaValue.ofInteger(k), value);
             return;
         }
@@ -635,6 +917,7 @@ public final class LuaTable {
      * 这里不保证任何顺序，只保证每项不重不漏。
      */
     public LuaValue[] next(LuaValue key) {
+        purgeIfNeeded();
         int start;
         if (key == null || key.isNil()) {
             start = 0;
@@ -664,8 +947,8 @@ public final class LuaTable {
         }
         if (nodeSize > 0) {
             for (int j = Math.max(start - array.length, 0); j < nodeSize; j++) {
-                if (!node[j].val.isNil()) {
-                    return new LuaValue[] { node[j].key, node[j].val };
+                if (!node[j].val.isNil() && !isDead(node[j].key) && !isDead(node[j].val)) {
+                    return new LuaValue[] { weakUnwrap(node[j].key), weakUnwrap(node[j].val) };
                 }
             }
         }
@@ -679,7 +962,7 @@ public final class LuaTable {
         }
         int i = mainPosition(key);
         while (true) {
-            if (LuaValue.rawEqual(node[i].key, key)) {
+            if (slotKeyEquals(node[i].key, key)) {
                 return i;
             }
             if (node[i].next < 0) {
@@ -696,13 +979,156 @@ public final class LuaTable {
     }
 
     public void setMetatable(LuaTable mt) {
+        boolean oldK = weakKey;
+        boolean oldV = weakValue;
         metatable = mt;
+        updateWeakMode();
+        if (weakKey != oldK || weakValue != oldV) {
+            rewrap();
+        }
+    }
+
+    /**
+     * {@code __mode} 变了之后重排整个表的存储。
+     * <p>
+     * 弱引用是本实现的<b>存储形式</b>（槽里放的是 {@code WeakRef}），不像 C 版那样
+     * 可以在遍历时临时判断「这个键是不是已经死了」。所以强弱一变，已经存在的条目
+     * 必须逐个重新包装一遍——变弱时把可收集的对象换成 {@code WeakRef}，变强时换回来。
+     * <p>
+     * 实测参考实现：先建普通表、塞好条目、再 {@code setmetatable(t, {__mode='k'})}，
+     * 那些条目照样会被回收。不做这一步，它们会以强引用的形式永远留在表里。
+     */
+    private void rewrap() {
+        purge();
+        List<LuaValue[]> all = new ArrayList<>();
+        for (int i = 0; i < array.length; i++) {
+            if (!array[i].isNil()) {
+                all.add(new LuaValue[] { LuaValue.ofInteger(i + 1), array[i] });
+            }
+        }
+        for (int i = 0; i < nodeSize; i++) {
+            Node n = node[i];
+            if (!n.val.isNil() && !isDead(n.key) && !isDead(n.val)) {
+                all.add(new LuaValue[] { weakUnwrap(n.key), weakUnwrap(n.val) });
+            }
+        }
+        // 弱表不用数组部分（槽是普通 LuaValue，放不了 WeakRef），整数键一并进哈希
+        int arr = isWeak() ? 0 : array.length;
+        array = EMPTY_ARRAY;
+        node = null;
+        nodeSize = 0;
+        lastFree = 0;
+        setArrayVector(arr);
+        setNodeVector(Math.max(all.size(), 1));
+        for (LuaValue[] kv : all) {
+            set(kv[0], kv[1]);
+        }
+    }
+
+    /**
+     * 按元表里的 {@code __mode} 重算弱标志。
+     * <p>
+     * <b>是动态读的</b>——实测参考实现：先建一个普通表、塞进条目，之后再
+     * {@code setmetatable(t, {__mode='k'})}，那些条目照样会被回收。所以不能只在
+     * 建表时看一次。
+     * <p>
+     * 只认 {@code 'k'} 与 {@code 'v'} 两个字符，其余字符忽略；{@code __mode}
+     * 不是字符串时也忽略。实测：{@code {__mode='x'}}、{@code {__mode=5}} 都不报错。
+     */
+    private void updateWeakMode() {
+        boolean k = false;
+        boolean v = false;
+        if (metatable != null) {
+            LuaValue mode = metatable.get(LuaString.latin1("__mode"));
+            if (mode != null && mode.isString()) {
+                LuaString s = mode.asString();
+                for (int i = 0; i < s.length(); i++) {
+                    int b = s.byteAt(i);
+                    if (b == 'k') {
+                        k = true;
+                    } else if (b == 'v') {
+                        v = true;
+                    }
+                }
+            }
+        }
+        weakKey = k;
+        weakValue = v;
+    }
+
+    /* ==================== __gc ==================== */
+
+    /**
+     * 有 {@code __gc} 就登记一个哨兵，并记进主线程的可终结清单。
+     * <p>
+     * <b>只在 {@code setmetatable} 的当下看一次。</b>实测参考实现：先
+     * {@code setmetatable(t, mt)}、之后才 {@code mt.__gc = f}，{@code f} 不会被
+     * 调用——Lua 是在设元表的那一刻给对象打上「有终结器」标记的。
+     * <p>
+     * {@code __gc} 不是函数（实测 {@code {__gc = 5}}）时<b>也照常登记</b>：参考
+     * 实现里它会在真正调用时炸，而 {@code __gc} 里的错误一律静默吞掉，所以对外
+     * 表现就是「什么都没发生」。这里不登记也看不出差别，登记则更贴近 C 版的路径。
+     *
+     * @param L 当前线程；队列归它的主线程
+     * @return 本次是否新登记了一个可终结对象
+     */
+    boolean markFinalizable(LuaState L) {
+        if (gcSentinel != null || gcDone || metatable == null) {
+            return false;
+        }
+        LuaValue tm = metatable.get(LuaString.latin1("__gc"));
+        if (tm == null || tm.isNil()) {
+            return false;
+        }
+        gcSentinel = new GcSentinel(this, L.mainThread);
+        L.mainThread.registerFinalizable(this);
+        return true;
+    }
+
+    /**
+     * 跑一次 {@code __gc}。
+     * <p>
+     * <b>{@code __gc} 里的错误一律吞掉</b>——实测参考实现：{@code __gc} 里
+     * {@code error} 既不打印也不传播，脚本照常往下跑。
+     * <p>
+     * 先置 {@code gcDone} 再调，避免元方法里把对象重新挂回全局时再来一遍。
+     */
+    void runGcMetamethod(LuaState L) {
+        if (gcDone) {
+            return;
+        }
+        gcDone = true;
+        if (metatable == null) {
+            return;
+        }
+        LuaValue tm = metatable.get(LuaString.latin1("__gc"));
+        if (tm == null || tm.isNil()) {
+            return;
+        }
+        try {
+            int func = L.top;
+            L.ensureSlots(func + 2);
+            L.stack[func].set(tm);
+            L.stack[func + 1].set(LuaValue.ofTable(this));
+            L.top = func + 2;
+            /*
+             * luaD_callnoyield：__gc 里不许 yield。实测参考实现会在那时报
+             * 「attempt to yield across a C-call boundary」，用 L.call 就会让它
+             * 「成功」，反而与参考实现不一致。
+             */
+            L.callNoYield(func, 0);
+        } catch (LuaError e) {
+            // 静默
+        } catch (LuaYield y) {
+            // __gc 里 yield：参考实现报跨 C 调用边界，这里同样吞掉
+        }
     }
 
     /* ==================== 诊断 ==================== */
 
     /** 表中非 nil 项的个数（遍历统计，仅供测试与诊断，不是 O(1)） */
     public int count() {
+        purgeIfNeeded();
         int n = 0;
         for (LuaValue v : array) {
             if (!v.isNil()) {
@@ -711,7 +1137,7 @@ public final class LuaTable {
         }
         if (nodeSize > 0) {
             for (int i = 0; i < nodeSize; i++) {
-                if (!node[i].val.isNil()) {
+                if (!node[i].val.isNil() && !isDead(node[i].key) && !isDead(node[i].val)) {
                     n++;
                 }
             }
