@@ -78,7 +78,7 @@ class ParserTest {
             String label = "用例：" + escape(src);
             if (ref.result.exitCode == 0) {
                 // 参考实现认为合法：我们也不能报错
-                Parser.parseFile(bytes, path.getBytes(StandardCharsets.UTF_8), new StringPool());
+                Parser.parseFile(bytes, ("@" + path).getBytes(StandardCharsets.UTF_8), new StringPool());
                 checked++;
                 continue;
             }
@@ -95,7 +95,7 @@ class ParserTest {
 
             String actual;
             try {
-                Parser.parseFile(bytes, path.getBytes(StandardCharsets.UTF_8), new StringPool());
+                Parser.parseFile(bytes, ("@" + path).getBytes(StandardCharsets.UTF_8), new StringPool());
                 fail("期望语法错误但没有报错，" + label);
                 return;
             } catch (LuaError e) {
@@ -132,7 +132,7 @@ class ParserTest {
         assertEquals('\n', stripped[0], "被跳过的行要补一个换行");
         assertEquals("\nlocal x = 1\nx()\n", new String(stripped, StandardCharsets.UTF_8));
 
-        Proto p = Parser.parseFile(src, "t".getBytes(StandardCharsets.UTF_8), new StringPool());
+        Proto p = Parser.parseFile(src, "@t".getBytes(StandardCharsets.UTF_8), new StringPool());
         assertEquals(3, p.getFuncline(p.sizecode - 1), "x() 依然在第 3 行");
     }
 }

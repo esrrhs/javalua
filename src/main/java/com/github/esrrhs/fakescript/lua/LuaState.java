@@ -1,7 +1,10 @@
 package com.github.esrrhs.fakescript.lua;
 
+import java.io.ByteArrayOutputStream;
 import java.lang.ref.WeakReference;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -109,8 +112,13 @@ public final class LuaState {
     /** 开放 upvalue 列表，按 {@link UpVal#stackIdx} 升序 */
     private final List<UpVal> openUpvals = new ArrayList<>();
 
-    /** 当前 chunk 的名字，仅用于错误信息 */
-    private String chunkName = "?";
+    /**
+     * 当前 chunk 的名字，仅用于错误信息。
+     * <p>
+     * 存<b>字节</b>而不是 {@code String}：源名是 Lua 字符串，而
+     * {@code luaO_chunkid} 的截断是按字节算的（见 {@link #chunkId}）。
+     */
+    private byte[] chunkName = { '?' };
 
     /**
      * 标准输出。{@code print} 写这里，测试把它换成内存缓冲区即可做差分比对。
@@ -1238,12 +1246,32 @@ public final class LuaState {
      * 对应 {@code lapi.c: lua_load}：闭包的第 0 号 upvalue 是关闭的，里面放全局表。
      */
     public LClosure load(byte[] source, String chunkName) {
+        return load(new Zio(source), LuaString.utf8(chunkName).bytes);
+    }
+
+    /**
+     * 从一条（可能是惰性的）输入流编译。
+     *
+     * @see Zio#Source
+     */
+    public LClosure load(Zio z, String chunkName) {
+        return load(z, LuaString.utf8(chunkName).bytes);
+    }
+
+    /** 源名是 Lua 字符串（字节串）时的重载，避免 UTF-8 往返带来的失真 */
+    public LClosure load(Zio z, byte[] chunkName) {
         this.chunkName = chunkName;
-        Proto p = Parser.parse(source, LuaString.latin1(chunkName).bytes, strings);
+        Proto p = Parser.parse(z, chunkName, strings);
         LClosure cl = new LClosure(p, 1);
         cl.initUpvals();
         cl.upvals[0] = UpVal.closed(LuaValue.ofTable(globals));
         return cl;
+    }
+
+    /** 二进制 chunk：走 {@code luaU_undump} 而不是词法／语法分析 */
+    public LClosure undump(Zio z, byte[] name) {
+        this.chunkName = name;
+        return Undump.undump(this, z, name);
     }
 
     /**
@@ -1253,8 +1281,8 @@ public final class LuaState {
      * 不属于词法层）。行号必须靠补一个 {@code \n} 保住。
      */
     public LClosure loadFile(byte[] source, String chunkName) {
-        this.chunkName = chunkName;
-        Proto p = Parser.parseFile(source, LuaString.latin1(chunkName).bytes, strings);
+        this.chunkName = LuaString.utf8(chunkName).bytes;
+        Proto p = Parser.parseFile(source, LuaString.utf8(chunkName).bytes, strings);
         LClosure cl = new LClosure(p, 1);
         cl.initUpvals();
         cl.upvals[0] = UpVal.closed(LuaValue.ofTable(globals));
@@ -1947,27 +1975,89 @@ public final class LuaState {
         }
         LClosure cl = (LClosure) f.o;
         int pc = (c.savedpc > 0) ? c.savedpc - 1 : 0;
+        /*
+         * 源名为 null 时<b>整段位置都不给</b>，连行号也不给——C 的
+         * luaG_addinfo 是 {@code if (src) ... else 原样返回 msg}。
+         * <p>
+         * 什么时候会没有源名：{@code string.dump(f, true)} 剥掉调试信息后再
+         * load 回来的函数。这时候报的错是裸的 {@code "boom"}，不是
+         * {@code "[string \"\27Lua...\"]:-1: boom"}。退化到「用 chunkName 兜底」
+         * 不但多出来一截前缀，还会把那段二进制 chunk 名塞进消息里——
+         * 它是非法 UTF-8，解码出来就是替换字符。
+         */
+        if (cl.p.source == null) {
+            return "";
+        }
         int line = cl.p.getFuncline(pc);
-        String raw = (cl.p.source == null) ? chunkName : cl.p.source.toJavaString();
-        return chunkId(raw) + ":" + line + ": ";
+        return new String(chunkId(cl.p.source.bytes), StandardCharsets.UTF_8) + ":" + line + ": ";
     }
 
     /**
-     * {@code luaO_chunkid} 的前两种情形：{@code =} 开头是字面源名、
-     * {@code @} 开头是文件名，两种都是去掉首字符后原样输出。
+     * {@code luaO_chunkid}：把源名整理成给人看的样子。
      * <p>
-     * 完整版还要处理「源名过长时从左边截成 {@code ...xxx}」以及第三种
-     * {@code [string "xxx"]} 形式，那两种只在调试与 {@code load} 的错误里出现，
-     * 阶段 3 用不到，等阶段 8 做 {@code load} 时一起补。
+     * 三种写法，逐条照 C：
+     * <ul>
+     *   <li>{@code =xxx}：字面源名，原样（过长则截到 {@code LUA_IDSIZE-1}）；</li>
+     *   <li>{@code @xxx}：文件名，去掉 {@code @}（过长则在<b>前面</b>加
+     *       {@code ...}——保留的是末尾那一段）；</li>
+     *   <li>其余：包成 {@code [string "xxx"]}，过长则在<b>后面</b>加
+     *       {@code ...}，且只取第一行（遇到 {@code \n} 就停）。</li>
+     * </ul>
+     * 最后一条最容易被漏：{@code load("x++")} 报的是
+     * {@code [string "x++"]:1: syntax error}，不是 {@code x++:1: ...}。
      */
     static String chunkId(String source) {
-        if (source.isEmpty()) {
+        return new String(chunkId(source.getBytes(StandardCharsets.UTF_8)),
+                StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 字节版的 {@code chunkId}：源名是 Lua 字符串（字节串），截取是按<b>字节</b>
+     * 算的，不能先解码成 {@code String} 再截，否则遇到非法 UTF-8 时长度就对不上了。
+     */
+    static byte[] chunkId(byte[] source) {
+        if (source.length == 0) {
             return source;
         }
-        char c = source.charAt(0);
-        if (c == '=' || c == '@') {
-            return source.substring(1);
+        final int IDSIZE = 60; // LUA_IDSIZE
+        final byte[] RETS = { '.', '.', '.' };
+        final byte[] PRE = "[string \"".getBytes(StandardCharsets.US_ASCII);
+        final byte[] POS = "\"]".getBytes(StandardCharsets.US_ASCII);
+        int srclen = source.length;
+        byte c = source[0];
+        if (c == '=') {
+            // 字面源名：去掉 '='，过长则从右边截（保留开头那一段）
+            return Arrays.copyOfRange(source, 1, Math.min(srclen, IDSIZE));
         }
-        return source;
+        if (c == '@') {
+            // 文件名：去掉 '@'，过长则在前头加 '...'（保留末尾那一段）
+            if (srclen <= IDSIZE) {
+                return Arrays.copyOfRange(source, 1, srclen);
+            }
+            int bufflen = IDSIZE - RETS.length;
+            ByteArrayOutputStream out = new ByteArrayOutputStream(IDSIZE);
+            out.write(RETS, 0, RETS.length);
+            out.write(source, 1 + srclen - bufflen, bufflen);
+            return out.toByteArray();
+        }
+        // 其余：包成 [string "xxx"]，过长则从右边截；只取第一行
+        int bufflen = IDSIZE - (PRE.length + RETS.length + POS.length) - 1;
+        int nl = srclen;
+        for (int i = 0; i < srclen; i++) {
+            if (source[i] == '\n') {
+                nl = i;
+                break;
+            }
+        }
+        boolean whole = (srclen < bufflen && nl == srclen);
+        int len = whole ? srclen : Math.min(nl, bufflen);
+        ByteArrayOutputStream out = new ByteArrayOutputStream(IDSIZE);
+        out.write(PRE, 0, PRE.length);
+        out.write(source, 0, len);
+        if (!whole) {
+            out.write(RETS, 0, RETS.length);
+        }
+        out.write(POS, 0, POS.length);
+        return out.toByteArray();
     }
 }

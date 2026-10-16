@@ -37,6 +37,14 @@ public final class Lua {
     public static final int VNUMINT = TNUMBER | (0 << 4); // 3：整数
     public static final int VNUMFLT = TNUMBER | (1 << 4); // 19：浮点
 
+    /*
+     * nil 与布尔的变体：这三个只有 dump / undump 用得上（二进制 chunk 的常量表
+     * 按变体标签存），运行期一律用 TNIL / TBOOLEAN 加 i 载荷区分。
+     */
+    public static final int VNIL = TNIL | (0 << 4); // 0
+    public static final int VFALSE = TBOOLEAN | (0 << 4); // 1
+    public static final int VTRUE = TBOOLEAN | (1 << 4); // 17
+
     public static final int VSHRSTR = TSTRING | (0 << 4); // 4：短字符串（参与驻留）
     public static final int VLNGSTR = TSTRING | (1 << 4); // 20：长字符串（不驻留）
 

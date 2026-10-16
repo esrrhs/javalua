@@ -200,12 +200,13 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 6 — collection-dependent semantics.** The previous fakescript language
-implementation has been removed from `master`; see *Migration* below. Phases 0
-through 6 are in: the compiler produces bytecode that is **field-for-field
-identical** to a real `lua5.4`'s, and the VM executes it — **stdout matches a
-real `lua5.4` byte for byte** across 158 + 121 + 60 + 32 differential scripts and
-2100 generated programs, and error messages match line for line.
+**Phase 8 — `load` / `dump`.** The previous fakescript language implementation
+has been removed from `master`; see *Migration* below. Phases 0 through 8 are in:
+the compiler produces bytecode that is **field-for-field identical** to a real
+`lua5.4`'s, and the VM executes it — **stdout matches a real `lua5.4` byte for
+byte** across 158 + 121 + 60 + 32 + 25 + 16 differential scripts and 2100
+generated programs, and error messages match line for line. `string.dump`'s
+output is additionally compared as **raw bytes**, not just as behaviour.
 
 Phase 6 is the one phase where "no GC of our own" costs real ground. Weak tables,
 `__gc` and the string pool are all rebuilt on JVM reachability, which is *not* the
@@ -258,6 +259,11 @@ Landed so far:
 | `LuaState.close` | `lua_close` → `callallpendingfinalizers` | runs `__gc` for every object that still has one, at exit |
 | `WeakTableTest` (test) | — | Phase 6 gate: 20 differential scripts, split into a collection-dependent half and an always-true half |
 | `GcTest` (test) | — | Phase 6 gate: 12 scripts — once-only, errors swallowed, late `__gc` ignored |
+| `LuaUserdata` | `Udata` | payload + **per-object** metatable; `luaL_testudata` needs the latter |
+| `Undump` | `lundump.c` | reads a precompiled chunk; header check, varint sizes, the `binary string` chunk-name rule |
+| `Dump` | `ldump.c` | writes one; `string.dump`, `strip` |
+| `LoadTest` (test) | — | Phase 8 gate: 25 scripts — modes, chunk names, `_ENV`, reader functions, `loadfile` / `dofile` |
+| `DumpTest` (test) | — | Phase 8 gate: 16 — runtime stdout **and** `string.dump` output byte for byte |
 
 ### The bytecode gate
 
@@ -593,7 +599,75 @@ searcher behaves the way C does on a platform built without dynamic loading.
   libraries not enabled" instead of loading it. Modules that only exist as
   `.lua`, and `package.preload` entries, are unaffected.
 
-Next: Phase 8 — `load`, `loadfile`, `dofile` and `string.dump`.
+### Phase 8 so far
+
+`load` / `loadfile` / `dofile` (`BaseLib`) and the binary-chunk pair
+`lundump.c` / `ldump.c` (`Undump` / `Dump`) are in, with two differential
+gates: `LoadTest` (25) and `DumpTest` (16).
+
+`DumpTest` compares at **two granularities**, and the second one is the real
+gate for this phase:
+
+1. **Runtime.** Each script's stdout is compared byte for byte, as everywhere
+   else.
+2. **Artefact.** `string.dump(f)` is written to a file by each side and the two
+   files are compared byte for byte. Runtime-only comparison would let "the
+   compiler emits something slightly wrong that still happens to run" through;
+   the artefact comparison pins down constant ordering, the line tables, local
+   and upvalue debug info, and `maxstacksize` as well.
+
+Eight shapes are checked that way — plain, nested, vararg, upvalue, `goto`,
+loop, assorted constants, and a constant string longer than
+`LUAI_MAXSHORTLEN` (which takes the non-interned long-string path on both the
+dump and the undump side).
+
+#### Six things the reference binary settled in Phase 8
+
+* **`luaU_undump` rewrites the chunk name before it ever reports an error.**
+  A leading `@` or `=` is dropped; a name that starts with the signature byte
+  (i.e. the chunk name *is* the binary chunk, which is what `load(s)` uses when
+  no second argument is given) becomes the literal `binary string`. So
+  `load("\27Lua")` reports `binary string: bad binary format (truncated
+  chunk)` — not an ESC-prefixed mess.
+* **`f_parser` consumes the first byte on the binary path but hands it back on
+  the text path.** `luaU_undump`'s comment says so directly: "skip 1st char
+  (already read and checked)". Ungetting it before `undump` misaligns the whole
+  header by one byte and turns `truncated chunk` into
+  `not a binary chunk`.
+* **`luaO_chunkid` has a third form, and it is the one `load` hits.** Only
+  `@x` and `=x` are stripped; anything else is wrapped as `[string "x"]`.
+  `load("x++")` reports `[string "x++"]:1: syntax error near '+'` — a
+  "strip the prefix" implementation that skips the wrapping reports `x++:1:`,
+  and every load-time error message is then wrong.
+* **Chunk names are byte strings, and `luaO_chunkid` truncates by bytes.**
+  Decoding to a Java `String` first and truncating there gets the length wrong
+  on non-UTF-8 names. `chunkId` therefore has a `byte[]` core and the `String`
+  overload goes through it.
+* **A prototype with no source gets *no* position at all — not even a line
+  number.** `luaG_addinfo` is `if (src) ... else return msg`. This is
+  observable: `string.dump(f, true)` strips the source, so
+  `pcall(load(string.dump(f, true)))` reports the bare `boom`. Falling back to
+  the chunk name not only adds a prefix, it splices the raw binary chunk into
+  the message (invalid UTF-8, so it decodes to replacement characters).
+* **`lundump`'s `default: lua_assert(0)` is a no-op.** `lua_assert` compiles to
+  `((void)0)` in a default build, so a chunk whose constant type byte is `99`
+  loads fine and that constant is just `nil`. Raising an error there is
+  inventing a semantic of our own. Measured, not assumed: the hand-built chunk
+  loads as a `function` on the reference.
+
+One more, on the dump side: `dumpFunction` compares sources **by reference**
+(`f->source == psource`), not by content. Short strings are interned so the two
+agree, but a long source name is not interned and C writes it out again for
+every nested function. Comparing by content would emit *less* than C does.
+
+### What is still missing
+
+Two holes remain in the standard library, both from `lstrlib.c` / `ldblib.c`
+and neither of them blocking `load`:
+
+* **`string.pack` / `string.unpack` / `string.packsize`.** Ported next.
+* **The whole `debug` library.** `debug` is currently `nil`. It needs `ldebug.c`
+  (`getinfo`, locals, upvalues, hooks) as well as `ldblib.c`.
 
 ---
 

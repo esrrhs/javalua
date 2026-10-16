@@ -64,8 +64,18 @@ public final class Parser {
      * 落地后再套一层。
      */
     public static Proto parse(byte[] data, byte[] chunkName, StringPool strings) {
+        return parse(new Zio(data), chunkName, strings);
+    }
+
+    /**
+     * 从一条（可能是惰性的）输入流解析。
+     * <p>
+     * {@code load} 接读函数时走这一条：字节是边解析边要的，读函数的调用次数
+     * 也就与 C 一致。
+     */
+    public static Proto parse(Zio z, byte[] chunkName, StringPool strings) {
         LuaString src = (chunkName == null) ? LuaString.latin1("?") : LuaString.of(chunkName);
-        Lexer ls = new Lexer(data, chunkName, strings);
+        Lexer ls = new Lexer(z, chunkName, strings);
         DynData dyd = new DynData();
         Parser p = new Parser(ls, dyd, src);
         Proto f = new Proto();

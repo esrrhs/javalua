@@ -130,7 +130,12 @@ public class ConformanceTest {
 
             String actual;
             try {
-                Lexer ls = new Lexer(bytes, ref.path.getBytes(StandardCharsets.UTF_8),
+                /*
+                 * 源名带 '@'：lua.c 加载脚本时加的就是这个前缀，
+                 * luaO_chunkid 再把它剥掉，于是两边看到的都是裸路径。
+                 * 不带的话这里会得到 [string "target/fklex.lua"]。
+                 */
+                Lexer ls = new Lexer(bytes, ("@" + ref.path).getBytes(StandardCharsets.UTF_8),
                         new StringPool());
                 ls.next();
                 while (ls.t.token != Lexer.TK_EOS) {

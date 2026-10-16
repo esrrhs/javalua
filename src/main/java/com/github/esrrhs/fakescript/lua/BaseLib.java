@@ -44,6 +44,9 @@ public final class BaseLib {
         setFn(g, "setmetatable", BaseLib::setmetatable);
         setFn(g, "getmetatable", BaseLib::getmetatable);
         setFn(g, "collectgarbage", BaseLib::collectgarbage);
+        setFn(g, "load", BaseLib::loadFn);
+        setFn(g, "loadfile", BaseLib::loadfileFn);
+        setFn(g, "dofile", BaseLib::dofile);
 
         openStringMetatable(L);
     }
@@ -611,6 +614,192 @@ public final class BaseLib {
         LuaTable.gcGeneration++;
         L.push(LuaValue.ofInteger(0));
         return 1;
+    }
+
+    /* ==================== 加载 ==================== */
+
+    /** {@code LUA_SIGNATURE} 的第一个字节；以它开头的就是二进制 chunk */
+    private static final int SIGNATURE0 = 0x1b;
+
+    /**
+     * {@code luaB_load}。
+     * <p>
+     * 二进制 chunk 目前只能挡下来——{@code luaU_undump} 还没搬，硬吃掉会静默
+     * 编出一个错误的 chunk。挡的时候<b>照 C 的 {@code checkmode} 先报模式错</b>，
+     * 模式没错才报「不支持」，这样 mode 的语义先对上。
+     */
+    private static int loadFn(LuaState L) {
+        LuaValue a = L.arg1(1);
+        String mode = LuaAux.optString(L, 3, LuaString.latin1("bt")).toJavaString();
+        int env = L.isNoneArg(4) ? 0 : 4;
+        // lua_tolstring：<b>数字也算字符串</b>，load(42) 编的是 "42"
+        LuaString src = (a.isString() || a.isNumber()) ? LuaAux.asString(a) : null;
+        if (src != null) {
+            LuaString chunkname = LuaAux.optString(L, 2, src);
+            return loadAux(L, loadBuffer(L, src.bytes, chunkname.bytes, mode), env);
+        }
+        // 否则第一个参数必须是读函数
+        LuaString chunkname = LuaAux.optString(L, 2, LuaString.latin1("=(load)"));
+        LuaAux.checkType(L, 1, Lua.TFUNCTION);
+        Zio.Source readerSrc = readerSource(L, a);
+        return loadAux(L, loadZio(L, new Zio(readerSrc), chunkname.bytes, mode), env);
+    }
+
+    /**
+     * {@code generic_reader}：把 Lua 侧的读函数包成一条惰性字节流。
+     * <p>
+     * <b>必须是惰性的</b>。先一股脑读完再解析，遇到永不返回 nil 的读函数就
+     * 会一直累积；而 C 那边是边解析边要，语法错误一冒出来就停了。
+     * <p>
+     * 返回 nil 表示结束；返回非字符串非数字要报
+     * {@code reader function must return a string}（这里用
+     * {@code lua_isstring} 判，所以数字是合法的）。
+     */
+    private static Zio.Source readerSource(LuaState L, LuaValue reader) {
+        return () -> {
+            int f = L.top;
+            L.ensureSlots(f + 2);
+            L.stack[f].set(reader);
+            L.top = f + 1;
+            L.call(f, 1);
+            LuaValue r = new LuaValue(L.stack[f]);
+            L.top = f;
+            if (r.isNil()) {
+                return null; // 读函数返回 nil：流结束
+            }
+            if (!(r.isString() || r.isNumber())) {
+                throw L.libError("reader function must return a string");
+            }
+            return LuaAux.asString(r).bytes;
+        };
+    }
+
+    /**
+     * 编译一段源码。
+     *
+     * @return {@code null} 表示成功（闭包已压栈）；否则是那条加载期错误
+     */
+    private static LuaError loadBuffer(LuaState L, byte[] src, byte[] chunkname, String mode) {
+        return loadZio(L, new Zio(src), chunkname, mode);
+    }
+
+    private static LuaError loadZio(LuaState L, Zio z, byte[] chunkname, String mode) {
+        /*
+         * 整段都必须在 try 里，<b>包括最前面那次窥探</b>。读函数是惰性的，
+         * 第一个字节就要调它一次；而读函数里的错误（返回了非字符串、或自己
+         * error 了）在 C 那边是落在 luaD_protectedparser 的保护区里，
+         * 于是 load 返回 nil + 消息，<b>不抛</b>。窥探写在外面就会让
+         * "reader function must return a string" 变成抛出去的错误。
+         */
+        try {
+            int first = z.getc();
+            if (first == SIGNATURE0) {
+                if (mode.indexOf('b') < 0) {
+                    throw new LuaError(LuaValue.ofString(LuaString.latin1(
+                            "attempt to load a binary chunk (mode is '" + mode + "')")));
+                }
+                /*
+                 * 二进制分支<b>不回退</b>首字节：C 的 luaU_undump 的注释写得很直白，
+                 * "skip 1st char (already read and checked)"——头部的签名首字节
+                 * 已经归 f_parser 了，checkHeader 从第二个字节开始比。
+                 * 文本分支则要回退（或把首字符交给 parser），否则会吃掉源码第一个字节。
+                 */
+                L.push(LuaValue.ofClosure(L.undump(z, chunkname)));
+                return null;
+            }
+            z.ungetc(first); // EOZ 回退是空操作
+            if (mode.indexOf('t') < 0) {
+                throw new LuaError(LuaValue.ofString(LuaString.latin1(
+                        "attempt to load a text chunk (mode is '" + mode + "')")));
+            }
+            L.push(LuaValue.ofClosure(L.load(z, chunkname)));
+            return null;
+        } catch (LuaError e) {
+            return e;
+        }
+    }
+
+    /** {@code load_aux}：成功就（可能）设上 {@code _ENV} 返回 1 个值，失败给 nil + 消息 */
+    private static int loadAux(LuaState L, LuaError err, int envidx) {
+        if (err == null) {
+            if (envidx != 0) {
+                L.pushValue(envidx);
+                LuaValue f = L.stack[L.top - 2];
+                if (f.tt == Lua.VLIF) {
+                    LClosure cl = (LClosure) f.o;
+                    if (cl.upvals.length >= 1 && cl.upvals[0] != null) {
+                        cl.upvals[0].value().set(L.stack[L.top - 1]);
+                    }
+                }
+                L.top--; // 无论设没设上，env 都要弹掉
+            }
+            return 1;
+        }
+        LuaAux.pushFail(L);
+        L.push(err.value == null ? LuaValue.ofNil() : err.value);
+        return 2;
+    }
+
+    /** {@code luaB_loadfile} */
+    private static int loadfileFn(LuaState L) {
+        LuaString fname = LuaAux.optString(L, 1, null);
+        LuaString modeArg = LuaAux.optString(L, 2, null);
+        // luaL_loadfilex 的 mode 是 NULL 时内部按 "bt" 处理
+        String mode = (modeArg == null) ? "bt" : modeArg.toJavaString();
+        int env = L.isNoneArg(3) ? 0 : 3;
+        if (fname == null) {
+            // 无参：从 stdin 读。chunk 名是 "=stdin"
+            byte[] src;
+            try {
+                src = L.in.readAllBytes();
+            } catch (java.io.IOException e) {
+                LuaAux.pushFail(L);
+                L.push(LuaValue.ofString(LuaString.latin1("cannot read stdin")));
+                return 2;
+            }
+            return loadAux(L, loadBuffer(L, src, LuaString.latin1("=stdin").bytes, mode), env);
+        }
+        String path = fname.toJavaString();
+        byte[] src;
+        try {
+            // luaL_loadfilex 会先吃掉 BOM 与首行的 #!...；这一步属于加载层，
+            // 用 load 加载字符串时首行写 '#' 照样报 unexpected symbol
+            src = Parser.skipFilePreamble(
+                    java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)));
+        } catch (Exception e) {
+            LuaAux.pushFail(L);
+            L.push(LuaValue.ofString(LuaString.latin1(
+                    "cannot open " + path + ": " + LuaAux.strError(LuaAux.errnoOf(
+                            (e instanceof java.io.IOException)
+                                    ? (java.io.IOException) e : null)))));
+            return 2;
+        }
+        /*
+         * luaL_loadfilex 的 chunk 名是 "@" + 文件名。
+         * 加载期错误打印时 luaO_chunkid 会把它剥掉。
+         */
+        return loadAux(L, loadBuffer(L, src, LuaString.utf8("@" + path).bytes, mode), env);
+    }
+
+    /**
+     * {@code luaB_dofile}。
+     * <p>
+     * 注意它<b>不吞加载错误</b>：{@code dofile("nope.lua")} 直接把错误抛出去，
+     * 而不是像 {@code loadfile} 那样给 {@code nil, msg}。
+     */
+    private static int dofile(LuaState L) {
+        LuaString fname = LuaAux.optString(L, 1, null);
+        L.setTop(1);
+        int n = loadfileFn(L);
+        if (n == 2) {
+            // 加载失败：栈顶那条消息要当错误抛出去，不是当返回值交出去
+            LuaValue msg = new LuaValue(L.stack[L.top - 1]);
+            L.top -= 2;
+            throw new LuaError(msg);
+        }
+        int f = L.top - 1; // 闭包在栈顶，0 个参数
+        L.call(f, LuaState.MULTRET);
+        return L.top - f;
     }
 
     /* ==================== 小工具 ==================== */

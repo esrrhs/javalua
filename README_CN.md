@@ -178,10 +178,11 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 
 ## 现状
 
-**阶段 6（依赖回收动作的语义）。** 旧的 fakescript 语言实现已从 `master` 移除，
-见下文 *迁移说明*。阶段 0~6 已落地：编译器（词法 → 语法 → 代码生成）产出的字节码
-与真实 `lua5.4` **逐字段一致**，VM 已经能把它跑起来——158 + 121 + 60 + 32 段差分
-脚本与 2100 个生成程序的 stdout 与真实 `lua5.4` **逐字节一致**，错误信息逐行一致。
+**阶段 8（`load` / `dump`）。** 旧的 fakescript 语言实现已从 `master` 移除，
+见下文 *迁移说明*。阶段 0~8 已落地：编译器（词法 → 语法 → 代码生成）产出的字节码
+与真实 `lua5.4` **逐字段一致**，VM 已经能把它跑起来——158 + 121 + 60 + 32 + 25 + 16
+段差分脚本与 2100 个生成程序的 stdout 与真实 `lua5.4` **逐字节一致**，错误信息
+逐行一致。`string.dump` 的产物另外按<b>原始字节</b>比过，不只是比行为。
 
 阶段 6 是「不自己实现 GC」这个决定真正付出代价的一处。弱表、`__gc`、字符串池
 全部重建在 JVM 的可达性之上，而那与 Lua 的标记-清除**不是一回事**；有三处
@@ -233,6 +234,11 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 | `LuaState.close` | `lua_close` → `callallpendingfinalizers` | 退出时把还有 `__gc` 的对象全跑一遍 |
 | `WeakTableTest`（测试） | — | 阶段 6 闸门：20 段差分脚本，拆成「依赖收集时机」与「恒成立」两半 |
 | `GcTest`（测试） | — | 阶段 6 闸门：12 段脚本——只跑一次、错误静默、后置 `__gc` 不生效 |
+| `LuaUserdata` | `Udata` | 载荷 + **每对象**元表；`luaL_testudata` 要的正是后者 |
+| `Undump` | `lundump.c` | 读预编译 chunk：头部校验、变长长度、`binary string` 源名规则 |
+| `Dump` | `ldump.c` | 写预编译 chunk：`string.dump` 与 `strip` |
+| `LoadTest`（测试） | — | 阶段 8 闸门：25 段脚本——模式、chunk 名、`_ENV`、读函数、`loadfile` / `dofile` |
+| `DumpTest`（测试） | — | 阶段 8 闸门：16——运行期 stdout 与 `string.dump` 产物都逐字节比 |
 
 ### 字节码这道闸门
 
@@ -517,7 +523,64 @@ FFI，那是另一个工程），所以 C 搜索器的行为就是 C 版在「�
 * **`require` 一个真能找到 `.so` 的模块**会停在「动态库未启用」这一步，
   而不是真的加载它。只有 `.lua` 的模块与 `package.preload` 里的条目不受影响。
 
-下一步：阶段 8 的 `load` / `loadfile` / `dofile` / `string.dump`。
+### 阶段 8 到目前为止
+
+`load` / `loadfile` / `dofile`（`BaseLib`）与二进制 chunk 那对
+`lundump.c` / `ldump.c`（`Undump` / `Dump`）已经落地，各带一道差分闸门：
+`LoadTest`（25）与 `DumpTest`（16）。
+
+`DumpTest` 用**两种粒度**比，第二种才是这一阶段的硬闸门：
+
+1. **运行期**：脚本的 stdout 逐字节比，与其它闸门一致；
+2. **产物**：两边各自把 `string.dump(f)` 写成文件，再比这两个文件的<b>字节</b>。
+
+只比第一种的话，「编译产物略有偏差、但恰好能跑」是漏得过去的。比产物则把
+常量顺序、行号表、局部变量与 upvalue 的调试信息、`maxstacksize` 一起钉住了。
+目前比了八种形状：普通、内嵌函数、变长参数、带 upvalue、`goto`、循环、各类
+常量，以及一个超过 `LUAI_MAXSHORTLEN` 的常量字符串（dump 与 undump 两侧都走
+不驻留的长字符串那条路）。
+
+### 阶段 8 里由参考实现裁定的六件事
+
+* **`luaU_undump` 在报错之前会先改写源名。** 开头的 `@` 或 `=` 要去掉；如果
+  源名以签名首字节开头（也就是<b>源名本身就是那段二进制 chunk</b>——
+  `load(s)` 不给第二个参数时正是这样），就整段换成字面量 `binary string`。
+  于是 `load("\27Lua")` 报的是
+  `binary string: bad binary format (truncated chunk)`，不是一串 ESC 开头的乱码。
+* **二进制那条路 `f_parser` 吃掉首字节，文本那条路要还回去。**
+  `luaU_undump` 的注释写得直白："skip 1st char (already read and checked)"。
+  在 undump 之前回退，整个头部会错开一个字节，`truncated chunk` 就变成了
+  `not a binary chunk`。
+* **`luaO_chunkid` 有第三种形态，而 `load` 碰到的正是它。** 只有 `@x` 与
+  `=x` 是剥前缀，其余一律包成 `[string "x"]`。`load("x++")` 报的是
+  `[string "x++"]:1: syntax error near '+'`——只剥不包的实现会报 `x++:1:`，
+  于是每一条加载期错误都是错的。
+* **源名是字节串，`luaO_chunkid` 按<b>字节</b>截。** 先解码成 Java `String`
+  再截，遇到非 UTF-8 的名字长度就对不上。所以 `chunkId` 的核心写成 `byte[]`
+  版，`String` 那个重载走它。
+* **没有源名的原型，位置<b>整段都不给</b>，连行号也不给。**
+  `luaG_addinfo` 是 `if (src) ... else 原样返回 msg`。这一点是可观测的：
+  `string.dump(f, true)` 会剥掉源名，于是
+  `pcall(load(string.dump(f, true)))` 报的是裸的 `boom`。退化到「用 chunk 名
+  兜底」不但多一截前缀，还会把那段二进制 chunk 塞进消息里——它是非法 UTF-8，
+  解码出来就是替换字符。
+* **`lundump` 里的 `default: lua_assert(0)` 是空操作。**
+  `lua_assert` 在默认构建下编成 `((void)0)`，所以常量类型字节写成 `99` 的
+  chunk 能正常加载，那个常量就停在 `nil` 上。在那儿报错是我们自己发明语义。
+  这一条是量出来的（手工拼的 chunk 在参考实现上加载成一个 `function`），
+  不是推出来的。
+
+dump 那一侧还有一条：`dumpFunction` 比源名用的是<b>引用</b>
+（`f->source == psource`）而不是内容。短字符串驻留之后两者等价，但长字符串
+不驻留，C 会为每个内嵌函数各写一遍源名；按内容比会写得比 C 少。
+
+### 还没补上的两处
+
+标准库还剩两个洞，都在 `lstrlib.c` / `ldblib.c` 里，都不挡 `load`：
+
+* **`string.pack` / `string.unpack` / `string.packsize`。** 下一轮搬。
+* **整个 `debug` 库。** `debug` 目前是 `nil`。它需要 `ldebug.c`
+  （`getinfo`、局部变量、upvalue、钩子）与 `ldblib.c` 一起落地。
 
 ---
 

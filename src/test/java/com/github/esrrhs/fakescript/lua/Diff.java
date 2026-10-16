@@ -34,15 +34,15 @@ final class Diff {
     static final String CASE_PATH = "target/rt/case.lua";
 
     /**
-     * 传给本实现的 chunk 名用<b>裸路径</b>，不带 {@code @}。
+     * 传给本实现的 chunk 名<b>带 {@code @}</b>，与参考实现一致。
      * <p>
      * 参考实现的 {@code lua.c} 拿到文件名后会自己加上 {@code @} 再交给
-     * {@code luaL_loadfilex}，打印时 {@code luaO_chunkid} 又把它去掉，
-     * 所以两边看到的都是裸路径。而我们这边只有运行期错误会过 {@code chunkId}——
-     * 词法/语法错误直接用原始 chunk 名拼消息（见 {@code Lexer.lexError}）——
-     * 于是带 {@code @} 就会在编译错误上多出一个字符。
+     * {@code luaL_loadfilex}，打印时 {@code luaO_chunkid} 又把它去掉，所以
+     * 两边看到的都是裸路径。这里同样加 {@code @} 再让 {@code chunkId} 剥掉——
+     * 加载期与运行期错误走的是同一个 {@code luaO_chunkid}（见
+     * {@code Lexer.lexError} 与 {@code LuaState.chunkId}），不能只有一边剥。
      */
-    static final String CHUNK = CASE_PATH;
+    static final String CHUNK = "@" + CASE_PATH;
 
     private Diff() {
     }
