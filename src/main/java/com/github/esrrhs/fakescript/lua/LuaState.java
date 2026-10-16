@@ -23,8 +23,9 @@ import java.util.List;
  *       显式 {@code ensureSlots}；</li>
  *   <li>{@code luaD_throw} 换成抛 {@link LuaError}，{@code pcall} 用
  *       {@code try/catch} 实现；</li>
- *   <li>没有 hook、没有 yield，因此 {@code luaV_finishOp}、{@code trap} 那套
- *       逻辑整体不存在。</li>
+ *   <li>没有「非 Lua 线程」：协程只是另一个 {@code LuaState}，靠
+ *       {@link #xmove} 在两条栈之间搬值，不需要任何线程/纤程去模拟第二条
+ *       执行流；yield 用抛 {@link LuaYield} 实现。</li>
  * </ul>
  */
 public final class LuaState {
@@ -52,12 +53,50 @@ public final class LuaState {
     private final CallInfo baseCi = new CallInfo();
     int nCcalls;
 
+    /** {@link #applyErrMsg} 的重入保护，见那里的注释 */
+    private boolean inErrMsg;
+
     /**
      * 不可 yield 的调用层数 —— C 版是 {@code nCcalls} 的高 16 位
      * （{@code nyci = 0x10000 | 1}，{@code yieldable(L)} 判高位是否为 0）。
      * 这里拆成独立字段：{@code nCcalls} 只管深度，这里只管能不能 yield。
      */
     private int nNy;
+
+    /* ==================== 调试钩子 ==================== */
+
+    /**
+     * {@code L->hook}：当前钩子。{@code null} 表示没开。
+     * <p>
+     * 只有 {@code debug.sethook} 会写它，而它只被 {@code DebugLib.dHook} 读。
+     */
+    LuaHook hook;
+
+    /** {@code L->hookmask}：{@link Lua#LUA_MASKCALL} 等的按位或 */
+    int hookmask;
+
+    /** {@code L->hookcount}：还有几条指令触发计数钩子 */
+    int hookcount;
+
+    /** {@code L->basehookcount}：{@code sethook} 传入的计数周期 */
+    int baseHookCount;
+
+    /**
+     * {@code L->allowhook}：钩子<b>内</b>不再触发钩子。
+     * <p>
+     * C 版在 {@code luaD_hook} 里先置 0 再调钩子，回来再置 1。缺了它，
+     * 钩子函数里执行的每一条 Lua 指令都会递归触发同一个钩子，
+     * 一瞬间就把 C 栈（这里是 Java 栈）撑爆。
+     */
+    boolean allowHook = true;
+
+    /**
+     * {@code L->oldpc}：上一次触发行钩子的那条指令。
+     * <p>
+     * 行钩子的判据是「{@code pc} 往回跳了」或「中途换过行」，两者都要拿
+     * 上一次的位置比。回到上层函数时由 {@code rethook} 更新。
+     */
+    int oldpc;
 
     /* ==================== 线程状态 ==================== */
 
@@ -414,6 +453,59 @@ public final class LuaState {
         return nNy == 0;
     }
 
+    /* ==================== 调试钩子：C API 那一层 ==================== */
+
+    /**
+     * {@code ldebug.c: lua_sethook}。
+     * <p>
+     * 末尾那句 {@code settraps} 是<b>不能省</b>的。主循环里的 {@code trap} 是
+     * 一个只在特定点重读的局部变量，「执行到一半调用 {@code debug.sethook}」
+     * 时它还是 0；{@code settraps} 把所有<b>已经活着</b>的 Lua 帧的
+     * {@code trap} 置 1，配合 {@code OP_CALL} 之后的 {@code updatetrap}
+     * 才让新开的钩子立刻生效。省掉它的话
+     * {@code debug.sethook(f, "l")} 之后一行钩子都不会来。
+     */
+    public void setHook(LuaHook f, int mask, int count) {
+        if (f == null || mask == 0) {
+            mask = 0;
+            f = null;
+        }
+        hook = f;
+        baseHookCount = count;
+        resetHookCount();
+        hookmask = mask;
+        if (mask != 0) {
+            for (CallInfo c = ci; c != null; c = c.previous) {
+                if (c.isLua) {
+                    c.trap = true;
+                }
+            }
+        }
+    }
+
+    /** {@code lua_gethook} */
+    public LuaHook getHook() {
+        return hook;
+    }
+
+    /** {@code lua_gethookmask} */
+    public int getHookMask() {
+        return hookmask;
+    }
+
+    /**
+     * {@code lua_gethookcount}：注意返回的是 {@code basehookcount}，
+     * 不是还剩几条——{@code debug.gethook()} 的第三个结果要的是周期。
+     */
+    public int getHookCount() {
+        return baseHookCount;
+    }
+
+    /** {@code resethookcount(L)} */
+    void resetHookCount() {
+        hookcount = baseHookCount;
+    }
+
     /**
      * {@code lua_xmove}：把 {@code n} 个值从一个线程搬到另一个。
      * <p>
@@ -650,6 +742,16 @@ public final class LuaState {
     private int precallC(int funcIdx, int nresults, LuaFunction f) {
         checkStack(MINSTACK);
         CallInfo c = prepCallInfo(funcIdx, nresults, false, top + MINSTACK);
+        /*
+         * 调用钩子在「真正调 C 函数」<b>之前</b>。这个先后是能观测到的：
+         * 实测 {@code debug.sethook(function() error('x') end, 'c')} 之后
+         * {@code pcall(function() ... end)}，钩子在 pcall 的 C 帧上就炸了，
+         * 于是 <b>pcall 抓不到这个错误</b>——它的恢复点要到下面那一行才建起来。
+         * 挪到 {@code f.call} 之后就会让 pcall 把它吞掉，与参考实现不符。
+         */
+        if ((hookmask & Lua.LUA_MASKCALL) != 0) {
+            DebugLib.dHook(this, Lua.LUA_HOOKCALL, -1, 1, top - funcIdx - 1);
+        }
         int n = f.call(this);
         poscall(c, n);
         return n;
@@ -779,6 +881,18 @@ public final class LuaState {
     /** {@code luaD_poscall} */
     void poscall(CallInfo c, int nres) {
         int wanted = c.nresults;
+        /*
+         * 返回钩子。C 版的条件是
+         * {@code L->hookmask && !hastocloseCfunc(wanted)}：带 to-be-closed
+         * 变量的 C 帧要先关变量、再报钩子（那是 {@code moveresults} 里的分支）。
+         * 「有 tbc」在 C 里编码在 {@code nresults} 的高位，本实现不这么做，
+         * 只在 {@link #finishCcall} 那条 yield 恢复路径上用
+         * {@link CallInfo#clsret} 记——所以走到这里时 {@code clsret} 恒为假，
+         * 与 C 的判据在可达路径上一致。
+         */
+        if (hookmask != 0 && !c.clsret) {
+            DebugLib.rethook(this, c, nres);
+        }
         moveResults(c.func, nres, wanted);
         ci = c.previous;
     }
@@ -816,9 +930,16 @@ public final class LuaState {
     /**
      * {@code lua_pcall} 带消息处理函数的形态（{@code xpcall} 用它）。
      * <p>
-     * 处理函数在<b>调用链已经恢复之后</b>才跑：C 版也是先 {@code luaD_seterrorobj}
-     * 把错误对象放到恢复后的栈顶，再 {@code luaD_callnoyield} 调 {@code msgh}，
-     * 返回值替换掉原来的错误对象。顺序反过来会让处理函数看到脏帧。
+     * 处理函数必须在<b>调用链还没退</b>的时候跑。C 版是在<b>抛出点</b>
+     * （{@code ldebug.c: luaG_errormsg}）直接 {@code luaD_callnoyield} 调它，
+     * 那会儿整条调用链都还在——这正是 {@code xpcall(f, debug.traceback)} 能打出
+     * 完整回溯的原因。放在「先恢复调用链再调处理函数」的位置上是错的：
+     * 回溯会只剩最外面两层，而这是 Lua 项目打错误日志的标准写法。
+     * <p>
+     * Java 这边没有 longjmp，{@code catch} 到的时候 Java 栈已经退了，但
+     * <b>Lua 栈没有</b>（{@link #stack} / {@link #top} / {@link #ci} 都还是出错
+     * 那一刻的样子，恢复动作就在下面几行）。所以处理函数放在 {@code catch} 的最
+     * 前面跑，等价于 C 的在抛出点跑。
      *
      * @param handler 消息处理函数；{@code null} 表示没有（与 {@code msgh = 0} 等价）
      * @return 出错时返回（可能被处理函数改写过的）错误对象，否则 {@code null}
@@ -826,6 +947,20 @@ public final class LuaState {
     public LuaValue pcall(int funcIdx, int nresults, LuaValue handler) {
         int oldTop = top;
         CallInfo saved = ci;
+        /*
+         * {@code luaD_pcall} 里的 {@code old_allowhooks}。
+         * <p>
+         * <b>恢复的时机很讲究</b>：钩子<b>内</b>抛错时 {@code luaD_hook} 的收尾
+         * （把 {@code allowhook} 置回 1）被跳过了，此时 {@code allowhook} 还是 0。
+         * 而消息处理函数在 C 版是 {@code luaG_errormsg} 在<b>抛出点</b>调的，
+         * 那会儿 {@code allowhook} 依然是 0——所以处理函数（也就是
+         * {@code luaL_traceback}）跑的时候<b>不会再触发钩子</b>。
+         * 提前恢复成 1 会让回溯过程中又进一次钩子、再抛一次错，最后被
+         * {@code applyErrMsg} 兜成 {@code "error in error handling"}。
+         * 实测：{@code debug.sethook(function() error("x") end, "c")} 之后
+         * 未捕获的错误，参考实现给的是完整回溯，不是那句话。
+         */
+        boolean oldAllowHook = allowHook;
         try {
             call(funcIdx, nresults);
             return null;
@@ -842,13 +977,38 @@ public final class LuaState {
                 v = LuaValue.ofString(
                         LuaString.latin1(prefix + v.asString().toJavaString()));
             }
+            if (handler != null) {
+                v = applyErrMsg(v, handler);
+            }
+            // 到这一步才算走到 C 版 luaD_pcall 的恢复点：__close 是带钩子的
+            allowHook = oldAllowHook;
             // 必须先于恢复调用链：__close 要拿到错误对象；返回值可能已被 __close 换掉
             v = closeUpvalsOnUnwind(saved, v);
             ci = saved;
             top = oldTop;
-            if (handler == null) {
-                return v;
-            }
+            return v;
+        }
+    }
+
+    /**
+     * {@code ldebug.c: luaG_errormsg} 里跑消息处理函数的那一段。
+     * <p>
+     * 处理函数是在<b>出错的那一帧之上</b>起新帧调用的（C 版把 {@code msgh} 压在
+     * 当时的 {@code L->top} 上），所以它的 {@code previous} 就是出错的那一帧——
+     * 回溯能从这里一路走到底。
+     * <p>
+     * 重入保护：处理函数自己又出错时，C 版会再次进入 {@code luaG_errormsg}，
+     * 而 {@code L->errfunc} 还在，于是一路递归到 C 栈溢出、被
+     * {@code luaE_checkcstack} 兜成 {@code LUA_ERRERR}，最后
+     * {@code luaD_seterrorobj} 把它写成 {@code "error in error handling"}。
+     * 这里直接认这个结果，中间那几十层递归没有意义。
+     */
+    private LuaValue applyErrMsg(LuaValue v, LuaValue handler) {
+        if (inErrMsg) {
+            return v;
+        }
+        inErrMsg = true;
+        try {
             int hf = top;
             checkStack(2);
             stack[hf].set(handler);
@@ -856,12 +1016,13 @@ public final class LuaState {
             top = hf + 2;
             LuaValue bad = pcall(hf, 1); // 处理函数自身出错不再兜底
             if (bad != null) {
-                top = oldTop;
-                return bad;
+                return LuaValue.ofString(LuaString.latin1("error in error handling"));
             }
             LuaValue res = new LuaValue(stack[top - 1]);
-            top = oldTop;
+            top = hf;
             return res;
+        } finally {
+            inErrMsg = false;
         }
     }
 
@@ -1363,7 +1524,7 @@ public final class LuaState {
      * 元方法那一批共用一个名字来源：{@code tmname[tm]} 去掉开头的 {@code __}
      * （C 版就是 {@code getshrstr(tmname[tm]) + 2}）。
      */
-    private static String funcNameFromCode(Proto p, int pc, String[] name) {
+    static String funcNameFromCode(Proto p, int pc, String[] name) {
         if (pc < 0 || pc >= p.code.length) {
             return null;
         }
@@ -1625,7 +1786,7 @@ public final class LuaState {
      * 只认字符串键（C 版 {@code lua_type(L,-2) == LUA_TSTRING}），且<b>只下钻两层</b>：
      * 这正是 {@code string.len} 能查到、{@code a.b.c} 查不到的原因。
      */
-    private static String findFieldName(LuaTable t, LuaValue obj, int level) {
+    static String findFieldName(LuaTable t, LuaValue obj, int level) {
         if (level == 0) {
             return null;
         }
@@ -1753,14 +1914,14 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: upvalname}：没有名字时给 {@code "?"}，与 C 版一致 */
-    private static String upvalName(Proto p, int uv) {
+    static String upvalName(Proto p, int uv) {
         LuaString s = (uv < p.sizeupvalues && p.upvalues[uv] != null)
                 ? p.upvalues[uv].name : null;
         return (s == null) ? "?" : s.toJavaString();
     }
 
     /** {@code ldebug.c: kname}：只有字符串常量才有名字 */
-    private static String kName(Proto p, int index, String[] name) {
+    static String kName(Proto p, int index, String[] name) {
         if (index < 0 || index >= p.k.length) {
             name[0] = "?";
             return null;
@@ -1786,7 +1947,7 @@ public final class LuaState {
      * 越过就作废——这正是它叫「符号执行」的原因：要顺着控制流判断哪次赋值
      * 真的发生过。
      */
-    private static int findSetReg(Proto p, int lastpc, int reg) {
+    static int findSetReg(Proto p, int lastpc, int reg) {
         int setreg = -1;
         int jmptarget = 0;
         int[] code = p.code;
@@ -1833,7 +1994,7 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: basicgetobjname}：局部名优先，其次反推指令流 */
-    private static String basicGetObjName(Proto p, int[] ppc, int reg, String[] name) {
+    static String basicGetObjName(Proto p, int[] ppc, int reg, String[] name) {
         int pc = ppc[0];
         LuaString local = p.getLocalName(reg + 1, pc);
         if (local != null) {
@@ -1868,7 +2029,7 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: rname}：只要常量名，别的都写成 {@code "?"} */
-    private static void rName(Proto p, int pc, int c, String[] name) {
+    static void rName(Proto p, int pc, int c, String[] name) {
         int[] ppc = { pc };
         String what = basicGetObjName(p, ppc, c, name);
         if (what == null || what.charAt(0) != 'c') {
@@ -1877,7 +2038,7 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: rkname}：RK 操作数，可能是常量也可能是寄存器 */
-    private static void rkName(Proto p, int pc, int i, String[] name) {
+    static void rkName(Proto p, int pc, int i, String[] name) {
         int c = OpCode.getArgC(i);
         if (OpCode.getArgK(i) != 0) {
             kName(p, c, name);
@@ -1887,7 +2048,7 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: isenv}：被索引的表是不是 {@code _ENV} */
-    private static String isEnv(Proto p, int pc, int i, boolean isUp) {
+    static String isEnv(Proto p, int pc, int i, boolean isUp) {
         int t = OpCode.getArgB(i);
         String[] name = new String[1];
         if (isUp) {
@@ -1900,7 +2061,7 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: getobjname}：在 {@code basicgetobjname} 之上再认表访问 */
-    private static String getObjName(Proto p, int lastpc, int reg, String[] name) {
+    static String getObjName(Proto p, int lastpc, int reg, String[] name) {
         int[] ppc = { lastpc };
         String kind = basicGetObjName(p, ppc, reg, name);
         if (kind != null) {

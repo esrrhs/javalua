@@ -47,17 +47,50 @@ public final class Vm {
         int pc = 0;
         boolean start = true;
 
+        /*
+         * {@code goto ret} 与 {@code goto startfunc} 在 C 版是两个标签
+         * （{@code returning:} 与 {@code startfunc:}），差别只有一句：前者
+         * <b>不</b>重新装载 {@code trap}，后者从 {@code L->hookmask} 重载。
+         * 这里合进同一个 {@code outer} 循环，就得用两个标志把它们分开——
+         * 一律按 {@code startfunc} 处理的话，从内层函数返回时会把上层帧的
+         * {@code trap} 冲掉，返回钩子之后的行钩子就没了。
+         */
+        boolean ret = false;
+
+        /**
+         * {@code lvm.c} 的 {@code trap}：要不要在每条指令前调
+         * {@code luaG_traceexec}。钩子没开时它恒为 0，这是「不开钩子就没有
+         * 调试开销」的兑现方式。
+         */
+        boolean trap = false;
+
         outer:
         for (;;) {
-            if (start) {
+            if (start || ret) {
+                if (start) {
+                    trap = L.hookmask != 0; // 只有 startfunc 才重新装载
+                }
                 start = false;
+                ret = false;
                 cl = (LClosure) L.stack[ci.func].o;
                 k = cl.p.k;
                 code = cl.p.code;
                 pc = ci.savedpc;
                 base = ci.func + 1;
+                if (trap) {
+                    trap = DebugLib.traceCall(L, ci);
+                }
             }
             for (;;) {
+                /*
+                 * {@code vmfetch()}：钩子（与栈重分配）就在这一个点上被检查。
+                 * {@code traceExec} 可能改 {@code ci.top}，所以 {@code base}
+                 * 要在它之后重算。
+                 */
+                if (trap) {
+                    trap = DebugLib.traceExec(L, ci, pc);
+                    base = ci.func + 1;
+                }
                 int i = code[pc++];
                 switch (OpCode.getOpCode(i)) {
 
@@ -672,7 +705,20 @@ public final class Vm {
                 }
                 case OpCode.OP_TESTSET: {
                     LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    if (rb.toBoolean() == (OpCode.getArgK(i) != 0)) {
+                    /*
+                     * 判的是 {@code l_isfalse(rb) == k}，不是「真值 == k」。
+                     * <p>
+                     * 这两种写法在 {@code k=0} 与 {@code k=1} 上<b>恰好相反</b>，
+                     * 而且是那种「只在一半路径上错」的相反：{@code and} 的
+                     * {@code TESTSET} 只在「结果寄存器 ≠ B」时保留下来（否则
+                     * {@code patchTestReg} 会把它改写成 {@code OP_TEST}），
+                     * 于是 {@code if x then} 一直是对的，{@code x and y} 一直是错的。
+                     * <p>
+                     * 症状是 {@code local t = {} print(t and "yes")} 打印出那张表：
+                     * 字节码与参考实现逐条相同，说明错不在代码生成而在这一句。
+                     */
+                    int isFalse = rb.toBoolean() ? 0 : 1; // l_isfalse(rb)
+                    if (isFalse == OpCode.getArgK(i)) {
                         pc++;
                     } else {
                         L.stack[base + OpCode.getArgA(i)].set(rb);
@@ -706,6 +752,13 @@ public final class Vm {
                     ci.savedpc = pc;
                     CallInfo newci = L.precall(ra, OpCode.getArgC(i) - 1);
                     if (newci == null) {
+                        /*
+                         * {@code updatetrap(ci)}：C 调用可能开/关过钩子。
+                         * <b>这一处必须有</b>——{@code debug.sethook} 自己就是个
+                         * C 函数，它的 {@code settraps} 只改帧上的 {@code trap}，
+                         * 主循环这个局部变量要靠这里才读得到。
+                         */
+                        trap = ci.trap;
                         break; // C 函数：已经跑完，结果在栈上
                     }
                     ci = newci;
@@ -732,12 +785,13 @@ public final class Vm {
                         continue outer;
                     }
                     ci.func -= delta;
-                    L.poscall(ci, n);
+                    L.poscall(ci, n); // 里面会报返回钩子
+                    trap = ci.trap; // luaD_poscall 可能改了钩子
                     if (ci.fresh) {
                         return;
                     }
                     ci = ci.previous;
-                    start = true;
+                    ret = true;
                     continue outer;
                 }
                 case OpCode.OP_RETURN: {
@@ -759,41 +813,36 @@ public final class Vm {
                         ci.func -= ci.nextraargs + nparams1;
                     }
                     L.top = ra + n;
-                    L.poscall(ci, n);
+                    L.poscall(ci, n); // 里面会报返回钩子
+                    trap = ci.trap; // luaD_poscall 可能改了钩子
                     if (ci.fresh) {
                         return;
                     }
                     ci = ci.previous;
-                    start = true;
+                    ret = true;
                     continue outer;
                 }
                 case OpCode.OP_RETURN0: {
-                    int nres = ci.nresults;
-                    L.ci = ci.previous;
-                    L.top = base - 1;
-                    L.ensureSlots(L.top + Math.max(nres, 0));
-                    while (nres > 0) {
-                        L.stack[L.top++].setNil();
-                        nres--;
-                    }
-                    if (ci.fresh) {
-                        return;
-                    }
-                    ci = ci.previous;
-                    start = true;
-                    continue outer;
-                }
-                case OpCode.OP_RETURN1: {
-                    int nres = ci.nresults;
-                    L.ci = ci.previous;
-                    if (nres == 0) {
-                        L.top = base - 1;
-                    } else {
+                    if (L.hookmask != 0) {
+                        // 有钩子就走正式的 poscall，让它把返回钩子报出去
                         int ra = base + OpCode.getArgA(i);
-                        L.stack[base - 1].set(L.stack[ra]);
-                        L.top = base;
-                        L.ensureSlots(L.top + nres - 1);
-                        while (nres > 1) {
+                        L.top = ra;
+                        ci.savedpc = pc;
+                        L.poscall(ci, 0);
+                        /*
+                         * C 版在这里写 {@code trap = 1}。置位是为了让紧接着的
+                         * {@code luaG_tracecall}（{@code goto ret} 之后）跑一下，
+                         * 把上层帧的 {@code trap} 重新置 1——否则上层帧的
+                         * {@code trap} 早被 {@code luaG_traceexec} 清成 0 了，
+                         * 返回之后就再也接不上行钩子。
+                         */
+                        trap = true;
+                    } else {
+                        int nres = ci.nresults;
+                        L.ci = ci.previous;
+                        L.top = base - 1;
+                        L.ensureSlots(L.top + Math.max(nres, 0));
+                        while (nres > 0) {
                             L.stack[L.top++].setNil();
                             nres--;
                         }
@@ -802,7 +851,37 @@ public final class Vm {
                         return;
                     }
                     ci = ci.previous;
-                    start = true;
+                    ret = true;
+                    continue outer;
+                }
+                case OpCode.OP_RETURN1: {
+                    if (L.hookmask != 0) {
+                        int ra = base + OpCode.getArgA(i);
+                        L.top = ra + 1;
+                        ci.savedpc = pc;
+                        L.poscall(ci, 1);
+                        trap = true; // 同 OP_RETURN0
+                    } else {
+                        int nres = ci.nresults;
+                        L.ci = ci.previous;
+                        if (nres == 0) {
+                            L.top = base - 1;
+                        } else {
+                            int ra = base + OpCode.getArgA(i);
+                            L.stack[base - 1].set(L.stack[ra]);
+                            L.top = base;
+                            L.ensureSlots(L.top + nres - 1);
+                            while (nres > 1) {
+                                L.stack[L.top++].setNil();
+                                nres--;
+                            }
+                        }
+                    }
+                    if (ci.fresh) {
+                        return;
+                    }
+                    ci = ci.previous;
+                    ret = true;
                     continue outer;
                 }
 
@@ -879,6 +958,18 @@ public final class Vm {
                 case OpCode.OP_VARARGPREP: {
                     ci.savedpc = pc;
                     LuaTm.adjustVarargs(L, OpCode.getArgA(i), ci, cl.p);
+                    /*
+                     * {@code ProtectNT} 后半句的 {@code updatetrap(ci)}。
+                     * 变参函数的 {@code luaG_tracecall} 返回的是 0（钩子推迟到这里
+                     * 才报），但它已经把帧上的 {@code trap} 置成 1 了，所以这里
+                     * 读回来正好是 1——上游就是靠这个「先关再开」把调用钩子挪到
+                     * 参数归位之后的。
+                     */
+                    trap = ci.trap;
+                    if (trap) {
+                        DebugLib.dHookCall(L, ci);
+                        L.oldpc = 1; // 下一条指令按「新行」处理
+                    }
                     base = ci.func + 1;
                     break;
                 }

@@ -56,6 +56,28 @@ final class LuaTm {
     }
 
     /**
+     * {@link #metatableOf} 的反向操作 —— {@code lapi.c: lua_setmetatable} 里
+     * 「按类型分派到三处」的那半段。
+     * <p>
+     * 之前只有 {@link BaseLib} 里的 {@code setmetatable} 自己写了这段分派，
+     * 于是 {@code debug.setmetatable(1, mt)} 这种「给整个类型设元表」的路径
+     * 没有对应物。抽到这里，与 {@link #metatableOf} 成对，改一处不会漏另一处。
+     */
+    static void setMetatable(LuaState L, LuaValue v, LuaTable mt) {
+        switch (v.baseType()) {
+        case Lua.TTABLE:
+            v.asTable().setMetatable(mt);
+            break;
+        case Lua.TUSERDATA:
+            ((LuaUserdata) v.o).metatable = mt;
+            break;
+        default:
+            L.setTypeMetatable(v.baseType(), mt);
+            break;
+        }
+    }
+
+    /**
      * {@code luaT_objtypename}：{@code __name} 元字段优先于标准类型名。
      * <p>
      * 这是 {@code print(#io.stdout)} 报

@@ -32,6 +32,18 @@ public final class LClosure {
         this.upvals = new UpVal[Math.max(nupvals, p.sizeupvalues)];
     }
 
+    /**
+     * 直接替换第 {@code i} 个 upvalue —— {@code lapi.c: lua_upvaluejoin} 的落点。
+     * <p>
+     * C 版是 {@code *up1 = *up2}：把「upvalue <b>指针</b>」换掉，而不是把值抄过去。
+     * 换完之后两个闭包就<b>共享同一个</b> {@link UpVal}，此后一边写另一边可见——
+     * 这正是 {@code debug.upvaluejoin} 的全部意义。所以这里必须整个替换数组元素，
+     * 不能 {@code upvals[i].set(...)}。
+     */
+    public void setUpVal(int i, UpVal uv) {
+        upvals[i] = uv;
+    }
+
     /** 把所有 upvalue 初始化为「关闭且值为 nil」（{@code lfunc.c: luaF_initupvals}） */
     public void initUpvals() {
         for (int i = 0; i < upvals.length; i++) {

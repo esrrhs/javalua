@@ -200,13 +200,16 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 8 — `load` / `dump`.** The previous fakescript language implementation
-has been removed from `master`; see *Migration* below. Phases 0 through 8 are in:
-the compiler produces bytecode that is **field-for-field identical** to a real
-`lua5.4`'s, and the VM executes it — **stdout matches a real `lua5.4` byte for
-byte** across 158 + 121 + 60 + 32 + 25 + 16 differential scripts and 2100
-generated programs, and error messages match line for line. `string.dump`'s
-output is additionally compared as **raw bytes**, not just as behaviour.
+**Phase 9 — complete, including `debug.sethook`.** The previous fakescript
+language implementation has been removed from `master`; see *Migration* below.
+Phases 0 through 9 are in: the compiler produces bytecode that is
+**field-for-field identical** to a real `lua5.4`'s, and the VM executes it —
+**stdout matches a real `lua5.4` byte for byte** across 158 + 121 + 60 + 32 + 25
++ 16 + 21 + 36 differential scripts and 2100 generated programs, and error
+messages match line for line. `string.dump`'s output is additionally compared as
+**raw bytes**, not just as behaviour. All ten standard libraries are in (base,
+coroutine, package, string, utf8, table, math, os, io, debug), `debug` included
+in full — hooks and all.
 
 Phase 6 is the one phase where "no GC of our own" costs real ground. Weak tables,
 `__gc` and the string pool are all rebuilt on JVM reachability, which is *not* the
@@ -266,6 +269,11 @@ Landed so far:
 | `DumpTest` (test) | — | Phase 8 gate: 16 — runtime stdout **and** `string.dump` output byte for byte |
 | `StringPack` | part of `lstrlib.c` | `string.pack` / `unpack` / `packsize`; the only platform-dependent corner of the library |
 | `PackTest` (test) | — | 21 scripts — integers, floats, strings, alignment, wide integers, errors, key set |
+| `DebugLib` | `ldblib.c` + part of `ldebug.c` / `ldo.c` / `lauxlib.c` | `getinfo` / locals / upvalues / `traceback` / registry / metatables / user values / `setcstacklimit` / `sethook` / `gethook` |
+| `LuaHook` | `lua.h` `lua_Hook` | the hook callback; `DebugLib`'s `hookf` is the one `sethook` installs |
+| `LuaLibs` | `linit.c` | `luaL_openlibs`; the ten libraries in `loadedlibs` order |
+| `DebugTest` (test) | — | Phase 9 gate: 36 scripts — levels, options, locals, upvalues, `traceback`, deep stacks, and 14 hook scripts |
+| `LuaLibsTest` (test) | — | `openAll` really opens all ten, and they are the same tables the globals see |
 
 ### The bytecode gate
 
@@ -684,10 +692,130 @@ Two more things the reference binary settled here:
   argument `string.pack("c2")` reports `string expected, got nil` rather than
   `got no value`.
 
+### Phase 9 — the `debug` library, hooks included
+
+`ldblib.c` is in as `DebugLib`, together with the parts of `ldebug.c` that only
+the introspection API needs (`lua_getstack` / `lua_getinfo` / `luaG_findlocal` /
+`luaG_traceexec` / `luaG_tracecall`) and `lauxlib.c`'s `luaL_traceback`.
+`DebugTest` (36 scripts) is the gate. All sixteen `debug` functions are in.
+
+`LuaLibs.openAll` (`linit.c`'s `luaL_openlibs`) also landed — before it existed,
+"open the standard libraries" was ten calls that only the test driver knew the
+order of.
+
+#### The hook machinery, and where its call points are
+
+`sethook` is not a library function that can be ported on its own: it is a hook
+*dispatcher* whose call points are spread over the interpreter. Porting it meant
+adding, in addition to `DebugLib.dHook` (`ldo.c: luaD_hook`):
+
+| Call point | Upstream | Fires |
+|---|---|---|
+| `LuaState.precallC` | `ldo.c` | `call` for C functions — **before** the C function itself runs |
+| `DebugLib.dHookCall` from `Vm`'s `startfunc` and from `OP_VARARGPREP` | `ldo.c: luaD_hookcall` | `call` / `tail call` for Lua functions |
+| `DebugLib.rethook` from `LuaState.poscall` | `ldo.c: rethook` | `return` for both kinds |
+| `DebugLib.traceExec` from `Vm`'s `vmfetch` | `ldebug.c: luaG_traceexec` | `line` and `count` |
+
+plus `trap` on `CallInfo` and `hook` / `hookmask` / `hookcount` / `allowhook` /
+`oldpc` on `LuaState`. The point of `trap` is that it is a *local* variable in
+`luaV_execute`, so with hooks off the main loop does not even branch.
+
+#### Four more things the reference binary settled
+
+* **`lua_sethook` must call `settraps`.** The main loop's `trap` is a local that
+  is only re-read from the frame at a few points (`updatetrap`). Turning a hook
+  on *mid-execution* therefore does nothing at all unless every live Lua frame's
+  `trap` is set to 1 — which is what `settraps` does. Without it,
+  `debug.sethook(f, "l")` produces zero line events.
+* **A hook error is *not* caught by the `pcall` it is reported for.** The `call`
+  hook for `pcall` fires inside `precallC`, *before* `pcall` establishes its
+  recovery point, so `pcall(function() ... end)` cannot catch an error raised by
+  a `call` hook on `pcall` itself.
+* **`CIST_HOOKED` is tested before `isLua`** in `funcnamefromcall`. The frame
+  carrying the mark is often a **C** frame (the `call` hook for `pcall` is
+  reported on `pcall`'s own C frame), so testing `isLua` first never reaches it
+  — and the traceback line changes from `in hook '?'` to
+  `in function <file:line>`.
+* **Hooks can never yield.** `hookf` calls the user function with `lua_call`,
+  which goes through `luaD_callnoyield`, so the non-yieldable counter is non-zero
+  inside a hook. Measured: `coroutine.yield()` in a hook reports `attempt to
+  yield from outside a coroutine` on the main thread and `attempt to yield
+  across a C-call boundary` in a coroutine — in both cases the program or
+  coroutine dies. This is why the port does not implement `CIST_HOOKYIELD` at
+  all: it is unreachable from Lua. (`CIST_HOOKYIELD` exists upstream for *C*
+  hooks installed via the C API, which are called directly rather than through
+  `lua_call`.)
+
+#### One ordering bug found by the hook gate
+
+`allowhook` must be restored at the **protected-call boundary**, *after* the
+message handler has run — not before. The handler runs at the throw point, where
+`allowhook` is still 0 (that is what stops a traceback from re-entering the
+hook). Restoring it earlier means the traceback triggers the hook again, which
+raises again, which `applyErrMsg` turns into `error in error handling`. The
+symptom: `debug.sethook(function() error("x") end, "c")` followed by an uncaught
+error printed `error in error handling` instead of a real traceback.
+
+#### Five things the reference binary settled in Phase 9
+
+* **Level 0 is the C frame of `getinfo` itself.** `lua_getstack(L, 0, &ar)`
+  succeeds and yields `what = "C", currentline = -1, name = "getinfo"`. The name
+  comes from `funcnamefromcall` reading the *caller's* frame, so it answers "what
+  was the caller calling", not "what is this frame called". Getting this off by
+  one shifts every `debug.getinfo(n)` result by a level.
+* **`'f'` and `'L'` need `lua_rotate`, not a pop.** The result table is pushed
+  *after* `lua_getinfo`, so `lua_getinfo`'s own outputs sit *underneath* it.
+  `treatstackoption` is `lua_rotate(L, -2, 1)` followed by `lua_setfield(L, -2)`.
+  Doing `L.top--` instead pops the result table itself — the symptom is
+  `debug.getinfo(1)` returning something that prints as a function, and
+  `debug.getinfo(1).func` holding the table.
+* **`pushfuncname` tries a *global* name first.** `error` is `global 'error'` as
+  far as `getobjname` is concerned (it is a `GETTABUP _ENV`), but a traceback
+  prints `function 'error'` — `pushglobalfuncname` looks the function up **by
+  value** in `_LOADED._G` and wins. Checking only `ar.namewhat` gets the
+  qualifier wrong on every C function that has a global name.
+* **The message handler runs *before* the stack unwinds** — `luaG_errormsg`
+  calls it at the throw point, not from `luaD_pcall`'s recovery. This is the whole
+  reason `xpcall(f, debug.traceback)` shows the full traceback instead of just the
+  outer two frames. Java has no `longjmp`, but the *Lua* stack (`stack` / `top` /
+  `ci`) is still intact at the `catch`, so running the handler at the top of
+  `pcall`'s catch is equivalent.
+* **`LEVELS1` / `LEVELS2` are 10 and 11**, not a round 10/10, and the head and
+  tail are *not* the same length. The "(skipping N levels)" count is off by one
+  otherwise, and only on stacks deep enough to trigger it.
+
+#### Two bugs found by the `debug` gate, neither of them in `debug`
+
+* **`OP_TESTSET`'s condition was inverted, which broke `and` / `or`.** Upstream
+  tests `l_isfalse(rb) == k`; this port tested `toBoolean() == (k != 0)` — and
+  those two are exact opposites over `k`'s two values. It is a *quiet* bug:
+  `TESTSET` only survives when the result register differs from `B`
+  (`patchTestReg` rewrites it to `OP_TEST` otherwise), so `if x then` was always
+  right while `x and y` was always wrong. The symptom is
+  `print(t and "yes")` printing the table, and — worse — `cond and a or b`,
+  the most common idiom in Lua, taking the wrong branch. **The bytecode gate
+  could not see it**: the emitted code was field-for-field identical to the
+  reference's. `RuntimeTest.logicalOperatorsReturnValues` now pins the returned
+  value, not just the truthiness.
+* **`xpcall`'s handler ran after the call chain had already been restored.**
+  See the fourth bullet above; `xpcall(f, debug.traceback)`'s traceback was two
+  frames long instead of seven.
+
+#### One thing the reference binary settled that is a *driver* difference
+
+`lua.c` runs the script from inside `pmain`, a **C function**, so an extra C
+frame sits under the main chunk. It shows up as the trailing `[C]: in ?` in every
+traceback and as `debug.getinfo(3).what == "C"`. A host that calls
+`luaL_dostring` directly has no such frame and sees neither. This is therefore
+fixed in the differential driver (`Diff` now mirrors `lua.c`: `pmain` +
+`docall` + `msghandler`), not in the engine — bending the engine to match would
+have made `luaL_dostring` wrong instead.
+
 ### What is still missing
 
-* **The whole `debug` library.** `debug` is currently `nil`. It needs `ldebug.c`
-  (`getinfo`, locals, upvalues, hooks) as well as `ldblib.c`.
+Nothing in the language or the ten standard libraries. The remaining work is
+verification breadth: more differential scripts and a wider fuzz corpus, and the
+conformance suite from `lua-5.4.x/tests` run end to end.
 
 ---
 
@@ -709,6 +837,20 @@ last commit before the rewrite.
 ```bash
 ./mvnw clean test          # requires JDK 21+
 ```
+
+With no `lua5.4` binary on the machine, the differential tests skip themselves
+(a single `assumeTrue` guard in `Diff`) and the coverage gate is skipped with
+them — the differential suites are most of the line coverage, so a gate that
+runs while they are all skipped would only ever be red for the wrong reason.
+Set `LUA54_BIN`, or build the reference into `target/lua54/src/lua`, to get the
+real gate:
+
+```bash
+LUA54_BIN=/path/to/lua5.4 ./mvnw clean test
+```
+
+CI builds the reference from source and exports `LUA54_BIN` and `FKDUMP_BIN`, so
+this only affects local builds without a reference binary.
 
 ---
 

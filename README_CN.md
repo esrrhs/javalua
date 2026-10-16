@@ -178,11 +178,13 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 
 ## 现状
 
-**阶段 8（`load` / `dump`）。** 旧的 fakescript 语言实现已从 `master` 移除，
-见下文 *迁移说明*。阶段 0~8 已落地：编译器（词法 → 语法 → 代码生成）产出的字节码
-与真实 `lua5.4` **逐字段一致**，VM 已经能把它跑起来——158 + 121 + 60 + 32 + 25 + 16
-段差分脚本与 2100 个生成程序的 stdout 与真实 `lua5.4` **逐字节一致**，错误信息
-逐行一致。`string.dump` 的产物另外按<b>原始字节</b>比过，不只是比行为。
+**阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
+`master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
+产出的字节码与真实 `lua5.4` **逐字段一致**，VM 已经能把它跑起来——158 + 121 + 60
++ 32 + 25 + 16 + 21 + 36 段差分脚本与 2100 个生成程序的 stdout 与真实 `lua5.4`
+**逐字节一致**，错误信息逐行一致。`string.dump` 的产物另外按<b>原始字节</b>比过，
+不只是比行为。十个标准库（base、coroutine、package、string、utf8、table、math、
+os、io、debug）全部落地，`debug` 是完整的——钩子也在内。
 
 阶段 6 是「不自己实现 GC」这个决定真正付出代价的一处。弱表、`__gc`、字符串池
 全部重建在 JVM 的可达性之上，而那与 Lua 的标记-清除**不是一回事**；有三处
@@ -241,6 +243,11 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 | `DumpTest`（测试） | — | 阶段 8 闸门：16——运行期 stdout 与 `string.dump` 产物都逐字节比 |
 | `StringPack` | `lstrlib.c` 的一部分 | `string.pack` / `unpack` / `packsize`；标准库里唯一平台相关的一角 |
 | `PackTest`（测试） | — | 21 段脚本——整数、浮点、字符串、对齐、宽整数、报错、键集合 |
+| `DebugLib` | `ldblib.c` + `ldebug.c` / `ldo.c` / `lauxlib.c` 的一部分 | `getinfo` / 局部变量 / upvalue / `traceback` / 注册表 / 元表 / 用户值 / `setcstacklimit` / `sethook` / `gethook` |
+| `LuaHook` | `lua.h` 的 `lua_Hook` | 钩子回调；`DebugLib` 的 `hookf` 就是 `sethook` 装的那个 |
+| `LuaLibs` | `linit.c` | `luaL_openlibs`；按 `loadedlibs` 的顺序开十个库 |
+| `DebugTest`（测试） | — | 阶段 9 闸门：36 段脚本——层号、选项、局部变量、upvalue、`traceback`、深栈，外加 14 段钩子用例 |
+| `LuaLibsTest`（测试） | — | `openAll` 真的开全了十个，而且库表就是元表指的那张 |
 
 ### 字节码这道闸门
 
@@ -595,10 +602,111 @@ C 的 `long`，`T` 是 `size_t`，`!` 的默认最大对齐是 `LUAI_MAXALIGN` �
   `string.pack("c2")` 报的是 `string expected, got nil` 而不是
   `got no value`。
 
+### 阶段 9 —— `debug` 库，钩子也在内
+
+`ldblib.c` 落地为 `DebugLib`，顺带把 `ldebug.c` 里只有内省接口才用到的那部分
+（`lua_getstack` / `lua_getinfo` / `luaG_findlocal` / `luaG_traceexec` /
+`luaG_tracecall`）与 `lauxlib.c` 的 `luaL_traceback` 一起搬进来。闸门是
+`DebugTest`（36 段脚本）。十六个函数全部落地。
+
+`LuaLibs.openAll`（`linit.c` 的 `luaL_openlibs`）也一并落地——之前「开标准库」
+是十次调用，只有测试驱动知道顺序。
+
+#### 钩子这套机制，以及它的调用点都在哪儿
+
+`sethook` 不是一个能单独搬的库函数：它只是一个<b>分发器</b>，真正的调用点散在
+解释器各处。搬它意味着除了 `DebugLib.dHook`（`ldo.c: luaD_hook`）之外还要补：
+
+| 调用点 | 上游 | 触发 |
+|---|---|---|
+| `LuaState.precallC` | `ldo.c` | C 函数的 `call`——在 C 函数本身<b>之前</b> |
+| `DebugLib.dHookCall`，由 `Vm` 的 `startfunc` 与 `OP_VARARGPREP` 调 | `ldo.c: luaD_hookcall` | Lua 函数的 `call` / `tail call` |
+| `DebugLib.rethook`，由 `LuaState.poscall` 调 | `ldo.c: rethook` | 两类函数的 `return` |
+| `DebugLib.traceExec`，由 `Vm` 的 `vmfetch` 调 | `ldebug.c: luaG_traceexec` | `line` 与 `count` |
+
+外加 `CallInfo.trap` 与 `LuaState` 上的 `hook` / `hookmask` / `hookcount` /
+`allowhook` / `oldpc`。`trap` 的意义在于它是 `luaV_execute` 里的一个<b>局部</b>
+变量——不开钩子时主循环连分支都不走。
+
+#### 又四件由参考实现裁定的事
+
+* **`lua_sethook` 必须调 `settraps`。** 主循环里的 `trap` 是局部变量，只在少数
+  几个点（`updatetrap`）才从帧上重读。所以「执行到一半把钩子打开」在别的帧上一
+  点用都没有，除非把每个活着的 Lua 帧的 `trap` 都置成 1——这正是 `settraps` 做的。
+  少了它，`debug.sethook(f, "l")` 一个行事件都不会来。
+* **钩子里的错误，<b>不会被它所报告的那个 `pcall` 抓住</b>。** `pcall` 的 `call`
+  钩子是在 `precallC` 里、<b>在 `pcall` 建好恢复点之前</b>报的，所以
+  `pcall(function() ... end)` 抓不到「钩子在 `pcall` 自己身上抛的错」。
+* **`funcnamefromcall` 里 `CIST_HOOKED` 要判在 `isLua` <b>之前</b>。** 带这个标记
+  的那一帧常常是 <b>C 帧</b>（`pcall` 的调用钩子就打在 `pcall` 自己的 C 帧上），
+  先判 `isLua` 永远走不到这一支——回溯里那一行会从 `in hook '?'` 变成
+  `in function <文件:行>`。
+* **钩子永远不能 yield。** `hookf` 用 `lua_call` 调用户函数，而 `lua_call` 走
+  `luaD_callnoyield`，「不可 yield」的层数在钩子里非零。实测：钩子里
+  `coroutine.yield()` 在主线程上报 `attempt to yield from outside a coroutine`、
+  在协程里报 `attempt to yield across a C-call boundary`，两种情况都让程序/协程
+  死掉。这就是为什么本实现<b>根本没搬 `CIST_HOOKYIELD`</b>——从 Lua 里走不到
+  （上游那个标记是给「由 C API 直接装的 C 钩子」用的，那种钩子不走 `lua_call`）。
+
+#### 由钩子这道闸门抓出来的一个顺序 bug
+
+`allowhook` 必须在<b>保护调用边界</b>上恢复，而且是<b>在消息处理函数跑完之后</b>，
+不是在它之前。处理函数是在抛出点跑的，那时 `allowhook` 还是 0（正是这一点让回溯
+不会重新进钩子）。提前恢复成 1，回溯就会再触发一次钩子、再抛一次错，最后被
+`applyErrMsg` 兜成 `error in error handling`。症状是
+`debug.sethook(function() error("x") end, "c")` 之后那个未捕获错误打出来的是
+`error in error handling`，而不是真正的回溯。
+
+#### 阶段 9 里由参考实现裁定的五件事
+
+* **层号 0 是 `getinfo` 自己的 C 帧。** `lua_getstack(L, 0, &ar)` 会成功，
+  给出 `what = "C", currentline = -1, name = "getinfo"`。名字来自
+  `funcnamefromcall` 读<b>调用者</b>那一帧，所以它回答的是「调用者当时在调谁」，
+  不是「这一帧叫什么」。搞错一处，所有 `debug.getinfo(n)` 整体错一层。
+* **`'f'` 与 `'L'` 要 `lua_rotate`，不能弹。** 结果表是 `lua_getinfo` <b>之后</b>
+  才压的，所以 `lua_getinfo` 自己的产物在它<b>底下</b>。
+  `treatstackoption` 是 `lua_rotate(L, -2, 1)` 再 `lua_setfield(L, -2)`。
+  写成 `L.top--` 弹掉的是结果表本人——症状是 `debug.getinfo(1)` 返回一个
+  打印出来像函数的东西，而 `debug.getinfo(1).func` 里存着那张表。
+* **`pushfuncname` 先试<b>全局</b>名。** `error` 在 `getobjname` 眼里是
+  `global 'error'`（一条 `GETTABUP _ENV`），但回溯打的是 `function 'error'`——
+  `pushglobalfuncname` 在 `_LOADED._G` 里按<b>值</b>反查到了它，并且优先。
+  只看 `ar.namewhat`，每个有全局名的 C 函数的修饰语都会错。
+* **消息处理函数在<b>栈还没退</b>的时候跑** —— `luaG_errormsg` 是在抛出点调它的，
+  不是在 `luaD_pcall` 的恢复里。这就是 `xpcall(f, debug.traceback)` 能打出完整
+  回溯、而不是只剩最外面两层的原因。Java 没有 `longjmp`，但 `catch` 到的那一刻
+  <b>Lua 栈</b>（`stack` / `top` / `ci`）还是完好的，所以把处理函数放在
+  `pcall` 的 `catch` 最前面跑是等价的。
+* **`LEVELS1` / `LEVELS2` 是 10 和 11**，不是整整齐齐的 10/10，头尾也不等长。
+  否则「(skipping N levels)」那个数差 1——而且只在深到会触发它的栈上才暴露。
+
+#### 由 `debug` 这道闸门抓出来的两个 bug，都不在 `debug` 里
+
+* **`OP_TESTSET` 的判条件写反了，于是 `and` / `or` 是错的。** 上游判
+  `l_isfalse(rb) == k`，这里判成了 `toBoolean() == (k != 0)`——这两者在 `k`
+  的两个取值上恰好相反。它<b>静默</b>：`TESTSET` 只在「结果寄存器 ≠ B」时才
+  保留下来（`patchTestReg` 否则把它改写成 `OP_TEST`），于是
+  `if x then` 一直是对的，`x and y` 一直是错的。症状是
+  `print(t and "yes")` 打印出那张表；更糟的是 `cond and a or b`——Lua 里最常用的
+  惯用法——整体取错分支。**字节码闸门看不见它**：两边的字节码逐字段相同。
+  `RuntimeTest.logicalOperatorsReturnValues` 现在钉住的是返回的<b>哪个值</b>，
+  不只是真假。
+* **`xpcall` 的处理函数跑在调用链已经恢复之后。** 见上面第四条：
+  `xpcall(f, debug.traceback)` 的回溯只有两层，应该是七层。
+
+#### 一处由参考实现裁出来、但属于「驱动方式」而不属于引擎的差异
+
+`lua.c` 是在 `pmain`——一个 <b>C 函数</b>——里面跑脚本的，所以主 chunk 底下多一个
+C 帧。它表现为每次回溯末尾那行 `[C]: in ?`，以及
+`debug.getinfo(3).what == "C"`。宿主直接 `luaL_dostring` 时没有这一帧，两者都
+看不到。所以这是修在差分驱动上的（`Diff` 现在照 `lua.c` 搭：`pmain` + `docall`
++ `msghandler`），不是修在引擎上——为了让引擎凑上它，反而会让 `luaL_dostring`
+变成错的。
+
 ### 还没补上的
 
-* **整个 `debug` 库。** `debug` 目前是 `nil`。它需要 `ldebug.c`
-  （`getinfo`、局部变量、upvalue、钩子）与 `ldblib.c` 一起落地。
+语言与十个标准库本身没有缺项了。剩下的是<b>验证的广度</b>：更多差分脚本、
+更大的 fuzz 语料，以及把 `lua-5.4.x/tests` 那套一致性用例端到端跑一遍。
 
 ---
 
@@ -619,6 +727,18 @@ Java 绑定注解、以及性能剖析器。
 ```bash
 ./mvnw clean test          # 需要 JDK 21+
 ```
+
+机器上没有 `lua5.4` 二进制时，差分测试会自己跳过（`Diff` 里一个 `assumeTrue`
+守卫），覆盖率门禁跟着一起跳过——差分套件占了行覆盖的绝大部分，在它们全被跳过
+的情况下还跑门禁，只会因为一个不相干的理由一直红。要拿到真正的门禁，设
+`LUA54_BIN`，或者把参考实现编到 `target/lua54/src/lua`：
+
+```bash
+LUA54_BIN=/path/to/lua5.4 ./mvnw clean test
+```
+
+CI 从源码编参考实现并导出 `LUA54_BIN` 与 `FKDUMP_BIN`，所以这只影响本地没有
+参考二进制的构建。
 
 ---
 

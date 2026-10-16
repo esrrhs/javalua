@@ -84,6 +84,21 @@ public final class Lua {
     /** 短字符串阈值，超过则不驻留（对应 lstring.c 的 LUAI_MAXSHORTLEN） */
     public static final int MAXSHORTLEN = 40;
 
+    /* ==================== 调试钩子 ==================== */
+
+    /** {@code LUA_HOOKCALL} 等：钩子事件。顺序必须与 {@code hookf} 的名字表一致 */
+    public static final int LUA_HOOKCALL = 0;
+    public static final int LUA_HOOKRET = 1;
+    public static final int LUA_HOOKLINE = 2;
+    public static final int LUA_HOOKCOUNT = 3;
+    public static final int LUA_HOOKTAILCALL = 4;
+
+    /** {@code LUA_MASKCALL} 等：{@code sethook} 的掩码位 */
+    public static final int LUA_MASKCALL = 1 << 0;
+    public static final int LUA_MASKRET = 1 << 1;
+    public static final int LUA_MASKLINE = 1 << 2;
+    public static final int LUA_MASKCOUNT = 1 << 3;
+
     /** {@code luaO_ceillog2}：不小于 log2(x) 的最小整数，x 必须 &gt; 0 */
     public static int ceilLog2(int x) {
         int l = 0;
