@@ -184,11 +184,12 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 3 — interpreter.** The previous fakescript language implementation has
-been removed from `master`; see *Migration* below. Phases 0, 1, 2 and 3 are in:
-the compiler produces bytecode that is **field-for-field identical** to a real
+**Phase 4 — closures.** The previous fakescript language implementation has been
+removed from `master`; see *Migration* below. Phases 0 through 4 are in: the
+compiler produces bytecode that is **field-for-field identical** to a real
 `lua5.4`'s, and the VM executes it — **stdout matches a real `lua5.4` byte for
-byte** across 158 differential scripts, and error messages match line for line.
+byte** across 158 + 121 differential scripts and 1500 generated programs, and
+error messages match line for line.
 
 Landed so far:
 
@@ -217,7 +218,10 @@ Landed so far:
 | `LuaTm` | `ltm.c` | metamethod lookup & dispatch, `__le` fallback, `to-be-closed` |
 | `Vm` | `lvm.c` | the interpreter main loop; all 83 opcodes |
 | `BaseLib`, `MathLib` | `lbaselib.c`, `lmathlib.c`, part of `lstrlib.c` | minimal but differentially-verified |
+| `Diff` (test) | — | shared differential driver: runs one script on both sides |
 | `ConformanceTest`, `CodegenTest`, `ParserTest`, `RuntimeTest` | — | run a real `lua5.4` binary as the oracle |
+| `ClosureTest` (test) | — | Phase 4 gate: closures, `goto`, varargs, multiple assignment |
+| `FuzzTest` (test) | — | 1500 seeded generated programs, both sides |
 
 ### The bytecode gate
 
@@ -322,7 +326,41 @@ are locked by differential tests.
   that uses the former reports no `src:line:` prefix at all, because its own
   frame is a C frame.
 
-Next: Phase 4, closures and open/closed upvalues (`lparser.c`, `lvm.c`).
+### The fuzzing gate
+
+`FuzzTest` generates 1500 programs from a small grammar and diffs each one
+against the reference. Two constraints keep it from becoming a nuisance
+generator:
+
+* **It must terminate.** Only bounded `for` / `ipairs` loops, no `while`, no
+  `repeat`, no `goto`; a call may only target a function that finished being
+  defined *earlier*, so the call graph is a DAG and recursion is impossible.
+* **It must be reproducible.** Seeds increment from 0 — no `Math.random`. A
+  failure is reproducible from "seed 84".
+
+The generator knows nothing about how we *think* Lua behaves, which is the point:
+it is the only gate that finds "does not crash, but the value is wrong".
+
+### Four things the reference binary settled this phase
+
+* **`luaF_newtbcupval` checks `__close` at assignment time, not at scope exit.**
+  `OP_TBC` runs right after the local receives its value, so
+  `local x <close> = 5 print(x)` raises
+  `variable 'x' got a non-closable value` *before* printing anything. `nil` and
+  `false` are exempt (`l_isfalse`), so `local x <close> = nil` is legal.
+* **An error inside `__close` during unwinding *replaces* the original error.**
+  `error('orig')` followed by a `__close` that does `error('in close')` makes
+  `pcall` return `in close`. Keeping the original instead is wrong.
+* **The code generator folds `OPR_MINUS` and `OPR_BNOT` only — never `OPR_LEN`.**
+  So `#7.5` is a *runtime* error, not a load-time one. Folding it would make a
+  script fail to compile that upstream compiles and only fails when run.
+* **Two harness rules, learned the hard way.** When a script errors, the stdout
+  it already produced must still be compared (the reference's stdout and stderr
+  are captured together, so "print ten lines, then crash" has both in its
+  output); and the `lua.c` program-name prefix must be stripped *everywhere*,
+  not just at the start, because it appears mid-output once stdout precedes it.
+
+Next: Phase 5, coroutines on virtual threads (`lcorolib.c`, `ldo.c`).
 
 ---
 
