@@ -22,10 +22,19 @@ import org.junit.jupiter.api.Test;
  */
 class LexerTest {
 
+    /**
+     * 报错里看到的源名（{@code luaO_chunkid} 剥掉 {@code @} 之后的形态）。
+     * <p>
+     * 传给 {@link Lexer} 的必须<b>带 {@code @}</b>：不带前缀的源名会被
+     * {@code luaO_chunkid} 包成 {@code [string "test.lua"]}，而 {@code lua.c}
+     * 加载文件时加的就是 {@code @}，真实脚本看到的都是裸路径。
+     */
     private static final String SRC = "test.lua";
 
+    private static final String CHUNK = "@" + SRC;
+
     private static Lexer lexer(String src) {
-        return new Lexer(src.getBytes(StandardCharsets.UTF_8), SRC);
+        return new Lexer(src.getBytes(StandardCharsets.UTF_8), CHUNK);
     }
 
     /** 扫完整个输入，返回 token 序列（不含 TK_EOS） */
@@ -299,7 +308,7 @@ class LexerTest {
         System.arraycopy(payload, 0, src, 2, n);
         src[n + 2] = ']';
         src[n + 3] = ']';
-        Lexer ls = new Lexer(src, SRC);
+        Lexer ls = new Lexer(src, CHUNK);
         ls.next();
         assertEquals(Lexer.TK_STRING, ls.t.token);
         assertArrayEquals(payload, ls.t.s.bytes);

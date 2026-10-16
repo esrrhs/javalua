@@ -250,14 +250,34 @@ public final class StringLib {
     }
 
     /**
-     * {@code str_dump} —— 现阶段一律失败。
+     * {@code str_dump}：把一个 Lua 函数导出成二进制 chunk。
      * <p>
-     * 需要 {@code ldump.c}（二进制 chunk 导出），属于阶段 8。这里先占住名字，
-     * 让 {@code pairs(string)} 的键集合与参考实现一致，行为差异记在 README。
+     * 只接受 <b>Lua 函数</b>：C 函数没有 {@code Proto} 可 dump，报的是
+     * 「Lua function expected」而不是笼统的「function expected」。
+     * <p>
+     * {@code strip} 为真时剥掉调试信息（行号、局部变量名、upvalue 名、源名）。
+     * 剥完之后仍能执行，只是报错时没有位置前缀。
      */
     private static int dump(LuaState L) {
+        /*
+         * 两步检查，顺序不能换，消息也不同：
+         * {@code luaL_checktype} 先挡「根本不是函数」——报
+         * {@code function expected, got X}（连「没给参数」也是这一条）；
+         * 然后 {@code lua_dump} 对非 Lua 函数直接返回 1，于是 C 函数落到
+         * {@code luaL_error("unable to dump given function")}。
+         * 合成一步会把 C 函数也报成「Lua function expected」。
+         */
         LuaAux.checkType(L, 1, Lua.TFUNCTION);
-        throw L.libError("unable to dump given function");
+        LuaValue v = L.arg1(1);
+        boolean strip = !L.isNoneArg(2) && L.arg1(2).toBoolean();
+        if (v.tt != Lua.VLIF) {
+            throw L.libError("unable to dump given function");
+        }
+        L.setTop(1);
+        LClosure cl = (LClosure) v.o;
+        byte[] bytes = Dump.dumpBytes(cl.p, strip);
+        L.push(LuaValue.ofString(LuaString.of(bytes)));
+        return 1;
     }
 
     /* ==================== 模式匹配 ==================== */
