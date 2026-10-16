@@ -259,10 +259,19 @@ public final class Lexer {
 
     /* ---------- 错误 ---------- */
 
-    /** {@code lexerror}：{@code source:line: msg[ near <token>]}，逐字节拼装 */
+    /**
+     * {@code lexerror}：{@code source:line: msg[ near <token>]}，逐字节拼装。
+     * <p>
+     * 源名要先过一遍 {@code luaO_chunkid}（剥掉开头的 {@code '@'} / {@code '='}）——
+     * C 的 {@code luaG_addinfo} 就是这么做的。漏掉这一步，
+     * {@code require} 一个语法错误的模块时会报
+     * {@code @/tmp/m.lua:1: syntax error} 而参考实现报 {@code /tmp/m.lua:1: ...}。
+     */
     private LuaError lexError(String msg, int token) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        out.write(sourceBytes, 0, sourceBytes.length);
+        int skip = (sourceBytes.length > 0
+                && (sourceBytes[0] == '@' || sourceBytes[0] == '=')) ? 1 : 0;
+        out.write(sourceBytes, skip, sourceBytes.length - skip);
         writeAscii(out, ":" + linenumber + ": " + msg);
         if (token != 0) {
             writeAscii(out, " near ");

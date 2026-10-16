@@ -36,7 +36,12 @@ public final class CoroutineLib {
         setFn(t, "yield", CoroutineLib::coyield);
         setFn(t, "isyieldable", CoroutineLib::yieldable);
         setFn(t, "close", CoroutineLib::coclose);
-        L.globals.set("coroutine", LuaValue.ofTable(t));
+        /*
+         * 进 _LOADED 而不只是 _G：参考实现里 require("coroutine") 拿到的
+         * 就是这张表。少登记这一条，脚本里写 require("coroutine") 会直接
+         * 报 module not found。
+         */
+        LuaAux.registerLib(L, "coroutine", t);
     }
 
     private static void setFn(LuaTable t, String name, LuaFunction f) {
