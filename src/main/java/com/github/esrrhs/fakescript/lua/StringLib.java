@@ -67,9 +67,12 @@ public final class StringLib {
         LuaAux.setFn(s, "len", StringLib::len);
         LuaAux.setFn(s, "lower", StringLib::lower);
         LuaAux.setFn(s, "match", StringLib::matchFn);
+        LuaAux.setFn(s, "pack", StringPack::pack);
+        LuaAux.setFn(s, "packsize", StringPack::packsize);
         LuaAux.setFn(s, "rep", StringLib::rep);
         LuaAux.setFn(s, "reverse", StringLib::reverse);
         LuaAux.setFn(s, "sub", StringLib::sub);
+        LuaAux.setFn(s, "unpack", StringPack::unpack);
         LuaAux.setFn(s, "upper", StringLib::upper);
         LuaAux.registerLib(L, "string", s);
 
@@ -94,7 +97,7 @@ public final class StringLib {
      * 越界下标在 C 里是 {@code size_t}，截断成 int 会把「很远」变成「很近」，
      * 进而切出一个根本不该存在的子串。
      */
-    private static long posrelatI(long pos, int len) {
+    static long posrelatI(long pos, int len) {
         if (pos > 0) {
             return pos;
         }
