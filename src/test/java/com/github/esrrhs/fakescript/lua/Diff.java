@@ -102,6 +102,7 @@ final class Diff {
         Utf8Lib.open(L);
         OsLib.open(L);
         CoroutineLib.open(L);
+        PackageLib.open(L);
         IoLib.open(L);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);

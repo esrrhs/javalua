@@ -493,12 +493,12 @@ match, and each is documented rather than papered over.
 ### Phase 7 so far
 
 `string` (`StringLib`), `table` (`TableLib`), `math` (`MathLib`), `utf8`
-(`Utf8Lib`), `os` (`OsLib`) and `io` (`IoLib`) are ported, each with its own
-differential gate — `StringLibTest` (29), `MathLibTest` (26),
-`TableLibTest` (18), `Utf8LibTest` (13), `OsLibTest` (24), `IoLibTest` (35).
-`package` is still to come.
+(`Utf8Lib`), `os` (`OsLib`), `io` (`IoLib`) and `package` (`PackageLib`) are
+ported, each with its own differential gate — `StringLibTest` (29),
+`MathLibTest` (26), `TableLibTest` (18), `Utf8LibTest` (13), `OsLibTest` (24),
+`IoLibTest` (35), `PackageLibTest` (22).
 
-#### Seven things the reference binary settled in Phase 7
+#### Ten things the reference binary settled in Phase 7
 
 * **A shared `lauxlib.c` layer has to come *before* any library.** Argument
   checking (`checkString` / `checkInteger` / `argError` / …) is not scaffolding:
@@ -542,6 +542,18 @@ differential gate — `StringLibTest` (29), `MathLibTest` (26),
   has to reach whichever stream the host installed. So `IoLib` buffers
   `RandomAccessFile` writes (flushing on `flush`, `seek`, any read, and close)
   and writes straight through for stdin/stdout/stderr.
+* **`require`'s searcher result is tested with `lua_isstring`, not "is a
+  string".** A searcher that returns the *number* `42` has its value
+  concatenated into the not-found message; only a non-string, non-number
+  result is treated as "this searcher said nothing" and drops the
+  `\n\t` prefix again.
+* **Load-time errors run the chunk name through `luaO_chunkid` too.** The
+  module file is compiled as `"@" + path`, but `luaG_addinfo` strips the `@`
+  before printing, so a syntax error in a required module reads
+  `/tmp/m.lua:1: syntax error near 'is'` — not `@/tmp/m.lua:1: ...`.
+* **Every library has to be registered in `_LOADED`, not just in `_G`.**
+  `coroutine` was the one that slipped through: `require("coroutine")` reported
+  `module 'coroutine' not found`, because the table was only in the globals.
 
 #### One divergence that is accepted, not fixed
 
@@ -568,7 +580,20 @@ and the `log` branches above are bit-exact.
   pipe); `io.stdin:seek()` is not compared, because the difference is in where
   the stream comes from, not in what `io` does.
 
-Next in Phase 7: `package`, then `load` / `require` in Phase 8.
+#### Two divergences in `package` that are accepted, not fixed
+
+`loadlib.c`'s fallback branch is the honest one here: there is no `dlopen` on
+the JVM (reaching it would mean JNI or FFI — a different project), so the C
+searcher behaves the way C does on a platform built without dynamic loading.
+
+* **`package.loadlib`** returns `nil, "dynamic libraries not enabled; check
+  your Lua installation", "absent"`. The reference binary is built with
+  `dlopen`, so it returns a `dlerror()` string and `"open"`.
+* **`require` of a module whose `.so` actually exists** stops at "dynamic
+  libraries not enabled" instead of loading it. Modules that only exist as
+  `.lua`, and `package.preload` entries, are unaffected.
+
+Next: Phase 8 — `load`, `loadfile`, `dofile` and `string.dump`.
 
 ---
 

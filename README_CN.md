@@ -431,11 +431,12 @@ L.run("print('hello from Lua')");
 ### 阶段 7 到目前为止
 
 `string`（`StringLib`）、`table`（`TableLib`）、`math`（`MathLib`）、
-`utf8`（`Utf8Lib`）、`os`（`OsLib`）、`io`（`IoLib`）已经搬完，各带一道差分
-闸门：`StringLibTest`（29）、`MathLibTest`（26）、`TableLibTest`（18）、
-`Utf8LibTest`（13）、`OsLibTest`（24）、`IoLibTest`（35）。`package` 还没做。
+`utf8`（`Utf8Lib`）、`os`（`OsLib`）、`io`（`IoLib`）、`package`
+（`PackageLib`）已经搬完，各带一道差分闸门：`StringLibTest`（29）、
+`MathLibTest`（26）、`TableLibTest`（18）、`Utf8LibTest`（13）、
+`OsLibTest`（24）、`IoLibTest`（35）、`PackageLibTest`（22）。
 
-### 阶段 7 里由参考实现裁定的七件事
+### 阶段 7 里由参考实现裁定的十件事
 
 * **共享的 `lauxlib.c` 那一层必须**先于**任何库落地。** 参数检查
   （`checkString` / `checkInteger` / `argError` / …）不是脚手架：错误文本本身
@@ -472,6 +473,16 @@ L.run("print('hello from Lua')");
   的输出必须落到宿主装的那条流上。所以 `IoLib` 对 `RandomAccessFile` 的写做
   缓冲（`flush`、`seek`、任何读、以及关闭时落盘），对 `stdin` / `stdout` /
   `stderr` 则直接写穿。
+* **`require` 判断搜索器结果用的是 `lua_isstring`，不是「是不是字符串」。**
+  返回**数字** `42` 的搜索器，那个 `42` 会被拼进「找不到模块」的消息里；
+  只有既非字符串又非数字的结果才被当成「这个搜索器没说什么」，并把刚加的
+  `\n\t` 前缀退掉。
+* **加载期错误的源名也要过 `luaO_chunkid`。** 模块文件是按 `"@" + 路径` 编
+  译的，但 `luaG_addinfo` 打印前会把 `@` 剥掉，所以 require 一个语法错误的
+  模块报的是 `/tmp/m.lua:1: syntax error near 'is'`，不是 `@/tmp/m.lua:1: ...`。
+* **每个库都要同时登记进 `_LOADED`，不能只进 `_G`。** 漏掉的是 `coroutine`：
+  它当时只在全局表里，于是 `require("coroutine")` 报
+  `module 'coroutine' not found`。
 
 ### 一处承认下来、不去修的偏离
 
@@ -494,7 +505,19 @@ L.run("print('hello from Lua')");
   `io.stdout:seek()` 两边一致（管道上是 `nil, "Illegal seek", 29`）；
   `io.stdin:seek()` 不比对——差的是流的来源，不是 `io` 的行为。
 
-下一步：阶段 7 的 `package`，然后是阶段 8 的 `load` / `require`。
+### `package` 里两处承认下来、不去修的偏离
+
+这里如实走 `loadlib.c` 的兜底分支：JVM 上没有 `dlopen`（真要接得走 JNI 或
+FFI，那是另一个工程），所以 C 搜索器的行为就是 C 版在「未启用动态库」的
+平台上的行为。
+
+* **`package.loadlib`** 返回 `nil, "dynamic libraries not enabled; check your
+  Lua installation", "absent"`。参考二进制是用 `dlopen` 编出来的，那边给的
+  是 `dlerror()` 的文本和 `"open"`。
+* **`require` 一个真能找到 `.so` 的模块**会停在「动态库未启用」这一步，
+  而不是真的加载它。只有 `.lua` 的模块与 `package.preload` 里的条目不受影响。
+
+下一步：阶段 8 的 `load` / `loadfile` / `dofile` / `string.dump`。
 
 ---
 
