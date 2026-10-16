@@ -524,6 +524,14 @@ public final class Vm {
                     break;
                 }
                 case OpCode.OP_TBC: {
+                    /*
+                     * {@code luaF_newtbcupval} 在<b>赋值的当下</b>就检查
+                     * {@code __close}，不是在作用域结束时。所以
+                     * {@code local x <close> = 5} 会在这一条指令上直接抛
+                     * “variable 'x' got a non-closable value”，
+                     * 后面的 {@code print(x)} 根本不会执行——实测确认。
+                     * 挪到关闭时检查会让它先打印、最后才报错。
+                     */
                     ci.savedpc = pc;
                     L.newTbcUpval(base + OpCode.getArgA(i));
                     break;

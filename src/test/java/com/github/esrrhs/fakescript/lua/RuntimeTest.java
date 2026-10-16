@@ -1,12 +1,7 @@
 package com.github.esrrhs.fakescript.lua;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,9 +22,6 @@ import org.junit.jupiter.params.provider.MethodSource;
  * 会把过长的源名从左边截成 {@code ...xxx}，用随机临时文件名就没法比对了。
  */
 class RuntimeTest {
-
-    private static final String CASE_PATH = "target/rt/case.lua";
-    private static final String CHUNK = "@" + CASE_PATH;
 
     @BeforeAll
     static void requireReference() {
@@ -241,9 +233,10 @@ class RuntimeTest {
         // 位运算 / 除法的整数与浮点两路
         s.add("print(1 << 62, -1 >> 63, 7 & -1, 0 ~ 0 ~ 5)");
         s.add("print(5.0 | 0, 5.0 & 3.0, ~5.0, 1.0 << 2.0)");
+        // 整数除零/取模零报错，浮点不报（1.0//0 就是 inf）——两者别混成一条
         s.add("print(pcall(function() return 1 // 0 end))");
         s.add("print(pcall(function() return 1 % 0 end))");
-        s.add("print(pcall(function() return 1.0 // 0 end))");
+        s.add("print(1.0 // 0, 1.0 % 0, -1.0 // 0)");
         s.add("print(2 ^ 0.5, (-8) ^ (1/3), 0 ^ 0)");
         s.add("print(-2.5, - -3, -(0/0))");
 
@@ -307,10 +300,7 @@ class RuntimeTest {
     @ParameterizedTest(name = "script #{index}")
     @MethodSource("scripts")
     void scriptMatchesReference(String src) {
-        ReferenceLua.Result ref = ReferenceLua.runBytes(src.getBytes(StandardCharsets.UTF_8),
-                CASE_PATH).result;
-        String mine = runMine(src, CHUNK);
-        assertEquals(normalizeRef(ref), normalizeMine(mine), "script:\n" + src);
+        Diff.assertMatches(src);
     }
 
     @Test
@@ -341,84 +331,11 @@ class RuntimeTest {
         bad.add("local x <close> = 5 print(x)");
         bad.add("return 1 // 0");
         bad.add("return 1 % 0");
-        bad.add("return 1.0 // 0");
         bad.add("return 1 & 'x'");
         bad.add("local t = setmetatable({}, {}) return t < 1");
         bad.add("return 2 < 'a'");
         for (String src : bad) {
-            ReferenceLua.Result ref = ReferenceLua.runBytes(src.getBytes(StandardCharsets.UTF_8),
-                    CASE_PATH).result;
-            String mine = runMine(src, CHUNK);
-            assertEquals(firstLine(normalizeRef(ref)), firstLine(normalizeMine(mine)),
-                    "script:\n" + src);
+            Diff.assertFirstLineMatches(src);
         }
-    }
-
-    /* ==================== 驱动 ==================== */
-
-    /**
-     * 用本实现跑一段脚本，产出「stdout」或「错误对象转成字符串 + 换行」。
-     * <p>
-     * 出错时不带任何程序名前缀：参考实现的 {@code lua.c} 用
-     * {@code lua_writestringerror("%s\n", msg)} 直接写消息本身，程序名是
-     * shell 加的，不在输出里。
-     */
-    private static String runMine(String src, String chunkName) {
-        LuaState L = new LuaState();
-        BaseLib.open(L);
-        MathLib.open(L);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        L.out = new PrintStream(bos, true, StandardCharsets.UTF_8);
-        LuaValue err = L.runProtected(src.getBytes(StandardCharsets.UTF_8), chunkName);
-        String stdout = new String(bos.toByteArray(), StandardCharsets.UTF_8);
-        if (err == null) {
-            return stdout;
-        }
-        String msg;
-        if (err.isString()) {
-            msg = err.asString().toJavaString();
-        } else {
-            msg = "(error object is a " + err.typeName() + " value)";
-        }
-        return msg + "\n";
-    }
-
-    /**
-     * 参考实现的输出：去掉回溯，并把地址抹成同一个占位串。
-     * <p>
-     * 回溯依赖调试信息层数，本实现还没有 {@code ldebug.c} 的完整回溯；地址则
-     * 是每次运行都变的真实指针。两者都不属于「脚本语义」，比了也只会有假失败。
-     */
-    private static String normalizeRef(ReferenceLua.Result r) {
-        String out = r.output;
-        String bin = ReferenceLua.find();
-        if (bin != null) {
-            String prefix = new File(bin).getAbsolutePath() + ": ";
-            if (out.startsWith(prefix)) {
-                out = out.substring(prefix.length());
-            }
-        }
-        int tb = out.indexOf("stack traceback:");
-        if (tb >= 0) {
-            out = out.substring(0, tb);
-        }
-        return normalizeAddr(out);
-    }
-
-    private static String normalizeMine(String s) {
-        int tb = s.indexOf("stack traceback:");
-        if (tb >= 0) {
-            s = s.substring(0, tb);
-        }
-        return normalizeAddr(s);
-    }
-
-    private static String normalizeAddr(String s) {
-        return s.replaceAll("0x[0-9a-fA-F]+", "0xADDR");
-    }
-
-    private static String firstLine(String s) {
-        int i = s.indexOf('\n');
-        return (i < 0) ? s : s.substring(0, i);
     }
 }

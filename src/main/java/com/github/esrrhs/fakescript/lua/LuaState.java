@@ -188,12 +188,33 @@ public final class LuaState {
 
     /**
      * {@code luaF_newtbcupval}：为 {@code <close>} 变量新建一个 to-be-closed 的
-     * 开放 upvalue。
+     * 开放 upvalue，并<b>当场</b>检查它真的有 {@code __close}。
+     * <p>
+     * 两个容易漏掉的细节，都是实测出来的：
+     * <ul>
+     *   <li>{@code nil} 与 {@code false} 直接跳过，不需要 {@code __close}
+     *       （C 版是 {@code if (l_isfalse(s2v(level))) return;}）。所以
+     *       {@code local x <close> = nil} 完全合法。</li>
+     *   <li>检查在<b>赋值的当下</b>做，不在作用域结束时。所以
+     *       {@code local x <close> = 5 print(x)} 在 {@code OP_TBC} 上就抛错，
+     *       {@code print} 根本不会执行——把它挪到关闭时检查，输出会先多出一行。</li>
+     * </ul>
      * <p>
      * 与 {@link #findUpval} 不同，这里<b>不去重</b>：C 版也是每次新建一个，
      * 因为 tbc 变量是「槽」而不是「变量绑定」，同一个槽可以被标记多次。
      */
     UpVal newTbcUpval(int stackIdx) {
+        LuaValue v = stack[stackIdx];
+        if (v.isNil() || (v.tt == Lua.TBOOLEAN && !v.toBoolean())) {
+            // false / nil 不需要关闭，也不建 upvalue（C 版直接 return）
+            return null;
+        }
+        LuaValue tm = LuaTm.getTmByObj(this, v, Tm.TM_CLOSE);
+        if (tm == null || tm.isNil()) {
+            LuaString vn = localNameAt(stackIdx - ci.func);
+            throw runError("variable '" + ((vn == null) ? "?" : vn.toJavaString())
+                    + "' got a non-closable value");
+        }
         UpVal uv = UpVal.open(stack[stackIdx], stackIdx);
         uv.toBeClosed = true;
         int pos = 0;
@@ -447,7 +468,8 @@ public final class LuaState {
                 v = LuaValue.ofString(
                         LuaString.latin1(prefix + v.asString().toJavaString()));
             }
-            closeUpvalsOnUnwind(saved, v); // 必须先于恢复调用链：__close 要拿到错误对象
+            // 必须先于恢复调用链：__close 要拿到错误对象；返回值可能已被 __close 换掉
+            v = closeUpvalsOnUnwind(saved, v);
             ci = saved;
             top = oldTop;
             if (handler == null) {
@@ -476,18 +498,42 @@ public final class LuaState {
      * {@code OP_RETURN} 自己会关，<b>出错路径没有人关</b>——不在这里补，
      * {@code local f <close> = ... error('x')} 里的 {@code __close} 就永远不跑。
      * <p>
-     * {@code __close} 自身又抛错时，参考实现会报一条警告并沿用原错误；这里同样
-     * 沿用原错误，只是不打印警告。
+     * <b>{@code __close} 自己又出错时，新错误顶掉原错误</b>（实测：
+     * {@code error('orig')} 之后 {@code __close} 里 {@code error('in close')}，
+     * {@code pcall} 拿到的是 {@code in close}）。所以这里返回的是<b>可能已被换掉</b>
+     * 的错误对象，调用方必须拿返回值覆盖原来的。
+     * <p>
+     * 另一个细节是循环：C 版用 {@code luaD_rawrunprotected} 一次只关一批，
+     * 出错就记下新错误再接着关剩下的，直到关完。这里同样循环到没有可关的为止，
+     * 但加了「一轮下来一个都没关掉就停」的兜底，避免某个 {@code __close}
+     * 一进入就抛错时转不出来。
+     *
+     * @return 最终的错误对象（可能与传入的 {@code errObj} 不同）
      */
-    private void closeUpvalsOnUnwind(CallInfo target, LuaValue errObj) {
+    private LuaValue closeUpvalsOnUnwind(CallInfo target, LuaValue errObj) {
         if (target == null || openUpvals.isEmpty()) {
-            return;
+            return errObj;
         }
         int level = target.func + 1;
-        try {
-            closeUpvals(level, errObj);
-        } catch (LuaError ignored) {
-            // __close 出错：沿用原错误对象
+        CallInfo saved = ci;
+        while (true) {
+            int before = openUpvals.size();
+            try {
+                closeUpvals(level, errObj);
+                return errObj;
+            } catch (LuaError e2) {
+                LuaValue v = e2.value;
+                if (e2.where == null && v != null && v.isString()) {
+                    String prefix = where(); // 出错那刻的帧，先于恢复
+                    v = LuaValue.ofString(
+                            LuaString.latin1(prefix + v.asString().toJavaString()));
+                }
+                ci = saved;
+                errObj = v;
+                if (openUpvals.size() >= before) {
+                    return errObj; // 一个也没关掉，再试也不会有进展
+                }
+            }
         }
     }
 
