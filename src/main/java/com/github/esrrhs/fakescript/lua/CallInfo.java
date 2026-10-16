@@ -29,6 +29,39 @@ public final class CallInfo {
     /** 可变参数里「额外参数」的个数（{@code u.l.nextraargs}） */
     int nextraargs;
 
+    /**
+     * {@code u.l.trap}：本帧是否要在每条指令前停下来查钩子。
+     * <p>
+     * 这是「钩子开销为零」的关键：钩子没开时 {@code trap} 是 0，主循环连
+     * {@code luaG_traceexec} 都不进。它由三处写：
+     * {@code luaG_tracecall}（进函数时置 1）、{@code luaG_traceexec}
+     * （没开行/计数钩子时置 0）、以及 {@code lua_sethook} 的
+     * {@code settraps}——最后这一处才是「执行到一半打开钩子」也能立刻生效的
+     * 原因，因为主循环的 {@code trap} 局部变量只在特定点才从帧里重读。
+     */
+    boolean trap;
+
+    /**
+     * {@code CIST_HOOKED}：本帧正在被钩子跟踪。
+     * <p>
+     * 作用有二：一是 {@code luaD_hook} 期间置位，让钩子内发起的调用不再触发
+     * 新钩子（配合 {@code allowhook}）；二是让 {@code funcnamefromcall} 把
+     * 回溯里的这一层打印成 {@code in hook '?'}。
+     */
+    boolean hooked;
+
+    /**
+     * {@code CIST_TRAN}：本帧的 {@code ftransfer / ntransfer} 有效。
+     * 只在返回钩子的调用期间为真（{@code debug.getinfo(2, 'r')} 读它）。
+     */
+    boolean tran;
+
+    /** {@code u2.transferinfo.ftransfer}：第一个返回值相对 {@link #func} 的偏移 */
+    int ftransfer;
+
+    /** {@code u2.transferinfo.ntransfer}：返回值的个数 */
+    int ntransfer;
+
     /* ---- 通用 ---- */
 
     /**

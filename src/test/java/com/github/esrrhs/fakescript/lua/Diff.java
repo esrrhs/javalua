@@ -1,6 +1,7 @@
 package com.github.esrrhs.fakescript.lua;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -55,22 +56,60 @@ final class Diff {
      * 而它看起来是全绿的一部分。
      */
     static void assertMatches(String src) {
+        requireReference();
         String r = ref(src);
         assertEquals(true, !r.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
         assertEquals(r, mine(src), "script:\n" + src);
     }
 
+    /**
+     * 与 {@link #assertMatches} 的差别：<b>不剥回溯</b>。
+     * <p>
+     * 剥回溯是给「脚本先打印若干行再崩」这类用例准备的兜底——本实现一度没有完整的
+     * {@code ldebug.c}，层数对不齐。但 {@code debug.traceback} 的<b>返回值本身就是
+     * 回溯</b>，砍掉它就什么都不剩了，用例会退化成「两边都输出空串」的假绿。
+     * 所以凡是回溯属于预期输出的用例都走这条。
+     */
+    static void assertFullMatches(String src) {
+        requireReference();
+        String r = normalize(refRaw(src), false);
+        assertEquals(true, !r.isEmpty(),
+                "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
+        assertEquals(r, normalize(mineRaw(src), false), "script:\n" + src);
+    }
+
     /** 只比对第一行（回溯与后续内容不可比时用） */
     static void assertFirstLineMatches(String src) {
+        requireReference();
         String r = ref(src);
         assertEquals(true, !r.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
         assertEquals(firstLine(r), firstLine(mine(src)), "script:\n" + src);
     }
 
-    /** 在参考实现上跑一段脚本，返回归一化后的输出 */
+    /**
+     * 没有参考实现二进制就跳过，而不是报错。
+     * <p>
+     * 守卫放在<b>这一处</b>而不是每个测试类各写一个 {@code @BeforeAll}：
+     * 十个类里只有几个写了，漏掉的那几个（全是 {@code @ParameterizedTest}）
+     * 在没有 {@code lua5.4} 的机器上会把 {@code ./mvnw clean test} 变成红的——
+     * 而 README 里写的构建命令就是它。JUnit 的 {@code assumeTrue} 在这里抛的是
+     * {@code TestAbortedException}，整条用例记成 skipped，正是想要的结果。
+     */
+    private static void requireReference() {
+        assumeTrue(ReferenceLua.find() != null,
+                "参考实现二进制不存在，跳过一致性测试；设 LUA54_BIN 或从源码构建到 "
+                        + "target/lua54/src/lua。已找过：" + ReferenceLua.describe());
+    }
+
+    /** 在参考实现上跑一段脚本，返回归一化后的输出（剥回溯） */
     static String ref(String src) {
+        return normalize(refRaw(src), true);
+    }
+
+    /** 在参考实现上跑一段脚本，返回原始输出 */
+    private static String refRaw(String src) {
         ReferenceLua.Result r = ReferenceLua.runBytes(src.getBytes(StandardCharsets.UTF_8),
                 CASE_PATH).result;
         String out = r.output;
@@ -84,26 +123,115 @@ final class Diff {
              */
             out = out.replace(new File(bin).getAbsolutePath() + ": ", "");
         }
-        return normalize(out);
+        return out;
     }
 
     /**
-     * 在本实现上跑一段脚本，返回归一化后的输出。
+     * 在本实现上跑一段脚本，返回归一化后的输出（剥回溯）。
+     * <p>
+     * 归一化留在这一层而不是抛给调用方：{@code FuzzTest} 之类的用例直接拿
+     * {@code ref} 与 {@code mine} 比，让它们自己记着归一化迟早会漏一次——
+     * 漏的那次表现为「只有地址不同」的假红。
+     */
+    static String mine(String src) {
+        return normalize(mineRaw(src), true);
+    }
+
+    /**
+     * 照 {@code lua.c} 的形状驱动：{@code main} 里 {@code lua_pcall(pmain)}，
+     * 脚本是 {@code pmain} 这个函数<b>里面</b>加载并调用的。
+     * <p>
+     * 这一层不是形式主义——{@code pmain} 本身是一个 <b>C 函数帧</b>，它会实实在在
+     * 出现在栈上。实测 {@code debug.traceback()} 在参考实现里最后一行是
+     * {@code [C]: in ?}，{@code debug.getinfo(3).what == "C"}，都是这一帧。
+     * 少了它，回溯与层号就整体差一层，而 {@code debug} 库的用例会假红在
+     * 一件跟 {@code debug} 库无关的事情上。
+     * <p>
+     * 至于引擎本身：宿主直接 {@code luaL_dostring} 时<b>没有</b>这一帧，
+     * {@code debug.traceback()} 也就不会多出那一行。所以这属于<b>驱动方式</b>
+     * 的差异，不该靠改引擎去凑。
+     */
+    private static LuaValue runLikeLuaC(LuaState L, String src) {
+        int base = L.top;
+        L.push(LuaValue.ofFunction(Diff::pmain));
+        L.push(LuaValue.ofString(LuaString.of(src.getBytes(StandardCharsets.UTF_8))));
+        return L.pcall(base, 0);
+    }
+
+    /** {@code lua.c: pmain}：加载并执行脚本 */
+    private static int pmain(LuaState L) {
+        byte[] bytes = L.arg1(1).asString().bytes;
+        // lua.c: docall —— 未捕获的错误会经过 msghandler，回溯就是它加的
+        int base = L.top;
+        L.pushClosure(L.load(bytes, CHUNK));
+        LuaValue err = L.pcall(base, 0, LuaValue.ofFunction(Diff::msghandler));
+        if (err != null) {
+            throw new LuaError(err, "");
+        }
+        return 0;
+    }
+
+    /**
+     * {@code lua.c: msghandler}：{@code docall} 给脚本装上的默认消息处理函数。
+     * <p>
+     * 不装它，脚本里未捕获的错误就只有一行消息，而参考实现还带着一整段
+     * {@code luaL_traceback}——两个用例（一个是「先打印几行再崩」）会在
+     * 「回溯之后的内容」上差一截，恰好又是被归一化抹掉的那截，于是没人发现。
+     */
+    private static int msghandler(LuaState L) {
+        LuaValue v = L.arg1(1);
+        String msg;
+        if (v.isString()) {
+            msg = v.asString().toJavaString();
+        } else if (callMeta(L, v, "__tostring")
+                && L.stack[L.top - 1].isString()) {
+            /*
+             * 看的是<b>栈顶</b>（{@code __tostring} 的结果），不是第 1 个参数——
+             * 第 1 个参数是错误对象本人，它当然不是字符串。看错位置的症状是
+             * {@code error(setmetatable({}, {__tostring = f}))} 的未捕获错误
+             * 打成了 {@code (error object is a table value)} 而不是 {@code f} 的
+             * 结果。C 版这里是 {@code lua_type(L, -1) == LUA_TSTRING}，看的就是 -1。
+             */
+            return 1;
+        } else {
+            msg = "(error object is a " + Lua.typeName(v.baseType()) + " value)";
+        }
+        L.push(LuaValue.ofString(LuaString.utf8(DebugLib.traceback(L, L, msg, 1))));
+        return 1;
+    }
+
+    /**
+     * {@code lauxlib.c: luaL_callmeta}。
+     * <p>
+     * 只查<b>对象自己的元表</b>这一层（不走 {@code __index} 链），且调用是
+     * <b>不保护</b>的——{@code __tostring} 自己出错时错误会继续冒，正好被
+     * {@code applyErrMsg} 那层兜成 {@code error in error handling}。
+     */
+    private static boolean callMeta(LuaState L, LuaValue v, String event) {
+        LuaTable mt = LuaTm.metatableOf(L, v);
+        if (mt == null) {
+            return false;
+        }
+        LuaValue tm = mt.get(LuaString.latin1(event));
+        if (tm == null || tm.isNil()) {
+            return false;
+        }
+        int base = L.top;
+        L.push(tm);
+        L.push(new LuaValue(v));
+        L.call(base, 1);
+        return true;
+    }
+
+    /**
+     * 在本实现上跑一段脚本，返回<b>原始</b>输出。
      * <p>
      * 出错时不带程序名前缀：参考实现的 {@code lua.c} 直接写消息本身
      * （{@code lua_writestringerror("%s\n", msg)}），程序名是 shell 加的。
      */
-    static String mine(String src) {
+    private static String mineRaw(String src) {
         LuaState L = new LuaState();
-        BaseLib.open(L);
-        StringLib.open(L);
-        TableLib.open(L);
-        MathLib.open(L);
-        Utf8Lib.open(L);
-        OsLib.open(L);
-        CoroutineLib.open(L);
-        PackageLib.open(L);
-        IoLib.open(L);
+        LuaLibs.openAll(L);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
         L.out = ps;
@@ -111,7 +239,7 @@ final class Diff {
         L.err = ps;
         LuaValue err;
         try {
-            err = L.runProtected(src.getBytes(StandardCharsets.UTF_8), CHUNK);
+            err = runLikeLuaC(L, src);
         } catch (LuaError e) {
             /*
              * 加载期错误（词法/语法）在参考实现里也不可被 pcall 捕获：
@@ -119,7 +247,7 @@ final class Diff {
              * 只是转成与参考实现同形的消息参与比对——否则一个生成器 bug
              * 会变成看不懂的堆栈。
              */
-            return normalize(messageOf(e) + "\n");
+            return messageOf(e) + "\n";
         }
         /*
          * 参考实现的 lua.c 在退出前会 lua_close，而 lua_close 会把还没跑的 __gc
@@ -136,9 +264,9 @@ final class Diff {
          * 因为 VM 本身是对的。这个坑是 fuzzer 抓出来的。
          */
         if (err == null) {
-            return normalize(stdout);
+            return stdout;
         }
-        return normalize(stdout + messageOf(err) + "\n");
+        return stdout + messageOf(err) + "\n";
     }
 
     private static String messageOf(LuaValue err) {
@@ -152,10 +280,12 @@ final class Diff {
         return (e.value == null) ? "" : messageOf(e.value);
     }
 
-    private static String normalize(String s) {
-        int tb = s.indexOf("stack traceback:");
-        if (tb >= 0) {
-            s = s.substring(0, tb);
+    private static String normalize(String s, boolean stripTraceback) {
+        if (stripTraceback) {
+            int tb = s.indexOf("stack traceback:");
+            if (tb >= 0) {
+                s = s.substring(0, tb);
+            }
         }
         return s.replaceAll("0x[0-9a-fA-F]+", "0xADDR");
     }

@@ -105,6 +105,26 @@ public final class LuaValue {
         return v;
     }
 
+    /**
+     * 轻量 userdata（{@link Lua#TLIGHTUSERDATA}）。
+     * <p>
+     * 与完整 userdata 的差别是<b>没有元表、不参与回收</b>，载荷就是宿主指针本身。
+     * 上游用它给「身份」一类东西打标记——最典型的是
+     * {@code debug.upvalueid}：C 版把某个 upvalue 的地址
+     * （{@code lua_upvalueid} 返回的 {@code void *}）直接推成轻量 userdata，
+     * 于是「两个闭包共享同一个 upvalue」就等价于「两个 id 原始相等」。
+     * <p>
+     * 这里换成 Java 对象引用做身份：Lua 闭包给 {@link UpVal} 对象自己
+     * （对应 C 的 {@code *getupvalref(...)}，是 {@code UpVal *} 而不是槽的地址），
+     * C 闭包给那个 upvalue 的 {@code LuaValue} 槽对象（对应 C 的
+     * {@code &f->upvalue[n-1]}）。槽对象永不被替换，所以身份稳定，与 C 一一对应。
+     */
+    public static LuaValue ofLightUserdata(Object p) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.TLIGHTUSERDATA, p);
+        return v;
+    }
+
     /** 带元表的 userdata（{@code lua_newuserdatauv} + {@code luaL_setmetatable}） */
     public static LuaValue ofUserdata(Object o, LuaTable mt) {
         LuaValue v = new LuaValue();

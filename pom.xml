@@ -176,6 +176,43 @@
 
     <profiles>
         <profile>
+            <!--
+              没有参考实现时别让覆盖率门禁把构建打红。
+              一致性测试（Diff / ConformanceTest / FuzzTest ...）占了行覆盖的
+              绝大部分；参考二进制缺席时它们全部 assumeTrue 跳过，覆盖率会掉到
+              0.1 左右，门禁必然红——但红的原因不是代码变差了，而是没得比。
+              永远红的门禁等于没有门禁，所以这种情况下只跳过 check，
+              report 照常生成，覆盖率数字仍然看得见。
+              CI 的 conformance job 一定设了 LUA54_BIN，所以那边门禁照旧生效。
+            -->
+            <id>no-reference-lua</id>
+            <activation>
+                <property>
+                    <name>!env.LUA54_BIN</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>check-coverage</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                                <configuration>
+                                    <skip>true</skip>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>bench</id>
             <!-- 运行微基准:./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -->
             <build>

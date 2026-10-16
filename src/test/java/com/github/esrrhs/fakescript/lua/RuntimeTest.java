@@ -338,4 +338,48 @@ class RuntimeTest {
             Diff.assertFirstLineMatches(src);
         }
     }
+
+    /**
+     * {@code and} / {@code or} 的<b>返回值</b>，而不只是真假。
+     * <p>
+     * 这两个算符的字节码一直与参考实现逐条相同，所以字节码闸门（{@code ConformanceTest}）
+     * 全绿；错的是 {@code OP_TESTSET} 的判条件写成了「真值 == k」，
+     * 而上游判的是 {@code l_isfalse(rb) == k}——两者在 {@code k} 的两个取值上
+     * 恰好相反。更阴的是 {@code TESTSET} 只在「结果寄存器 ≠ B」时才留下来
+     * （否则 {@code patchTestReg} 把它改写成 {@code OP_TEST}），于是
+     * {@code if x then} 一直是对的、{@code x and y} 一直是错的——
+     * 症状 {@code print(t and "yes")} 打印出那张表，
+     * 而 {@code cond and a or b} 这个 Lua 里最常用的写法整体取错分支。
+     * <p>
+     * 所以这里专门钉住「返回的是<b>哪个</b>值」，以及短路有没有真的短路。
+     */
+    @Test
+    void logicalOperatorsReturnValues() {
+        Diff.assertMatches(""
+                + "print(1 and 2, true and 'x', nil and 2, false and 2)\n"
+                + "print(1 or 2, true or 'x', nil or 2, false or 2)\n"
+                + "local a, t, z = 1, {}, nil\n"
+                + "print(a and 2, t and 'yes', z and 2, z and 'no')\n"
+                + "print(a or 9, t or 9, z or 9)\n"
+                // 短路：右操作数根本不该被求值
+                + "print(z and z.x)\n"
+                + "print(t or z.x)\n"
+                + "local n = 0\n"
+                + "local function bump() n = n + 1 return true end\n"
+                + "local r = z and bump()\n"
+                + "print(r, n)\n"
+                + "r = a and bump()\n"
+                + "print(r, n)\n"
+                // 最常用的惯用法
+                + "print(z and 1 or 2)\n"
+                + "print(a and 1 or 2)\n"
+                + "print(false and 1 or 2)\n"
+                // 比较结果是 VRELOC，走的是另一条（OP_NOT 折叠）
+                + "print((1 < 2) and 'lt', (1 > 2) and 'gt', (1 > 2) or 'ge')\n"
+                + "print(not (1 < 2) and 'x' or 'y')\n"
+                // 嵌套与副作用顺序
+                + "print(a and t and 'deep')\n"
+                + "print(z or false or 'fall')\n"
+                + "print((a and nil) or 'after')\n");
+    }
 }
