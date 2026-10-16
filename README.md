@@ -184,12 +184,11 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 2 — bytecode.** The previous fakescript language implementation has been
-removed from `master`; see *Migration* below. Phases 0, 1 and 2 are in: the
-compiler (lexer → parser → code generator) is complete and produces bytecode
-that is **field-for-field identical** to a real `lua5.4`'s.
-
-Nothing runs yet: there is no VM, so no script can execute. That is Phase 3.
+**Phase 3 — interpreter.** The previous fakescript language implementation has
+been removed from `master`; see *Migration* below. Phases 0, 1, 2 and 3 are in:
+the compiler produces bytecode that is **field-for-field identical** to a real
+`lua5.4`'s, and the VM executes it — **stdout matches a real `lua5.4` byte for
+byte** across 158 differential scripts, and error messages match line for line.
 
 Landed so far:
 
@@ -211,7 +210,14 @@ Landed so far:
 | `ExpDesc`, `FuncState`, `DynData` | `lparser.h` | `expdesc`'s union flattened; block/goto/variable bookkeeping |
 | `Codegen` | `lcode.c` | instruction emission, register allocation, jumps & patching, constant folding, `NEWTABLE`/`SETLIST` |
 | `Parser` | `lparser.c` | hand-written recursive descent, emitting code as it parses |
-| `ConformanceTest`, `CodegenTest`, `ParserTest` | — | run a real `lua5.4` binary as the oracle |
+| `UpVal` | `UpVal` | two-state (open = stack slot reference, closed = private copy) |
+| `LClosure` | `LClosure` | proto + upvalue array |
+| `CallInfo` | `CallInfo` | frame record; `CIST_FRESH` decides where a Lua→Lua return stops |
+| `LuaState` | `ldo.c`, `lstate.c` | stack, call/return, `pcall`, upvalue open/close, all `luaG_*` errors |
+| `LuaTm` | `ltm.c` | metamethod lookup & dispatch, `__le` fallback, `to-be-closed` |
+| `Vm` | `lvm.c` | the interpreter main loop; all 83 opcodes |
+| `BaseLib`, `MathLib` | `lbaselib.c`, `lmathlib.c`, part of `lstrlib.c` | minimal but differentially-verified |
+| `ConformanceTest`, `CodegenTest`, `ParserTest`, `RuntimeTest` | — | run a real `lua5.4` binary as the oracle |
 
 ### The bytecode gate
 
@@ -261,16 +267,62 @@ Each of these looks like a bug and is not; all three are locked by tests.
   `luaK_numberK`'s `r + r*2^-52` trick they would evict each other from the cache
   and a constant would be re-created on every use.
 
-Next: Phase 3, the interpreter main loop (`lvm.c`, `ldo.c`, `ltm.c`).
+### The runtime gate
 
-Target API shape (will firm up as Phase 0 lands):
+`RuntimeTest` is the Phase 3 gate. Every case is a script that runs **twice** —
+once under this implementation, once under a real `lua5.4` — and the two stdout
+streams must be equal. Error cases are gated on the message line, including the
+`(local 'x')` / `(constant '10')` / `(method 'nope')` suffixes.
+
+The stack is modelled with one invariant that everything else depends on:
+
+> A stack slot `LuaValue` is **never replaced**. `LuaState` always does
+> `stack[i].set(v)`, never `stack[i] = v`.
+
+That single rule is what makes "an open upvalue holds a reference to the stack
+slot" mean the same thing in Java as "an open upvalue holds a pointer to the
+stack slot" means in C. Break it once and closures silently stop seeing updates.
+
+Running it today:
 
 ```java
 LuaState L = new LuaState();
-Libs.openLibs(L);              // opens all standard libraries
-L.loadString("print('hello from Lua')");
-L.call(0, 0);
+BaseLib.open(L);
+MathLib.open(L);
+L.run("print('hello from Lua')");
 ```
+
+### Six things the reference binary settled this phase
+
+Each of these was guessed wrong from the manual or from intuition first; all six
+are locked by differential tests.
+
+* **Arithmetic does not coerce strings, and `"10" + 1 == 11` does not come from
+  the VM.** `lvm.c`'s arithmetic macros use `tonumberns`/`tointegerns`, which
+  ignore strings. The coercion lives in `lstrlib.c`, which installs `__add` (and
+  friends) on the string metatable — first `lua_stringtonumber` both sides, then
+  `lua_arith`. Skip those metamethods and you get a plausible but wrong
+  `attempt to perform arithmetic on a string value`.
+* **A C function's `n` return values are the top `n` pushed values.** `ipairsaux`
+  pushes `i`, then pushes `t[i]`, and returns `1` when `t[i]` is nil — so the
+  value seen by the generic `for` is that trailing **nil**, not `i`. Written the
+  intuitive way (`return i`), `for _, v in ipairs(t)` never terminates, because
+  the loop only stops when the *first* result is nil.
+* **Every arithmetic opcode is followed by an `OP_MMBIN*`.** On success the VM
+  does `pc++` to skip it; on failure it falls through and the metamethod gets
+  dispatched. Miss one `pc++` and a working expression runs its metamethod too.
+* **`OP_NEWTABLE`'s `EXTRAARG` is unconditional** (because `k == 0` ⟺ `Ax == 0`),
+  while `OP_SETLIST`'s is conditional. Reading it conditionally produces
+  `malformed opcode EXTRAARG` on every table constructor.
+* **C's `%g` strips trailing zeros; Java's does not.** `1.5` printed as
+  `1.5000000000000` until `formatG` was written by hand.
+* **`luaG_runerror` and `luaL_error` take their position differently.** The
+  former uses `isLua(ci)` on the *current* frame; the latter is
+  `luaL_where(L, 1)` and walks back one level to the caller. A library function
+  that uses the former reports no `src:line:` prefix at all, because its own
+  frame is a C frame.
+
+Next: Phase 4, closures and open/closed upvalues (`lparser.c`, `lvm.c`).
 
 ---
 

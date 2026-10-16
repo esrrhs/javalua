@@ -161,13 +161,24 @@ public final class LuaTable {
     }
 
     /**
-     * 写入前的键规范化：整值浮点转成整数键，NaN 直接报错。
+     * 写入前的键规范化：整值浮点转成整数键，nil 与 NaN 直接报错。
+     * <p>
+     * 放在这里而不是各调用点，是因为 {@code ltable.c} 里这两个检查就在
+     * {@code luaH_newkey} 的开头——所有写路径（VM 的 {@code OP_SET*}、
+     * {@code rawset}、宿主 API）最终都经过它，分散检查必漏一处。
      * <p>
      * NaN 的处理是 Lua 5.4.7 实测的：<b>读</b> {@code t[0/0]} 返回 nil 不报错，
      * <b>写</b> {@code t[0/0] = 1} 报 "table index is NaN"。所以这里只在
      * 写路径上拒绝。
+     * <p>
+     * 抛的是不带位置的裸错误值：{@code luaG_runerror} 的位置前缀由
+     * {@link LuaState#pcall} 在保护边界补上，与 C 版 {@code luaG_addinfo}
+     * 的时机一致。
      */
     private static LuaValue normalizeKeyForWrite(LuaValue key) {
+        if (key.isNil()) {
+            throw new LuaError(LuaValue.ofString(LuaString.latin1("table index is nil")));
+        }
         if (key.tt == Lua.VNUMFLT) {
             if (Double.isNaN(key.n)) {
                 throw new LuaError(LuaValue.ofString(LuaString.latin1("table index is NaN")));
@@ -522,6 +533,39 @@ public final class LuaTable {
         node = nodes;
         nodeSize = n;
         lastFree = n;
+    }
+
+    /**
+     * 直接写数组部分的第 {@code k} 项（1 起），必要时只把数组部分扩到 {@code k}。
+     * <p>
+     * 对应 {@code OP_SETLIST} 的 {@code luaH_resizearray + 直接写}。与
+     * {@link #set} 的差别是<b>不走 rehash</b>：表构造的路径已经从字节码里知道
+     * 该分配多大，再走一次 rehash 纯属浪费，而且会把刚攒起来的字段搅乱。
+     * <p>
+     * 不搬哈希部分里落在 {@code [1, k]} 的整数键——C 版也是这样，两边行为一致
+     * （数组部分优先于哈希部分，读的时候只会看到数组里的那份）。
+     */
+    public void setArrayRaw(long k, LuaValue value) {
+        if (k <= 0) {
+            set(LuaValue.ofInteger(k), value);
+            return;
+        }
+        if (k > array.length) {
+            int n = array.length;
+            if (n == 0) {
+                n = 1;
+            }
+            while (n < k) {
+                n *= 2;
+            }
+            LuaValue[] bigger = new LuaValue[n];
+            System.arraycopy(array, 0, bigger, 0, array.length);
+            for (int i = array.length; i < n; i++) {
+                bigger[i] = new LuaValue();
+            }
+            array = bigger;
+        }
+        array[(int) k - 1].set(value);
     }
 
     /* ==================== 长度（#t）==================== */

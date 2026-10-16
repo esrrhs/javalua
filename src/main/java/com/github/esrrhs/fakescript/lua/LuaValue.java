@@ -72,6 +72,20 @@ public final class LuaValue {
         return v;
     }
 
+    /** C 函数（轻量 C 函数变体 {@link Lua#VLCF}） */
+    public static LuaValue ofFunction(LuaFunction f) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.VLCF, f);
+        return v;
+    }
+
+    /** Lua 闭包（变体 {@link Lua#VLIF}） */
+    public static LuaValue ofClosure(LClosure c) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.VLIF, c);
+        return v;
+    }
+
     /* ---------- 写入 ---------- */
 
     public void set(LuaValue src) {

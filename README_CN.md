@@ -163,11 +163,10 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 
 ## 现状
 
-**阶段 2（字节码）。** 旧的 fakescript 语言实现已从 `master` 移除，见下文 *迁移说明*。
-阶段 0、1、2 已落地：编译器（词法 → 语法 → 代码生成）完成，产出的字节码与真实
-`lua5.4` **逐字段一致**。
-
-还跑不了任何脚本——VM 是阶段 3 的内容。
+**阶段 3（解释器）。** 旧的 fakescript 语言实现已从 `master` 移除，见下文 *迁移说明*。
+阶段 0、1、2、3 已落地：编译器（词法 → 语法 → 代码生成）产出的字节码与真实
+`lua5.4` **逐字段一致**，VM 已经能把它跑起来——158 段差分脚本的 stdout 与真实
+`lua5.4` **逐字节一致**，错误信息逐行一致。
 
 已落地：
 
@@ -189,7 +188,14 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 | `ExpDesc`、`FuncState`、`DynData` | `lparser.h` | `expdesc` 的 union 摊平；块/goto/变量的簿记 |
 | `Codegen` | `lcode.c` | 发指令、分配寄存器、跳转与回填、常量折叠、`NEWTABLE`/`SETLIST` |
 | `Parser` | `lparser.c` | 手写递归下降，边解析边发指令 |
-| `ConformanceTest`、`CodegenTest`、`ParserTest` | — | 以真实的 `lua5.4` 二进制作为裁判 |
+| `UpVal` | `UpVal` | 两态：开放时持有栈槽引用，关闭时持有私有副本 |
+| `LClosure` | `LClosure` | 原型 + upvalue 数组 |
+| `CallInfo` | `CallInfo` | 帧记录；`CIST_FRESH` 决定 Lua→Lua 返回在哪一层停 |
+| `LuaState` | `ldo.c`、`lstate.c` | 栈、调用/返回、`pcall`、upvalue 开关闭、全部 `luaG_*` 错误 |
+| `LuaTm` | `ltm.c` | 元方法查找与派发、`__le` 退化、to-be-closed |
+| `Vm` | `lvm.c` | 解释器主循环，83 条指令全覆盖 |
+| `BaseLib`、`MathLib` | `lbaselib.c`、`lmathlib.c` 与部分 `lstrlib.c` | 最小集合，但每条都对过差分 |
+| `ConformanceTest`、`CodegenTest`、`ParserTest`、`RuntimeTest` | — | 以真实的 `lua5.4` 二进制作为裁判 |
 
 ### 字节码这道闸门
 
@@ -233,16 +239,54 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
   是同一个键；没有 `luaK_numberK` 里那个 `r + r*2^-52`，两者会互相把对方从缓存
   里挤掉，每用一次就新建一份常量。
 
-下一步：阶段 3，解释器主循环（`lvm.c`、`ldo.c`、`ltm.c`）。
+### 运行期这道闸门
 
-目标 API 形态（随阶段 0 落地后固定）：
+`RuntimeTest` 是阶段 3 的闸门。每条用例都是一段脚本**跑两遍**——本实现一遍、
+真实 `lua5.4` 一遍——两份 stdout 必须相等。出错的用例比对消息行，含
+`(local 'x')` / `(constant '10')` / `(method 'nope')` 这类后缀。
+
+栈靠一条不变量撑着，其它一切都以它为前提：
+
+> 栈槽 `LuaValue` **永不被替换**。`LuaState` 永远做 `stack[i].set(v)`，
+> 绝不做 `stack[i] = v`。
+
+只有守住这一条，「开放 upvalue 持有栈槽的引用」在 Java 里才等价于 C 里的
+「开放 upvalue 持有栈槽的指针」。破一次，闭包就会静默地看不到更新。
+
+现在就可以这样跑：
 
 ```java
 LuaState L = new LuaState();
-Libs.openLibs(L);              // 打开全部标准库
-L.loadString("print('hello from Lua')");
-L.call(0, 0);
+BaseLib.open(L);
+MathLib.open(L);
+L.run("print('hello from Lua')");
 ```
+
+### 本阶段由参考实现裁定的六件事
+
+每一条最初都凭手册或直觉写错了，六条全部由差分测试锁住。
+
+* **算术不做字符串转换，`"10" + 1 == 11` 也不来自 VM。** `lvm.c` 的算术宏用的是
+  `tonumberns` / `tointegerns`，两者都不认字符串。转换在 `lstrlib.c`：它给字符串
+  元表挂上 `__add` 等元方法，先把两侧 `lua_stringtonumber`，再 `lua_arith`。
+  少了这一组，就会得到一个看起来合理但与参考实现不同的
+  `attempt to perform arithmetic on a string value`。
+* **C 函数的 n 个返回值是「栈顶最后 n 个」。** `ipairsaux` 先压 `i`、再压 `t[i]`，
+  当 `t[i]` 是 nil 时 `return 1`——泛型 for 拿到的正是最后那个 **nil**，不是 `i`。
+  按直觉写成「返回 i」，`for _, v in ipairs(t)` 永远不会终止，因为循环只在
+  **第一个**返回值为 nil 时退出。
+* **每条算术指令后面必定跟一条 `OP_MMBIN*`。** 成功就 `pc++` 跳过它，
+  失败就自然落下去派发元方法。漏一个 `pc++`，正确的表达式也会多跑一次元方法。
+* **`OP_NEWTABLE` 的 `EXTRAARG` 是无条件的**（因为 `k == 0` ⟺ `Ax == 0`），
+  而 `OP_SETLIST` 的是有条件的。按条件读前者，每个表构造都会报
+  `malformed opcode EXTRAARG`。
+* **C 的 `%g` 会去掉末尾的零，Java 的不会。** 在手写 `formatG` 之前，
+  `1.5` 被打印成 `1.5000000000000`。
+* **`luaG_runerror` 与 `luaL_error` 取位置的方式不同。** 前者看**当前**帧的
+  `isLua(ci)`；后者是 `luaL_where(L, 1)`，会往回跳一层到调用者。库函数用错了
+  前者，就完全没有 `src:line:` 前缀——因为它自己那帧是 C 帧。
+
+下一步：阶段 4，闭包与开放/关闭 upvalue（`lparser.c`、`lvm.c`）。
 
 ---
 

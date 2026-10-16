@@ -187,7 +187,12 @@ final class Arith {
     /** {@code luaV_mod}：结果的符号跟随除数 */
     static long mod(long m, long n) {
         if (n == 0) {
-            throw new LuaError(LuaValue.ofString(LuaString.latin1("attempt to perform 'n%%0'")));
+            /*
+             * 注意是 'n%0' 而不是 'n%%0'：C 版这里是 printf 的格式串，
+             * {@code %%} 只是转义，真正打出来的是 {@code n%0}。Java 不做
+             * 格式串转义，照抄 {@code %%} 会多出一个百分号。
+             */
+            throw new LuaError(LuaValue.ofString(LuaString.latin1("attempt to perform 'n%0'")));
         }
         if (n == -1) {
             return 0; // 避开溢出
