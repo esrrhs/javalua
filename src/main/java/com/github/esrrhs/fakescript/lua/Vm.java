@@ -178,7 +178,7 @@ public final class Vm {
                     LuaValue upval = cl.upvals[OpCode.getArgA(i)].value();
                     LuaValue rb = k[OpCode.getArgB(i)];
                     LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastGet(upval, rb);
+                    LuaValue slot = fastSet(upval, rb);
                     if (slot != null) {
                         slot.set(rc);
                     } else {
@@ -191,7 +191,7 @@ public final class Vm {
                     LuaValue ra = L.stack[base + OpCode.getArgA(i)];
                     LuaValue rb = L.stack[base + OpCode.getArgB(i)];
                     LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastGet(ra, rb);
+                    LuaValue slot = fastSet(ra, rb);
                     if (slot != null) {
                         slot.set(rc);
                     } else {
@@ -204,7 +204,7 @@ public final class Vm {
                     LuaValue ra = L.stack[base + OpCode.getArgA(i)];
                     LuaValue key = LuaValue.ofInteger(OpCode.getArgB(i));
                     LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastGet(ra, key);
+                    LuaValue slot = fastSet(ra, key);
                     if (slot != null) {
                         slot.set(rc);
                     } else {
@@ -217,7 +217,7 @@ public final class Vm {
                     LuaValue ra = L.stack[base + OpCode.getArgA(i)];
                     LuaValue rb = k[OpCode.getArgB(i)];
                     LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastGet(ra, rb);
+                    LuaValue slot = fastSet(ra, rb);
                     if (slot != null) {
                         slot.set(rc);
                     } else {
@@ -914,6 +914,30 @@ public final class Vm {
             return null;
         }
         LuaValue slot = t.asTable().get(key);
+        return (slot != null && !slot.isNil()) ? slot : null;
+    }
+
+    /**
+     * 写路径用的「快速槽」，与 {@link #fastGet} 分开。
+     * <p>
+     * 分开的理由只有一条，但它是致命的：弱表上 {@code LuaTable.get} 返回的是
+     * <b>副本</b>——槽里存的是 {@code WeakRef}，不能直接交到 VM 手里，所以读出来
+     * 要解一层。往这个副本上 {@code set} 等于什么都没写。实测出来的症状很怪：
+     * {@code t.f = g} 之后 {@code t.f} 还是 {@code f}，因为第二次赋值被写进了
+     * 一个马上就被丢掉的临时对象。
+     * <p>
+     * 所以弱表一律返回 {@code null}，把写入交给 {@link #finishSet} 走
+     * {@code LuaTable.set}——包装、插入、失效清扫都在那一条路上。
+     */
+    private static LuaValue fastSet(LuaValue t, LuaValue key) {
+        if (t.tt != Lua.TTABLE) {
+            return null;
+        }
+        LuaTable tb = t.asTable();
+        if (tb.isWeak()) {
+            return null;
+        }
+        LuaValue slot = tb.get(key);
         return (slot != null && !slot.isNil()) ? slot : null;
     }
 
