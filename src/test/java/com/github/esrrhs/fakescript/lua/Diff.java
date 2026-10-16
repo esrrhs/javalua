@@ -100,9 +100,14 @@ final class Diff {
         TableLib.open(L);
         MathLib.open(L);
         Utf8Lib.open(L);
+        OsLib.open(L);
         CoroutineLib.open(L);
+        IoLib.open(L);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        L.out = new PrintStream(bos, true, StandardCharsets.UTF_8);
+        PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
+        L.out = ps;
+        // stderr 也指到同一条缓冲上：参考实现是合并捕获的
+        L.err = ps;
         LuaValue err;
         try {
             err = L.runProtected(src.getBytes(StandardCharsets.UTF_8), CHUNK);

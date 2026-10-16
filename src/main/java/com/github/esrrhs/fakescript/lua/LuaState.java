@@ -114,8 +114,28 @@ public final class LuaState {
 
     /**
      * 标准输出。{@code print} 写这里，测试把它换成内存缓冲区即可做差分比对。
+     * <p>
+     * {@code io.stdout} 默认也写这里（不是 {@code System.out}）——否则
+     * {@code io.write} 的输出接不到测试装的那条缓冲区上。
      */
     public java.io.PrintStream out;
+
+    /**
+     * 标准输入。{@code io.stdin} 读这里。
+     * <p>
+     * 默认是一条<b>空流</b>而不是 {@code System.in}：差分测试里参考实现的 stdin
+     * 被定向到 {@code /dev/null}，两边必须一致，否则 {@code io.read()} 一边
+     * 返回 nil 另一边阻塞在终端上。
+     */
+    public java.io.InputStream in = new java.io.ByteArrayInputStream(new byte[0]);
+
+    /**
+     * 标准错误。{@code io.stderr} 写这里。
+     * <p>
+     * 单独留一个字段而不是直接用 {@code System.err}：差分测试里参考实现的
+     * stdout 与 stderr 是<b>合并</b>捕获的，这边也得能把两条流指到同一个缓冲上。
+     */
+    public java.io.PrintStream err = System.err;
 
     public LuaState() {
         this(null);
@@ -253,7 +273,7 @@ public final class LuaState {
      * 的终结器全跑一遍（{@code callallpendingfinalizers}），所以退出时不能只看
      * 「已经不可达的那些」。
      */
-    private final List<WeakReference<LuaTable>> finalizables = new ArrayList<>();
+    private final List<WeakReference<Object>> finalizables = new ArrayList<>();
 
     /**
      * 已经不可达、等着跑 {@code __gc} 的表。
@@ -261,16 +281,16 @@ public final class LuaState {
      * 由 {@link GcSentinel#finalize} 从 <b>JVM 终结线程</b>填进来，只能在 Lua 线程
      * 上排空，所以下面的存取都要锁。
      */
-    private final List<LuaTable> pendingFinalizers = new ArrayList<>();
+    private final List<Object> pendingFinalizers = new ArrayList<>();
 
-    void registerFinalizable(LuaTable t) {
+    void registerFinalizable(Object t) {
         synchronized (finalizables) {
             finalizables.add(new WeakReference<>(t));
         }
     }
 
     /** {@link GcSentinel#finalize} 用：把表拽回可达集合并排队 */
-    void enqueueFinalizer(LuaTable t) {
+    void enqueueFinalizer(Object t) {
         synchronized (pendingFinalizers) {
             pendingFinalizers.add(t);
         }
@@ -285,14 +305,29 @@ public final class LuaState {
      */
     void drainFinalizers(LuaState L) {
         while (true) {
-            LuaTable t;
+            Object t;
             synchronized (pendingFinalizers) {
                 if (pendingFinalizers.isEmpty()) {
                     return;
                 }
                 t = pendingFinalizers.remove(pendingFinalizers.size() - 1);
             }
-            t.runGcMetamethod(L);
+            runGc(L, t);
+        }
+    }
+
+    /**
+     * 对一个「可终结对象」跑 {@code __gc}。
+     * <p>
+     * 表与 userdata 都可能挂 {@code __gc}（{@code io} 库的文件句柄就是后者：
+     * 不跑它的 {@code __gc}，脚本里忘了 {@code f:close()} 的文件就永远不关，
+     * 描述符一路泄漏到进程退出）。两套对象的收尾动作不同，所以在这里分派。
+     */
+    private static void runGc(LuaState L, Object o) {
+        if (o instanceof LuaTable) {
+            ((LuaTable) o).runGcMetamethod(L);
+        } else if (o instanceof LuaUserdata) {
+            ((LuaUserdata) o).runGcMetamethod(L);
         }
     }
 
@@ -306,10 +341,10 @@ public final class LuaState {
      */
     public void close() {
         synchronized (finalizables) {
-            for (WeakReference<LuaTable> r : finalizables) {
-                LuaTable t = r.get();
+            for (WeakReference<Object> r : finalizables) {
+                Object t = r.get();
                 if (t != null) {
-                    t.runGcMetamethod(this);
+                    runGc(this, t);
                 }
             }
             finalizables.clear();
@@ -461,6 +496,31 @@ public final class LuaState {
     /** 第 i 个参数（0 起） */
     public LuaValue arg(int i) {
         return stack[ci.func + 1 + i];
+    }
+
+    /** {@code lua_settop}（正数下标版：1 = 第一个参数，0 = 清空） */
+    void setTop(int idx) {
+        int t = ci.func + 1 + idx;
+        if (t > top) {
+            ensureSlots(t);
+            while (top < t) {
+                stack[top++].setNil();
+            }
+        } else {
+            while (top > t) {
+                stack[--top].setNil();
+            }
+        }
+    }
+
+    /** {@code lua_pushvalue}：把第 {@code idx} 个（1 起）再压一份 */
+    void pushValue(int idx) {
+        push(stack[ci.func + idx]);
+    }
+
+    /** {@code lua_replace}：用栈顶覆盖第 {@code idx} 个（1 起）并弹栈 */
+    void replace(int idx) {
+        stack[ci.func + idx].set(stack[--top]);
     }
 
     /* ==================== upvalue ==================== */
@@ -1236,7 +1296,8 @@ public final class LuaState {
 
     /** {@code luaG_typeerror}（含 {@code varinfo} 的变量名后缀） */
     public LuaError typeError(LuaValue v, String op) {
-        return runError("attempt to " + op + " a " + v.typeName() + " value" + varInfo(v));
+        return runError("attempt to " + op + " a " + LuaTm.objTypeName(this, v)
+                + " value" + varInfo(v));
     }
 
     /**
@@ -1251,7 +1312,7 @@ public final class LuaState {
         String[] name = new String[1];
         String kind = funcNameFromCall(name);
         String extra = (kind != null) ? formatVarInfo(kind, name[0]) : varInfo(v);
-        return runError("attempt to call a " + v.typeName() + " value" + extra);
+        return runError("attempt to call a " + LuaTm.objTypeName(this, v) + " value" + extra);
     }
 
     /** {@code ldebug.c: funcnamefromcall} */
@@ -1510,8 +1571,7 @@ public final class LuaState {
      * 递归进去会拿到别处的 {@code __name}。
      */
     LuaValue metafieldOf(LuaValue v, String name) {
-        LuaTable mt = (v.baseType() == Lua.TTABLE) ? v.asTable().getMetatable()
-                : typeMetatable(v.baseType());
+        LuaTable mt = LuaTm.metatableOf(this, v);
         if (mt == null) {
             return null;
         }

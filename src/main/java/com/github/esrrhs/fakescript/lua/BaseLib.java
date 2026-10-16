@@ -187,12 +187,7 @@ public final class BaseLib {
     }
 
     private static LuaValue metamethodByName(LuaState L, LuaValue v, String name) {
-        LuaTable mt = null;
-        if (v.baseType() == Lua.TTABLE) {
-            mt = v.asTable().getMetatable();
-        } else {
-            mt = L.typeMetatable(v.baseType());
-        }
+        LuaTable mt = LuaTm.metatableOf(L, v);
         if (mt == null) {
             return null;
         }
@@ -571,8 +566,7 @@ public final class BaseLib {
             L.push(protect);
             return 1;
         }
-        LuaTable mt = (v.baseType() == Lua.TTABLE) ? v.asTable().getMetatable()
-                : L.typeMetatable(v.baseType());
+        LuaTable mt = LuaTm.metatableOf(L, v);
         if (mt == null) {
             L.pushNil();
         } else {

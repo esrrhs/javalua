@@ -1,5 +1,6 @@
 package com.github.esrrhs.fakescript.lua;
 
+import java.io.IOException;
 import java.util.Arrays;
 
 /**
@@ -161,6 +162,40 @@ public final class LuaAux {
         }
     }
 
+    /**
+     * {@code luaL_checkoption}：在一串名字里挑，挑不到就报
+     * {@code invalid option '<名字>'}。
+     * <p>
+     * {@code os.setlocale} 的第二个参数用它——就算本实现实际上不认那些 locale，
+     * 这条报错也得在，否则 {@code os.setlocale(nil, 'bogus')} 会静默通过。
+     */
+    public static int checkOption(LuaState L, int arg, String def, String[] lst) {
+        String name = (def != null) ? optString(L, arg, LuaString.latin1(def)).toJavaString()
+                : checkString(L, arg).toJavaString();
+        for (int i = 0; i < lst.length; i++) {
+            if (lst[i].equals(name)) {
+                return i;
+            }
+        }
+        throw L.argError(arg, "invalid option '" + name + "'");
+    }
+
+    /**
+     * {@code luaL_argcheck}：条件不成立就报 {@code argError(arg, msg)}。
+     * <p>
+     * 与 {@link #argExpected} 是<b>两条不同的报错</b>，不能混：
+     * {@code luaL_argexpected} 给 {@code "<tname> expected, got <实际类型>"}，
+     * 而 {@code luaL_argcheck} 只给裸消息。实测
+     * {@code io.open("x", "bogus")} 报的是
+     * {@code bad argument #2 to 'io.open' (invalid mode)}，
+     * 后面没有 {@code expected, got}。
+     */
+    public static void argCheck(LuaState L, boolean cond, int arg, String msg) {
+        if (!cond) {
+            throw L.argError(arg, msg);
+        }
+    }
+
     /** {@code luaL_checktype} */
     public static void checkType(LuaState L, int arg, int baseType) {
         if (L.isNoneArg(arg) || L.arg1(arg).baseType() != baseType) {
@@ -191,6 +226,180 @@ public final class LuaAux {
     /** {@code luaL_pushfail}：5.4 里「失败」就是 nil */
     public static void pushFail(LuaState L) {
         L.pushNil();
+    }
+
+    /* ==================== 命名元表与 userdata ==================== */
+
+    /**
+     * {@code luaL_newmetatable}：在注册表里按名字建（或取）一张元表。
+     * <p>
+     * 名字就是 C 里那个 {@code LUA_FILEHANDLE}（{@code "FILE*"}）。
+     * 建完被 {@code setMetatableByName} 用掉，调用方接着往里塞元方法。
+     * <p>
+     * <b>必须顺手设 {@code __name}</b>——这是实测出来的：
+     * {@code print(#io.stdout)} 报的是
+     * {@code attempt to get length of a FILE* value}，那个 {@code FILE*}
+     * 就来自元表的 {@code __name} 字段，而 C 版正是在这里写进去的。
+     */
+    public static LuaTable newMetatable(LuaState L, String tname) {
+        LuaValue v = L.registry.get(tname);
+        if (v != null && !v.isNil()) {
+            throw L.libError("metatable '" + tname + "' already exists");
+        }
+        LuaTable mt = new LuaTable();
+        mt.set("__name", LuaValue.ofString(LuaString.latin1(tname)));
+        L.registry.set(tname, LuaValue.ofTable(mt));
+        return mt;
+    }
+
+    /** 取命名元表；没有返回 {@code null} */
+    public static LuaTable getMetatableByName(LuaState L, String tname) {
+        LuaValue v = L.registry.get(tname);
+        return (v == null || !v.isTable()) ? null : v.asTable();
+    }
+
+    /**
+     * {@code luaL_getmetatable} 的取值部分：把命名元表压栈（没有就压 nil）。
+     */
+    public static void pushMetatable(LuaState L, String tname) {
+        LuaTable mt = getMetatableByName(L, tname);
+        if (mt == null) {
+            L.pushNil();
+        } else {
+            L.push(LuaValue.ofTable(mt));
+        }
+    }
+
+    /**
+     * {@code luaL_testudata}：是 userdata 且元表正好是 {@code tname} 那张才给载荷，
+     * 否则给 {@code null}（<b>不报错</b>——{@code io.type} 靠它区分「不是文件」）。
+     */
+    public static Object testUdata(LuaState L, int arg, String tname) {
+        if (L.isNoneArg(arg)) {
+            return null;
+        }
+        LuaValue v = L.arg1(arg);
+        if (v.baseType() != Lua.TUSERDATA) {
+            return null;
+        }
+        LuaTable mt = ((LuaUserdata) v.o).metatable;
+        if (mt == null || mt != getMetatableByName(L, tname)) {
+            return null;
+        }
+        return ((LuaUserdata) v.o).data;
+    }
+
+    /**
+     * {@code luaL_checkudata}：同上但失败要报错。
+     * <p>
+     * 报错文本是 {@code bad argument #1 to 'xxx' (FILEHANDLE* expected, got table)}。
+     */
+    public static Object checkUdata(LuaState L, int arg, String tname) {
+        Object p = testUdata(L, arg, tname);
+        if (p == null) {
+            throw L.typeArgError(arg, tname);
+        }
+        return p;
+    }
+
+    /**
+     * {@code luaL_setmetatable}：把命名元表挂到栈顶那个 userdata 上。
+     * <p>
+     * 顺带跑 {@code luaC_checkfinalizer}——C 版 {@code lua_setmetatable} 里有这一步，
+     * 漏掉的话文件句柄的 {@code __gc} 永远不会被登记，脚本里忘了 {@code f:close()}
+     * 的文件就一直开着。
+     */
+    public static void setMetatableByName(LuaState L, String tname) {
+        LuaTable mt = getMetatableByName(L, tname);
+        LuaUserdata ud = (LuaUserdata) L.stack[L.top - 1].o;
+        ud.metatable = mt;
+        ud.markFinalizable(L);
+    }
+
+    /* ==================== 文件结果三元组 ==================== */
+
+    /**
+     * {@code luaL_fileresult}：成功只给 {@code true}；失败给 {@code nil, msg, errno}。
+     * <p>
+     * 失败时<b>总是三个值</b>——{@code io.open} 打不开文件时返回的就是
+     * {@code nil, "xxx: No such file or directory", 2}。
+     */
+    public static void fileResult(LuaState L, boolean ok, String fname, int en) {
+        if (ok) {
+            L.push(LuaValue.ofBoolean(true));
+            return;
+        }
+        L.pushNil();
+        String msg = strError(en);
+        if (fname != null) {
+            L.push(LuaValue.ofString(LuaString.latin1(fname + ": " + msg)));
+        } else {
+            L.push(LuaValue.ofString(LuaString.latin1(msg)));
+        }
+        L.push(LuaValue.ofInteger(en));
+    }
+
+    /**
+     * {@code luaL_execresult}：{@code os.execute} 与 {@code io.popen} 的收尾。
+     * <p>
+     * 成功 {@code true, "exit", 0}；非零退出 {@code nil, "exit", 码}。
+     * 失败（shell 都起不来）时 {@code stat == -1}，给 {@code nil, msg, errno}。
+     */
+    public static void execResult(LuaState L, int stat) {
+        if (stat == -1) {
+            fileResult(L, false, null, errnoOf(null));
+        } else {
+            L.push(LuaValue.ofBoolean(stat == 0));
+            L.push(LuaValue.ofString(LuaString.latin1("exit")));
+            L.push(LuaValue.ofInteger(stat));
+        }
+    }
+
+    /**
+     * 把 Java 的 {@code IOException} 翻译成 errno。
+     * <p>
+     * Lua 脚本里 {@code io.open} 失败后要看 {@code errno} 的<b>数值</b>
+     * （{@code "No such file or directory" == 2}），所以不能只留消息文本。
+     */
+    public static int errnoOf(IOException e) {
+        if (e instanceof java.nio.file.NoSuchFileException) {
+            return 2; // ENOENT
+        }
+        if (e instanceof java.nio.file.DirectoryNotEmptyException) {
+            return 39; // ENOTEMPTY
+        }
+        if (e instanceof java.nio.file.FileAlreadyExistsException) {
+            return 17; // EEXIST
+        }
+        if (e instanceof java.nio.file.AccessDeniedException) {
+            return 13; // EACCES
+        }
+        if (e instanceof java.io.FileNotFoundException) {
+            return 2; // ENOENT
+        }
+        return 5; // EIO
+    }
+
+    /** {@code strerror}：只备了文件操作真正会碰到的那几个 errno */
+    public static String strError(int en) {
+        switch (en) {
+        case 2:
+            return "No such file or directory";
+        case 13:
+            return "Permission denied";
+        case 17:
+            return "File exists";
+        case 39:
+            return "Directory not empty";
+        case 9: // EBADF
+            return "Bad file descriptor";
+        case 22: // EINVAL
+            return "Invalid argument";
+        case 29: // ESPIPE
+            return "Illegal seek";
+        default:
+            return "Input/output error";
+        }
     }
 
     /* ==================== 小工具 ==================== */

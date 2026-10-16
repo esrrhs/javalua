@@ -206,7 +206,7 @@ public final class MathLib {
     }
 
     private static RanState ranState(LuaState L) {
-        return (RanState) L.upvalue(0).o;
+        return (RanState) LuaUserdata.dataOf(L.upvalue(0));
     }
 
     /* ==================== 一元 / 二元数学函数 ==================== */

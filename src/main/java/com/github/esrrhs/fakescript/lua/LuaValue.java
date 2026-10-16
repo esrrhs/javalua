@@ -93,10 +93,22 @@ public final class LuaValue {
         return v;
     }
 
-    /** 完整 userdata（变体 {@link Lua#VUSERDATA}）：宿主对象进 Lua 值的通道 */
+    /**
+     * 完整 userdata（变体 {@link Lua#VUSERDATA}）：宿主对象进 Lua 值的通道。
+     * <p>
+     * 载荷一律包一层 {@link LuaUserdata}，好让每个 userdata 带上自己的元表
+     * （见 {@link LuaUserdata} 的类注释）。取回载荷用 {@link LuaUserdata#dataOf}。
+     */
     public static LuaValue ofUserdata(Object o) {
         LuaValue v = new LuaValue();
-        v.setObject(Lua.VUSERDATA, o);
+        v.setObject(Lua.VUSERDATA, new LuaUserdata(o));
+        return v;
+    }
+
+    /** 带元表的 userdata（{@code lua_newuserdatauv} + {@code luaL_setmetatable}） */
+    public static LuaValue ofUserdata(Object o, LuaTable mt) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.VUSERDATA, new LuaUserdata(o, mt));
         return v;
     }
 

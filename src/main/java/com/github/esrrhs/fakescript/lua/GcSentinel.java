@@ -34,12 +34,12 @@ package com.github.esrrhs.fakescript.lua;
  */
 final class GcSentinel {
 
-    private final LuaTable owner;
+    private final Object owner;
 
     /** 队列挂在主线程上：哨兵是在 {@code newThread} 之前还是之后创建的无从保证 */
     private final LuaState main;
 
-    GcSentinel(LuaTable owner, LuaState main) {
+    GcSentinel(Object owner, LuaState main) {
         this.owner = owner;
         this.main = main;
     }
