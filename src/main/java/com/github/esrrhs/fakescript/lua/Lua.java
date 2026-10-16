@@ -40,6 +40,9 @@ public final class Lua {
     public static final int VSHRSTR = TSTRING | (0 << 4); // 4：短字符串（参与驻留）
     public static final int VLNGSTR = TSTRING | (1 << 4); // 20：长字符串（不驻留）
 
+    /** 线程 / 协程：{@code makevariant(LUA_TTHREAD, 0)} */
+    public static final int VTHREAD = TTHREAD | (0 << 4); // 8
+
     public static final int VLIF = TFUNCTION | (0 << 4); // 6：Lua 闭包
     public static final int VLCF = TFUNCTION | (1 << 4); // 22：轻量 C 函数
     public static final int VCCL = TFUNCTION | (2 << 4); // 38：C 闭包

@@ -41,6 +41,44 @@ public final class CallInfo {
     /** 本帧是 Lua 函数（false 表示 C 函数） */
     boolean isLua = true;
 
+    /* ---- yield 相关（C 版在 {@code u.c.*} 与 {@code u2.*} 里） ---- */
+
+    /**
+     * {@code u2.nyield}：本帧 yield 出去的值的个数。
+     * {@code lua_resume} 靠它知道该从协程栈上搬几个值回调用方。
+     */
+    int nyield;
+
+    /**
+     * {@code u.c.k}：yield 之后的续体。只有「可能被 yield 打断」的 C 帧才设，
+     * 见 {@link LuaKFunction}。
+     */
+    LuaKFunction k;
+
+    /** {@code u.c.ctx}：续体的上下文 */
+    int ctx;
+
+    /**
+     * {@code CIST_YPCALL}：本帧是一个被打断的 {@code pcall} / {@code xpcall}，
+     * 可以作为错误恢复点。{@code precover} 全靠这个标记找到「该在哪儿继续」。
+     */
+    boolean yieldPcall;
+
+    /**
+     * {@code CIST_RECST}：{@code pcall} 被 yield 打断后、恢复时拿到的错误状态。
+     * {@code LUA_OK} 表示不是出错而是被 yield 打断的。
+     */
+    int recst;
+
+    /** {@code u2.funcidx}：被 {@code pcall} 保护着调用的那个函数的栈下标 */
+    int funcIdx;
+
+    /** {@code xpcall} 的消息处理函数；没有就是 {@code null} */
+    LuaValue errHandler;
+
+    /** {@code CIST_CLSRET}：C 函数是在关 tbc 变量时被 yield 打断的 */
+    boolean clsret;
+
     /**
      * {@code CIST_FRESH}：这一帧是 {@code luaV_execute} 的入口帧。
      * 返回时若是 fresh 帧就退出解释器，否则回到调用者的帧继续跑——

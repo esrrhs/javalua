@@ -24,7 +24,7 @@
 | **目标** | 完整的 Lua 5.4 语言语义 + 完整的标准库 |
 | **方法** | 逐模块直译 C 参考实现 |
 | **GC** | **不实现**。对象生命周期完全交给 JVM（G1/ZGC 本身就是并发收集器） |
-| **运行环境** | Java 21+（协程依赖虚拟线程） |
+| **运行环境** | Java 17+（协程是独立的栈，不用线程，见下） |
 | **兼容范围** | 纯 Lua 项目；C 扩展模块（`.so` / `luaopen_*`）本阶段不做 |
 
 ### 为什么不写 GC
@@ -95,15 +95,30 @@ Lua 5.4 区分 `1`（integer）与 `1.0`（float）：二者比较相等，但 `
 照搬 `ltable.c`，包括"这个整数键是否足够密集、能否放进数组部分"的迁移逻辑。
 整数键与字符串键是不同的项：`t[1]` 与 `t["1"]` 是两个不同的条目，与 Lua 一致。
 
-### 4. 协程跑在虚拟线程上
+### 4. 协程是独立的栈，不是线程
 
 Lua 协程可以在任意深度的栈上 yield——`pcall` 内部、元方法内部、`for` 迭代器内部。
-用显式状态机复刻这一点是重写 `lvm.c` 时最难的部分。这里的做法是：每个 Lua 协程
-跑在一个 Java **虚拟线程**上，`coroutine.yield` 即 park、`resume` 即 unpark。
-因为 Lua 函数也是由解释器在同一个线程上执行的，任意深度的 yield 就自然成立了，
-而虚拟线程足够廉价，可以支撑成千上万个协程。这也是把 Java 21 设为下限的原因。
+原计划是每个协程给一条 Java 虚拟线程。阶段 5 实测下来这是个错的选择，已经改掉。
 
-协程层被隔离在一个接口后面，将来换成状态机实现时不必改动调用方。
+Lua 协程是**协作式**的：同一时刻只有一个在跑，挂起点由 `coroutine.yield` 显式
+指出。C 版的实现就是「每个 `lua_State` 一条独立栈 + `longjmp` 跳回
+`lua_resume`」。Java 有同样的两样东西——每个 `LuaState` 一条独立栈，加上一个
+把 Java 调用栈弹掉的异常（`LuaYield`）。**根本不需要线程**：Lua 那边的状态全在
+堆上，弹掉 Java 帧之后，栈、`CallInfo` 链、开放 upvalue 都原样留着，`resume`
+时接着跑就行。
+
+虚拟线程还有个问题是**过于宽松**：C 函数回调进 Lua 的地方（`table.sort` 的比较
+函数、`string.gsub` 的替换函数、被 `print` 调用的 `__tostring`）在真实 Lua 里
+不能 yield，会报 `attempt to yield across a C-call boundary`；换成虚拟线程它就
+「能跑」了。对一个目标是「一行不改跑现有 Lua 代码」的项目来说，这个差异是 bug
+不是特性。
+
+顺带的好处是 Java 下限从 21 降回 17——本机现在的构建就是 17。
+
+取代线程的是 `ldo.c` 的忠实移植：`lua_resume` / `unroll` / `finishCcall` /
+`finishpcallk` / `precover`，外加 `luaV_finishOp`（把被 yield 打断的那半条指令
+补完）。会被打断的 C 函数（`pcall`、`xpcall`）注册一个续体，也就是 Java 版的
+`lua_KFunction`。
 
 ### 5. 错误用 Java 异常，不用 `setjmp` / `longjmp`
 
@@ -137,7 +152,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 | **2** | 字节码：完整 Lua 5.4 指令集、代码生成、常量折叠、upvalue 解析 | `lopcodes`、`lcode`、`lfunc` |
 | **3** | 解释器主循环：调用/返回、带类型转换的算术与比较、元方法派发 | `lvm`、`ldo`、`ltm` |
 | **4** | 闭包与 open/closed upvalue、`goto`/label、变长参数、多重赋值与多返回值 | `lparser`、`lvm` |
-| **5** | 虚拟线程上的协程、`coroutine.*`、错误与 yield 跨边界 | `lcorolib`、`ldo` |
+| **5** | 协程：`coroutine.*`、yield/resume/unroll、yield 与错误跨边界 | `lcorolib`、`ldo`、`lvm` |
 | **6** | 依赖回收的语义：弱表、`__gc`、弱字符串驻留池 | *（取代 `lgc.c`）* |
 | **7** | 标准库：`base`、`coroutine`、`package`、`string`、`table`、`math`、`io`、`os`、`utf8`、`debug` | `l*lib.c`、`loadlib.c` |
 | **8** | `load` / `loadstring` / `dump`、`require` 搜索器、`package.path` / `cpath` | `lundump`、`ldump`、`loadlib` |
@@ -163,10 +178,10 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 
 ## 现状
 
-**阶段 4（闭包）。** 旧的 fakescript 语言实现已从 `master` 移除，见下文 *迁移说明*。
-阶段 0~4 已落地：编译器（词法 → 语法 → 代码生成）产出的字节码与真实 `lua5.4`
-**逐字段一致**，VM 已经能把它跑起来——158 + 121 段差分脚本与 1500 个生成程序的
-stdout 与真实 `lua5.4` **逐字节一致**，错误信息逐行一致。
+**阶段 5（协程）。** 旧的 fakescript 语言实现已从 `master` 移除，见下文 *迁移说明*。
+阶段 0~5 已落地：编译器（词法 → 语法 → 代码生成）产出的字节码与真实 `lua5.4`
+**逐字段一致**，VM 已经能把它跑起来——158 + 121 + 60 段差分脚本与 2100 个生成
+程序的 stdout 与真实 `lua5.4` **逐字节一致**，错误信息逐行一致。
 
 已落地：
 
@@ -198,7 +213,15 @@ stdout 与真实 `lua5.4` **逐字节一致**，错误信息逐行一致。
 | `Diff`（测试） | — | 差分驱动的公共部分：一段脚本两边各跑一遍 |
 | `ConformanceTest`、`CodegenTest`、`ParserTest`、`RuntimeTest` | — | 以真实的 `lua5.4` 二进制作为裁判 |
 | `ClosureTest`（测试） | — | 阶段 4 闸门：闭包、goto、变长参数、多重赋值 |
-| `FuzzTest`（测试） | — | 1500 个带种子的生成程序，两边各跑一遍 |
+| `CClosure` | `CClosure` | 绑定了值的 C 函数，`coroutine.wrap` 需要它 |
+| 线程值（`Lua.VTHREAD`） | `LUA_TTHREAD` | 一个能被当作 Lua 值使用的 `LuaState` |
+| `CoroutineLib` | `lcorolib.c` | `create` / `resume` / `yield` / `status` / `wrap` / `isyieldable` / `running` / `close` |
+| `resume` / `unroll` / `finishCcall` / `finishpcallk` / `precover` | `ldo.c` | yield/resume 状态机，不用线程 |
+| `LuaKFunction` | `lua_KFunction` | 被 yield 打断的 C 函数的续体 |
+| `LuaYield` | `luaD_throw(L, LUA_YIELD)` | 用于展开的异常；刻意**不**被 `pcall` 捕获 |
+| `Vm.finishOp` | `luaV_finishOp` | 把被 yield 打断的半条指令补完 |
+| `CoroutineTest`（测试） | — | 阶段 5 闸门：60 段差分脚本，含在每个元方法里 yield |
+| `FuzzTest`（测试） | — | 1500 个生成程序，另有 600 个跑在协程里并随机撒 yield |
 
 ### 字节码这道闸门
 
@@ -291,7 +314,9 @@ L.run("print('hello from Lua')");
 
 ### 差分 fuzz 这道闸门
 
-`FuzzTest` 用一个小文法生成 1500 段程序，逐段与参考实现比对。两条约束保证它
+`FuzzTest` 用一个小文法生成 2100 段程序，逐段与参考实现比对：1500 段常规程序，
+另有 600 段把主 chunk 塞进 `coroutine.create`、随机撒 `coroutine.yield`，再用一个
+有界的 `resume` 循环驱动。两条约束保证它
 不会变成一个麻烦制造机：
 
 * **必须终止。** 只生成有界的 `for` / `ipairs`，不生成 `while`、`repeat`、
@@ -320,7 +345,31 @@ L.run("print('hello from Lua')");
   再崩」的输出里两者都有）；而 `lua.c` 加的程序名前缀要**全文抹掉**，
   不能只抹开头——一旦 stdout 在前面，它就出现在输出中间了。
 
-下一步：阶段 5，虚拟线程上的协程（`lcorolib.c`、`ldo.c`）。
+### 本阶段被参考实现裁定的五件事
+
+* **`pcall`、`xpcall`、元方法、`for` 迭代器都可以 yield；标准库的回调不可以。**
+  `table.sort` 的比较函数、`string.gsub` 的替换函数、被 `print` 调用的
+  `__tostring` 都会报 `attempt to yield across a C-call boundary`——因为
+  `ltablib.c` / `lstrlib.c` / `luaL_callmeta` 是经 `lua_call`
+  （`luaD_callnoyield`）回调进 Lua 的。这恰恰是虚拟线程会「修好」、
+  而实际上是改错的行为。
+* **主线程永远不可 yield。** `lstate.c` 的 `lua_newstate` 无条件执行
+  `incnny(L)`，所以主协程上 `coroutine.isyieldable()` 是 `false`，哪怕一个 C
+  调用都还没发生。协程起始为 0，每次 `resume` 也重置为 0（`lua_resume` 只从
+  resume 方拷 `nCcalls` 的低 16 位）。
+* **`resume` 的参数就是 `yield` 的返回值。** `lua_resume` 里那句
+  `poscall(ci, nargs)` 决定了 `resume(co, 99)` 之后 `coroutine.yield(1)` 看到的
+  是 `99`——搬回去的值的个数是传进来的个数，不是 yield 出去的个数。
+* **`coroutine.wrap` 报错用的是自己的名字，不是 `create` 的。** `luaB_cowrap`
+  直接调 `luaB_cocreate`，而 `luaL_argerror` 的函数名是从「当前帧是被谁调用的」
+  倒推出来的，所以 `coroutine.wrap(nil)` 报的是
+  `bad argument #1 to 'coroutine.wrap'`。
+* **`luaV_finishOp` 每个可中断操作码都有一个分支，`OP_CONCAT` 那个不能省。**
+  拼接是一批一批做的，`__concat` 里 yield 之后要把元方法结果往回挪一格、把
+  `top` 收一格，再把剩下的元素拼完——可能又 yield 一次。省掉它的表现是
+  拿到**操作数那张表**而不是拼接结果。
+
+下一步：阶段 6，依赖回收动作的语义——弱表、`__gc`、弱引用的字符串驻留池。
 
 ---
 

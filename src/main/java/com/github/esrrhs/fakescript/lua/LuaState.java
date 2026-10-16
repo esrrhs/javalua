@@ -48,11 +48,40 @@ public final class LuaState {
     private final CallInfo baseCi = new CallInfo();
     int nCcalls;
 
+    /**
+     * 不可 yield 的调用层数 —— C 版是 {@code nCcalls} 的高 16 位
+     * （{@code nyci = 0x10000 | 1}，{@code yieldable(L)} 判高位是否为 0）。
+     * 这里拆成独立字段：{@code nCcalls} 只管深度，这里只管能不能 yield。
+     */
+    private int nNy;
+
+    /* ==================== 线程状态 ==================== */
+
+    /** {@code LUA_OK}：没在跑，或者跑完了 */
+    public static final int LUA_OK = 0;
+
+    /** {@code LUA_YIELD}：挂起了 */
+    public static final int LUA_YIELD = 1;
+
+    /** {@code LUA_ERRRUN}：运行期错误（本实现目前只区分这三种状态） */
+    public static final int LUA_ERRRUN = 2;
+
+    /** {@code lua_State.status} */
+    int status = LUA_OK;
+
+    /**
+     * 主线程，对应 {@code global_State.mainthread}。
+     * <p>
+     * 唯一用途是区分「跨 C 调用边界 yield」和「在协程外 yield」两条报错——
+     * 两条消息的措辞不同，得知道自己在不在主线程上。
+     */
+    final LuaState mainThread;
+
     /* ==================== 全局 ==================== */
 
-    public final StringPool strings = new StringPool();
-    public LuaTable globals = new LuaTable();
-    public final LuaTable registry = new LuaTable();
+    public final StringPool strings;
+    public LuaTable globals;
+    public final LuaTable registry;
 
     /**
      * 每个基础类型的默认元表，对应 {@code global_State.mt[]}。
@@ -60,10 +89,10 @@ public final class LuaState {
      * 只有 {@code debug.setmetatable(nil, mt)} 这类「给整个类型设元表」的调用
      * 才会用到；表与 userdata 的元表存在对象自身。
      */
-    private final LuaTable[] typeMt = new LuaTable[Lua.TTHREAD + 1];
+    private final LuaTable[] typeMt;
 
     /** 元方法名常量表，对应 {@code global_State.tmname[]} */
-    final LuaString[] tmName = new LuaString[Tm.TM_N];
+    final LuaString[] tmName;
 
     /** 开放 upvalue 列表，按 {@link UpVal#stackIdx} 升序 */
     private final List<UpVal> openUpvals = new ArrayList<>();
@@ -74,9 +103,49 @@ public final class LuaState {
     /**
      * 标准输出。{@code print} 写这里，测试把它换成内存缓冲区即可做差分比对。
      */
-    public java.io.PrintStream out = System.out;
+    public java.io.PrintStream out;
 
     public LuaState() {
+        this(null);
+    }
+
+    /**
+     * 建一个新线程（协程）。
+     * <p>
+     * 与主线程共享的只有「全局」那部分：字符串池、全局表、注册表、类型元表、
+     * 标准输出。栈、调用帧、开放 upvalue 都是每线程一份——这恰恰就是协程能
+     * 各自挂起的全部原因，也就不需要任何线程、纤程去模拟「另一条执行流」。
+     * <p>
+     * <b>第 0 号栈槽是保留的。</b>{@code base_ci.func} 指向它（见
+     * {@code lstate.c: stack_init} 里「先占一格给函数」），协程主体函数落在
+     * 下标 1。{@code lua_resume} 那句
+     * {@code nresults = top - (ci->func + 1)} 只有在这个布局下才成立：
+     * 协程跑完、结果搬回下标 1 之后，top 减去 1 正好是结果个数。
+     */
+    private LuaState(LuaState main) {
+        mainThread = (main == null) ? this : main;
+        /*
+         * 主线程<b>永远不可 yield</b>——{@code lstate.c: lua_newstate} 里那句
+         * {@code incnny(L); /* main thread is always non yieldable * /}。
+         * 实测：主协程里 {@code coroutine.isyieldable()} 是 false，即使在
+         * 最外层、一个 C 调用都没有的时候。协程起自 0，每次 resume 也重置为 0
+         * （C 版 {@code L->nCcalls = getCcalls(from)} 只拷低 16 位，高位清零）。
+         */
+        nNy = (main == null) ? 1 : 0;
+        if (main == null) {
+            strings = new StringPool();
+            globals = new LuaTable();
+            registry = new LuaTable();
+            typeMt = new LuaTable[Lua.TTHREAD + 1];
+            out = System.out;
+        } else {
+            strings = main.strings;
+            globals = main.globals;
+            registry = main.registry;
+            typeMt = main.typeMt;
+            out = main.out;
+        }
+        tmName = new LuaString[Tm.TM_N];
         for (int i = 0; i < stack.length; i++) {
             stack[i] = new LuaValue();
         }
@@ -88,8 +157,89 @@ public final class LuaState {
         for (int i = 0; i < Tm.TM_N; i++) {
             tmName[i] = LuaString.latin1(Tm.EVENT_NAMES[i]);
         }
-        registry.set(2, LuaValue.ofTable(globals)); // LUA_RIDX_GLOBALS
-        globals.set("_G", LuaValue.ofTable(globals));
+        if (main == null) {
+            registry.set(2, LuaValue.ofTable(globals)); // LUA_RIDX_GLOBALS
+            globals.set("_G", LuaValue.ofTable(globals));
+        }
+    }
+
+    /** {@code lua_newthread} */
+    public LuaState newThread() {
+        LuaState nl = new LuaState(mainThread);
+        nl.top = 1; // 第 0 格留给 base_ci.func，主体函数从下标 1 开始
+        return nl;
+    }
+
+    /* ==================== 线程查询 ==================== */
+
+    /** {@code lua_gettop} */
+    public int getTop() {
+        return top - (ci.func + 1);
+    }
+
+    /**
+     * {@code lua_upvalueindex(n)} 的取值：读<b>当前正在跑的</b>闭包的第
+     * {@code i} 个 upvalue（从 0 起）。
+     * <p>
+     * C 版用伪栈下标表达，这里直接给值。C 闭包绑的是值，Lua 闭包绑的是槽，
+     * 所以后者要过一层 {@link UpVal#value()}。
+     */
+    public LuaValue upvalue(int i) {
+        LuaValue f = stack[ci.func];
+        if (f.tt == Lua.VCCL) {
+            return ((CClosure) f.o).upvalue[i];
+        }
+        if (f.tt == Lua.VLIF) {
+            return ((LClosure) f.o).upvals[i].value();
+        }
+        throw new IllegalStateException("current frame is not a closure");
+    }
+
+    /** {@code lua_getstack(L, 0, &ar)}：还有没有调用帧 */
+    public boolean hasFrames() {
+        return ci != baseCi;
+    }
+
+    /** {@code lua_status} */
+    public int getStatus() {
+        return status;
+    }
+
+    /**
+     * {@code lua_pushthread}：压入当前线程，返回「是不是主线程」。
+     * {@code coroutine.running} 靠这个返回值区分主协程。
+     */
+    public int pushThread() {
+        push(LuaValue.ofThread(this));
+        return (mainThread == this) ? 1 : 0;
+    }
+
+    /** {@code lua_isyieldable} */
+    public boolean isYieldable() {
+        return nNy == 0;
+    }
+
+    /** {@code yieldable(L)}：与 {@link #isYieldable} 同义，包内用短名 */
+    private boolean yieldable() {
+        return nNy == 0;
+    }
+
+    /**
+     * {@code lua_xmove}：把 {@code n} 个值从一个线程搬到另一个。
+     * <p>
+     * 值本身是<b>拷贝</b>不是共享槽：两个协程的栈是两条独立的 {@code LuaValue[]}，
+     * 共享槽会让一个协程写栈时把另一个的栈也改掉。
+     */
+    public static void xmove(LuaState from, LuaState to, int n) {
+        if (n <= 0) {
+            return;
+        }
+        from.top -= n;
+        to.checkStack(n);
+        for (int i = 0; i < n; i++) {
+            to.stack[to.top].set(from.stack[from.top + i]);
+            to.top++;
+        }
     }
 
     public LuaTable getGlobals() {
@@ -308,6 +458,9 @@ public final class LuaState {
                 return c;
             } else if (f.tt == Lua.VLCF) {
                 precallC(funcIdx, nresults, (LuaFunction) f.o);
+                return null;
+            } else if (f.tt == Lua.VCCL) {
+                precallC(funcIdx, nresults, ((CClosure) f.o).f);
                 return null;
             } else {
                 funcIdx = tryFuncTM(funcIdx);
@@ -542,6 +695,326 @@ public final class LuaState {
         ci = baseCi;
         top = 0;
         openUpvals.clear();
+    }
+
+    /* ==================== 协程：yield / resume / unroll ==================== */
+
+    /**
+     * {@code lua_yieldk}。
+     * <p>
+     * 抛 {@link LuaYield} 而不是返回值——C 版这里是
+     * {@code luaD_throw(L, LUA_YIELD)}，一跳到底，中间所有帧都不做收尾。
+     * <b>这正是 yield 能穿过 {@code pcall} 的原因</b>：{@code pcall} 只捕
+     * {@link LuaError}，这个异常它看不见，于是一路冒到 {@link #resume}。
+     * <p>
+     * 顺带一提，两条不能 yield 的报错措辞不同，得靠 {@link #mainThread} 区分。
+     * 实测参考实现：{@code table.sort} 的比较函数里 yield 报
+     * {@code attempt to yield across a C-call boundary}；主协程里直接 yield 报
+     * {@code attempt to yield from outside a coroutine}。两条都不带位置前缀，
+     * 因为当时 {@code L->ci} 是 C 帧（{@link #where} 对 C 帧返回空串）。
+     */
+    public void yieldk(int nresults) {
+        if (!yieldable()) {
+            throw runError((mainThread == this)
+                    ? "attempt to yield from outside a coroutine"
+                    : "attempt to yield across a C-call boundary");
+        }
+        status = LUA_YIELD;
+        ci.nyield = nresults;
+        throw LuaYield.INSTANCE;
+    }
+
+    /** {@code lua_yield}：不带续体的形态，{@code coroutine.yield} 用它 */
+    public void yield(int nresults) {
+        yieldk(nresults);
+    }
+
+    /**
+     * {@code luaD_callnoyield}：从宿主调进 Lua，但<b>期间不许 yield</b>。
+     * <p>
+     * {@code table.sort} 的比较函数、{@code string.gsub} 的替换函数这类回调都
+     * 走这里——C 版同样用 {@code nyci} 把「不可 yield」这一层记上，所以回调里
+     * yield 会报跨 C 调用边界，与参考实现一致。
+     */
+    public void callNoYield(int funcIdx, int nresults) {
+        nNy++;
+        try {
+            call(funcIdx, nresults);
+        } finally {
+            nNy--;
+        }
+    }
+
+    /**
+     * {@code lua_resume}。
+     * <p>
+     * 调用前，给协程的参数必须已经由 {@link #xmove} 压到本线程栈上。
+     *
+     * @param nargs       压上来的参数个数
+     * @param nresultsOut 长度 1 的数组，用来带出「该从协程栈上搬走几个值」
+     * @return {@link #LUA_OK} / {@link #LUA_YIELD} / 错误码
+     */
+    public int resume(int nargs, int[] nresultsOut) {
+        if (status == LUA_OK) {
+            if (ci != baseCi) {
+                return resumeError("cannot resume non-suspended coroutine", nargs);
+            } else if (top - (ci.func + 1) == nargs) {
+                // base_ci.func 之上只剩参数 —— 说明连函数都没了，协程已经跑完
+                return resumeError("cannot resume dead coroutine", nargs);
+            }
+        } else if (status != LUA_YIELD) {
+            return resumeError("cannot resume dead coroutine", nargs);
+        }
+        /*
+         * C 版这里写 {@code L->nCcalls = getCcalls(from)}：只继承调用深度，
+         * 「不可 yield」的高位被清成 0。也就是说<b>每个协程的 yieldable 是
+         * 独立算的</b>——在 table.sort 的回调里 resume 另一个协程，那个协程
+         * 照样能 yield。这里没有跨线程深度继承，直接清零。
+         */
+        nNy = 0;
+        nCcalls = 0;
+        if (nCcalls >= MAXCCALLS) {
+            return resumeError("C stack overflow", nargs);
+        }
+        nCcalls++;
+        int st;
+        try {
+            doResume(nargs);
+            st = LUA_OK;
+        } catch (LuaYield y) {
+            st = LUA_YIELD;
+        } catch (LuaError e) {
+            /*
+             * luaD_seterrorobj：错误对象必须落到栈顶，后面
+             * finishPcallK / auxresume 都是从 top-1 取它的。
+             */
+            push(e.value);
+            st = LUA_ERRRUN;
+        }
+        st = precover(st);
+        if (st != LUA_OK && st != LUA_YIELD) {
+            status = st; // 标记线程死亡，之后 resume 一律「cannot resume dead coroutine」
+        }
+        nresultsOut[0] = (st == LUA_YIELD) ? ci.nyield
+                : (top - (ci.func + 1));
+        return st;
+    }
+
+    private int resumeError(String msg, int narg) {
+        top -= narg; // 把参数从栈上摘掉
+        push(LuaValue.ofString(LuaString.latin1(msg)));
+        return LUA_ERRRUN;
+    }
+
+    /** {@code ldo.c: resume} */
+    private void doResume(int nargs) {
+        if (status == LUA_OK) {
+            // 刚起一个协程：直接调它的主体
+            call(top - nargs - 1, MULTRET);
+            return;
+        }
+        status = LUA_OK; // 标记「又在跑了」
+        CallInfo c = ci;
+        if (c.isLua) {
+            // 只可能发生在 hook 里 yield，我们没有 hook
+            throw new IllegalStateException("yield inside a hook is not supported");
+        }
+        /*
+         * 关键一步：<b>resume 传进来的参数，就是 yield 的返回值</b>。
+         * 所以这里用 nargs（而不是 yield 出去的个数）去做 poscall——
+         * 实测 {@code coroutine.yield(1)} 之后 {@code resume(co, 99)}，
+         * 协程里拿到的就是 99。
+         */
+        int n = nargs;
+        if (c.k != null) {
+            n = c.k.call(this, LUA_YIELD, c.ctx);
+        }
+        poscall(c, n);
+        unroll();
+    }
+
+    /** {@code ldo.c: unroll}：把被 yield 打断的调用链一路跑到底 */
+    private void unroll() {
+        while (ci != baseCi) {
+            CallInfo c = ci;
+            if (!c.isLua) {
+                finishCcall(c);
+            } else {
+                Vm.finishOp(this); // 补完被打断的那条指令
+                Vm.execute(this, c); // 一直跑到「fresh 帧返回」为止
+            }
+        }
+    }
+
+    /** {@code ldo.c: finishCcall}：补完一个被 yield 打断的 C 帧 */
+    private void finishCcall(CallInfo c) {
+        int n;
+        if (c.clsret) {
+            n = c.nres; // 只是在关 tbc 变量时被中断，重做 poscall 即可
+        } else {
+            int st = LUA_YIELD; // 没有别的错误时就是「被 yield 打断」
+            if (c.yieldPcall) {
+                st = finishPcallK(c);
+            }
+            // adjustresults(L, LUA_MULTRET)：只抬高 ci.top，不动 L.top
+            if (c.top < top) {
+                c.top = top;
+            }
+            n = c.k.call(this, st, c.ctx);
+        }
+        poscall(c, n);
+    }
+
+    /**
+     * {@code ldo.c: finishpcallk}：补完一个被 yield 打断的 {@code pcall}。
+     * <p>
+     * 有两种「被打断」：真的 yield 了（{@code recst == LUA_OK}），或者恢复之后
+     * 被保护的函数自己出错（{@code recst} 记着那个错误状态）。后者要在这里把
+     * tbc 变量关掉、把错误对象放到位——和 {@code luaD_pcall} 出错时做的一样。
+     */
+    private int finishPcallK(CallInfo c) {
+        int st = c.recst;
+        if (st != LUA_OK) {
+            int fIdx = c.funcIdx; // 被保护的那个函数的栈下标
+            LuaValue errObj = new LuaValue(stack[top - 1]); // luaD_seterrorobj 取 top-1
+            top = fIdx + 1;
+            errObj = closeUpvalsFrom(fIdx, errObj);
+            if (c.errHandler != null) {
+                errObj = applyHandler(c.errHandler, errObj, fIdx);
+            }
+            stack[fIdx].set(errObj);
+            top = fIdx + 1;
+            c.recst = LUA_OK;
+        } else {
+            st = LUA_YIELD; // 不是出错，是 yield
+        }
+        c.yieldPcall = false;
+        return st;
+    }
+
+    /**
+     * 关掉 {@code level} 以上的 upvalue 并跑 {@code __close}。
+     * <p>
+     * 与 {@link #closeUpvalsOnUnwind} 同构，同样要处理「{@code __close} 自己又
+     * 出错，新错误顶掉旧错误」——C 版 {@code luaF_close} 一次只关一批，
+     * 出错就抛，由 {@code luaD_closeprotected} 循环接着关剩下的。
+     */
+    private LuaValue closeUpvalsFrom(int level, LuaValue errObj) {
+        while (true) {
+            if (openUpvals.isEmpty()) {
+                return errObj;
+            }
+            int before = openUpvals.size();
+            try {
+                closeUpvals(level, errObj);
+                return errObj;
+            } catch (LuaError e2) {
+                errObj = e2.value;
+                if (openUpvals.size() >= before) {
+                    return errObj; // 一个也没关掉，再试也不会有进展
+                }
+            }
+        }
+    }
+
+    /**
+     * 跑 {@code xpcall} 的消息处理函数，返回值顶掉原来的错误对象。
+     * <p>
+     * 与 {@link #pcall(int, int, LuaValue)} 里那段同形，只是错误对象来自
+     * 协程恢复路径而不是 {@code catch}。
+     */
+    private LuaValue applyHandler(LuaValue handler, LuaValue err, int fIdx) {
+        int hf = top;
+        checkStack(2);
+        stack[hf].set(handler);
+        stack[hf + 1].set(err);
+        top = hf + 2;
+        LuaValue bad = pcall(hf, 1); // 处理函数自身出错不再兜底
+        if (bad != null) {
+            top = fIdx + 1;
+            return bad;
+        }
+        LuaValue res = new LuaValue(stack[top - 1]);
+        top = fIdx + 1;
+        return res;
+    }
+
+    /**
+     * {@code ldo.c: precover}：出错时一层层往回找恢复点。
+     * <p>
+     * 只要还能找到一个被打断的 {@code pcall}，就把调用链退到那一层，
+     * 记下错误状态，再跑一次 {@link #unroll}——于是错误在这层 {@code pcall}
+     * 上被「捕获」，协程继续跑。找不到恢复点才是真的错误，线程就此死亡。
+     */
+    private int precover(int st) {
+        while (st != LUA_OK && st != LUA_YIELD) {
+            CallInfo c = findPcall();
+            if (c == null) {
+                return st;
+            }
+            ci = c;
+            c.recst = st;
+            try {
+                unroll();
+                st = LUA_OK;
+            } catch (LuaYield y) {
+                st = LUA_YIELD;
+            } catch (LuaError e) {
+                push(e.value);
+                st = LUA_ERRRUN;
+            }
+        }
+        return st;
+    }
+
+    /** {@code ldo.c: findpcall} */
+    private CallInfo findPcall() {
+        for (CallInfo c = ci; c != null; c = c.previous) {
+            if (c.yieldPcall) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * {@code lua_closethread}：关掉协程里所有待关闭（{@code <close>}）的变量。
+     * <p>
+     * {@code coroutine.close} 用它。已死亡的协程没有可关的东西，直接报原状态。
+     */
+    public int closeThread() {
+        return (closeThreadValue() == null) ? LUA_OK : LUA_ERRRUN;
+    }
+
+    /**
+     * {@code lua_closethread}：关掉协程里所有待关闭（{@code <close>}）的变量，
+     * 并把协程置为死亡。
+     * <p>
+     * 已经因为出错而死的协程没有可关的东西，直接返回 {@code null}——这一点很
+     * 要紧：{@code coroutine.wrap} 在错误分支里调它，如果这里还「搬一次错误
+     * 对象」，搬走的会是栈上的陈值，把真正的错误消息顶掉。
+     *
+     * @return {@code __close} 抛出的错误对象（已压在本线程栈顶，供
+     *         {@link #xmove} 搬走）；没有错误返回 {@code null}
+     */
+    public LuaValue closeThreadValue() {
+        if (status != LUA_OK && status != LUA_YIELD) {
+            return null; // 已死亡，没有可关的
+        }
+        LuaValue err = null;
+        try {
+            closeUpvals(1, LuaValue.ofNil()); // 从第 1 格起全部关掉
+        } catch (LuaError e) {
+            err = e.value;
+        }
+        ci = baseCi;
+        top = 1;
+        status = (err == null) ? LUA_OK : LUA_ERRRUN;
+        if (err != null) {
+            stack[top].set(err);
+            top++;
+        }
+        return err;
     }
 
     /* ==================== 加载与执行 ==================== */
