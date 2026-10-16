@@ -86,6 +86,20 @@ public final class LuaValue {
         return v;
     }
 
+    /** 线程 / 协程（{@link Lua#TTHREAD}） */
+    public static LuaValue ofThread(LuaState t) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.VTHREAD, t);
+        return v;
+    }
+
+    /** C 闭包（变体 {@link Lua#VCCL}） */
+    public static LuaValue ofCClosure(CClosure c) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.VCCL, c);
+        return v;
+    }
+
     /* ---------- 写入 ---------- */
 
     public void set(LuaValue src) {
@@ -182,6 +196,14 @@ public final class LuaValue {
 
     public boolean isFunction() {
         return Lua.noVariant(tt) == Lua.TFUNCTION;
+    }
+
+    public boolean isThread() {
+        return tt == Lua.VTHREAD;
+    }
+
+    public LuaState asThread() {
+        return (LuaState) o;
     }
 
     public int baseType() {

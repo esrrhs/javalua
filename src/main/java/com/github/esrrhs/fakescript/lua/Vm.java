@@ -924,6 +924,104 @@ public final class Vm {
     }
 
     /* ================================================================
+     * luaV_finishOp：补完被 yield 打断的那条指令
+     * ================================================================ */
+
+    /**
+     * {@code lvm.c: luaV_finishOp}。
+     * <p>
+     * 一条指令执行到一半去调了 Lua 代码（元方法、for 迭代器、普通调用），
+     * 结果那里面 yield 了——协程挂起时这条指令<b>还没跑完</b>。等 resume 回来，
+     * {@code unroll} 会先调这里把剩下的半步补上，再重新进入解释器。
+     * <p>
+     * 补的方式全靠「结果就压在栈顶」这一点：被调用者返回时
+     * {@code luaD_poscall} 已经把结果搬好，这里要么把它写进目标寄存器
+     * （{@code OP_GETTABLE} 之类），要么拿它决定跳不跳转（比较类指令），
+     * 要么把 pc 回退一格重跑（{@code OP_CLOSE} / {@code OP_RETURN} 这种要
+     * 「关一批变量、yield、再关下一批」的）。
+     * <p>
+     * 调用方保证 {@code L.ci} 是 Lua 帧，且 {@code savedpc} 指向被中断指令的
+     * <b>下一条</b>（主循环里 {@code pc++} 在取指时就做了），所以
+     * {@code code[savedpc - 1]} 才是被中断的那条。
+     */
+    static void finishOp(LuaState L) {
+        CallInfo ci = L.ci;
+        int base = ci.func + 1;
+        int inst = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc - 1];
+        int op = OpCode.getOpCode(inst);
+        switch (op) {
+        case OpCode.OP_MMBIN:
+        case OpCode.OP_MMBINI:
+        case OpCode.OP_MMBINK: {
+            // 结果写回触发元方法的那条算术指令的目标寄存器
+            int prev = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc - 2];
+            L.stack[base + OpCode.getArgA(prev)].set(L.stack[--L.top]);
+            break;
+        }
+        case OpCode.OP_UNM:
+        case OpCode.OP_BNOT:
+        case OpCode.OP_LEN:
+        case OpCode.OP_GETTABUP:
+        case OpCode.OP_GETTABLE:
+        case OpCode.OP_GETI:
+        case OpCode.OP_GETFIELD:
+        case OpCode.OP_SELF: {
+            L.stack[base + OpCode.getArgA(inst)].set(L.stack[--L.top]);
+            break;
+        }
+        case OpCode.OP_LT:
+        case OpCode.OP_LE:
+        case OpCode.OP_LTI:
+        case OpCode.OP_LEI:
+        case OpCode.OP_GTI:
+        case OpCode.OP_GEI:
+        case OpCode.OP_EQ: {
+            // 注意 OP_EQI / OP_EQK 不会 yield，所以不在这一组里
+            boolean res = L.stack[L.top - 1].toBoolean();
+            L.top--;
+            if (ci.leq) { // 拿 __lt 顶替缺失的 __le，结果要取反
+                ci.leq = false;
+                res = !res;
+            }
+            int next = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc];
+            if (OpCode.getOpCode(next) == OpCode.OP_JMP
+                    && res != (OpCode.getArgK(inst) != 0)) {
+                ci.savedpc++; // 条件不成立，跳过紧跟的 JMP
+            }
+            break;
+        }
+        case OpCode.OP_CONCAT: {
+            /*
+             * 拼接是「一批一批来」的：一次把栈顶若干个拼成一个，再接着拼。
+             * yield 发生在调 __concat 的那一刻，所以恢复时要先把元方法的结果
+             * 放回它该在的位置（倒数第二格），把 top 收一格，然后把剩下那
+             * 几个继续拼完——可能又 yield，那就再来一遍。
+             */
+            int t = L.top - 1; // 调 luaT_tryconcatTM 时的栈顶
+            int total = t - 1 - (base + OpCode.getArgA(inst)); // 还没拼的元素数
+            L.stack[t - 2].set(L.stack[t]);
+            L.top = t - 1;
+            concat(L, total);
+            break;
+        }
+        case OpCode.OP_CLOSE: {
+            ci.savedpc--; // 重跑，接着关剩下的变量
+            break;
+        }
+        case OpCode.OP_RETURN: {
+            // 先按 nres 把 top 摆正，再重跑，让 return 这一整套走完
+            L.top = base + OpCode.getArgA(inst) + ci.nres;
+            ci.savedpc--;
+            break;
+        }
+        default:
+            // 剩下的 OP_TFORCALL / OP_CALL / OP_TAILCALL / OP_SET* 没有半步要补：
+            // 结果已经由 poscall 直接写进目标寄存器了
+            break;
+        }
+    }
+
+    /* ================================================================
      * 算术（成功返回 true，调用方据此跳过后面的 MMBIN）
      * ================================================================ */
 

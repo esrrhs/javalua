@@ -24,7 +24,7 @@
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <jazzer.version>0.30.0</jazzer.version>
         <!-- 阶段性门禁值:每完成一个阶段往上抬一档,目标 0.85 -->
-        <jacoco.line.minimum>0.85</jacoco.line.minimum>
+        <jacoco.line.minimum>0.87</jacoco.line.minimum>
     </properties>
 
     <licenses>

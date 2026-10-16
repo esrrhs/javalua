@@ -36,6 +36,12 @@ class FuzzTest {
     /** 种子数量。每个种子生成一整段程序，跑两边比对 */
     private static final int SEEDS = 1500;
 
+    /** 协程模式的种子数 */
+    private static final int CO_SEEDS = 600;
+
+    /** 协程模式的种子偏移：与常规模式的种子错开，落盘文件名不会撞车 */
+    private static final int CO_SEED_BASE = 100000;
+
     @BeforeAll
     static void requireReference() {
         assumeTrue(ReferenceLua.available(),
@@ -45,7 +51,7 @@ class FuzzTest {
     @Test
     void generatedProgramsMatchReference() {
         for (int seed = 0; seed < SEEDS; seed++) {
-            String src = new Gen(new Random(seed)).program();
+            String src = new Gen(new Random(seed), false).program();
             String want = Diff.ref(src);
             String got = Diff.mine(src);
             if (!want.equals(got)) {
@@ -53,6 +59,31 @@ class FuzzTest {
                 String path = dump(seed, src, want, got);
                 assertEquals(want, got,
                         "seed=" + seed + "，程序已落到 " + path + "\n" + src);
+            }
+        }
+    }
+
+    /**
+     * 同一套生成器，但主 chunk 跑在协程里，并随机撒 {@code coroutine.yield}。
+     * <p>
+     * 手工用例只能覆盖「我知道该怎么测」的地方；yield 会落在哪条指令的中间
+     * 是生成器说了算的，所以诸如「元方法里 yield」「pcall 里 yield」
+     * 「for 迭代器里 yield」这些组合，只有靠随机撒点才撞得出来——而
+     * {@code luaV_finishOp} 的每个分支恰好对应其中一种。
+     * <p>
+     * 驱动循环必须<b>有界</b>：协程可能永远 yield 下去，两边一起挂住的话
+     * 测试就再也跑不完。
+     */
+    @Test
+    void generatedCoroutineProgramsMatchReference() {
+        for (int seed = 0; seed < CO_SEEDS; seed++) {
+            String src = new Gen(new Random(seed + CO_SEED_BASE), true).program();
+            String want = Diff.ref(src);
+            String got = Diff.mine(src);
+            if (!want.equals(got)) {
+                String path = dump(seed + CO_SEED_BASE, src, want, got);
+                assertEquals(want, got,
+                        "seed=" + (seed + CO_SEED_BASE) + "，程序已落到 " + path + "\n" + src);
             }
         }
     }
@@ -90,8 +121,12 @@ class FuzzTest {
         private int depth = 0;
         private int tmpCounter = 0;
 
-        Gen(Random r) {
+        /** 协程模式：撒 {@code coroutine.yield}，并把主 chunk 塞进协程里跑 */
+        private final boolean co;
+
+        Gen(Random r, boolean co) {
             this.r = r;
+            this.co = co;
         }
 
         private int pick(int n) {
@@ -110,9 +145,16 @@ class FuzzTest {
                 sb.append(functionDef()).append('\n');
             }
             // 再写主 chunk
+            StringBuilder main = new StringBuilder();
             int n = 3 + pick(6);
             for (int i = 0; i < n; i++) {
-                sb.append(blockStatement(0)).append('\n');
+                main.append(blockStatement(0)).append('\n');
+            }
+            if (co) {
+                sb.append("local co = coroutine.create(function()\n")
+                        .append(indent(main.toString().stripTrailing())).append('\n');
+            } else {
+                sb.append(main);
             }
             // 最后把还在作用域里的变量全打印出来，让「值不对」能被观察到
             sb.append("print(");
@@ -128,6 +170,14 @@ class FuzzTest {
                 sb.append("'empty'");
             }
             sb.append(")\n");
+            if (co) {
+                sb.append("end)\n")
+                        .append("local n = 0\n")
+                        .append("while coroutine.status(co) ~= 'dead' and n < 30 do\n")
+                        .append("  print(coroutine.resume(co, 1))\n")
+                        .append("  n = n + 1\n")
+                        .append("end\n");
+            }
             return sb.toString();
         }
 
@@ -198,7 +248,11 @@ class FuzzTest {
             }
             depth++;
             String s;
-            switch (pick(6)) {
+            int kinds = co ? 7 : 6;
+            switch (pick(kinds)) {
+            case 6: // 协程模式专属：在任意深度 yield 一下
+                s = "coroutine.yield(" + atom() + (chance(30) ? ", " + atom() : "") + ")";
+                break;
             case 0: // 有界数值 for
                 s = "for i" + d + " = " + (pick(3)) + ", " + (1 + pick(4))
                         + (chance(30) ? ", 2" : "") + " do\n"

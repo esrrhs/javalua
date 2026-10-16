@@ -147,7 +147,13 @@ public final class BaseLib {
             L.stack[func].set(ts);
             L.stack[func + 1].set(v);
             L.top = func + 2;
-            L.call(func, 1);
+            /*
+             * luaL_callmeta 走的是 lua_call，也就是 luaD_callnoyield：
+             * __tostring 里 yield 会报「跨 C 调用边界」。实测参考实现
+             * print(setmetatable({}, {__tostring = f})) 里 f 一 yield 就炸，
+             * 换成 L.call 会让它「成功」，反而与参考实现不一致。
+             */
+            L.callNoYield(func, 1);
             LuaValue res = L.stack[--L.top];
             if (!res.isString()) {
                 throw L.libError("'__tostring' must return a string");
@@ -466,6 +472,7 @@ public final class BaseLib {
      */
     private static int doPcall(LuaState L, boolean hasHandler) {
         int base = L.ci.func;
+        CallInfo myCi = L.ci; // 本函数自己的帧；yield 时要往上面挂续体
         LuaValue handler = null;
         if (hasHandler) {
             handler = new LuaValue(L.stack[base + 2]);
@@ -483,15 +490,49 @@ public final class BaseLib {
         L.top++;
         L.stack[start].setBoolean(true);
         int f = start + 1;
-        LuaValue err = L.pcall(f, LuaState.MULTRET, handler);
-        if (err == null) {
-            return L.top - start;
+        try {
+            LuaValue err = L.pcall(f, LuaState.MULTRET, handler);
+            if (err == null) {
+                return L.top - start;
+            }
+            L.top = start;
+            L.push(LuaValue.ofBoolean(false));
+            L.push(err);
+            return 2;
+        } catch (LuaYield y) {
+            /*
+             * pcall 可以 yield —— 实测参考实现就是这样。但 yield 是异常抛出去的，
+             * Java 栈帧到这里就没了，「收尾」只能交给续体。
+             * 这里做的事等价于 C 版 lua_pcallk 里那段
+             * 「ci->u.c.k = k; ci->callstatus |= CIST_YPCALL; ...」：
+             * 记下恢复点，让 resume 之后的 unroll 能找到它。
+             */
+            myCi.yieldPcall = true;
+            myCi.k = PCALL_CONT;
+            myCi.ctx = start;
+            myCi.funcIdx = f;
+            myCi.errHandler = handler;
+            myCi.recst = LuaState.LUA_OK;
+            throw y;
         }
-        L.top = start;
-        L.push(LuaValue.ofBoolean(false));
-        L.push(err);
-        return 2;
     }
+
+    /**
+     * {@code lbaselib.c: finishpcall} —— pcall 的续体。
+     * <p>
+     * {@code ctx} 是结果区起点（就是 {@code true} 那一格），错误对象由
+     * {@code finishPcallK} 放在 {@code ctx + 1}。
+     */
+    private static final LuaKFunction PCALL_CONT = (L, status, ctx) -> {
+        if (status != LuaState.LUA_OK && status != LuaState.LUA_YIELD) {
+            LuaValue err = new LuaValue(L.stack[ctx + 1]);
+            L.top = ctx;
+            L.push(LuaValue.ofBoolean(false));
+            L.push(err);
+            return 2;
+        }
+        return L.top - ctx;
+    };
 
     /** {@code luaB_setmetatable} */
     private static int setmetatable(LuaState L) {

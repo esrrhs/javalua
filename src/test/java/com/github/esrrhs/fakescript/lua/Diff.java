@@ -97,6 +97,7 @@ final class Diff {
         LuaState L = new LuaState();
         BaseLib.open(L);
         MathLib.open(L);
+        CoroutineLib.open(L);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         L.out = new PrintStream(bos, true, StandardCharsets.UTF_8);
         LuaValue err;

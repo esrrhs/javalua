@@ -25,7 +25,7 @@ host runtime.
 | **Target** | Full Lua 5.4 language semantics + complete standard library |
 | **Method** | Direct, module-by-module translation of the C reference sources |
 | **GC** | **Not implemented.** Object lifetime is entirely the JVM's job (G1/ZGC are concurrent collectors already) |
-| **Runtime** | Java 21+ (coroutines rely on virtual threads) |
+| **Runtime** | Java 17+ (coroutines are plain stacks, no threads — see below) |
 | **Compatibility** | Pure-Lua projects; C extension modules (`.so` / `luaopen_*`) are out of scope for now |
 
 ### Why there is no GC
@@ -106,18 +106,34 @@ Ported from `ltable.c`, including the migration logic that decides whether an
 integer key is dense enough to live in the array part. Integer keys and string keys
 are distinct entries: `t[1]` and `t["1"]` are different, as in Lua.
 
-### 4. Coroutines run on virtual threads
+### 4. Coroutines are separate stacks, not threads
 
 Lua coroutines can yield from arbitrarily deep stacks — inside `pcall`, inside a
-metamethod, inside a `for` iterator. Reproducing that with an explicit state
-machine is the hardest part of rewriting `lvm.c`. Instead, each Lua coroutine runs
-on a Java **virtual thread**: `coroutine.yield` parks it, `resume` unparks it.
-Because Lua functions are executed by the interpreter on that same thread, yields
-at any depth fall out naturally, and virtual threads are cheap enough to run
-thousands of coroutines. This is why Java 21 is the floor.
+metamethod, inside a `for` iterator. The plan was to give each one a Java virtual
+thread. That turned out to be the wrong call, and phase 5 dropped it.
 
-The coroutine layer sits behind an interface so a state-machine implementation can
-replace it later without touching callers.
+A Lua coroutine is *cooperative*: exactly one runs at a time, and the suspension
+point is stated explicitly by `coroutine.yield`. C models this with one stack per
+`lua_State` plus `longjmp` out to `lua_resume`. Java has the same two ingredients
+— one stack per `LuaState`, and an exception (`LuaYield`) that unwinds the Java
+call stack. **Nothing needs a thread**, because all the Lua state lives on the
+heap: unwinding the Java frames leaves the stack, the `CallInfo` chain and the
+open upvalues exactly as they were, ready to continue on `resume`.
+
+Virtual threads were also *too permissive*. A C function that calls back into Lua
+(`table.sort`'s comparator, `string.gsub`'s replacement function) cannot yield in
+real Lua — it raises `attempt to yield across a C-call boundary`. On a virtual
+thread it would simply work, and that difference is a bug, not a feature, for a
+project whose goal is "run existing Lua code unchanged."
+
+This also drops the Java floor from 21 to 17, which is what makes the local build
+work today.
+
+The machinery that replaced threads is a faithful port of `ldo.c`:
+`lua_resume` / `unroll` / `finishCcall` / `finishpcallk` / `precover`, plus
+`luaV_finishOp`, which completes the half-executed instruction that a yield
+interrupted. C functions that can be interrupted (`pcall`, `xpcall`) register a
+continuation — the Java equivalent of `lua_KFunction`.
 
 ### 5. Errors use Java exceptions, not `setjmp` / `longjmp`
 
@@ -154,7 +170,7 @@ Each phase ends with tests green. Nothing advances on a red phase.
 | **2** | Bytecode: full Lua 5.4 instruction set, code generator, constant folding, upvalue resolution | `lopcodes`, `lcode`, `lfunc` |
 | **3** | Interpreter main loop: calls/returns, arithmetic & comparison with coercion, metamethod dispatch | `lvm`, `ldo`, `ltm` |
 | **4** | Closures & open/closed upvalues, `goto`/labels, varargs, multiple assignment and returns | `lparser`, `lvm` |
-| **5** | Coroutines on virtual threads, `coroutine.*`, error & yield across boundaries | `lcorolib`, `ldo` |
+| **5** | Coroutines: `coroutine.*`, yield/resume/unroll, yield & error across boundaries | `lcorolib`, `ldo`, `lvm` |
 | **6** | Collection-dependent semantics: weak tables, `__gc`, weak string pool | *(replaces `lgc.c`)* |
 | **7** | Standard library: `base`, `coroutine`, `package`, `string`, `table`, `math`, `io`, `os`, `utf8`, `debug` | `l*lib.c`, `loadlib.c` |
 | **8** | `load` / `loadstring` / `dump`, `require` searchers, `package.path` / `cpath` | `lundump`, `ldump`, `loadlib` |
@@ -184,11 +200,11 @@ A phase is done only when the gates that apply to it are green.
 
 ## Status
 
-**Phase 4 — closures.** The previous fakescript language implementation has been
-removed from `master`; see *Migration* below. Phases 0 through 4 are in: the
+**Phase 5 — coroutines.** The previous fakescript language implementation has been
+removed from `master`; see *Migration* below. Phases 0 through 5 are in: the
 compiler produces bytecode that is **field-for-field identical** to a real
 `lua5.4`'s, and the VM executes it — **stdout matches a real `lua5.4` byte for
-byte** across 158 + 121 differential scripts and 1500 generated programs, and
+byte** across 158 + 121 + 60 differential scripts and 2100 generated programs, and
 error messages match line for line.
 
 Landed so far:
@@ -221,7 +237,15 @@ Landed so far:
 | `Diff` (test) | — | shared differential driver: runs one script on both sides |
 | `ConformanceTest`, `CodegenTest`, `ParserTest`, `RuntimeTest` | — | run a real `lua5.4` binary as the oracle |
 | `ClosureTest` (test) | — | Phase 4 gate: closures, `goto`, varargs, multiple assignment |
-| `FuzzTest` (test) | — | 1500 seeded generated programs, both sides |
+| `CClosure` | `CClosure` | a C function bound to values — needed by `coroutine.wrap` |
+| `LuaThread` value (`Lua.VTHREAD`) | `LUA_TTHREAD` | a `LuaState` reachable as a Lua value |
+| `CoroutineLib` | `lcorolib.c` | `create` / `resume` / `yield` / `status` / `wrap` / `isyieldable` / `running` / `close` |
+| `resume` / `unroll` / `finishCcall` / `finishpcallk` / `precover` | `ldo.c` | the yield/resume state machine, no threads |
+| `LuaKFunction` | `lua_KFunction` | continuation for a C function interrupted by a yield |
+| `LuaYield` | `luaD_throw(L, LUA_YIELD)` | unwinding exception; deliberately *not* caught by `pcall` |
+| `Vm.finishOp` | `luaV_finishOp` | completes the half-executed instruction a yield interrupted |
+| `CoroutineTest` (test) | — | Phase 5 gate: 60 differential scripts, incl. yield inside every metamethod |
+| `FuzzTest` (test) | — | 1500 seeded programs + 600 more run inside a coroutine with random yields |
 
 ### The bytecode gate
 
@@ -328,8 +352,10 @@ are locked by differential tests.
 
 ### The fuzzing gate
 
-`FuzzTest` generates 1500 programs from a small grammar and diffs each one
-against the reference. Two constraints keep it from becoming a nuisance
+`FuzzTest` generates 2100 programs from a small grammar and diffs each one
+against the reference — 1500 plain, and 600 more whose main chunk runs inside a
+`coroutine.create` with `coroutine.yield` sprinkled at random points and driven
+by a bounded `resume` loop. Two constraints keep it from becoming a nuisance
 generator:
 
 * **It must terminate.** Only bounded `for` / `ipairs` loops, no `while`, no
@@ -360,7 +386,35 @@ it is the only gate that finds "does not crash, but the value is wrong".
   output); and the `lua.c` program-name prefix must be stripped *everywhere*,
   not just at the start, because it appears mid-output once stdout precedes it.
 
-Next: Phase 5, coroutines on virtual threads (`lcorolib.c`, `ldo.c`).
+### Five things the reference binary settled this phase
+
+* **`pcall`, `xpcall`, metamethods and `for` iterators are yieldable; C-library
+  callbacks are not.** `table.sort`'s comparator and `string.gsub`'s replacement
+  function raise `attempt to yield across a C-call boundary`, because
+  `ltablib.c`/`lstrlib.c` call back through `lua_call` (`luaD_callnoyield`).
+  `__tostring` invoked by `print` is the same story. This is precisely the
+  behaviour virtual threads would have "fixed" — and broken.
+* **The main thread is never yieldable.** `lstate.c`'s `lua_newstate` does
+  `incnny(L)` unconditionally, so `coroutine.isyieldable()` is `false` on the main
+  thread even with no C call in sight. A coroutine starts at zero, and every
+  `resume` resets it to zero (`lua_resume` copies only the low 16 bits of
+  `nCcalls` from the resumer).
+* **`resume`'s arguments *are* the return values of `yield`.** `lua_resume`'s
+  `poscall(ci, nargs)` is what makes `coroutine.yield(1)` see `99` after
+  `resume(co, 99)` — the number of values moved back is the number passed in,
+  not the number yielded out.
+* **`coroutine.wrap` reports its own name, not `create`'s.** `luaB_cowrap` calls
+  `luaB_cocreate` directly, and `luaL_argerror` derives the name from how the
+  *current* frame was called — so `coroutine.wrap(nil)` says
+  `bad argument #1 to 'coroutine.wrap'`.
+* **`luaV_finishOp` has a branch per interruptible opcode, and `OP_CONCAT`'s is
+  not optional.** Concatenation proceeds in batches, so after a `__concat` yield
+  the metamethod result has to be moved back one slot, `top` pulled in by one,
+  and the remaining elements concatenated — possibly yielding again. Skipping it
+  silently yields the *operand table* instead of the concatenation result.
+
+Next: Phase 6, collection-dependent semantics — weak tables, `__gc`, and a weak
+string pool.
 
 ---
 
