@@ -264,6 +264,8 @@ Landed so far:
 | `Dump` | `ldump.c` | writes one; `string.dump`, `strip` |
 | `LoadTest` (test) | — | Phase 8 gate: 25 scripts — modes, chunk names, `_ENV`, reader functions, `loadfile` / `dofile` |
 | `DumpTest` (test) | — | Phase 8 gate: 16 — runtime stdout **and** `string.dump` output byte for byte |
+| `StringPack` | part of `lstrlib.c` | `string.pack` / `unpack` / `packsize`; the only platform-dependent corner of the library |
+| `PackTest` (test) | — | 21 scripts — integers, floats, strings, alignment, wide integers, errors, key set |
 
 ### The bytecode gate
 
@@ -660,12 +662,30 @@ One more, on the dump side: `dumpFunction` compares sources **by reference**
 agree, but a long source name is not interned and C writes it out again for
 every nested function. Comparing by content would emit *less* than C does.
 
+### `string.pack` / `string.unpack` / `string.packsize`
+
+Ported as `StringPack` (the pack/unpack half of `lstrlib.c`), with `PackTest`
+(21 scripts). This is the **only part of the standard library whose output
+depends on the host platform**: `l` / `L` are C's `long`, `T` is `size_t`, `!`'s
+default maximum alignment is `offsetof` of `LUAI_MAXALIGN`, and the default byte
+order is the host's. Those are pinned to the platform the reference binary runs
+on — LP64 + little-endian — because on a platform where `long` is 4 bytes the
+reference itself emits different bytes.
+
+Two more things the reference binary settled here:
+
+* **`X` consumes the option after it.** `getdetails` calls `getoption` to learn
+  the next option's alignment, and that call advances the format string. So
+  `string.packsize("Xi4")` is `0`, and `string.pack("Xi4", 7)` is `""`. An
+  implementation that peeks without advancing returns `4` — which looks more
+  sensible and is wrong.
+* **`str_pack`'s `lua_pushnil` marker is observable.** It exists to separate the
+  arguments from the string buffer, but it sits at index 2, so with no second
+  argument `string.pack("c2")` reports `string expected, got nil` rather than
+  `got no value`.
+
 ### What is still missing
 
-Two holes remain in the standard library, both from `lstrlib.c` / `ldblib.c`
-and neither of them blocking `load`:
-
-* **`string.pack` / `string.unpack` / `string.packsize`.** Ported next.
 * **The whole `debug` library.** `debug` is currently `nil`. It needs `ldebug.c`
   (`getinfo`, locals, upvalues, hooks) as well as `ldblib.c`.
 

@@ -239,6 +239,8 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 | `Dump` | `ldump.c` | 写预编译 chunk：`string.dump` 与 `strip` |
 | `LoadTest`（测试） | — | 阶段 8 闸门：25 段脚本——模式、chunk 名、`_ENV`、读函数、`loadfile` / `dofile` |
 | `DumpTest`（测试） | — | 阶段 8 闸门：16——运行期 stdout 与 `string.dump` 产物都逐字节比 |
+| `StringPack` | `lstrlib.c` 的一部分 | `string.pack` / `unpack` / `packsize`；标准库里唯一平台相关的一角 |
+| `PackTest`（测试） | — | 21 段脚本——整数、浮点、字符串、对齐、宽整数、报错、键集合 |
 
 ### 字节码这道闸门
 
@@ -574,11 +576,27 @@ dump 那一侧还有一条：`dumpFunction` 比源名用的是<b>引用</b>
 （`f->source == psource`）而不是内容。短字符串驻留之后两者等价，但长字符串
 不驻留，C 会为每个内嵌函数各写一遍源名；按内容比会写得比 C 少。
 
-### 还没补上的两处
+### `string.pack` / `string.unpack` / `string.packsize`
 
-标准库还剩两个洞，都在 `lstrlib.c` / `ldblib.c` 里，都不挡 `load`：
+作为 `StringPack`（`lstrlib.c` 的 pack/unpack 那半段）落地，配 `PackTest`
+（21 段）。这是标准库里**唯一一处输出取决于宿主平台**的部分：`l` / `L` 是
+C 的 `long`，`T` 是 `size_t`，`!` 的默认最大对齐是 `LUAI_MAXALIGN` 的偏移，
+默认字节序取宿主的。这些按参考二进制所在的平台（LP64 + 小端）钉死——
+在 `long` 只有 4 字节的平台上，参考实现自己给出的字节也不一样。
 
-* **`string.pack` / `string.unpack` / `string.packsize`。** 下一轮搬。
+这里还有两处由参考实现裁定的：
+
+* **`X` 会吃掉它后面那一项。** `getdetails` 调 `getoption` 是为了拿到后一项的
+  对齐要求，而那次调用同时把格式串往前推了一格。于是
+  `string.packsize("Xi4")` 是 `0`，`string.pack("Xi4", 7)` 得到空串。
+  「先看一眼再决定」的实现会给出 `4`——看着更合理，但它是错的。
+* **`str_pack` 那个 `lua_pushnil` 标记是可观测的。** 它本来只是把参数与字符串
+  缓冲隔开，但它站在 2 号位置，所以不传第二个参数时
+  `string.pack("c2")` 报的是 `string expected, got nil` 而不是
+  `got no value`。
+
+### 还没补上的
+
 * **整个 `debug` 库。** `debug` 目前是 `nil`。它需要 `ldebug.c`
   （`getinfo`、局部变量、upvalue、钩子）与 `ldblib.c` 一起落地。
 
