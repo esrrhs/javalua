@@ -490,7 +490,55 @@ match, and each is documented rather than papered over.
   JVM never tells us an object is unreachable except by collecting it, so there
   is no way to schedule a finalizer without an explicit cycle.
 
-Next: Phase 7, the standard library — the `l*lib.c` files and `loadlib.c`.
+### Phase 7 so far
+
+`string` (`StringLib`), `table` (`TableLib`), `math` (`MathLib`) and `utf8`
+(`Utf8Lib`) are ported, each with its own differential gate —
+`StringLibTest` (29), `MathLibTest` (26), `TableLibTest` (18),
+`Utf8LibTest` (13). `os`, `io` and `package` are still to come.
+
+#### Five things the reference binary settled in Phase 7
+
+* **A shared `lauxlib.c` layer has to come *before* any library.** Argument
+  checking (`checkString` / `checkInteger` / `argError` / …) is not scaffolding:
+  the message text is part of the observable contract, and six hand-rolled
+  copies would drift apart within a week. One detail is only right if the
+  parameter numbering is 1-based: `s:rep(nil)` reports `bad argument #1`,
+  because `luaL_argerror` decrements for a method call.
+* **`math.max` / `math.min` use `lua_compare`, not a numeric comparison.** So
+  `math.max("a","b")` is `"b"`, and `math.max(1,"b")` raises
+  `attempt to compare number with string` via the failed `__lt` path. They also
+  preserve the operand's subtype: `math.max(1, 2.0)` is `2.0` (a float).
+* **`math.fmod`'s float path is C's `fmod`, not Lua's `%`.** They differ in the
+  sign of the result: `math.fmod(-7.5, 2)` is `-1.5` (sign of the dividend)
+  while `-7.5 % 2` is `0.5` (sign of the divisor). Reusing the VM's `Arith.modf`
+  here is the easy mistake and it is wrong by a sign.
+* **`math.log`'s base-2 and base-10 branches are genuinely different
+  computations.** C calls `log2` / `log10`; `log(x)/log(2)` differs from
+  `log2(x)` on 9 of 43 sampled inputs, and `log(x)/log(10)` from `log10(x)` on
+  25 of 43. Java has no `log2`, so it is reconstructed as
+  `e + log(m)/ln2` from the mantissa decomposition `x = m * 2^e`, which lands
+  within 1 ulp on 190 of 192 inputs.
+* **`table.insert` on an object with `__newindex` must call it.** `ltablib.c`
+  does not use `luaH_setint`; it uses `lua_seti`, which goes through
+  `luaV_finishset`. Writing raw leaves `table.insert(ud, v)` silently doing
+  nothing — no error, no write.
+
+#### One divergence that is accepted, not fixed
+
+`sin` / `cos` / `tan` / `asin` / `acos` / `atan` / `exp` / `log` / `log10` /
+`sinh` / `cosh` / `tanh` / `pow` are **not bit-identical** to the reference.
+Java's `Math` is fdlibm; the reference binary links the platform libm (macOS
+`libsystem_m` here). Both are correct to within 1 ulp of the true value, but
+they round differently in the last place: of 43 typical inputs, `sin` differs on
+1, `tan` on 12, `cosh` on 6. Closing that gap means shipping a libm of our own,
+which neither fits the goal nor matches what Lua itself guarantees — Lua's own
+results shift with the platform. The differential cases therefore compare these
+functions to 14 significant digits (1 ulp is ~2.2e-16 relative). Everything
+that *can* agree does agree: `sqrt`, `abs`, `floor`, `ceil`, `frexp`, `ldexp`
+and the `log` branches above are bit-exact.
+
+Next in Phase 7: `os`, `io` and `package`, then `load` / `require` in Phase 8.
 
 ---
 

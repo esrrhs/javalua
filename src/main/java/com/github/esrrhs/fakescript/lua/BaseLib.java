@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
  * 基础库 —— 对应 {@code lbaselib.c}，加上 {@code lstrlib.c} 里那组字符串算术元方法。
  * <p>
  * 阶段 3 只求「脚本能跑起来并对 stdout 做差分」，所以这里挑的是差分比对真正
- * 用得上的函数：输出、类型、转换、元表、迭代、错误处理。文件 / 字符串 /
- * 数学 / 协程等库留到阶段 7。
+ * 用得上的函数：输出、类型、转换、元表、迭代、错误处理。字符串 / 表 / os /
+ * io 等库随阶段 7 各自成文件。
  * <p>
  * <b>为什么这里要挂字符串的算术元方法。</b>{@code "10" + 1 == 11} 这件事
  * <b>不是</b> VM 做的——VM 的算术宏只认真正的数字。它来自 {@code lstrlib.c}
@@ -44,11 +44,6 @@ public final class BaseLib {
         setFn(g, "setmetatable", BaseLib::setmetatable);
         setFn(g, "getmetatable", BaseLib::getmetatable);
         setFn(g, "collectgarbage", BaseLib::collectgarbage);
-
-        // 只放一个 unpack：泛型 for 与 select 的差分测试会用到
-        LuaTable tableLib = new LuaTable();
-        setFn(tableLib, "unpack", BaseLib::unpack);
-        g.set("table", LuaValue.ofTable(tableLib));
 
         openStringMetatable(L);
     }
@@ -155,10 +150,20 @@ public final class BaseLib {
              */
             L.callNoYield(func, 1);
             LuaValue res = L.stack[--L.top];
-            if (!res.isString()) {
-                throw L.libError("'__tostring' must return a string");
+            /*
+             * 判据是 {@code lua_isstring} 而不是「是不是字符串」：
+             * <b>数字也算</b>，会被就地转换成字符串。实测
+             * {@code print(setmetatable({}, {__tostring = function() return 42 end}))}
+             * 打印 {@code 42}，只有返回表这类真不行的才报
+             * 「'__tostring' must return a string」。
+             */
+            if (res.isString()) {
+                return res.asString();
             }
-            return res.asString();
+            if (res.isNumber()) {
+                return LuaString.latin1(Vm.numberToString(res));
+            }
+            throw L.libError("'__tostring' must return a string");
         }
         switch (v.baseType()) {
         case Lua.TNUMBER:
@@ -612,21 +617,6 @@ public final class BaseLib {
         LuaTable.gcGeneration++;
         L.push(LuaValue.ofInteger(0));
         return 1;
-    }
-
-    /** {@code table.unpack} */
-    private static int unpack(LuaState L) {
-        LuaValue t = L.arg(0);
-        long from = (L.argCount() > 1 && !L.arg(1).isNil()) ? checkInteger(L, 1) : 1;
-        long to = (L.argCount() > 2 && !L.arg(2).isNil()) ? checkInteger(L, 2)
-                : (t.isTable() ? t.asTable().length() : 0);
-        int count = 0;
-        for (long i = from; i <= to; i++) {
-            LuaValue v = t.asTable().get(LuaValue.ofInteger(i));
-            L.push((v == null) ? LuaValue.ofNil() : v);
-            count++;
-        }
-        return count;
     }
 
     /* ==================== 小工具 ==================== */

@@ -85,6 +85,17 @@ public final class LuaState {
     public final LuaTable registry;
 
     /**
+     * 注册表里的 {@code _LOADED} 表，也就是 {@code package.loaded}。
+     * <p>
+     * 除了阶段 8 的 {@code require} 要用它，这里<b>立刻</b>就要用它：
+     * {@code lauxlib.c: pushglobalfuncname} 靠它反查「这个 C 函数在哪个库里」，
+     * 于是 {@code pcall(string.len)} 报的是
+     * 「bad argument #1 to 'string.len'」而不是「… to 'len'」。少的不是里子
+     * 而是面子——但真实项目的日志与断言里全是这种字符串。
+     */
+    private final LuaTable loaded = new LuaTable();
+
+    /**
      * 每个基础类型的默认元表，对应 {@code global_State.mt[]}。
      * <p>
      * 只有 {@code debug.setmetatable(nil, mt)} 这类「给整个类型设元表」的调用
@@ -161,7 +172,24 @@ public final class LuaState {
         if (main == null) {
             registry.set(2, LuaValue.ofTable(globals)); // LUA_RIDX_GLOBALS
             globals.set("_G", LuaValue.ofTable(globals));
+            /*
+             * 上游的 _LOADED 里也挂着 _G 本身，所以全局函数（print 等）能被
+             * findfield 反查到名字（查出来是 "_G.print"，再把前缀去掉）。
+             * 不挂的话 pcall(print, ...) 的报错里函数名会变成 "?"。
+             */
+            loaded.set("_G", LuaValue.ofTable(globals));
         }
+    }
+
+    /**
+     * {@code package.loaded}（注册表里的 {@code _LOADED}）。
+     * <p>
+     * 开库时应当顺手把库表登记进来（等价于 {@code luaL_requiref} 的
+     * {@code LOADED[modname] = module}）——这既让 {@code require} 能用，
+     * 也让库函数的报错带上 {@code 'string.len'} 这样的全名。
+     */
+    public LuaTable loadedTable() {
+        return loaded;
     }
 
     /**
@@ -1369,6 +1397,171 @@ public final class LuaState {
      */
     public LuaError libError(String msg) {
         return errorAt(LuaValue.ofString(LuaString.latin1(msg)), 1);
+    }
+
+    /* ==================== lauxlib.c 那套「参数检查」 ==================== */
+
+    /**
+     * 取第 {@code arg} 个参数（<b>1 起</b>，与 {@code luaL_*} 一致）。
+     * <p>
+     * 越界时返回一个 {@code LUA_TNONE} 的值而不是栈槽里的残值：C 里
+     * {@code lua_type} 对越界下标返回 {@code LUA_TNONE}，报出来是
+     * 「no value」，而栈槽里往往还是 nil，报出来就成了「nil」——
+     * 两者是不同的错误文本，混掉就会在 {@code pcall(f)} 这类用例上对不上。
+     */
+    LuaValue arg1(int arg) {
+        int idx = ci.func + arg; // 1 起：arg=1 → func+1 是第一个参数
+        if (idx >= top) {
+            return LuaValue.ofNil(); // 仅用于取值，配合下面的 isNone 判断
+        }
+        return stack[idx];
+    }
+
+    /** {@code lua_isnone}：第 {@code arg} 个参数（1 起）根本没传？ */
+    boolean isNoneArg(int arg) {
+        return ci.func + arg >= top;
+    }
+
+    /** {@code luaL_typename}：越界是 {@code no value} */
+    String argTypeName(int arg) {
+        return isNoneArg(arg) ? "no value" : stack[ci.func + arg].typeName();
+    }
+
+    /**
+     * {@code lauxlib.c: luaL_typeerror}：{@code "<tname> expected, got <X>"}。
+     * <p>
+     * {@code __name} 元字段优先于真实类型名——这是 userdata 报
+     * 「MyType expected」的机制，照抄。
+     */
+    public LuaError typeArgError(int arg, String tname) {
+        String typeArg;
+        if (!isNoneArg(arg)) {
+            LuaValue v = stack[ci.func + arg];
+            LuaValue nm = metafieldOf(v, "__name");
+            if (nm != null && nm.isString()) {
+                typeArg = nm.asString().toJavaString();
+            } else {
+                typeArg = v.typeName();
+            }
+        } else {
+            typeArg = "no value";
+        }
+        return argError(arg, tname + " expected, got " + typeArg);
+    }
+
+    /**
+     * {@code lauxlib.c: luaL_argerror}。
+     * <p>
+     * 函数名有三个来源，顺序不能改：
+     * <ol>
+     *   <li><b>调用点</b>（{@code ldebug.c: getfuncname}）：从调用者那条
+     *       {@code OP_CALL} 反推。所以 {@code local f = function() string.len(nil) end}
+     *       报的是 {@code 'len'}，与 {@code pcall(string.len)} 报的
+     *       {@code 'string.len'} 不一样——后者拿不到调用点（调用者是 C 帧）。</li>
+     *   <li><b>{@code _LOADED} 反查</b>（{@code pushglobalfuncname}）：在
+     *       {@code package.loaded} 里找两层，找到 {@code string.len}。</li>
+     *   <li>都没有就给 {@code ?}。</li>
+     * </ol>
+     * <p>
+     * 还有一处「减一」：以方法形式调用（{@code s:rep(nil)}）时 {@code self}
+     * 不算在参数编号里，所以 {@code arg--}；减完是 0 说明错的就是 self 本身，
+     * 那时报 {@code "calling 'x' on bad self"} 而不是 {@code bad argument}。
+     */
+    public LuaError argError(int arg, String extra) {
+        String[] name = new String[1];
+        String what = null;
+        if (ci != null && !ci.tail) {
+            what = callerFuncName(name);
+        }
+        if ("method".equals(what)) {
+            arg--;
+            if (arg == 0) {
+                return libError("calling '" + name[0] + "' on bad self (" + extra + ")");
+            }
+        }
+        if (name[0] == null) {
+            name[0] = globalFuncName();
+            if (name[0] == null) {
+                name[0] = "?";
+            }
+        }
+        return libError("bad argument #" + arg + " to '" + name[0] + "' (" + extra + ")");
+    }
+
+    /** {@code ldebug.c: getfuncname}：从<b>调用者</b>那帧反推被调函数的名字 */
+    private String callerFuncName(String[] name) {
+        CallInfo prev = (ci == null) ? null : ci.previous;
+        if (prev == null || !prev.isLua || prev.func >= stack.length) {
+            return null;
+        }
+        LuaValue f = stack[prev.func];
+        if (f.tt != Lua.VLIF) {
+            return null;
+        }
+        return funcNameFromCode(((LClosure) f.o).p, (prev.savedpc > 0) ? prev.savedpc - 1 : 0,
+                name);
+    }
+
+    /**
+     * {@code luaL_getmetafield}：直接读元表字段，<b>不</b>做元表的元表递归。
+     * <p>
+     * 与 {@link LuaTm#getTmByObj} 分得开是必要的：元方法查找要走 {@code __index}
+     * 链，而 {@code __name} 这种「描述性字段」只认自己那张表——
+     * 递归进去会拿到别处的 {@code __name}。
+     */
+    LuaValue metafieldOf(LuaValue v, String name) {
+        LuaTable mt = (v.baseType() == Lua.TTABLE) ? v.asTable().getMetatable()
+                : typeMetatable(v.baseType());
+        if (mt == null) {
+            return null;
+        }
+        LuaValue r = mt.get(LuaString.latin1(name));
+        return (r == null || r.isNil()) ? null : r;
+    }
+
+    /** {@code lauxlib.c: pushglobalfuncname} 的前半段：在 {@code _LOADED} 里找两层 */
+    private String globalFuncName() {
+        if (loaded == null || ci == null || ci.func >= stack.length) {
+            return null;
+        }
+        String s = findFieldName(loaded, stack[ci.func], 2);
+        if (s == null) {
+            return null;
+        }
+        return s.startsWith("_G.") ? s.substring(3) : s;
+    }
+
+    /**
+     * {@code lauxlib.c: findfield}。
+     * <p>
+     * 只认字符串键（C 版 {@code lua_type(L,-2) == LUA_TSTRING}），且<b>只下钻两层</b>：
+     * 这正是 {@code string.len} 能查到、{@code a.b.c} 查不到的原因。
+     */
+    private static String findFieldName(LuaTable t, LuaValue obj, int level) {
+        if (level == 0) {
+            return null;
+        }
+        LuaValue key = LuaValue.ofNil();
+        while (true) {
+            LuaValue[] r = t.next(key);
+            if (r == null) {
+                return null;
+            }
+            key = r[0];
+            LuaValue k = r[0];
+            LuaValue v = r[1];
+            if (k.isString()) {
+                if (LuaValue.rawEqual(obj, v)) {
+                    return k.asString().toJavaString();
+                }
+                if (v.isTable()) {
+                    String sub = findFieldName(v.asTable(), obj, level - 1);
+                    if (sub != null) {
+                        return k.asString().toJavaString() + "." + sub;
+                    }
+                }
+            }
+        }
     }
 
     /**
