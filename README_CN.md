@@ -428,7 +428,49 @@ L.run("print('hello from Lua')");
 * **挂了 `__gc` 的对象只在 `collectgarbage` 时才被回收。** JVM 除了真收掉它，
   没有别的办法告诉我们「它不可达了」，所以没有显式收集周期就排不上终结器。
 
-下一步：阶段 7，标准库——`l*lib.c` 那一批与 `loadlib.c`。
+### 阶段 7 到目前为止
+
+`string`（`StringLib`）、`table`（`TableLib`）、`math`（`MathLib`）、
+`utf8`（`Utf8Lib`）已经搬完，各带一道差分闸门：`StringLibTest`（29）、
+`MathLibTest`（26）、`TableLibTest`（18）、`Utf8LibTest`（13）。
+`os`、`io`、`package` 还没做。
+
+### 阶段 7 里由参考实现裁定的五件事
+
+* **共享的 `lauxlib.c` 那一层必须**先于**任何库落地。** 参数检查
+  （`checkString` / `checkInteger` / `argError` / …）不是脚手架：错误文本本身
+  就是可观测契约的一部分，六个库各抄一遍，一周内就会彼此走样。其中一处只有
+  在「参数从 1 起编号」时才对：`s:rep(nil)` 报的是 `bad argument #1`，因为
+  `luaL_argerror` 对方法调用会减一。
+* **`math.max` / `math.min` 用的是 `lua_compare`，不是数字比较。** 所以
+  `math.max("a","b")` 是 `"b"`，`math.max(1,"b")` 报的是
+  `attempt to compare number with string`（走 `__lt` 失败那条路）。它们还保留
+  操作数的子类型：`math.max(1, 2.0)` 是 `2.0`（float）。
+* **`math.fmod` 的浮点路径是 C 的 `fmod`，不是 Lua 的 `%`。** 两者结果符号
+  不同：`math.fmod(-7.5, 2)` 是 `-1.5`（取被除数符号），而 `-7.5 % 2` 是
+  `0.5`（取除数符号）。顺手复用 VM 的 `Arith.modf` 是最容易犯的错，且正好
+  差一个符号。
+* **`math.log` 的 base 2 / base 10 两条分支确实是不同的计算。** C 调的是
+  `log2` / `log10`：`log(x)/log(2)` 与 `log2(x)` 在 43 个样本里有 9 个不同，
+  `log(x)/log(10)` 与 `log10(x)` 更是差 25 个。Java 没有 `log2`，这里用尾数
+  分解 `x = m * 2^e` 还原成 `e + log(m)/ln2`，192 个样本里 190 个落在 1 ulp 内。
+* **`table.insert` 落在带 `__newindex` 的对象上必须真的调它。** `ltablib.c`
+  用的不是 `luaH_setint` 而是 `lua_seti`，后者走 `luaV_finishset`。写成裸写
+  会让 `table.insert(ud, v)` 静默地什么都不做——不报错，也不写入。
+
+### 一处承认下来、不去修的偏离
+
+`sin` / `cos` / `tan` / `asin` / `acos` / `atan` / `exp` / `log` / `log10` /
+`sinh` / `cosh` / `tanh` / `pow` 与参考实现**不是逐位相同**。Java 的 `Math`
+是 fdlibm，参考二进制链的是平台 libm（本机是 macOS 的 `libsystem_m`）。两者
+对真值的误差都在 1 ulp 之内，但最后一位的舍入不同：43 个典型输入里 `sin`
+差 1 个、`tan` 差 12 个、`cosh` 差 6 个。要消掉就得自带一份 libm，那既超出
+目标，也不符合 Lua 自己给出的保证——Lua 的结果本来就随平台漂。所以差分用例
+对这几个函数只比到 14 位有效数字（1 ulp 约 2.2e-16 相对误差）。能对齐的地
+方都对齐了：`sqrt`、`abs`、`floor`、`ceil`、`frexp`、`ldexp` 以及上面那两条
+`log` 分支都是逐位一致的。
+
+下一步：阶段 7 的 `os`、`io`、`package`，然后是阶段 8 的 `load` / `require`。
 
 ---
 

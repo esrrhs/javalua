@@ -47,6 +47,16 @@ public final class Lua {
     public static final int VLCF = TFUNCTION | (1 << 4); // 22：轻量 C 函数
     public static final int VCCL = TFUNCTION | (2 << 4); // 38：C 闭包
 
+    /**
+     * 完整 userdata：{@code makevariant(LUA_TUSERDATA, 0)}。
+     * <p>
+     * 阶段 7 才需要它，用途是给 C 闭包绑一个宿主对象：
+     * {@code string.gmatch} 要在迭代之间记住「上次匹配到哪儿」，
+     * 而它的迭代器是 C 闭包，只能通过 upvalue 带状态。用一张表也行，
+     * 但那张表得暴露在 Lua 可见的地方——C 版就是 userdata，照做。
+     */
+    public static final int VUSERDATA = TUSERDATA | (0 << 4); // 7
+
     /** 取基础类型：{@code novariant(x) = x & 0x0F} */
     public static int noVariant(int tt) {
         return tt & 0x0F;

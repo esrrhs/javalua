@@ -93,6 +93,13 @@ public final class LuaValue {
         return v;
     }
 
+    /** 完整 userdata（变体 {@link Lua#VUSERDATA}）：宿主对象进 Lua 值的通道 */
+    public static LuaValue ofUserdata(Object o) {
+        LuaValue v = new LuaValue();
+        v.setObject(Lua.VUSERDATA, o);
+        return v;
+    }
+
     /** C 闭包（变体 {@link Lua#VCCL}） */
     public static LuaValue ofCClosure(CClosure c) {
         LuaValue v = new LuaValue();

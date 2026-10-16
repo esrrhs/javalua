@@ -96,7 +96,10 @@ final class Diff {
     static String mine(String src) {
         LuaState L = new LuaState();
         BaseLib.open(L);
+        StringLib.open(L);
+        TableLib.open(L);
         MathLib.open(L);
+        Utf8Lib.open(L);
         CoroutineLib.open(L);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         L.out = new PrintStream(bos, true, StandardCharsets.UTF_8);

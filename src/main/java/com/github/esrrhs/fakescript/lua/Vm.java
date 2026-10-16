@@ -1106,6 +1106,28 @@ public final class Vm {
         return LuaTm.callOrderTm(L, ra, rb, event);
     }
 
+    /**
+     * {@code luaV_lessthan}：给库函数用的「与 VM 完全一致」的小于。
+     * <p>
+     * {@code math.max/min} 走的是 {@code lua_compare(LUA_OPLT)}，而不是自己
+     * 比数字——所以 {@code math.max("a","b")} 是 {@code "b"}（走字符串比较），
+     * 而 {@code math.max(1,"b")} 报的是
+     * {@code attempt to compare number with string}（走 {@code __lt} 失败分支）。
+     * 只比数字会把这两条都做错。
+     */
+    static boolean lessThan(LuaState L, LuaValue a, LuaValue b) {
+        if (a.isInteger() && b.isInteger()) {
+            return a.i < b.i;
+        }
+        if (a.isNumber() && b.isNumber()) {
+            return ltNum(a, b);
+        }
+        if (a.isString() && b.isString()) {
+            return lStrcmp(a.asString(), b.asString()) < 0;
+        }
+        return LuaTm.callOrderTm(L, a, b, Tm.TM_LT);
+    }
+
     /** {@code LTnum} */
     static boolean ltNum(LuaValue l, LuaValue r) {
         if (l.isInteger()) {
@@ -1294,6 +1316,24 @@ public final class Vm {
             return;
         }
         finishGet(L, t, key, valIdx);
+    }
+
+    /**
+     * {@code luaV_settable}：库函数用的表写入（快路径 + {@code __newindex} 慢路径）。
+     * <p>
+     * 与 {@link #getTable} 成对，{@code table.insert/remove/move/sort} 都靠它
+     * 才能作用于「带 {@code __newindex} 的对象」——C 的 {@code lua_seti} 走的
+     * 是 {@code luaV_fastset + luaV_finishset}，<b>不是</b> {@code luaH_setint}，
+     * 所以元方法是会被调用的。写成裸写会让 {@code table.insert(ud, v)} 静默地
+     * 什么也不做。
+     */
+    static void setTable(LuaState L, LuaValue t, LuaValue key, LuaValue val) {
+        LuaValue slot = fastSet(t, key);
+        if (slot != null) {
+            slot.set(val);
+            return;
+        }
+        finishSet(L, t, key, val);
     }
 
     /** {@code luaV_finishget} */
