@@ -28,20 +28,49 @@ final class LuaTm {
      * @return 元方法值；不存在返回 {@code null}
      */
     static LuaValue getTmByObj(LuaState L, LuaValue o, int event) {
-        LuaTable mt;
-        switch (o.baseType()) {
-        case Lua.TTABLE:
-            mt = o.asTable().getMetatable();
-            break;
-        default:
-            mt = L.typeMetatable(o.baseType());
-            break;
-        }
+        LuaTable mt = metatableOf(L, o);
         if (mt == null) {
             return null;
         }
         LuaValue v = mt.get(LuaValue.ofString(L.tmName[event]));
         return (v == null || v.isNil()) ? null : v;
+    }
+
+    /**
+     * {@code luaT_gettmbyobj} 的前半段：取一个值的元表。
+     * <p>
+     * 表与 userdata 的元表<b>在对象自己身上</b>，其余类型共享一张「类型元表」。
+     * 这段判断之前在 {@code BaseLib} / {@code LuaState} / 这里各写了一份，
+     * userdata 那一支只有这份有——于是 {@code io.stdout} 的
+     * {@code __name} / {@code __tostring} 走别的路径时全部落空。
+     */
+    static LuaTable metatableOf(LuaState L, LuaValue v) {
+        switch (v.baseType()) {
+        case Lua.TTABLE:
+            return v.asTable().getMetatable();
+        case Lua.TUSERDATA:
+            return ((LuaUserdata) v.o).metatable;
+        default:
+            return L.typeMetatable(v.baseType());
+        }
+    }
+
+    /**
+     * {@code luaT_objtypename}：{@code __name} 元字段优先于标准类型名。
+     * <p>
+     * 这是 {@code print(#io.stdout)} 报
+     * {@code attempt to get length of a FILE* value} 的那条路径——
+     * 光有 {@code typeName} 会报成 {@code userdata}。
+     */
+    static String objTypeName(LuaState L, LuaValue v) {
+        LuaTable mt = metatableOf(L, v);
+        if (mt != null) {
+            LuaValue nm = mt.get(LuaString.latin1("__name"));
+            if (nm != null && nm.isString()) {
+                return nm.asString().toJavaString();
+            }
+        }
+        return v.typeName();
     }
 
     /**

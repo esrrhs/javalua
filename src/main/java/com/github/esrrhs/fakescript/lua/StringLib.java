@@ -816,7 +816,7 @@ public final class StringLib {
     }
 
     private static int gmatchAux(LuaState L) {
-        GMatchState gm = (GMatchState) L.upvalue(0).o;
+        GMatchState gm = (GMatchState) LuaUserdata.dataOf(L.upvalue(0));
         gm.ms.L = L;
         for (int src = gm.src; src <= gm.ms.srcEnd; src++) {
             reprepState(gm.ms);

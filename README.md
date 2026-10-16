@@ -492,12 +492,13 @@ match, and each is documented rather than papered over.
 
 ### Phase 7 so far
 
-`string` (`StringLib`), `table` (`TableLib`), `math` (`MathLib`) and `utf8`
-(`Utf8Lib`) are ported, each with its own differential gate —
-`StringLibTest` (29), `MathLibTest` (26), `TableLibTest` (18),
-`Utf8LibTest` (13). `os`, `io` and `package` are still to come.
+`string` (`StringLib`), `table` (`TableLib`), `math` (`MathLib`), `utf8`
+(`Utf8Lib`), `os` (`OsLib`) and `io` (`IoLib`) are ported, each with its own
+differential gate — `StringLibTest` (29), `MathLibTest` (26),
+`TableLibTest` (18), `Utf8LibTest` (13), `OsLibTest` (24), `IoLibTest` (35).
+`package` is still to come.
 
-#### Five things the reference binary settled in Phase 7
+#### Seven things the reference binary settled in Phase 7
 
 * **A shared `lauxlib.c` layer has to come *before* any library.** Argument
   checking (`checkString` / `checkInteger` / `argError` / …) is not scaffolding:
@@ -523,6 +524,24 @@ match, and each is documented rather than papered over.
   does not use `luaH_setint`; it uses `lua_seti`, which goes through
   `luaV_finishset`. Writing raw leaves `table.insert(ud, v)` silently doing
   nothing — no error, no write.
+* **`os.execute` must spawn `sh`, not `/bin/sh`.** C's `system()` is
+  `execl("/bin/sh", "sh", "-c", cmd)` — **argv[0] is `sh`** — and the shell
+  prefixes its diagnostics with argv[0]. Spelling the full path turns
+  `sh: 42: command not found` into `/bin/sh: 42: command not found`, which the
+  differential gate sees immediately.
+* **A userdata's metatable lives on the object, not on its type.**
+  `luaL_testudata` asks "is this userdata's metatable the one registered under
+  `FILE*`?", so file handles cannot share a per-type metatable with the
+  internal ones (the PRNG state, `gmatch`'s state) without those being mistaken
+  for files. `LuaUserdata` was added for this, and with it `__gc` — otherwise a
+  file left un-`close()`d by a script never gets closed at all.
+* **`io` on a real file must be block-buffered, and `io.write` must not be.**
+  C stdio buffers file output: after `io.output(p):write("x")`, reading `p`
+  back gives *nothing*, because the bytes are still in the `FILE*`. Standard
+  streams are the opposite — they are line/unbuffered, and `io.write`'s output
+  has to reach whichever stream the host installed. So `IoLib` buffers
+  `RandomAccessFile` writes (flushing on `flush`, `seek`, any read, and close)
+  and writes straight through for stdin/stdout/stderr.
 
 #### One divergence that is accepted, not fixed
 
@@ -538,7 +557,18 @@ functions to 14 significant digits (1 ulp is ~2.2e-16 relative). Everything
 that *can* agree does agree: `sqrt`, `abs`, `floor`, `ceil`, `frexp`, `ldexp`
 and the `log` branches above are bit-exact.
 
-Next in Phase 7: `os`, `io` and `package`, then `load` / `require` in Phase 8.
+#### Two divergences in `io` that are accepted, not fixed
+
+* **`file (%p)`.** `f_tostring` prints a pointer, so `print(io.stdout)` can
+  never match byte for byte. `IoLib` emits a same-shaped hex value and the
+  differential harness normalises `0x…` away.
+* **`stdin` seeking.** The reference's stdin in the harness is redirected from
+  `/dev/null`, which *is* seekable (`lseek` returns 0); ours is a byte array,
+  which is not. `io.stdout:seek()` agrees (`nil, "Illegal seek", 29` on a
+  pipe); `io.stdin:seek()` is not compared, because the difference is in where
+  the stream comes from, not in what `io` does.
+
+Next in Phase 7: `package`, then `load` / `require` in Phase 8.
 
 ---
 

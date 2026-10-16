@@ -118,6 +118,12 @@ final class ReferenceLua {
         try {
             ProcessBuilder pb = new ProcessBuilder(new File(bin).getAbsolutePath(), path);
             pb.redirectErrorStream(true);
+            /*
+             * stdin 定向到 /dev/null：本实现的 LuaState#in 默认是空流，
+             * 两边必须一致，否则 io.read() 一边给 nil 另一边却阻塞在
+             * 继承来的终端上。
+             */
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             int code = p.waitFor();

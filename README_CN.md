@@ -431,11 +431,11 @@ L.run("print('hello from Lua')");
 ### 阶段 7 到目前为止
 
 `string`（`StringLib`）、`table`（`TableLib`）、`math`（`MathLib`）、
-`utf8`（`Utf8Lib`）已经搬完，各带一道差分闸门：`StringLibTest`（29）、
-`MathLibTest`（26）、`TableLibTest`（18）、`Utf8LibTest`（13）。
-`os`、`io`、`package` 还没做。
+`utf8`（`Utf8Lib`）、`os`（`OsLib`）、`io`（`IoLib`）已经搬完，各带一道差分
+闸门：`StringLibTest`（29）、`MathLibTest`（26）、`TableLibTest`（18）、
+`Utf8LibTest`（13）、`OsLibTest`（24）、`IoLibTest`（35）。`package` 还没做。
 
-### 阶段 7 里由参考实现裁定的五件事
+### 阶段 7 里由参考实现裁定的七件事
 
 * **共享的 `lauxlib.c` 那一层必须**先于**任何库落地。** 参数检查
   （`checkString` / `checkInteger` / `argError` / …）不是脚手架：错误文本本身
@@ -457,6 +457,21 @@ L.run("print('hello from Lua')");
 * **`table.insert` 落在带 `__newindex` 的对象上必须真的调它。** `ltablib.c`
   用的不是 `luaH_setint` 而是 `lua_seti`，后者走 `luaV_finishset`。写成裸写
   会让 `table.insert(ud, v)` 静默地什么都不做——不报错，也不写入。
+* **`os.execute` 起的进程名必须是 `sh`，不能是 `/bin/sh`。** C 的 `system()`
+  是 `execl("/bin/sh", "sh", "-c", cmd)`——**argv[0] 是 `sh`**——而 shell 的
+  诊断信息是用 argv[0] 打头的。写成全路径会把 `sh: 42: command not found`
+  变成 `/bin/sh: 42: command not found`，差分闸门立刻就能看到。
+* **userdata 的元表在对象上，不在类型上。** `luaL_testudata` 问的是「这个
+  userdata 的元表是不是注册在 `FILE*` 名下那一张」，所以文件句柄不能跟内部
+  userdata（随机数状态、`gmatch` 的状态）共用一张按类型分的元表，否则后者
+  会被当成文件。为此补了 `LuaUserdata`，顺带补了它的 `__gc`——不然脚本里忘了
+  `f:close()` 的文件永远不会关。
+* **真实文件上的 `io` 必须块缓冲，而 `io.write` 不能缓冲。** C 的 stdio 对
+  文件是缓冲的：`io.output(p):write("x")` 之后把 `p` 读回来是**空的**，那几
+  个字节还在 `FILE*` 里。标准流正好相反——它们是行/无缓冲的，而且 `io.write`
+  的输出必须落到宿主装的那条流上。所以 `IoLib` 对 `RandomAccessFile` 的写做
+  缓冲（`flush`、`seek`、任何读、以及关闭时落盘），对 `stdin` / `stdout` /
+  `stderr` 则直接写穿。
 
 ### 一处承认下来、不去修的偏离
 
@@ -470,7 +485,16 @@ L.run("print('hello from Lua')");
 方都对齐了：`sqrt`、`abs`、`floor`、`ceil`、`frexp`、`ldexp` 以及上面那两条
 `log` 分支都是逐位一致的。
 
-下一步：阶段 7 的 `os`、`io`、`package`，然后是阶段 8 的 `load` / `require`。
+### `io` 里两处承认下来、不去修的偏离
+
+* **`file (%p)`。** `f_tostring` 打的是指针，`print(io.stdout)` 无论如何也不
+  可能逐字节相同。`IoLib` 给一个同形状的十六进制值，差分比对把 `0x…` 抹掉。
+* **`stdin` 的定位。** 参考实现在测试里的 stdin 被定向到 `/dev/null`，那是
+  **可定位**的字符设备（`lseek` 返回 0）；本实现这边是字节数组，定位不了。
+  `io.stdout:seek()` 两边一致（管道上是 `nil, "Illegal seek", 29`）；
+  `io.stdin:seek()` 不比对——差的是流的来源，不是 `io` 的行为。
+
+下一步：阶段 7 的 `package`，然后是阶段 8 的 `load` / `require`。
 
 ---
 
