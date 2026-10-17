@@ -40,6 +40,7 @@ class OsLibTest {
         add(tests, "time", TIME);
         add(tests, "file", FILES);
         add(tests, "err", ERRORS);
+        add(tests, "errno", ERRNO);
         return tests;
     }
 
@@ -287,4 +288,115 @@ class OsLibTest {
             print(written.year, written.month, written.wday ~= nil, written.yday ~= nil)
             """,
     };
+
+    /**
+     * {@code os.remove} / {@code os.rename} 的 <b>errno 形状表</b>（22 行）。
+     * 也是照着 {@code LuaAux} 的未覆盖行点名打的 —— 那些
+     * {@code errnoOf} / {@code strError} 里 {@code ENOTEMPTY} / {@code EACCES}
+     * 之类的分支从来没走到过。
+     * <p>
+     * 咬出<b>五处</b>：
+     * <ul>
+     *   <li><b>{@code ENOTEMPTY} 的数值是操作系统定的</b>：Linux 39、macOS/BSD 66。
+     *       这里写死 39，于是 {@code os.remove(非空目录)} 消息对了、数字差 27。
+     *       改成按 {@code os.name} 取值（{@code LuaAux.ENOTEMPTY}）。</li>
+     *   <li><b>{@code strError} 不认 66</b>：只补了数字的话会「数字 66 对、
+     *       消息却是 Input/output error」—— 数值与文本得一起改。</li>
+     *   <li><b>{@code os.remove("")} </b>：C 给 {@code ENOENT}(2)，我们给
+     *       {@code EIO}(5)。与 {@code loadfile("")} 同一类「C 与 Java 判路径
+     *       不一致」的角落。</li>
+     *   <li><b>{@code os.rename} 的形状表整个没对</b>：文件 → 已存在的目录是
+     *       {@code EISDIR}(21)、目录 → 已存在的文件是 {@code ENOTDIR}(20)、
+     *       目录 → <b>空</b>目录是<b>成功</b>（替换）、文件 → 已存在的文件也是
+     *       替换。之前一律走不带 {@code REPLACE_EXISTING} 的 {@code Files.move}，
+     *       于是「目标已存在」全报 {@code EEXIST}。</li>
+     * </ul>
+     * 一处不比：{@code os.remove("/etc")} 在本机是 {@code EPERM}(1)，取决于
+     * SIP 与这台机器的权限，不是 Lua 的事实。改用 {@code chmod 000} 的目录来走
+     * {@code EACCES}(13) 那条路。
+     */
+    private static final String[] ERRNO = {"""
+        -- os.remove / os.rename 的 errno 分支：ENOTEMPTY / EACCES / EEXIST / ENOENT
+        local out = {}
+        local function d(v)
+          local t = type(v)
+          if t == "nil" then return "nil" end
+          if t == "boolean" then return tostring(v) end
+          if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+          if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
+          return t
+        end
+        local function probe(name, f, ...)
+          local r = table.pack(pcall(f, ...))
+          local s = name .. " [" .. r.n .. "]"
+          for i = 2, r.n do s = s .. " " .. d(r[i]) end
+          if not r[1] then s = s .. " ERR " .. d(r[2]) end
+          out[#out + 1] = s
+        end
+
+        local D = "/tmp/fkerm"
+        os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
+        local function put(p, body)
+          local f = assert(io.open(p, "w")); f:write(body or "x"); f:close()
+        end
+
+        -- remove
+        os.execute("mkdir -p " .. D .. "/empty " .. D .. "/full && touch " .. D .. "/full/inner")
+        probe("rm_missing", os.remove, D .. "/nope_xyz")
+        probe("rm_file", function() put(D .. "/f1"); return os.remove(D .. "/f1") end)
+        probe("rm_emptydir", os.remove, D .. "/empty")
+        probe("rm_fulldir", os.remove, D .. "/full")          -- ENOTEMPTY(39)
+        probe("rm_root", os.remove, "/etc/hosts")             -- EACCES(13)
+        -- 目录权限不足（chmod 000）时删它里面的文件：EACCES(13)。
+        -- 不用 os.remove("/etc")：那条在本机是 EPERM(1)，取决于 SIP 与这台机器的权限，
+        -- 不是 Lua 的事实，无法建模也不该进比对。
+        probe("rm_noperm", function()
+          os.execute("mkdir -p " .. D .. "/np && touch " .. D .. "/np/f && chmod 000 " .. D .. "/np")
+          local r = table.pack(os.remove(D .. "/np/f"))
+          os.execute("chmod 755 " .. D .. "/np")
+          return table.unpack(r, 1, r.n)
+        end)
+        probe("rm_noname", os.remove)
+        probe("rm_nil", os.remove, nil)
+        probe("rm_num", os.remove, 42)
+        probe("rm_empty", os.remove, "")
+
+        -- rename
+        put(D .. "/a")
+        probe("rn_ok", function() return os.rename(D .. "/a", D .. "/b") end)
+        -- 文件 -> 已存在的文件：C 的 rename 是替换
+        probe("rn_over_file", function()
+          put(D .. "/x1", "1")
+          put(D .. "/x2", "2")
+          local ok = os.rename(D .. "/x1", D .. "/x2")
+          local g = io.open(D .. "/x2")
+          local c = g and g:read("a") or "gone"
+          if g then g:close() end
+          local still = io.open(D .. "/x1")
+          if still then still:close() end
+          return ok, c, still ~= nil
+        end)
+        put(D .. "/c")
+        os.execute("mkdir -p " .. D .. "/d")
+        probe("rn_file_over_dir", os.rename, D .. "/c", D .. "/d")     -- EISDIR / ENOTDIR?
+        put(D .. "/e")
+        os.execute("mkdir -p " .. D .. "/f/g")
+        probe("rn_dir_over_fulldir", os.rename, D .. "/f", D .. "/d")  -- ENOTEMPTY(39)
+        probe("rn_missing", os.rename, D .. "/nope_xyz", D .. "/z")
+        probe("rn_same", function() put(D .. "/s"); return os.rename(D .. "/s", D .. "/s") end)
+        probe("rn_to_root", function() put(D .. "/t"); return os.rename(D .. "/t", "/etc/nope_xyz") end)
+        probe("rn_noargs", os.rename)
+        probe("rn_nil", os.rename, nil, nil)
+        probe("rn_num", os.rename, 42, 43)
+        probe("rn_empty", os.rename, "", "")
+        probe("rn_dir_to_file", function()
+          os.execute("mkdir -p " .. D .. "/dd")
+          put(D .. "/ff")
+          return os.rename(D .. "/dd", D .. "/ff")
+        end)
+
+        os.execute("rm -rf " .. D)
+        print(table.concat(out, "\\n"))
+            """ };
+
 }

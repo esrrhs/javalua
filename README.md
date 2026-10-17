@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 850 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 851 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1637,10 +1637,15 @@ missing in date table`; `year` defaults and `hour` defaults to 12), that a field
 too large for the `int` range reports `field 'x' is out-of-bound`, and that extra
 fields (`yday`, `wday`, …) are ignored.
 
-Two things are deliberately absent: extreme years such as `year = -100`, because
-`mktime`'s representable range is `libc`-specific (macOS reports *"time result
-cannot be represented in this installation"*), and removing a **directory**,
-because `ENOTEMPTY` is 66 on macOS and 39 on glibc.
+One thing is deliberately absent: extreme years such as `year = -100`, because
+`mktime`'s representable range is libc-specific (macOS reports *"time result
+cannot be represented in this installation"*).
+
+Removing a **directory** used to be absent too, on the grounds that `ENOTEMPTY`
+is 66 on macOS and 39 on glibc — but "the number differs per OS" is a reason to
+*key off the OS*, not to skip the case. It is now compared, with `ENOTEMPTY`
+resolved from `os.name`; see *The errno shape table* below. (Skipping it had
+hidden that the errno was wrong outright: it was hard-coded to 39 everywhere.)
 
 #### The weak-table / `__gc` / `<close>` sweep: `isdecGCmodegen`
 
@@ -2205,6 +2210,34 @@ worth more than the bug:
   wrong. Measure, then write.
 * The same sentence in the *code* comment (`BaseLib`) had asserted the behaviour
   was already correct. A comment agreeing with the code is not evidence.
+
+#### The errno shape table: `os.remove` / `os.rename`
+
+`LuaAux` still had 15 uncovered lines, and most of them were `errnoOf` / `strError`
+branches that no Lua script had ever reached — `ENOTEMPTY`, `EACCES`, and friends.
+22 lines aimed at them found **five** divergences, four of them real bugs:
+
+* **`ENOTEMPTY`'s number is chosen by the OS, not by libc**: 39 on Linux, 66 on
+  macOS/BSD. It was hard-coded to 39, so `os.remove(nonempty_dir)` had the right
+  *message* and a number 27 off. It now comes from `os.name`.
+* **`strError` must know both numbers.** Fixing only the number turned the line
+  into "errno 66 correct, message `Input/output error`" — the numeric constant and
+  its text have to move together.
+* **`os.remove("")`** gave `EIO` where C gives `ENOENT` — the same "C and Java
+  judge a path differently" corner as `loadfile("")`.
+* **`os.rename`'s whole shape table was wrong.** File → existing directory is
+  `EISDIR` (21); directory → existing file is `ENOTDIR` (20); directory → *empty*
+  directory **succeeds** (it replaces); file → existing file also replaces. Every
+  "target already exists" case was reporting `EEXIST`, because the code called
+  `Files.move` without `REPLACE_EXISTING`.
+
+One case is not compared: `os.remove("/etc")` is `EPERM` here, which depends on
+SIP and this machine's permissions — not a Lua fact. A `chmod 000` directory is
+used instead to exercise `EACCES`.
+
+The general lesson is the one from the directory bug again: **"the value differs
+per platform" is a reason to derive it from the platform, not to leave the case
+untested** — skipping it is what let a plain wrong constant survive.
 
 ### What is still missing
 
