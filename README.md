@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 802 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 804 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate.
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
@@ -1217,6 +1217,30 @@ value types — **20777 lines**. It found two things.
 
 `RuntimeTest.formatSpecifierMatrixMatchesReference` pins both; reverting either
 one alone turns it red.
+
+#### And a second copy of `luaL_checkinteger`
+
+The next sweep was `os.date` specifiers, `os.time` argument checking,
+`utf8.*` boundaries, and `tonumber` across bases 2–36 (854 lines). It found a
+familiar shape of bug: **`luaL_checkinteger` had two implementations**, and the
+older one in `BaseLib` was missing two things — the function-name prefix
+(`bad argument #2 (...)` instead of `bad argument #2 to 'tonumber' (...)`) and
+the "no integer representation" case, reporting `number expected, got number`
+for `1.5`. Four call sites were affected: the base of `tonumber`, the index of
+`select`, the level of `error`, and the index of the `ipairs` iterator. It now
+delegates to `LuaAux.checkInteger`.
+
+That sweep also turned up a second instance of "not our bug, libc disagreeing":
+**`os.date("!%z", t)`**. C's `strftime` reads the *process-global timezone*,
+not the `tm` Lua hands it, and with the `!` (UTC) flag the two libc's answer
+differently — macOS prints the local offset `+0800`, glibc prints `+0000`. The
+test therefore only exercises `%z`/`%Z` **without** `!`, where both sides run on
+the same machine and the answer is well-defined.
+
+`string.pack`/`unpack`/`packsize` also got a full sweep — every format verb
+(including `i`/`I` widths 1–16, `c`/`s` counts, `X` and `!n` alignment, all four
+byte orders) × values, plus invalid formats and out-of-range offsets, 706 lines.
+It was clean; it is now a test so that "already agrees" stays agreed.
 
 #### One thing that is *not* a divergence: subnormal `%a`
 

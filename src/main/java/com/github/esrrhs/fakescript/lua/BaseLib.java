@@ -1041,31 +1041,25 @@ public final class BaseLib {
         t.set(name, LuaValue.ofFunction(f));
     }
 
+    /**
+     * {@code luaL_checkinteger} 的 0 下标形态，<b>直接转调 {@link LuaAux#checkInteger}</b>。
+     * <p>
+     * 这里<b>不再自己实现一份</b>。曾经有两份，而这一份少了两样东西，四个调用点
+     * （{@code tonumber} 的进制、{@code select} 的下标、{@code error} 的层号、
+     * {@code ipairs} 的迭代器下标）全都跟着错：
+     * <ul>
+     *   <li><b>函数名前缀</b>：{@code bad argument #2 (...)} 而参考实现是
+     *       {@code bad argument #2 to 'tonumber' (...)}——前缀来自
+     *       {@code lauxlib.c: luaL_argerror} 里的 {@code pushglobalfuncname}。</li>
+     *   <li><b>「无整数表示」这一档</b>：{@code 1.5} 报成了
+     *       {@code number expected, got number}（数字说自己是数字，读着就不对），
+     *       参考实现报 {@code number has no integer representation}。</li>
+     * </ul>
+     * 这是「同一个 C 函数两份实现」的老毛病，和 {@code Vm.formatG} /
+     * {@code StringLib.generalDigits} 那次是同一类。
+     */
     static long checkInteger(LuaState L, int i) {
-        LuaValue v = L.arg(i);
-        if (v.isInteger()) {
-            return v.i;
-        }
-        if (v.isFloat()) {
-            Long k = Arith.fltToInteger(v.n, Arith.F2I_EQ);
-            if (k != null) {
-                return k;
-            }
-        }
-        if (v.isString()) {
-            LuaValue n = Vm.strToNum(v);
-            if (n != null && n.isInteger()) {
-                return n.i;
-            }
-            if (n != null) {
-                Long k = Arith.fltToInteger(n.n, Arith.F2I_EQ);
-                if (k != null) {
-                    return k;
-                }
-            }
-        }
-        throw L.libError("bad argument #" + (i + 1) + " (number expected, got " + v.typeName()
-                + ")");
+        return LuaAux.checkInteger(L, i + 1);
     }
 
     /** 把 {@link LuaValue} 变成函数值（供外部注册额外库函数） */

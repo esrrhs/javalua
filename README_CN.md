@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 802 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 804 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -1060,6 +1060,27 @@ UTF-8 字节都被写坏），新的 `%q` 扫描在 Latin-1 下<b>红</b>、在 
 
 两处都由 `RuntimeTest.formatSpecifierMatrixMatchesReference` 钉住：单独回退任何
 一处，该用例就变红。
+
+#### `luaL_checkinteger` 的第二份实现
+
+下一片扫描是 `os.date` 的每个说明符、`os.time` 的参数校验、`utf8.*` 的边界、
+`tonumber` 的 2–36 全进制，854 行。咬出一个老形状的 bug：
+**`luaL_checkinteger` 有两份实现**，`BaseLib` 里那份少两样东西 —— 函数名前缀
+（`bad argument #2 (...)` 而不是 `bad argument #2 to 'tonumber' (...)`），
+以及「无整数表示」那一档（`1.5` 报成了 `number expected, got number`）。
+四个调用点全受影响：`tonumber` 的进制、`select` 的下标、`error` 的层号、
+`ipairs` 迭代器的下标。现在统一转调 `LuaAux.checkInteger`。
+
+同一批扫描还翻出第二个「不是我们错、是 libc 不一致」的地方：
+**`os.date('!%z', t)`**。C 的 `strftime` 读的是<b>进程全局时区</b>，不是 Lua 传给
+它的那个 `tm`；带 `!`（UTC）时两个 libc 答案相反 —— macOS 给本地偏移 `+0800`，
+glibc 给 `+0000`。所以用例只测<b>不带</b> `!` 的 `%z` / `%Z`：两边同一台机器，
+结果是确定的。
+
+`string.pack` / `unpack` / `packsize` 也整套扫了一遍 —— 全部格式动词（含
+`i`/`I` 的 1–16 字节宽度、`c`/`s` 的计数、`X` 与 `!n` 对齐、四种字节序）×
+各类型的值，外加非法格式串与偏移越界，706 行。这批是干净的，也收成了用例：
+把「<b>已经</b>一致」这件事钉住，否则下次动 pack 那片分支时没有一条用例会说话。
 
 #### 有一处<b>不是</b>分歧：次正规数的 `%a`
 
