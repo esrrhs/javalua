@@ -826,10 +826,17 @@ public final class BaseLib {
              * 它连「testing incremental garbage collection」都打不完。
              */
             LuaState m = L.mainThread;
-            int prev = m.gcKind;
+            /*
+             * 判据是 {@code isdecGCmodegen(g)}（{@code gckind == KGC_GEN ||
+             * lastatomic != 0}）而不是 {@code gckind} 本身 —— 见
+             * {@link LuaState#gcLastAtomic}。两种切换都会把 {@code lastatomic}
+             * 清 0，所以切过一次之后就只看 {@code gckind} 了。
+             */
+            boolean prevGen = (m.gcKind == LuaState.LUA_GCGEN) || m.gcLastAtomic;
             m.gcKind = (o == 8) ? LuaState.LUA_GCGEN : LuaState.LUA_GCINC;
+            m.gcLastAtomic = false;
             L.push(LuaValue.ofString(LuaString.latin1(
-                    (prev == LuaState.LUA_GCINC) ? "incremental" : "generational")));
+                    prevGen ? "generational" : "incremental")));
             return 1;
         }
         case 0: // "stop"

@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 822 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 823 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1626,6 +1626,43 @@ Two things are deliberately absent: extreme years such as `year = -100`, because
 `mktime`'s representable range is `libc`-specific (macOS reports *"time result
 cannot be represented in this installation"*), and removing a **directory**,
 because `ENOTEMPTY` is 66 on macOS and 39 on glibc.
+
+#### The weak-table / `__gc` / `<close>` sweep: `isdecGCmodegen`
+
+This is the semantically riskiest corner of the whole project: **there is no
+collector** (`lgc.c` is not ported), so weak tables are rebuilt on
+`WeakReference` and `__gc` on `Cleaner`. It deserves more than twelve hand-written
+tests. The sweep covers weak keys / values / both, keys that are still strongly
+reachable, mutually-referencing weak values, values that are not collectable at
+all (strings, numbers, booleans), every spelling of `__mode`, `__gc` on one and on
+twenty objects, `__gc` raising, `__gc` added *after* `setmetatable` (which C
+ignores — it only checks at that moment), and `<close>`'s ordering and error
+argument.
+
+It found one thing: **`collectgarbage("generational")` / `("incremental")` report
+`isdecGCmodegen`, not `gckind`.**
+
+```c
+#define isdecGCmodegen(g)  (g->gckind == KGC_GEN || g->lastatomic != 0)
+```
+
+`lastatomic` is non-zero after the first real collection, and loading a script
+allocates, so user code starts out looking *generational* even though `gckind` is
+`KGC_INC`. Five consecutive switches in the reference:
+
+```
+1 generational   2 incremental   3 incremental   4 generational   5 incremental
+```
+
+Tracking only `gckind` gets the **first** one wrong. Both switches clear
+`lastatomic`, so afterwards `gckind` alone decides.
+
+Two things cannot be compared: `collectgarbage("count")` (nothing to count
+without a collector) and `collectgarbage("step")`'s return value — a single step
+in the reference never finishes a cycle, so it is always `false`; with no
+incremental collector one step *is* a full round, so we return `true`.
+Deliberately: returning `false` would make the `repeat until
+collectgarbage("step")` idiom spin forever.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 

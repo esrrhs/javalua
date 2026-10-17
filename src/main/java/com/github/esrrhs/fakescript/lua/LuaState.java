@@ -170,6 +170,24 @@ public final class LuaState {
      */
     int gcKind = LUA_GCINC;
 
+    /**
+     * {@code global_State.lastatomic != 0}。
+     * <p>
+     * 判据 {@code isdecGCmodegen(g)} 是 <b>{@code gckind == KGC_GEN ||
+     * lastatomic != 0}</b>，不是单看 {@code gckind}。而 {@code lastatomic}
+     * 在 <b>头一次真正收集之后</b> 就非 0 —— 脚本加载本身就要分配，所以
+     * 用户代码刚跑起来时它已经是 0 以外的值。实测参考实现：
+     * <pre>
+     * 1 generational   -- 第一次 "incremental"：看着像分代
+     * 2 incremental    -- 切过一次之后 lastatomic 被清 0
+     * 3 incremental    -- "generational"（旧模式是增量）
+     * 4 generational    -- "incremental"（旧模式是分代）
+     * 5 incremental
+     * </pre>
+     * 只记 {@code gckind} 的话第一行就假。
+     */
+    boolean gcLastAtomic = true;
+
     /** {@code global_State.gcpause} / {@code gcmul}：只用于让 set* 有值可报 */
     int gcPause = 200;
 

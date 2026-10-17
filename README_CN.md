@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 822 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 823 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1485,6 +1485,38 @@ table`，`year` 有缺省、`hour` 缺省 12）；字段大到越出 int 范围�
 两处刻意不测：`year = -100` 这种极端年份（`mktime` 的可表示范围随 libc 而定，
 macOS 报 `time result cannot be represented in this installation`）；删**目录**
 （`ENOTEMPTY` 的数值 macOS 是 66、glibc 是 39）。
+
+#### 弱表 / `__gc` / `<close>` 矩阵：`isdecGCmodegen`
+
+这是整个项目**语义风险最大**的一块 —— **没有收集器**（`lgc.c` 不移植），弱表靠
+`WeakReference`、`__gc` 靠 `Cleaner` 重建，光靠 `GcTest` 那 12 个手写用例不够。
+这一片铺：弱键 / 弱值 / 双弱、仍被强引用着的键、互相引用的弱值、根本不可收集的
+值（字符串 / 数字 / 布尔）、`__mode` 的十种写法、`__gc` 一个与二十个、`__gc`
+里抛错、`setmetatable` **之后**才加的 `__gc`（C 不认，只在设元表那一刻检查）、
+`<close>` 的关闭顺序与 `err` 参数。
+
+咬出一处：**`collectgarbage("generational"/"incremental")` 报的是
+`isdecGCmodegen`，不是 `gckind` 本身**：
+
+```c
+#define isdecGCmodegen(g)  (g->gckind == KGC_GEN || g->lastatomic != 0)
+```
+
+`lastatomic` 在**头一次真正收集之后**就非 0，而加载脚本本身就要分配 —— 用户代码
+刚跑起来时它已经不是 0，于是尽管 `gckind` 是 `KGC_INC`，看起来却是分代模式。
+参考实现连续切换五步：
+
+```
+1 generational   2 incremental   3 incremental   4 generational   5 incremental
+```
+
+只记 `gckind` 的话**第一行就假**。两种切换都会把 `lastatomic` 清 0，之后就只看
+`gckind`。
+
+两处不可比：`collectgarbage("count")` 的数值（没有收集器，无从统计）与
+`collectgarbage("step")` 的返回值（参考实现的一「步」永远走不完一轮、恒
+`false`；我们没有增量收集器，一步就是一整轮、恒 `true`。**刻意**取 `true`：
+取 `false` 会让 `repeat until collectgarbage("step")` 这类写法死循环）。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 

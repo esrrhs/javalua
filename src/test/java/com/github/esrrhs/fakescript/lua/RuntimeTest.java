@@ -5637,4 +5637,301 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+
+    /**
+     * 弱表 / {@code __gc} / {@code <close>} 矩阵 —— 参考实现与本实现逐字节比对。
+     * <p>
+     * 这是整个项目<b>语义风险最大</b>的一块：我们<b>没有收集器</b>（{@code lgc.c}
+     * 不移植），弱表靠 {@code WeakReference}、{@code __gc} 靠 {@code Cleaner}
+     * 重建。所以这块必须钉住，不能只靠 {@code GcTest} 那 12 个手写用例。
+     * <p>
+     * 咬出一处：<b>{@code collectgarbage("generational"/"incremental")} 的判据
+     * 是 {@code isdecGCmodegen(g)}，不是 {@code gckind} 本身</b>：
+     * <pre>
+     * #define isdecGCmodegen(g)  (g->gckind == KGC_GEN || g->lastatomic != 0)
+     * </pre>
+     * 而 {@code lastatomic} 在<b>头一次真正收集之后</b>就非 0 —— 加载脚本本身
+     * 就要分配，所以用户代码刚跑起来时它已经不是 0。实测参考实现连续切换的
+     * 五步是 {@code generational, incremental, incremental, generational,
+     * incremental}；只记 {@code gckind} 的话<b>第一行就假</b>。
+     * <p>
+     * 不比的两处：{@code collectgarbage("count")} 的数值（没有收集器，无从统计）
+     * 与 {@code collectgarbage("step")} 的返回值（参考实现的一「步」永远走不完
+     * 一轮，恒 {@code false}；我们没有增量收集器，一步就是一整轮，恒
+     * {@code true}。取 {@code false} 会让 {@code repeat until
+     * collectgarbage("step")} 这类写法死循环，所以这里<b>刻意</b>取 {@code true}）。
+     */
+    @Test
+    void weakTableAndFinalizerMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 弱表 / __gc / to-be-closed 矩阵（不含任何随实现而变的量：
+                -- collectgarbage("count") 的数值与增量收集的进度都不可比）。
+                local function pr(...)
+                  print(...)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                local function count(t)
+                  local n = 0
+                  for _ in pairs(t) do n = n + 1 end
+                  return n
+                end
+
+                -- 1) 弱键 / 弱值 / 双弱
+                do
+                  local kt = setmetatable({}, { __mode = "k" })
+                  local vt = setmetatable({}, { __mode = "v" })
+                  local kvt = setmetatable({}, { __mode = "kv" })
+                  do
+                    local k = {}
+                    kt[k] = 1
+                  end
+                  do
+                    local v = {}
+                    vt[1] = v
+                  end
+                  do
+                    local k, v = {}, {}
+                    kvt[k] = v
+                  end
+                  collectgarbage("collect")
+                  pr("A1", count(kt), count(vt), count(kvt))
+                end
+                -- 强引用还在时不该被收
+                do
+                  local keep = {}
+                  local kt = setmetatable({}, { __mode = "k" })
+                  kt[keep] = true
+                  collectgarbage("collect")
+                  pr("A2", count(kt), kt[keep])
+                end
+                do
+                  local keep = {}
+                  local vt = setmetatable({}, { __mode = "v" })
+                  vt[1] = keep
+                  collectgarbage("collect")
+                  pr("A3", count(vt), vt[1] == keep)
+                end
+                -- 弱值指向「只被弱值引用」的表：两个弱表互相引用也会被收
+                do
+                  local vt = setmetatable({}, { __mode = "v" })
+                  do
+                    local a, b = {}, {}
+                    a[1] = b
+                    b[1] = a
+                    vt[1] = a
+                  end
+                  collectgarbage("collect")
+                  pr("A4", count(vt))
+                end
+                -- 字符串是<b>值</b>，不是可收集对象，弱值里的字符串不会被收
+                do
+                  local vt = setmetatable({}, { __mode = "v" })
+                  vt[1] = "abc"
+                  vt[2] = 42
+                  vt[3] = true
+                  collectgarbage("collect")
+                  pr("A5", vt[1], vt[2], vt[3], count(vt))
+                end
+                -- __mode 的取值：'k' / 'v' / 'kv'，其它字符不影响
+                do
+                  local modes = { "k", "v", "kv", "vk", "K", "V", "", "x", "kk", "kvx" }
+                  for i, m in ipairs(modes) do
+                    local t = setmetatable({}, { __mode = m })
+                    do
+                      local k = {}
+                      t[k] = 1
+                    end
+                    collectgarbage("collect")
+                    pr("A6", i, string.format("%q", m), count(t))
+                  end
+                end
+                -- __mode 不是字符串：不生效（不报错）
+                do
+                  local t = setmetatable({}, { __mode = 5 })
+                  do
+                    local k = {}
+                    t[k] = 1
+                  end
+                  collectgarbage("collect")
+                  pr("A7", count(t))
+                end
+                -- 弱表本身被收掉不影响其它
+                do
+                  local n = 0
+                  for i = 1, 50 do
+                    local t = setmetatable({}, { __mode = "k" })
+                    t[{}] = i
+                    n = n + count(t)
+                  end
+                  collectgarbage("collect")
+                  pr("A8", n >= 50)
+                end
+                -- 弱表迭代时不会中途变化（收完之后再迭代）
+                do
+                  local t = setmetatable({}, { __mode = "k" })
+                  for i = 1, 20 do t[{}] = i end
+                  collectgarbage("collect")
+                  pr("A9", count(t))
+                end
+
+                -- 2) __gc
+                do
+                  local n = 0
+                  do
+                    local t = setmetatable({}, { __gc = function() n = n + 1 end })
+                  end
+                  collectgarbage("collect")
+                  pr("B1", n)
+                end
+                do
+                  -- 多个对象：每个都该跑到
+                  local n = 0
+                  for i = 1, 20 do
+                    local t = setmetatable({}, { __gc = function() n = n + 1 end })
+                  end
+                  collectgarbage("collect")
+                  pr("B2", n == 20, n)
+                end
+                do
+                  -- __gc 收到的参数是被收集的那个表
+                  local got
+                  do
+                    local t = setmetatable({}, { __gc = function(x) got = x end })
+                  end
+                  collectgarbage("collect")
+                  pr("B3", type(got))
+                end
+                do
+                  -- 还被强引用着的不跑
+                  local n = 0
+                  local keep = setmetatable({}, { __gc = function() n = n + 1 end })
+                  collectgarbage("collect")
+                  pr("B4", n, type(keep))
+                end
+                do
+                  -- __gc 不是函数：设元表时不报错，收的时候也不报错
+                  local ok = pcall(function()
+                    local t = setmetatable({}, { __gc = 5 })
+                    return t
+                  end)
+                  collectgarbage("collect")
+                  pr("B5", ok)
+                end
+                do
+                  -- __gc 里报错：不扩散（收集期的错误会被吞掉）
+                  local n = 0
+                  do
+                    local t = setmetatable({}, {
+                      __gc = function() n = n + 1 error("gc-boom") end,
+                    })
+                  end
+                  local ok = pcall(collectgarbage, "collect")
+                  pr("B6", ok, n)
+                end
+                do
+                  -- 先设元表再加 __gc 是无效的（C 只在 setmetatable 那一刻检查）
+                  local n = 0
+                  do
+                    local t = setmetatable({}, {})
+                    getmetatable(t).__gc = function() n = n + 1 end
+                  end
+                  collectgarbage("collect")
+                  pr("B7", n)
+                end
+
+                -- 3) to-be-closed
+                do
+                  local log = {}
+                  do
+                    local f <close> = setmetatable({}, {
+                      __close = function(_, err) log[#log + 1] = "f:" .. tostring(err) end,
+                    })
+                    local g <close> = setmetatable({}, {
+                      __close = function(_, err) log[#log + 1] = "g:" .. tostring(err) end,
+                    })
+                  end
+                  pr("C1", table.concat(log, ","))
+                end
+                do
+                  -- 出错时的 err 参数，以及收尾顺序（后声明的先关）
+                  local log = {}
+                  local ok, e = pcall(function()
+                    local f <close> = setmetatable({}, {
+                      __close = function(_, err) log[#log + 1] = "f:" .. tostring(err) end,
+                    })
+                    local g <close> = setmetatable({}, {
+                      __close = function(_, err) log[#log + 1] = "g:" .. tostring(err) end,
+                    })
+                    error("boom")
+                  end)
+                  pr("C2", ok, e, table.concat(log, ","))
+                end
+                do
+                  -- __close 里再抛错：替换原错误
+                  local ok, e = pcall(function()
+                    local f <close> = setmetatable({}, {
+                      __close = function() error("close-boom") end,
+                    })
+                    error("orig")
+                  end)
+                  pr("C3", ok, e)
+                end
+                do
+                  -- return 时也要关
+                  local log = {}
+                  local function f()
+                    local x <close> = setmetatable({}, {
+                      __close = function() log[#log + 1] = "x" end,
+                    })
+                    return 1
+                  end
+                  pr("C4", f(), table.concat(log, ","))
+                end
+                do
+                  -- 没有 __close 的常量 <close>：报错
+                  pr("C5", pc(load("local x <close> = 5 return x")))
+                  pr("C6", pc(load("local x <const> <close> = nil return 1")))
+                  pr("C7", pc(load("return 1")) ~= nil)
+                end
+                do
+                  -- <close> 变量不能被重新赋值 / 不能是 nil（nil 与 false 不关）
+                  local log = {}
+                  do
+                    local x <close> = nil
+                  end
+                  pr("C8", table.concat(log, ","))
+                end
+
+                -- 4) collectgarbage 的参数形态
+                pr("D1", pc(collectgarbage, "nope"))
+                pr("D2", pc(collectgarbage, 5))
+                pr("D3", pc(collectgarbage))
+                pr("D4", type(collectgarbage("isrunning")))
+                pr("D5", pc(collectgarbage, "collect", "x"))
+                pr("D6", collectgarbage("collect"))
+                pr("D7", pc(collectgarbage, "setpause", 200))
+                pr("D8", pc(collectgarbage, "setstepmul", 100))
+                pr("D9", pc(collectgarbage, "incremental"))
+                pr("D10", pc(collectgarbage, "generational"))
+                -- 停了之后 count 与 collect 仍然可用
+                do
+                  collectgarbage("stop")
+                  pr("D11", collectgarbage("isrunning"), type(collectgarbage("count")))
+                  pr("D12", collectgarbage("collect"))
+                  collectgarbage("restart")
+                  pr("D13", collectgarbage("isrunning"))
+                end
+                -- 注意：不比 "count" 的数值，也不比 "step" 的返回值 —— 那两个随
+                -- 收集器实现而变（我们没有增量收集器，一步就是一整轮）。
+
+                pr("DONE")
+
+                print("DONE")
+                """);
+    }
 }
