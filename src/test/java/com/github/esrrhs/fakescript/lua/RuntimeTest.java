@@ -7059,4 +7059,174 @@ class RuntimeTest {
                 print("K7", (load(once("\\n\\n  return 1  ")))())
                 """);
     }
+
+    /**
+     * {@code warn} 与警告系统（{@code lauxlib.c} 那三个 warnf*）矩阵。
+     * <p>
+     * 这条片子是<b>审计出来的</b>，不是挑出来的：翻 {@code lbaselib.c} 的
+     * {@code base_funcs[]} 逐个核对 {@code BaseLib.open} 的注册，才发现
+     * {@code warn} <b>压根没实现</b> —— 828 个用例全绿也照样缺一整个函数，
+     * 因为没有任何一个脚本用过它。写矩阵之前先补实现，矩阵负责把它钉住。
+     * <p>
+     * 实现时探针咬出来的三处，每一处都是「光看 {@code warn("@on")} 发现不了」的：
+     * <ul>
+     *   <li><b>CONT 状态不查控制消息。</b>{@code warnfcont} 直接写、不调
+     *       {@code checkcontrol}，所以 {@code warn("a", "@on")} 打的是
+     *       {@code a@on}（最后一个参数是 {@code tocont == 0}，看着最像控制消息
+     *       的那一次偏偏不被当控制消息）。第一版把控制检查放在状态判断<b>之前</b>，
+     *       这里就错成「{@code a} 后面又打一次 {@code Lua warning: }」。</li>
+     *   <li><b>参数是 C 字符串。</b>{@code warn("@on\\0junk")} 截断后<b>能</b>打开
+     *       警告；{@code warn("\0@on")} 截断成空串，就只是打一行空警告。</li>
+     *   <li><b>消息按字节写。</b>{@code lua_writestringerror} 不做编码转换，
+     *       {@code warn("\255")} 得原样输出 {@code 0xFF}；用
+     *       {@code print(String)} 会被按 UTF-8 编成 {@code 0xC3 0xBF}。</li>
+     * </ul>
+     */
+    @Test
+    void warnMatrixMatchesReference() {
+        Diff.assertFullMatches("""
+                -- 1) 参数检查：至少要有一个，而且<b>先全部查完</b>才开始拼消息。
+                --    所以下面几条一条警告都不吐（此时警告还是关的，看得更清楚）。
+                print("A1", pcall(warn))
+                print("A2", pcall(warn, nil))
+                print("A3", pcall(warn, true))
+                print("A4", pcall(warn, print))
+                print("A5", pcall(warn, {}))
+                print("A6", pcall(warn, "a", nil))
+                print("A7", pcall(warn, "a", {}))
+                print("A8", pcall(warn, "a", 1, nil))
+                print("A9", pcall(warn, coroutine.create(function() end)))
+                -- 数字是<b>允许</b>的：luaL_checkstring 底下是 lua_tolstring
+                print("A10", pcall(warn, 1))
+                print("A11", pcall(warn, 1, 2))
+                print("A12", pcall(warn, "a", 1, "b"))
+                -- __tostring 不参与：不是 luaL_tolstring
+                local ts = setmetatable({}, { __tostring = function() return "TS" end })
+                print("A13", pcall(warn, ts))
+                print("A14", pcall(warn, "a", ts))
+                -- __name 参与报错文本
+                print("A15", pcall(warn, setmetatable({}, { __name = "MyType" })))
+                print("A16", pcall(warn, "ok", setmetatable({}, { __name = "MyType" })))
+
+                -- 2) 默认<b>关闭</b>：luaL_newstate 装的是 warnfoff，不开就什么都不打
+                warn("SHOULD NOT APPEAR")
+                warn("@on", "SHOULD NOT APPEAR EITHER")
+                print("B1", "defaults off")
+
+                -- 3) 打开之后：多参数拼成一行，最后一个参数收尾换行
+                warn("@on")
+                warn("hello")
+                warn("a", "b", "c")
+                warn("1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+                warn("")
+                warn("", "", "")
+                print("C1", "composed")
+
+                -- 4) 数字的形状：走的是 luaO_tostring，不是 tostring 的 __tostring
+                warn(1, 2, 3)
+                warn(0.1)
+                warn(1 / 0)
+                warn(0 / 0)
+                warn(math.mininteger)
+                warn(math.maxinteger)
+                warn(1e300)
+                warn(-0.0)
+                print("D1", "numbers")
+
+                -- 5) 消息是 C 字符串：\\0 处截断
+                warn("a\\0b")
+                warn("x", "y\\0z")
+                warn("\\0@on")            -- 截断成空串，不是控制消息
+                warn("@" .. "on" .. "\\0" .. "junk")  -- 截断后是 "@on"，<b>能</b>打开
+                warn("e")
+                print("E1", "nul")
+
+                -- 6) 控制消息：只在 tocont == 0 时认，且只在 OFF / ON 两个状态认
+                warn("@on", "second")     -- 第一个参数 tocont=1 → "@on" 被原样打印
+                warn("visible")
+                warn("@OFF")              -- 大小写敏感，未知控制消息被吃掉
+                warn("still on?")
+                warn("@")                 -- 只有 @，同样被吃掉
+                warn("after lone at")    -- 状态没被上面那两个动过，照打
+                print("F1", "controls")
+
+                -- 7) CONT 状态不查控制消息：这几个 @ 会被原样打出来
+                warn("a", "@on")
+                warn("b")
+                warn("c", "@off")
+                warn("d")
+                print("G1", "cont state")
+
+                -- 8) 字节原样：不做 UTF-8 编码
+                warn("\\255")
+                warn("pre\\255post")
+                warn("\\255", "\\0", "\\1")
+                print("H1", "raw bytes")
+
+                -- 9) 警告状态是<b>全局</b>的：协程里关掉，主线程也跟着关
+                warn("@on")
+                warn("before co")
+                local co = coroutine.create(function() warn("@off") end)
+                coroutine.resume(co)
+                warn("after co")          -- 不该出现
+                warn("@on")
+                warn("reopened")
+                warn("@off")
+                print("I1", "shared across threads")
+                """);
+    }
+
+    /**
+     * 全局符号审计：本实现与参考实现暴露的<b>符号集</b>必须一模一样。
+     * <p>
+     * 存在的理由就是 {@code warn} 那次教训 —— 一整个函数没实现，828 个用例
+     * 全绿，因为没有任何脚本用过它。行为矩阵再密也只能在「已经写到的函数」里
+     * 找分歧，<b>漏掉的函数一个也发现不了</b>；符号集对撞补的正是这一格：
+     * 以后再少一个库函数、少一个常量，这里立刻红。
+     * <p>
+     * 不比对值，只比对「名字 + 类型」：值里有地址（{@code function: 0x...}），
+     * 归一化抹掉之后什么也不剩，比了等于没比，还会让用例变成空用例。
+     */
+    @Test
+    void globalSymbolsMatchReference() {
+        Diff.assertFullMatches("""
+                local function dump(t, out)
+                  local ks = {}
+                  for k, v in pairs(t) do
+                    ks[#ks + 1] = tostring(k) .. " " .. type(v)
+                  end
+                  table.sort(ks)
+                  for _, s in ipairs(ks) do out[#out + 1] = s end
+                end
+
+                local out = {}
+                out[#out + 1] = "== _G"
+                dump(_G, out)
+                for _, n in ipairs({ "coroutine", "debug", "io", "math", "os",
+                                     "package", "string", "table", "utf8" }) do
+                  out[#out + 1] = "== " .. n
+                  local t = _G[n]
+                  if type(t) == "table" then
+                    dump(t, out)
+                  else
+                    out[#out + 1] = "MISSING " .. type(t)
+                  end
+                end
+
+                -- 字符串元表：("x"):upper() 与 "10" + 1 都走它
+                out[#out + 1] = "== string metatable"
+                local mt = getmetatable("")
+                if mt == nil then
+                  out[#out + 1] = "NONE"
+                else
+                  dump(mt, out)
+                end
+
+                -- 每个库都该在 package.loaded 里占一格
+                out[#out + 1] = "== package.loaded"
+                dump(package.loaded, out)
+
+                print(table.concat(out, "\\n"))
+                """);
+    }
 }

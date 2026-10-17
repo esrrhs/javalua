@@ -58,6 +58,17 @@ public final class Lua {
      */
     public static final int LUA_SIGNATURE0 = 0x1B;
 
+    /**
+     * {@code LUA_VERSION}：全局 {@code _VERSION} 的值。
+     * <p>
+     * 注意它<b>不含修订号</b>：{@code lua.h} 里
+     * {@code LUA_VERSION "Lua " LUA_VERSION_MAJOR "." LUA_VERSION_MINOR}，
+     * 而带修订号的那个叫 {@code LUA_RELEASE}（{@code "Lua 5.4.7"}），是
+     * {@code lua -v} 打的东西。实测参考实现 {@code print(_VERSION)} 给
+     * {@code Lua 5.4}（长度 7），不是 {@code Lua 5.4.7}。
+     */
+    public static final String LUA_VERSION = "Lua 5.4";
+
     /** 线程 / 协程：{@code makevariant(LUA_TTHREAD, 0)} */
     public static final int VTHREAD = TTHREAD | (0 << 4); // 8
 

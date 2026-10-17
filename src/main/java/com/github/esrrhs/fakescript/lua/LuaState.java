@@ -275,6 +275,125 @@ public final class LuaState {
      */
     public java.io.PrintStream err = System.err;
 
+    /* ==================== 警告系统 ==================== */
+
+    /**
+     * 警告系统的三个状态，对应 {@code lauxlib.c} 的 warnfoff / warnfon /
+     * warnfcont —— C 版是「当前装着哪个函数指针」，这里用枚举值。
+     */
+    private static final int WARN_OFF = 0;
+    private static final int WARN_ON = 1;
+    private static final int WARN_CONT = 2;
+
+    /**
+     * 当前警告状态，对应 {@code global_State.warnf}。
+     * <p>
+     * <b>默认关闭</b>：{@code luaL_newstate} 里装的是 {@code warnfoff}，
+     * {@code lua.c} 只在看到 {@code -W} 时才 {@code lua_warning(L, "@on", 0)}。
+     * 实测 {@code lua -} 直接跑脚本时 {@code warn("x")} 什么都不打。
+     * <p>
+     * 整个 Lua 状态<b>共享一份</b>（协程里 {@code warn("@on")} 之后主线程也该开着）。
+     * 基本类型字段没法像 {@link #strings} 那样靠构造时赋同一个引用来共享，
+     * 所以走 {@link #mainThread} 转一道。
+     */
+    private int warnState = WARN_OFF;
+
+    /** {@code lauxlib.c: warnfon} 打的消息前缀 */
+    private static final byte[] WARN_PREFIX =
+            { 'L', 'u', 'a', ' ', 'w', 'a', 'r', 'n', 'i', 'n', 'g', ':', ' ' };
+
+    /**
+     * {@code lapi.c: lua_warning} + {@code lauxlib.c} 那三个 warnf*。
+     * <p>
+     * 形状照 C 抄，三条容易漏的规则：
+     * <ul>
+     *   <li><b>控制消息只在 {@code tocont == 0} 时认</b>：
+     *       {@code checkcontrol} 第一句就是 {@code if (tocont || *message++ != '@')}。
+     *       所以 {@code warn("@on", "x")} 里的 {@code "@on"} 被<b>原样打印</b>
+     *       （实测参考实现输出 {@code Lua warning: @onsecond}），不是打开警告。</li>
+     *   <li><b>未知控制消息被吃掉</b>：{@code checkcontrol} 认出 {@code '@'} 之后
+     *       无论匹不匹配都返回 1，{@code warn("@junk")} 既不打印也不报错。</li>
+     *   <li><b>只有 OFF / ON 两个状态会去查控制消息，CONT 不会。</b>
+     *       {@code warnfcont} 直接写，不调 {@code checkcontrol}，所以
+     *       {@code warn("a", "@on")} 打出来的是 {@code a@on} 而<b>不是</b>打开警告。
+     *       这一条光看 {@code warn("@on")} 那一行永远发现不了。</li>
+     * </ul>
+     * <p>
+     * 参数是 {@link LuaString} 而不是 {@code String}：{@code lua_writestringerror}
+     * 写的是字节，{@code print(String)} 会按 UTF-8 编码，而 Lua 字符串可以是
+     * 非法 UTF-8（{@code warn("\xff")} 得原样输出 {@code 0xFF}）。
+     *
+     * @param msg    消息本体，这里自己按 C 字符串语义截断（{@code const char*}）
+     * @param tocont 后面还有消息片段
+     */
+    public void warning(LuaString msg, boolean tocont) {
+        if (mainThread != this) {
+            mainThread.warning(msg, tocont);
+            return;
+        }
+        LuaString s = msg.toCString();
+        switch (warnState) {
+        case WARN_OFF:
+            // warnfoff：只查控制消息，其余一律丢弃
+            checkControl(s, tocont);
+            return;
+        case WARN_CONT:
+            break; // warnfcont：不查控制消息，直接接着写
+        default:
+            // warnfon：控制消息被吃掉，其余打前缀
+            if (checkControl(s, tocont)) {
+                return;
+            }
+            err.write(WARN_PREFIX, 0, WARN_PREFIX.length);
+            break;
+        }
+        byte[] b = s.bytes;
+        err.write(b, 0, b.length);
+        if (tocont) {
+            warnState = WARN_CONT;
+        } else {
+            err.write('\n'); // 消息收尾
+            warnState = WARN_ON;
+        }
+        /*
+         * 冲一下：C 的 stderr 是无缓冲的，{@code lua.c} 的 stdout 又是每次换行的
+         * {@code fflush}（{@code lua_writeline}），所以警告与 print 的<b>交错顺序</b>
+         * 与脚本里的先后一致。两边共用一条 PrintStream 时不冲就会错位。
+         */
+        err.flush();
+    }
+
+    /**
+     * {@code lauxlib.c: checkcontrol}：是不是 {@code @on} / {@code @off}。
+     *
+     * @return 是控制消息（已被吃掉，不该打印）
+     */
+    private boolean checkControl(LuaString s, boolean tocont) {
+        byte[] b = s.bytes;
+        if (tocont || b.length == 0 || b[0] != '@') {
+            return false;
+        }
+        if (asciiEq(b, 1, "off")) {
+            warnState = WARN_OFF;
+        } else if (asciiEq(b, 1, "on")) {
+            warnState = WARN_ON;
+        }
+        return true; // 未知的 '@' 消息也算控制消息：吃掉，不打印
+    }
+
+    /** {@code b} 从 {@code off} 起是否正好等于 {@code ascii}（且到此为止） */
+    private static boolean asciiEq(byte[] b, int off, String ascii) {
+        if (b.length - off != ascii.length()) {
+            return false;
+        }
+        for (int i = 0; i < ascii.length(); i++) {
+            if (b[off + i] != (byte) ascii.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public LuaState() {
         this(null);
     }

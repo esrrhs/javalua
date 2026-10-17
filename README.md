@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 828 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 830 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1842,6 +1842,45 @@ limit it is float throughout); bitwise operators do **not** coerce strings
 (`"10" // 2` is 5 but `"10" & 1` errors); and `for i = 2^53, 2^53+2` /
 `for i = 1e300, 1e300` never advance under float precision — the probe has a
 20000-iteration guard so both sides bail out at the same place.
+
+#### The audit that found a whole missing function: `warn`
+
+This one is different from every sweep above: those look for *divergences inside
+functions I already wrote*. Cross-checking `base_funcs[]` in `lbaselib.c` against
+`BaseLib.open` line by line found that **`warn` was not implemented at all** —
+with 828 tests green, because not one of them ever called it. A behaviour matrix
+is blind to an absent function by construction.
+
+So there are now two things: the implementation, and a **permanent gate** that
+compares the *symbol set* (190 lines: every global, every key of all nine
+libraries, the string metatable, `package.loaded`, each printed as `name type`).
+Values are not compared — they are addresses, and after normalisation nothing is
+left, which would quietly turn the test into the empty case `assertFullMatches`
+already rejects.
+
+The same audit caught **`_VERSION`**, a second whole gap. It is `"Lua 5.4"`, not
+`"Lua 5.4.7"` (`LUA_VERSION` has no release number; `LUA_RELEASE` is what
+`lua -v` prints). It matters more than it looks: real projects probe
+`if _VERSION == "Lua 5.1" then …`, so a missing `_VERSION` takes the `else`
+branch — silently wrong rather than loudly broken.
+
+The third hit, `arg`, is **not** a library gap: `lua.c` builds it in `createargtable`
+after `luaL_openlibs`. Since the differential driver already imitates `lua.c`'s
+shape (`pmain`, `msghandler`, the extra stack slot), it now imitates this too —
+otherwise no script that reads `arg[1]` can ever be compared.
+
+Implementing `warn` meant porting `lauxlib.c`'s three-state machine, and the
+probe caught three things that a `warn("@on")` test can never reach:
+
+| rule | symptom if missed |
+| --- | --- |
+| `checkcontrol` requires `tocont == 0` — so `warn("@on", "x")` prints `@onsecond` literally | "on" swallowed as a control message |
+| only **OFF and ON** consult `checkcontrol`; `warnfcont` writes straight through — `warn("a", "@on")` prints `a@on` | a second `Lua warning: ` prefix inside one message |
+| the message is a `const char *` and `lua_writestringerror` writes **bytes** | `warn("@on\0junk")` stops turning warnings on; `warn("\255")` comes out as `0xC3 0xBF` |
+
+That last pair is the NUL rule and the byte rule from earlier sections, arriving
+together in one function — which is the reason to sweep by *contract* rather than
+by example.
 
 ### What is still missing
 
