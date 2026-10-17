@@ -260,6 +260,24 @@ public final class IoLib {
 
         /** {@code fwrite} */
         void write(byte[] b, int off, int len) {
+            if (len <= 0) {
+                return;
+            }
+            /*
+             * 与 {@code fwrite} 一致：<b>写 0 个字节一定成功，而且不碰文件描述符</b>。
+             * {@code liolib.c: g_write} 对字符串走的是
+             * {@code fwrite(s, sizeof(char), l, f) == l}，{@code l == 0} 时
+             * {@code fwrite} 返回 0、等于 {@code l}、算成功。所以往<b>只读</b>文件
+             * 写空串在参考实现里是成功的 —— {@code f:write("")} 照样把文件本身
+             * 返回来，而不是报 {@code Bad file descriptor}。
+             * <p>
+             * 早先这里先判 {@code !writable} 再看长度，于是空串也跟着报 EBADF。
+             * 判据是实测的：{@code io.open(f):write("")} 参考给 1 个返回值（文件
+             * 自己），{@code f:write("a")} 才给 3 个（nil, msg, errno）。
+             * <p>
+             * 注意 {@link #read} 那边本来就是先 {@code done >= len} 再判
+             * {@code !readable}，所以读 0 字节从来没踩到这个 —— 写这边漏了同一刀。
+             */
             if (!writable) {
                 err = true;
                 errno = 9; // EBADF

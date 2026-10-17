@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 830 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 834 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1881,6 +1881,36 @@ probe caught three things that a `warn("@on")` test can never reach:
 That last pair is the NUL rule and the byte rule from earlier sections, arriving
 together in one function — which is the reason to sweep by *contract* rather than
 by example.
+
+#### What the symbol gate caught next: `f:write("")` on a read-only file
+
+The gate had a hole of its own: it compared the `io` table, so it never saw the
+**seven file methods** — `close`, `flush`, `lines`, `read`, `seek`, `setvbuf`,
+`write`. They live in `getmetatable(io.stdout).__index` (alongside `__gc`,
+`__close`, `__name` = `FILE*`, `__tostring`), not in `io`. A symbol audit has to
+follow `__index` to be worth anything; it now does.
+
+Probing those methods then turned up a real divergence:
+**`fwrite(s, 1, 0, f)` returns 0, which equals `l`, so writing zero bytes always
+succeeds** — `f:write("")` on a *read-only* file returns the file itself rather
+than `nil, "Bad file descriptor", 9`. Our `write` checked `!writable` before
+looking at the length.
+
+Only one cell of the grid exposes it, which is the argument for sweeping grids
+rather than cases:
+
+| | writable file | read-only file |
+| --- | --- | --- |
+| `f:write("")` | file (both) | **file** / ~~`nil, msg, 9`~~ |
+| `f:write("a")` | file (both) | `nil, msg, 9` (both) |
+
+Read is asymmetric and was already correct — and must stay that way: `f:read(0)`
+does not go through `read_chars` but through `test_eof` (`getc` then `ungetc`),
+so it *does* fail on a write-only stream, and `read` short-circuits on
+`done >= len` before it ever checks `readable`.
+
+Also measured and matching: `flush`, `setvbuf` and `seek` all succeed on a
+read-only stream; `io.stdout:close()` gives `nil, "cannot close standard file"`.
 
 ### What is still missing
 

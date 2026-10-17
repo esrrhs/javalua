@@ -47,6 +47,7 @@ class IoLibTest {
         add(tests, "lines", LINES);
         add(tests, "seek", SEEK);
         add(tests, "err", ERRORS);
+        add(tests, "zero", ZERO);
         return tests;
     }
 
@@ -513,6 +514,89 @@ class IoLibTest {
             print(pcall(f.seek, f, "bogus"))
             print(pcall(io.open, nil))
             f:close()
+            os.remove(p)
+            """, };
+
+    /**
+     * 零长度 I/O。
+     * <p>
+     * 咬出来的是 {@code f:write("")}：<b>写 0 个字节在 C 里一定成功</b> ——
+     * {@code fwrite(s, 1, 0, f)} 返回 0、正好等于 {@code l}，于是 {@code g_write}
+     * 走成功分支，把<b>文件自己</b>返回来。我们的 {@code LuaFile.write} 是先判
+     * {@code !writable} 再看长度，于是往<b>只读</b>文件写空串也报了
+     * {@code Bad file descriptor}。
+     * <p>
+     * 能把它逼出来的只有这一个组合：往可写文件写空串两边都对，往只读文件写
+     * <b>非空</b>串两边都报 EBADF。这也说明为什么「只看返回值对不对」不够 ——
+     * 得把「可写 × 只读 × 空 × 非空」四个格子全铺开。
+     * <p>
+     * 读那一侧 {@code f:read(0)} 走的是<b>另一条路</b>：{@code g_read} 对数字 0
+     * 调的不是 {@code read_chars} 而是 {@code test_eof}（先 {@code getc} 再
+     * {@code ungetc}），所以在只写文件上照样失败、给三元组。我们的 {@code read}
+     * 本来就是先 {@code done >= len} 再判 {@code readable}，因此没踩到 ——
+     * 但这两条路不对称，写那边补的这一刀别照着挪到读这边来。
+     */
+    private static final String[] ZERO = {
+            """
+            -- 往<b>只读</b>文件写空串是成功的（fwrite 的 l == 0）
+            local p = "/tmp/fkio_zero.txt"
+            os.remove(p)
+            local w = io.open(p, "w")
+            w:write("hello")
+            w:close()
+            local ro = io.open(p)
+            print("W1", ro:write("") == ro)
+            print("W2", select("#", ro:write("")))
+            print("W3", ro:write() == ro)
+            print("W4", select("#", ro:write("a")))
+            print("W5", ro:write("a") == ro)
+            print("W6", pcall(function() return ro:write("a") end))
+            ro:close()
+            os.remove(p)
+            """,
+
+            """
+            -- 标准流：stdin 是只读的，写空串照样成功
+            print("S1", io.stdin:write("") == io.stdin)
+            print("S2", io.stdout:write("") == io.stdout)
+            print("S3", io.stderr:write("") == io.stderr)
+            print("S4", io.write("") == io.stdout)
+            print("S5", io.write() == io.stdout)
+            print("S6", select("#", io.write("")))
+            print("S7", select("#", io.write("x", "")))
+            """,
+
+            """
+            -- 读 0 字节：g_read 对 0 走 test_eof（getc + ungetc），不是 fread
+            local p = "/tmp/fkio_zero2.txt"
+            os.remove(p)
+            local w = io.open(p, "w")
+            w:write("abc")
+            w:close()
+            local ro = io.open(p)
+            print("R1", ro:read(0) == "")
+            print("R2", select("#", ro:read(0)))
+            local wo = io.open(p, "a")
+            print("R3", select("#", wo:read(0)))
+            print("R4", wo:read(0))
+            print("R5", pcall(function() return wo:read("l") end))
+            wo:close()
+            ro:close()
+            os.remove(p)
+            """,
+
+            """
+            -- 多参数里混空串，以及关闭之后
+            local p = "/tmp/fkio_zero3.txt"
+            os.remove(p)
+            local w = io.open(p, "w")
+            print("M1", w:write("", "", "") == w)
+            print("M2", w:write("a", "", "b") == w)
+            print("M3", w:write(1, "", 2.5) == w)
+            print("M4", w:close())
+            print("M5", io.open(p):read("a"))
+            print("M6", pcall(function() return w:write("") end))
+            print("M7", pcall(function() return w:write() end))
             os.remove(p)
             """, };
 }
