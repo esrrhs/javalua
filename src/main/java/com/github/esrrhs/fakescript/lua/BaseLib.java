@@ -47,6 +47,18 @@ public final class BaseLib {
         setFn(g, "load", BaseLib::loadFn);
         setFn(g, "loadfile", BaseLib::loadfileFn);
         setFn(g, "dofile", BaseLib::dofile);
+        setFn(g, "warn", BaseLib::warn);
+
+        /*
+         * {@code lbaselib.c: luaopen_base} 最后两件事：设 {@code _G} 与
+         * {@code _VERSION}。{@code _G} 在 {@link LuaState} 的构造里就已经挂上了
+         * （注册表也要用到它），这里只补 {@code _VERSION}。
+         * <p>
+         * 别小看这一个字符串：{@code _VERSION} 是<b>最常见的版本探测手段</b>，
+         * 真实项目里到处是 {@code if _VERSION == "Lua 5.1" then ... end} 这种
+         * 分支，缺了它走的是 else —— 不报错，只是行为悄悄不同，正好是最难查的那类。
+         */
+        g.set("_VERSION", LuaValue.ofString(LuaString.latin1(Lua.LUA_VERSION)));
 
         openStringMetatable(L);
     }
@@ -1097,6 +1109,54 @@ public final class BaseLib {
          */
         L.callK(f, LuaState.MULTRET, f, DOFILE_CONT);
         return L.top - f;
+    }
+
+    /**
+     * {@code lbaselib.c: luaB_warn}。
+     * <p>
+     * 两条不显眼的约束，都是逐句照 C 抄出来的，凭记忆推会推反：
+     * <ul>
+     *   <li><b>先把参数全查完，再开始拼消息。</b>C 的注释就写在函数头上：
+     *       「Check first for errors; otherwise an error may interrupt the
+     *       composition of a warning, leaving it unfinished」。所以
+     *       {@code warn("PARTIAL", {})} 一条警告都不吐，而不是先吐半句再炸——
+     *       实测参考实现的 stderr 上确实什么都没有。</li>
+     *   <li><b>参数是 C 字符串。</b>循环里用的是 {@code lua_tostring}，拿到的是
+     *       {@code const char*}，所以 {@code warn("a\0b")} 只写 {@code a}。
+     *       这条还连带影响控制消息：{@code warn("@on\0x")} 截断后是 {@code "@on"}，
+     *       <b>能</b>把警告打开；不截断就变成未知控制消息被吃掉。</li>
+     * </ul>
+     * <p>
+     * 数字参数是<b>允许</b>的（{@code luaL_checkstring} 底下是
+     * {@code lua_tolstring}，数字会被转成字符串）：{@code warn(1, 2.5, "x")}
+     * 参考实现输出 {@code Lua warning: 12.5x}。
+     */
+    private static int warn(LuaState L) {
+        int n = L.getTop();
+        if (n < 1) {
+            /*
+             * C 版循环之前单独有一句 {@code luaL_checkstring(L, 1)}：一个参数
+             * 都没给时这个检查<b>照样发生</b>，报的是
+             * 「bad argument #1 to 'warn' (string expected, got no value)」。
+             * 只写 {@code for i = 1..n} 的话 n==0 时循环一次都不进，这条报错
+             * 就没了，而 {@code warn()} 会静默成功。
+             */
+            LuaAux.checkString(L, 1);
+        }
+        /*
+         * 存 {@link LuaString} 而不是 {@code String}：{@code lua_tostring} 拿到的是
+         * {@code const char*}，截断发生在字节上，而 {@code toJavaString} 会先按
+         * UTF-8 解码——{@code warn("\xff")} 必须原样写出 {@code 0xFF}。
+         */
+        LuaString[] parts = new LuaString[n];
+        for (int i = 1; i <= n; i++) {
+            parts[i - 1] = LuaAux.checkString(L, i);
+        }
+        for (int i = 0; i < n - 1; i++) {
+            L.warning(parts[i], true);
+        }
+        L.warning(parts[n - 1], false);
+        return 0;
     }
 
     /* ==================== 小工具 ==================== */

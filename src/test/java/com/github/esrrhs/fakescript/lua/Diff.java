@@ -309,6 +309,7 @@ final class Diff {
     private static int pmainFile(LuaState L) {
         byte[] bytes = L.arg1(1).asString().bytes;
         String chunk = L.arg1(2).asString().toJavaString();
+        createArgTable(L, chunk.substring(1)); // 去掉 chunk 名前面的 '@'
         int base = L.top;
         L.pushClosure(L.load(bytes, chunk));
         int func = pushMsgHandler(L, base);
@@ -364,9 +365,38 @@ final class Diff {
         return L.pcall(base, 0);
     }
 
+    /**
+     * {@code lua.c: createargtable}：脚本的命令行参数表 {@code arg}。
+     * <p>
+     * 它是 <b>lua.c 造的</b>，不属于任何库 —— 参考实现在
+     * {@code luaL_openlibs} 之后、跑脚本之前建表，于是 {@code arg[0]} 是脚本
+     * 路径、{@code arg[-1]} 是解释器自己的路径，正整数下标才是脚本参数。
+     * <p>
+     * 本实现还没有独立的解释器入口，但差分驱动<b>整体</b>就是在模仿 lua.c 的形状
+     * （{@code pmain}、{@code msghandler}、栈上多占的那一格都是），少这一张表
+     * 等于所有读 {@code arg} 的脚本都进不了比对。真实项目里 {@code arg[1]}
+     * 是命令行工具最常见的入口，值得为它留个位置。
+     */
+    private static void createArgTable(LuaState L, String script) {
+        String bin = ReferenceLua.find();
+        LuaTable t = new LuaTable();
+        /*
+         * {@code bin} 可能是 null：{@link #mineFileOnly} 那条路<b>不</b>要求参考
+         * 实现存在（它是给「不该逐字节比、但要保证能跑完」的用例用的），而
+         * {@code pmainFile} 照样会走到这里。直接 {@code new File(null)} 是 NPE，
+         * 而 NPE 不是 {@code LuaError} —— 它会把整个 fork 的 JVM 打红，症状是
+         * 「一堆用例同时失败」，看不出来是谁的错。
+         */
+        t.set(-1L, LuaValue.ofString(LuaString.utf8(
+                (bin == null) ? "lua" : new File(bin).getAbsolutePath())));
+        t.set(0L, LuaValue.ofString(LuaString.utf8(script)));
+        L.globals.set("arg", LuaValue.ofTable(t));
+    }
+
     /** {@code lua.c: pmain}：加载并执行脚本 */
     private static int pmain(LuaState L) {
         byte[] bytes = L.arg1(1).asString().bytes;
+        createArgTable(L, CASE_PATH);
         // lua.c: docall —— 未捕获的错误会经过 msghandler，回溯就是它加的
         int base = L.top;
         L.pushClosure(L.load(bytes, CHUNK));
