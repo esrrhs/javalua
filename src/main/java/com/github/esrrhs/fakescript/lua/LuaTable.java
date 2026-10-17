@@ -458,9 +458,43 @@ public final class LuaTable {
 
     /* ==================== 存 ==================== */
 
+    /**
+     * {@code luaH_set} + {@code setobj2t}。
+     * <p>
+     * <b>给不存在的键赋 nil 什么都不做</b>——这是 {@code ltable.c: luaH_newkey}
+     * 开头那一行：
+     * <pre>
+     *   if (ttisnil(value)) return;  /* do not insert nil values *\/
+     * </pre>
+     * 漏掉它的代价是一个很隐蔽的分歧：建条目会占掉哈希槽、进而触发
+     * {@code rehash}，而 {@code rehash} 算出来的<b>数组段尺寸</b>是
+     * {@code #t} 的直接输入。实测（参考实现）：
+     * <pre>
+     *   local b = {[1] = 4.0}
+     *   b[3] = nil      -- 参考实现不建条目（本实现建了 → 哈希不再是 dummy）
+     *   b[2] = 4.0
+     *   b[1] = nil
+     *   print(#b)       -- 参考 2；建了条目则 rehash 只给数组段 1，#b 变 0
+     * </pre>
+     * {@code table.move} 逆序搬元素时正好是这个顺序，于是
+     * {@code table.move({[1]=4.0}, 0, 2, 1)} 之后 {@code #t} 两边差了 2 和 0。
+     * <p>
+     * 键的合法性检查（nil 键、NaN 键）不受影响：C 版那两个检查在
+     * {@code luaH_newkey} 里排在 nil 值检查<b>之前</b>，所以
+     * {@code t[nil] = nil} 照样报 {@code table index is nil}。
+     */
     public void set(LuaValue key, LuaValue value) {
         purgeIfNeeded();
-        ensureSlot(key).set(weakWrap(value, weakValueFor(key, value)));
+        LuaValue k = normalizeKeyForWrite(key);
+        if (value.isNil()) {
+            LuaValue slot = rawGet(k);
+            // 键不存在：不建条目；键存在：照旧写 nil（条目留着，等 rehash 再摘）
+            if (slot != null) {
+                slot.set(value);
+            }
+            return;
+        }
+        ensureSlot(k).set(weakWrap(value, weakValueFor(k, value)));
     }
 
     /**
@@ -498,16 +532,18 @@ public final class LuaTable {
     }
 
     /**
-     * {@code luaH_set}：拿到键对应的可写槽，键不存在就先建一个值为 nil 的条目。
+     * {@code luaH_set}：拿到键对应的可写槽，键不存在就先建条目。
      * <p>
      * <b>为什么不能一步到位。</b>rehash 有可能把这个键直接安排进数组部分
      * （例如空表上 {@code t[1]=v}：rehash 算出数组部分该是 1，于是槽在
      * {@code array[0]}，而它是 {@code LuaValue} 不是 {@code Node}）。所以
      * rehash 之后必须重新查一次，不能假设结果还在哈希部分——这正是 C 版在
      * rehash 后重新调用 {@code luaH_set} 的原因，只是那里靠指针统一了两种槽。
+     * <p>
+     * 只用于<b>非 nil</b> 的值——赋 nil 走 {@link #set} 那条路，不建条目
+     * （理由见那里的注释）。
      */
-    private LuaValue ensureSlot(LuaValue rawKey) {
-        LuaValue key = normalizeKeyForWrite(rawKey);
+    private LuaValue ensureSlot(LuaValue key) {
         LuaValue slot = rawGet(key);
         if (slot != null) {
             return slot;

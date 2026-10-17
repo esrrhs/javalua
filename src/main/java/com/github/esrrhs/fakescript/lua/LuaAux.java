@@ -105,6 +105,24 @@ public final class LuaAux {
      * 字符串<b>会</b>被解释成数字（{@code string.sub("abcdef","2","4")} 是成立的），
      * 但解释不出整数就报「number has no integer representation」——与
      * 「number expected」是两种文本，别合并。
+     * <p>
+     * 哪种是 {@code lauxlib.c: interror} 定的，判据是
+     * {@code lua_isnumber(L, arg)} 而不是 {@code lua_type(L, arg) == LUA_TNUMBER}：
+     *
+     * <pre>
+     * static void interror (lua_State *L, int arg) {
+     *   if (lua_isnumber(L, arg))
+     *     luaL_argerror(L, arg, "number has no integer representation");
+     *   else
+     *     tag_error(L, arg, LUA_TNUMBER);
+     * }
+     * </pre>
+     *
+     * 而 {@code lua_isnumber} 是「是数字，或字符串能解释成数字」。所以
+     * {@code string.format("%d", "3.5")} 报的是「no integer representation」
+     * （{@code "3.5"} 解释得成 3.5，但 3.5 不是整数），
+     * {@code string.format("%d", "abc")} 报的才是「number expected, got string」。
+     * 早年这里写成 {@code v.isNumber()}，两条都成了后者。
      */
     public static long checkInteger(LuaState L, int arg) {
         LuaValue v = L.arg1(arg);
@@ -115,7 +133,7 @@ public final class LuaAux {
         if (r != null) {
             return r;
         }
-        if (v.isNumber()) {
+        if (Vm.toNumber(v) != null) {
             throw L.argError(arg, "number has no integer representation");
         }
         throw L.typeArgError(arg, "number");

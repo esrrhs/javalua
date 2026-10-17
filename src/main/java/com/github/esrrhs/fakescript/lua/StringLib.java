@@ -1478,8 +1478,13 @@ public final class StringLib {
      * 否则走 {@code e}（精度 {@code P-1}）；最后<b>去掉尾部的零</b>，
      * 除非有 {@code #}。{@code ("%g"):format(1000000)} 得到 {@code 1e+06}
      * 就是这条规则，不是什么「看起来像整数就换记数法」。
+     * <p>
+     * 包内可见，因为 {@code luaO_tostring} 的 {@code %.14g} 与这里的 {@code %g}
+     * 是同一个 C 转换的两处调用，必须共用一份实现 —— 各写一份正是它们分家的
+     * 原因（{@link Vm#formatG} 曾经用 {@code String.format} 自己写了一遍）。
+     * 传进来的 {@code ax} 是绝对值：正负号由调用方处理，{@code -0.0} 也靠它保住。
      */
-    private static String generalDigits(double ax, int p, boolean hash) {
+    static String generalDigits(double ax, int p, boolean hash) {
         int bigP = (p == 0) ? 1 : p;
         if (Double.isInfinite(ax) || Double.isNaN(ax)) {
             return fixedDigits(ax, 0);

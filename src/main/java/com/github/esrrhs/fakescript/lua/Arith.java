@@ -46,10 +46,20 @@ final class Arith {
 
     /**
      * {@code luaO_rawarith}：不经元方法的原始算术。
+     * <p>
+     * {@code L} 只为一件事服务：{@code luaV_idiv} / {@code luaV_mod} 在除数为零时
+     * 要抛 {@code luaG_runerror}，而后者<b>当场</b>就把 {@code file:line:} 前缀
+     * 拼进消息里（{@code luaG_addinfo}）。没有 {@code L} 就抛裸消息，
+     * 位置得等到保护边界才补——而补的时候出错的那个帧已经不在了：
+     * {@code coroutine.resume} 把错误当<b>值</b>返回时，参考实现给的是
+     * {@code file:line: attempt to divide by zero}，本实现只给后半句。
+     * <p>
+     * {@code L == null} 是编译期常量折叠那一路：{@code validOp} 已经把除零
+     * 排除掉了，那里不会走到这两个分支。
      *
      * @return 结果值；操作数类型不合适时返回 {@code null}
      */
-    static LuaValue rawArith(int op, LuaValue p1, LuaValue p2) {
+    static LuaValue rawArith(LuaState L, int op, LuaValue p1, LuaValue p2) {
         switch (op) {
         case OP_BAND:
         case OP_BOR:
@@ -62,7 +72,7 @@ final class Arith {
             if (i1 == null || i2 == null) {
                 return null;
             }
-            return LuaValue.ofInteger(intArith(op, i1, i2));
+            return LuaValue.ofInteger(intArith(L, op, i1, i2));
         }
         case OP_DIV:
         case OP_POW: { // 只在浮点上做
@@ -75,7 +85,7 @@ final class Arith {
         }
         default: {
             if (p1.isInteger() && p2.isInteger()) {
-                return LuaValue.ofInteger(intArith(op, p1.i, p2.i));
+                return LuaValue.ofInteger(intArith(L, op, p1.i, p2.i));
             }
             Double n1 = toNumberNs(p1);
             Double n2 = toNumberNs(p2);
@@ -138,7 +148,7 @@ final class Arith {
     /* ---------- 整数运算 ---------- */
 
     /** {@code intarith} */
-    private static long intArith(int op, long v1, long v2) {
+    private static long intArith(LuaState L, int op, long v1, long v2) {
         switch (op) {
         case OP_ADD:
             return v1 + v2;
@@ -147,9 +157,9 @@ final class Arith {
         case OP_MUL:
             return v1 * v2;
         case OP_MOD:
-            return mod(v1, v2);
+            return mod(L, v1, v2);
         case OP_IDIV:
-            return idiv(v1, v2);
+            return idiv(L, v1, v2);
         case OP_BAND:
             return v1 & v2;
         case OP_BOR:
@@ -169,9 +179,18 @@ final class Arith {
         }
     }
 
-    /** {@code luaV_idiv}：向下取整的整数除法 */
-    static long idiv(long m, long n) {
+    /**
+     * {@code luaV_idiv}：向下取整的整数除法。
+     * <p>
+     * 除零要 {@code luaG_runerror}，位置前缀是<b>当场</b>加的（见
+     * {@link #rawArith}）。留着那条裸 {@code LuaError} 只在
+     * {@code L == null}（常量折叠）时用得上，而那条路进不来这里。
+     */
+    static long idiv(LuaState L, long m, long n) {
         if (n == 0) {
+            if (L != null) {
+                throw L.runError("attempt to divide by zero");
+            }
             throw new LuaError(LuaValue.ofString(LuaString.latin1("attempt to divide by zero")));
         }
         if (n == -1) {
@@ -185,13 +204,16 @@ final class Arith {
     }
 
     /** {@code luaV_mod}：结果的符号跟随除数 */
-    static long mod(long m, long n) {
+    static long mod(LuaState L, long m, long n) {
         if (n == 0) {
             /*
              * 注意是 'n%0' 而不是 'n%%0'：C 版这里是 printf 的格式串，
              * {@code %%} 只是转义，真正打出来的是 {@code n%0}。Java 不做
              * 格式串转义，照抄 {@code %%} 会多出一个百分号。
              */
+            if (L != null) {
+                throw L.runError("attempt to perform 'n%0'");
+            }
             throw new LuaError(LuaValue.ofString(LuaString.latin1("attempt to perform 'n%0'")));
         }
         if (n == -1) {

@@ -1173,7 +1173,7 @@ public final class Vm {
     /** {@code op_arithI}：第二个操作数是立即整数 */
     private static boolean arithImm(LuaState L, int i, int base, int op) {
         LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue res = Arith.rawArith(op, v1, LuaValue.ofInteger(OpCode.getArgSC(i)));
+        LuaValue res = Arith.rawArith(L, op, v1, LuaValue.ofInteger(OpCode.getArgSC(i)));
         if (res == null) {
             return false;
         }
@@ -1184,7 +1184,7 @@ public final class Vm {
     /** {@code op_arithK} / {@code op_arithfK} / {@code op_bitwiseK}：第二个操作数在常量表 */
     private static boolean arithK(LuaState L, int i, int base, LuaValue[] k, int op) {
         LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue res = Arith.rawArith(op, v1, k[OpCode.getArgC(i)]);
+        LuaValue res = Arith.rawArith(L, op, v1, k[OpCode.getArgC(i)]);
         if (res == null) {
             return false;
         }
@@ -1196,7 +1196,7 @@ public final class Vm {
     private static boolean arith(LuaState L, int i, int base, int op) {
         LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
         LuaValue v2 = L.stack[base + OpCode.getArgC(i)];
-        LuaValue res = Arith.rawArith(op, v1, v2);
+        LuaValue res = Arith.rawArith(L, op, v1, v2);
         if (res == null) {
             return false;
         }
@@ -1870,57 +1870,39 @@ public final class Vm {
     }
 
     /**
-     * C 的 {@code %.<p>g}。
+     * C 的 {@code %.<p>g} —— 与 {@code string.format} 的 {@code %g} 共用
+     * {@link StringLib#generalDigits}，理由写在那边。
      * <p>
-     * <b>不能直接用 Java 的 {@code %.14g}</b>：C 规定 {@code %g} 要去掉小数部分
-     * 末尾的零、并在没有小数部分时连小数点一起去掉；Java 的 {@code %g} 两者都不做
-     * （{@code String.format("%.14g", 1.5)} 得到 {@code 1.5000000000000}，
-     * 而 C 得到 {@code 1.5}）。所以这里自己走一遍 C 的选形规则再手工去尾零。
-     * <p>
-     * C 的规则：设 {@code X} 为按 {@code %E} 转换后的指数。若
-     * {@code P > X >= -4} 用 {@code %f}、精度 {@code P-1-X}，否则用
-     * {@code %e}、精度 {@code P-1}。
+     * <b>不要用 Java 的 {@code %.14g}。</b> 两个坑，第二个是实测撞出来的：
+     * <ol>
+     *   <li>C 的 {@code %g} 要去掉小数部分末尾的零、没有小数部分时连小数点一起
+     *       去掉；Java 的 {@code %g} 两者都不做
+     *       （{@code String.format("%.14g", 1.5)} 给 {@code 1.5000000000000}，
+     *       C 给 {@code 1.5}）。</li>
+     *   <li>Java 的 {@code %f} / {@code %e} 是拿 {@code Double.toString} 的
+     *       <b>最短表示</b>再做一次四舍五入，等于连舍两次。
+     *       {@code math.sqrt(math.maxinteger)} 的真值是
+     *       {@code 3037000499.976049900054931640625}，最短表示是
+     *       {@code 3037000499.97605}；按真值取 14 位有效数字是
+     *       {@code 3037000499.976}，按最短表示取（末位 5 进一）就成了
+     *       {@code 3037000499.9761}。参考实现给的是前者。</li>
+     * </ol>
+     * 所以走 {@link java.math.BigDecimal}：{@code new BigDecimal(double)} 是
+     * 精确的二进制展开，一次 {@code setScale} 就舍到位。
      */
     static String formatG(double d, int p) {
-        String e = String.format(Locale.ROOT, "%." + (p - 1) + "e", d);
-        int x = exponentOfE(e);
-        String s;
-        if (p > x && x >= -4) {
-            s = String.format(Locale.ROOT, "%." + (p - 1 - x) + "f", d);
-        } else {
-            s = e;
+        if (Double.isNaN(d)) {
+            return "nan";
         }
-        return stripTrailingZeros(s);
-    }
-
-    /** 从 {@code %e} 的结果里取出指数 */
-    private static int exponentOfE(String e) {
-        int i = e.indexOf('e');
-        if (i < 0) {
-            return 0;
+        if (d == Double.POSITIVE_INFINITY) {
+            return "inf";
         }
-        return Integer.parseInt(e.substring(i + 1));
-    }
-
-    /** 去掉小数部分末尾的零，以及随之变空的那个小数点（指数部分保持不动） */
-    private static String stripTrailingZeros(String s) {
-        int e = s.indexOf('e');
-        if (e < 0) {
-            e = s.length();
+        if (d == Double.NEGATIVE_INFINITY) {
+            return "-inf";
         }
-        String mant = s.substring(0, e);
-        String exp = s.substring(e);
-        if (mant.indexOf('.') >= 0) {
-            int end = mant.length();
-            while (end > 0 && mant.charAt(end - 1) == '0') {
-                end--;
-            }
-            if (end > 0 && mant.charAt(end - 1) == '.') {
-                end--;
-            }
-            mant = mant.substring(0, end);
-        }
-        return mant + exp;
+        String s = StringLib.generalDigits(Math.abs(d), p, false);
+        // 符号单独加：BigDecimal 没有 -0.0，tostring(-0.0) 得是 "-0.0"
+        return (Double.doubleToRawLongBits(d) < 0) ? "-" + s : s;
     }
 
     /** {@code buff[strspn(buff, "-0123456789")] == '\0'} */
