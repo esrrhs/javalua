@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 857 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 858 tests green, JaCoCo line coverage
 0.95 against a 0.94 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2490,7 +2490,42 @@ probes:
 * **Reading the stack from inside a hook needs level 3.** Level 2 is the
   printing helper; level 3 is the frame with `namewhat = "hook"`.
 
-### What is still missing
+### The type-metatable matrix: `setmetatable`'s first argument must be a table
+
+`lua_setmetatable` dispatches three ways: tables and userdata store the
+metatable on the object, everything else installs it in `global_State`'s `mt[]`
+where **the whole type shares one**. This matrix walks all eight types through
+`debug.setmetatable` / `debug.getmetatable`. 48 lines, byte for byte identical,
+and it is sensitive — deleting one line of the userdata branch turns 6 lines red.
+
+The reason that branch had never been covered is worth stating: **`setmetatable`
+from Lua requires its first argument to be a table** —
+`lbaselib.c` starts with `luaL_checktype(L, 1, LUA_TTABLE)` — so userdata can
+only be given a metatable through `debug.setmetatable`, and no script in the
+suite ever did that. (The error message names the type via `__name`:
+`bad argument #1 to 'setmetatable' (table expected, got FILE*)`.)
+
+Two things it pins down:
+
+* **Only tables and full userdata honour `__name`.** Give numbers, `nil`,
+  booleans, functions, threads or strings a type metatable with `__name` and the
+  runtime still says `number` / `nil` / `boolean` / … ; only the userdata becomes
+  `attempt to index a M_ud value`.
+* **The string type metatable *is* the string library.** Replace it and
+  `("x"):upper()` stops working, so the probe has to save and restore it — and
+  it must save it *before* the section that installs an empty metatable on every
+  type, or it saves the wrong table and the script dies halfway through.
+
+### `__gc` is deliberately not chased further
+
+There is no `lgc.c` here; `__gc` is reconstructed with `Cleaner`, so **when** it
+runs depends on the JVM's collection timing, while the reference's timing depends
+on its own incremental collector. Neither is guaranteed, so byte-for-byte
+comparison is not stable in principle — even the "add `__gc` after setting the
+metatable" rule measured differently for tables and for userdata. The handful of
+reproducible shapes already in `GcTest` (runs once, errors are swallowed, adding
+`__gc` late does not count) is the whole target; no more matrices are built for
+it, and an apparent divergence there is not evidence of a bug.
 
 Nothing in the language or the ten standard libraries, and every upstream file
 whose output is deterministic now matches byte for byte. The remaining work is

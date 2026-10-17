@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 857 个用例绿，JaCoCo 行覆盖 0.95（门禁 0.94）。（上游套件这道闸门要
+全量 858 个用例绿，JaCoCo 行覆盖 0.95（门禁 0.94）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2211,6 +2211,35 @@ msgh orig | close a err=H |           xpcall -> false  E:a     <- 本实现
   否则后面几十行一条也不比 —— 而用例照样是绿的。
 * **钩子里取栈要取到第 3 层**：第 2 层是打印用的 helper，第 3 层才是
   `namewhat = "hook"` 那一帧，与帧形态矩阵的结论对得上。
+
+### 类型元表矩阵：`setmetatable` 的第一个参数必须是表
+
+`lua_setmetatable` 按类型分派三处：表与 userdata 存在对象自己身上，其余装进
+`global_State` 的 `mt[]`（**整个类型共享一张**）。这张矩阵把八种类型逐个走一遍
+`debug.setmetatable` / `debug.getmetatable`，48 行逐字节一致，且敏感性量过 ——
+删掉 userdata 那个分支里的一句，6 行变红。
+
+那条分支一直覆盖不到的原因值得写下来：**Lua 里的 `setmetatable` 第一个参数必须是
+表**（`lbaselib.c` 第一行就是 `luaL_checktype(L, 1, LUA_TTABLE)`），userdata 只能
+走 `debug.setmetatable`，而套件里从来没人那么写过。（报错里的类型名走 `__name`：
+`bad argument #1 to 'setmetatable' (table expected, got FILE*)`。）
+
+钉住的两条：
+
+* **只有表与完整 userdata 认 `__name`。** 给数字 / nil / 布尔 / 函数 / 线程 /
+  字符串设了带 `__name` 的类型元表，运行时依然说 `number` / `nil` / `boolean` 等
+  原名；只有 userdata 变成 `attempt to index a M_ud value`。
+* **字符串的类型元表就是 string 库那张**。换掉它 `("x"):upper()` 立刻失效，所以
+  探针必须存下来再还原 —— 而且必须在「给每种类型设空元表」那段**之前**存，否则
+  存的是错的，脚本会中途死掉。
+
+### `__gc` 不再往深里做（有意停止）
+
+本实现没有 `lgc.c`，`__gc` 是用 `Cleaner` 重建的，**什么时候跑取决于 JVM 的回收
+时机**，而参考实现那边取决于它自己的增量收集器。两边都不保证，逐字节比对在原理上
+就不稳定 —— 连「设元表之后才补 `__gc` 生不生效」这条，表与 userdata 实测结论都
+不一样。`GcTest` 里那几条能稳定复现的形态（只跑一次、错误静默、晚补不生效）就是
+全部目标：不再为它铺矩阵，在那里看到的「不一致」也不当作 bug 的证据。
 
 ### 还没补上的
 
