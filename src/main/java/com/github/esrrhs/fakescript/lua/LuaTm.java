@@ -203,11 +203,26 @@ final class LuaTm {
             case Tm.TM_BNOT:
                 if (p1.isNumber() && p2.isNumber()) {
                     /*
-                     * {@code ldebug.c: luaG_tointerror}。两处都不能想当然：
+                     * {@code ldebug.c: luaG_tointerror}：
+                     * <pre>
+                     * if (!luaV_tointegerns(p1, &amp;temp, LUA_FLOORN2I))
+                     *   p2 = p1;
+                     * luaG_runerror(L, "number%s has no integer representation",
+                     *               varinfo(L, p2));
+                     * </pre>
+                     * 三处都不能想当然：
                      * <ul>
                      *   <li><b>报哪一个</b>：先试 {@code p1}，它转不成整数才报
                      *       {@code p1}，否则报 {@code p2}。
                      *       {@code math.huge << 1} 报的是左边那个 inf。</li>
+                     *   <li><b>模式是 {@code F2I_EQ}，不是 {@code F2I_FLOOR}</b>。
+                     *       {@code lvm.h} 里默认 {@code LUA_FLOORN2I == F2Ieq}
+                     *       —— 名字带 floor，语义其实是「只接受整数值，不取整」。
+                     *       按 FLOOR 判的话 {@code 1.5 << 3} 里 {@code 1.5}
+                     *       会被当成「能转」，于是去报右边的 {@code 3}；参考实现
+                     *       报的是左边那个 {@code 1.5}。这个坑是「运算符 × 类型」
+                     *       全矩阵扫描撞出来的，手写的用例只有 inf/nan 那两种
+                     *       极端值，两种模式在它们上面结论一样。</li>
                      *   <li><b>带 {@code varinfo} 后缀</b>：值若在寄存器里，
                      *       参考实现还会反推它是怎么来的——上面那句实测是
                      *       {@code number (field 'huge') has no integer
@@ -217,7 +232,7 @@ final class LuaTm {
                      *       'huge'", "return math.huge << 1")} 就对不上。</li>
                      * </ul>
                      */
-                    LuaValue bad = (Vm.toIntegerNs(p1, Arith.F2I_FLOOR) == null) ? p1 : p2;
+                    LuaValue bad = (Vm.toIntegerNs(p1, Arith.F2I_EQ) == null) ? p1 : p2;
                     throw L.runError("number" + L.varInfo(bad)
                             + " has no integer representation");
                 }

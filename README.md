@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 799 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 801 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate.
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
@@ -1153,6 +1153,38 @@ sweep is **red under Latin-1 and green under UTF-8** — the old gate let a real
 byte-level corruption through. The gate now decodes Latin-1, which is a
 byte-for-char bijection, so comparisons are genuinely byte-exact.
 `RuntimeTest.quoteFormatMatchesReferenceForEveryByte` is the pin.
+
+#### And one more, from sweeping operators against types
+
+The next probe was a full matrix: every operator × every pair of types, with no
+metamethods, comparing the *error text*. 1651 lines. A second one did the same
+with metamethods present — which of the two handlers runs, `__le` falling back to
+`not (b < a)`, `__index`/`__newindex` in both table and function form, `__concat`
+right-associativity, `__close` timing and error propagation (245 lines). The
+second one was clean; the first found this:
+
+* **`luaG_tointerror` converts with `F2Ieq`, not "floor to integer".**
+  `lvm.h` defines `LUA_FLOORN2I` as `F2Ieq` by default — the name says *floor*,
+  the semantics are *"accepts only integral values"*:
+
+  ```c
+  void luaG_tointerror (lua_State *L, const TValue *p1, const TValue *p2) {
+    lua_Integer temp;
+    if (!luaV_tointegerns(p1, &temp, LUA_FLOORN2I))
+      p2 = p1;          /* report the *first* operand if it cannot convert */
+    luaG_runerror(L, "number%s has no integer representation", varinfo(L, p2));
+  }
+  ```
+
+  Judging with a rounding mode makes `1.5` look convertible, so `1.5 & 3`
+  reported the **right** operand: `number (local 'b') has no integer
+  representation`, where the reference reports the left, `(local 'a')`. Ten lines
+  of the matrix were wrong. Hand-written cases only ever used `inf`/`nan`, where
+  both modes agree — which is why this survived every earlier gate.
+
+Both matrices are now permanent tests:
+`RuntimeTest.operatorTypeErrorsMatchReference` and
+`RuntimeTest.metamethodDispatchMatchesReference`.
 
 #### One thing that is *not* a divergence: subnormal `%a`
 

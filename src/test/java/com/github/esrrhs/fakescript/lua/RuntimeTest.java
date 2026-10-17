@@ -625,4 +625,267 @@ class RuntimeTest {
                 + "print(pcall(string.format, '%-q', 'x'))\n"
                 + "print(pcall(string.format, '%q'))\n");
     }
+
+    /**
+     * 运算符 × 类型的全矩阵：没有元方法时，每个组合的<b>报错内容</b>。
+     * <p>
+     * 这一批是「运算符 × 类型」的系统性扫描，不是挑几个组合点一下。它撞出过一处
+     * 真分歧：{@code 1.5 & 3} 参考实现报左边的 {@code 1.5}
+     * （{@code number (local 'a') has no integer representation}），
+     * 这里按 {@code F2I_FLOOR} 判，{@code 1.5} 被当成「能转成整数」于是去报了
+     * 右边的 {@code 3}。{@code lvm.h} 里 {@code LUA_FLOORN2I == F2Ieq}——
+     * 名字带 floor，语义是「只接受整数值，<b>不</b>取整」。手写的用例只有
+     * inf/nan 那两个极端值，两种模式在它们上面结论一样，所以一直没露出来。
+     * <p>
+     * 值里带 {@code local}/{@code field} 后缀是刻意的：{@code varinfo} 会反推
+     * 值是怎么来的，报的不是类型而是变量名，这条也一起钉住。
+     */
+    @Test
+    void operatorTypeErrorsMatchReference() {
+        Diff.assertMatches("""
+                -- 元方法与类型错误矩阵：运算符 × 类型对，无元方法时的报错
+                local VALUES = {
+                  { "nil",      function() return nil end },
+                  { "boolean",  function() return true end },
+                  { "integer",  function() return 3 end },
+                  { "float",    function() return 1.5 end },
+                  { "string",   function() return "x" end },
+                  { "numstr",   function() return "3" end },
+                  { "numstrf",  function() return "1.5" end },
+                  { "table",    function() return {} end },
+                  { "function", function() return print end },
+                  { "thread",   function() return coroutine.create(function() end) end },
+                }
+
+                local OPS = {
+                  { "add",  function(a, b) return a + b end },
+                  { "sub",  function(a, b) return a - b end },
+                  { "mul",  function(a, b) return a * b end },
+                  { "div",  function(a, b) return a / b end },
+                  { "idiv", function(a, b) return a // b end },
+                  { "mod",  function(a, b) return a % b end },
+                  { "pow",  function(a, b) return a ^ b end },
+                  { "unm",  function(a) return -a end },
+                  { "band", function(a, b) return a & b end },
+                  { "bor",  function(a, b) return a | b end },
+                  { "bxor", function(a, b) return a ~ b end },
+                  { "shl",  function(a, b) return a << b end },
+                  { "shr",  function(a, b) return a >> b end },
+                  { "bnot", function(a) return ~a end },
+                  { "concat", function(a, b) return a .. b end },
+                  { "len",  function(a) return #a end },
+                  { "lt",   function(a, b) return a < b end },
+                  { "le",   function(a, b) return a <= b end },
+                  { "eq",   function(a, b) return a == b end },
+                  { "index", function(a) return a.k end },
+                  { "call", function(a) return a() end },
+                }
+
+                for oi = 1, #OPS do
+                  local op = OPS[oi]
+                  local nargs = (op[1] == "unm" or op[1] == "bnot" or op[1] == "len"
+                                 or op[1] == "index" or op[1] == "call") and 1 or 2
+                  for i = 1, #VALUES do
+                    local jto = (nargs == 1) and i or #VALUES
+                    for j = (nargs == 1) and i or 1, jto do
+                      local a = VALUES[i][2]()
+                      local b = (nargs == 2) and VALUES[j][2]() or nil
+                      local ok, r
+                      if nargs == 1 then
+                        ok, r = pcall(op[2], a)
+                      else
+                        ok, r = pcall(op[2], a, b)
+                      end
+                      -- 表/函数/线程的地址每次都不同，只留类型
+                      if not ok and type(r) ~= "string" then r = type(r) end
+                      print(op[1], VALUES[i][1], (nargs == 2) and VALUES[j][1] or "-",
+                            ok, tostring(r))
+                    end
+                  end
+                end
+                """);
+    }
+
+    /**
+     * 有元方法时：分派顺序、{@code __le} 的回退、{@code __index}/{@code __newindex}
+     * 的表与函数两种形态、{@code __concat} 的右结合、{@code __close} 的调用时机
+     * 与错误传递、以及元方法本身出错或不合法时的报错。
+     * <p>
+     * 二元运算的四种组合（只有左有 / 只有右有 / 两边都有 / 都没有）逐个运算符铺开，
+     * 因为「先找谁」是 {@code luaT_trybinTM} 最容易写反的地方。
+     */
+    @Test
+    void metamethodDispatchMatchesReference() {
+        Diff.assertMatches("""
+                -- 有元方法时：谁的分派先走、结果是什么、链式/回退
+                local function mt(t, name)
+                  return setmetatable({}, {__index = function(_, k)
+                    return function(a, b) return name .. "(" .. tostring(a) .. "," .. tostring(b) .. ")" end
+                  end})
+                end
+
+                -- 1) 二元运算：左右各自定义/不定义
+                local BINOPS = { "__add", "__sub", "__mul", "__div", "__mod", "__pow",
+                                 "__idiv", "__band", "__bor", "__bxor", "__shl", "__shr" }
+                local SYMBOL = { __add = "+", __sub = "-", __mul = "*", __div = "/",
+                                 __mod = "%", __pow = "^", __idiv = "//", __band = "&",
+                                 __bor = "|", __bxor = "~", __shl = "<<", __shr = ">>" }
+                for i = 1, #BINOPS do
+                  local ev = BINOPS[i]
+                  for l = 0, 1 do
+                    for r = 0, 1 do
+                      local a, b = {}, {}
+                      if l == 1 then
+                        setmetatable(a, {[ev] = function(x, y) return "L" end})
+                      end
+                      if r == 1 then
+                        setmetatable(b, {[ev] = function(x, y) return "R" end})
+                      end
+                      -- 用 load 拼运算符，避免手写 12 份
+                      local f = load("local a, b = ... return a " .. SYMBOL[ev] .. " b")
+                      local ok, res = pcall(f, a, b)
+                      print(ev, "l=" .. l, "r=" .. r, ok, tostring(res))
+                    end
+                  end
+                end
+
+                -- 2) 一元：只看第一个操作数的元表
+                for _, ev in ipairs({ "__unm", "__bnot", "__len" }) do
+                  for l = 0, 1 do
+                    local a = {}
+                    if l == 1 then
+                      setmetatable(a, {[ev] = function(x) return "L" end})
+                    end
+                    local f
+                    if ev == "__unm" then f = load("local a = ... return -a")
+                    elseif ev == "__bnot" then f = load("local a = ... return ~a")
+                    else f = load("local a = ... return #a") end
+                    print(ev, "l=" .. l, pcall(f, a))
+                  end
+                end
+
+                -- 3) 比较：__lt / __le 的回退（没有 __le 时用 not (b < a)）
+                local CMP = { "<", "<=", ">", ">=" }
+                for i = 1, #CMP do
+                  local sym = CMP[i]
+                  for l = 0, 1 do
+                    for r = 0, 1 do
+                      local a, b = {}, {}
+                      if l == 1 then setmetatable(a, {__lt = function() return "LT" end,
+                                                      __le = function() return "LE" end}) end
+                      if r == 1 then setmetatable(b, {__lt = function() return "LT" end,
+                                                      __le = function() return "LE" end}) end
+                      local f = load("local a, b = ... return a " .. sym .. " b")
+                      print("cmp", sym, "l=" .. l, "r=" .. r, pcall(f, a, b))
+                    end
+                  end
+                end
+
+                -- 4) 只有 __lt、没 __le：a <= b 要走 not (b < a)
+                local onlylt = setmetatable({}, {__lt = function() return true end})
+                print("onlylt <=", pcall(function() return onlylt <= onlylt end))
+                print("onlylt >=", pcall(function() return onlylt >= onlylt end))
+
+                -- 5) 比较报错：不同类型
+                local cv = { {"nil", nil}, {"bool", true}, {"int", 1}, {"flt", 1.5},
+                             {"str", "x"}, {"tbl", {}}, {"fn", print} }
+                for i = 1, #cv do
+                  for j = 1, #cv do
+                    print("lt", cv[i][1], cv[j][1], pcall(function() return cv[i][2] < cv[j][2] end))
+                    print("le", cv[i][1], cv[j][1], pcall(function() return cv[i][2] <= cv[j][2] end))
+                    print("eq", cv[i][1], cv[j][1], pcall(function() return cv[i][2] == cv[j][2] end))
+                  end
+                end
+
+                -- 6) __concat：右结合、多操作数、元方法在任一侧
+                local ca = setmetatable({}, {__concat = function(a, b) return "C" end})
+                print(#(ca .. "x"), ca .. "x" .. 1, 1 .. "x" .. ca, "x" .. ca .. 2)
+                print(pcall(function() return {} .. 1 end))
+                print(pcall(function() return 1 .. {} end))
+
+                -- 7) __index / __newindex：表形态与函数形态
+                local proto = {k = "fromtable"}
+                local t1 = setmetatable({}, {__index = proto})
+                print(t1.k, t1.missing, rawget(t1, "k"))
+                local t2 = setmetatable({}, {__index = function(t, k) return "fn:" .. tostring(k) end})
+                print(t2.k, t2[1], rawget(t2, "k"))
+                local log = {}
+                local t3 = setmetatable({}, {__newindex = function(t, k, v) log[#log+1] = k .. "=" .. tostring(v) end})
+                t3.x = 1
+                t3[1] = 2
+                print(t3.x, rawget(t3, "x"), table.concat(log, ","))
+                local store = {}
+                local t4 = setmetatable({}, {__index = store, __newindex = store})
+                t4.a = 5
+                print(t4.a, rawget(t4, "a"), store.a)
+                -- 没有 __newindex 但 __index 是表：写入落自己身上
+                local t5 = setmetatable({}, {__index = store})
+                t5.b = 7
+                print(t5.b, rawget(t5, "b"), store.b)
+
+                -- 8) __eq：两侧都有时是否调用（类型相同才走）
+                local eqa = setmetatable({}, {__eq = function() return "EQ" end})
+                local eqb = setmetatable({}, {__eq = function() return "EQ" end})
+                print(eqa == eqb, eqa == setmetatable({}, {}))
+                -- 原始相等：数字的不同子类型
+                print(1 == 1.0, "1" == 1, rawequal(1, 1.0), rawequal({}, {}))
+
+                -- 9) __call / __tostring / __metatable / __name / __pairs
+                local c = setmetatable({}, {__call = function(self, ...) return "called", ... end})
+                print(c(1, 2))
+                print(tostring(setmetatable({}, {__tostring = function() return "TS" end})))
+                print(pcall(function()
+                  return setmetatable({}, {__tostring = function() return 42 end})
+                end))
+                local guarded = setmetatable({}, {__metatable = "locked"})
+                print(getmetatable(guarded), pcall(setmetatable, guarded, {}))
+                print(pcall(function() return #setmetatable({}, {__len = function() return "x" end}) end))
+                local nm = setmetatable({}, {__name = "MyType"})
+                print(tostring(nm):sub(1, 6), pcall(function() return nm + 1 end))
+                print(pcall(function() return setmetatable({}, {__name = 5}) end))
+                local pv = setmetatable({}, {__pairs = function(t) return function() end, t, nil end})
+                local n = 0
+                for _ in pairs(pv) do n = n + 1 end
+                print("pairs", n)
+
+                -- 10) __close 与 to-be-closed 变量
+                do
+                  local order = {}
+                  local function closef(_, err)
+                    order[#order + 1] = "closed:" .. tostring(err)
+                    return nil
+                  end
+                  local obj = setmetatable({}, {__close = closef})
+                  local ok, e = pcall(function()
+                    local x <close> = obj
+                    error("boom")
+                  end)
+                  print("close", ok, e, table.concat(order, "|"))
+                  print(pcall(function()
+                    local y <close> = setmetatable({}, {__close = function() return 1, 2 end})
+                  end))
+                  print(pcall(function()
+                    local z <close> = 42
+                  end))
+                  print(pcall(function()
+                    local w <close> = nil
+                  end))
+                end
+
+                -- 11) 元方法自己出错 / 不是函数
+                print(pcall(function()
+                  return setmetatable({}, {__add = 42}) + 1
+                end))
+                print(pcall(function()
+                  return setmetatable({}, {__add = function() error("in mm") end}) + 1
+                end))
+                print(pcall(function()
+                  return setmetatable({}, {__index = 42}).x
+                end))
+
+                -- 12) 元方法链：__index 是表，那张表又有元表
+                local deep = setmetatable({}, {__index = setmetatable({}, {__index = {v = "deep"}})})
+                print(deep.v)
+                """);
+    }
 }
