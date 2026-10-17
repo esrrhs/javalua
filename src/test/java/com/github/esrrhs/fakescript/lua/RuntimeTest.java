@@ -6903,4 +6903,160 @@ class RuntimeTest {
                 print("F4", bytes(os.date("%%\\0%%", 0)))
                 """);
     }
+
+    /**
+     * {@code load} 的<b>读取器</b>矩阵（{@code lua_load} 的 reader 契约）。
+     * 54 行逐字节一致。
+     * <p>
+     * 钉住这几条：
+     * <ul>
+     *   <li><b>空串不等于结束</b>：{@code Zio} 拿到空串会继续问下一个，
+     *       只有 {@code nil} 才是收尾。{@code {"", "", src}} 编出来的是
+     *       {@code src}，而 {@code {"", ""}} 编出来的是<b>空 chunk</b>；</li>
+     *   <li><b>读取器给的不是字符串也不是数字就当结束</b>（{@code true} / 表 /
+     *       函数），给数字会被当字符串接上（所以「永远返回同一个数字」的
+     *       读取器会<b>挂死</b>，本片子里不测）；</li>
+     *   <li><b>读取器自己抛错</b>要原样传出去，包括已经喂进去一半的情况；</li>
+     *   <li><b>读取器里不能 yield</b>：{@code lua_load} 走
+     *       {@code luaD_callnoyield}，报 {@code attempt to yield across a
+     *       C-call boundary}；</li>
+     *   <li><b>{@code load} 不像 {@code loadfile} 那样吃 BOM 与 {@code #!} 行</b>
+     *       （那属于加载层，不属于词法层）；</li>
+     *   <li>读取器返回的串<b>按长度拼</b>，中间的 {@code \0} 不会被砍。</li>
+     * </ul>
+     * <p>
+     * 写这条片子时踩了一次自己的坑：读取器「永远返回同一个非空串」是死循环
+     * —— {@code load(function() return "return 1" end)} 编出来的是
+     * {@code "return 1return 1return 1..."}，报
+     * {@code malformed number}。每个读取器都得自己收尾。
+     */
+    @Test
+    void loadReaderMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- load 的读取器（lua_load 的 reader 契约）矩阵
+                -- 注意：读取器「永远返回同一个非空串」是死循环（Zio 只在拿到 nil 或空串时才
+                -- 继续问，拿到内容就喂给词法器），所以每个读取器都必须自己收尾。
+                local function once(s)
+                  local done = false
+                  return function()
+                    if done then return nil end
+                    done = true
+                    return s
+                  end
+                end
+                local function chunks(list)
+                  local i = 1
+                  return function()
+                    local v = list[i]
+                    i = i + 1
+                    return v
+                  end
+                end
+                local function perbyte(s)
+                  local i = 1
+                  return function()
+                    if i > #s then return nil end
+                    local c = s:sub(i, i)
+                    i = i + 1
+                    return c
+                  end
+                end
+                local SRC = "return 1 + 2"
+
+                -- 1) 一次给完 / 一个字节一个字节给
+                print("A1", load(once(SRC)))
+                print("A2", (load(once(SRC)))())
+                print("A3", (load(perbyte(SRC)))())
+                print("A4", (load(perbyte(SRC), "=one"))())
+                print("A5", (load(chunks({ "return ", "1 +", " 2" })))())
+                print("A6", (load(chunks({ "return ", "", "1 +", "", " 2", "" })))())
+
+                -- 2) 空串：Zio 碰到空串不结束，继续问下一个
+                print("B1", (load(chunks({ "", SRC })))())
+                print("B2", (load(chunks({ "", "", "", SRC })))())
+                print("B3", (load(chunks({ "", "" })))())
+                print("B4", select("#", (load(chunks({ "", "" })))()))
+                print("B5", pcall(load(chunks({ "", "" }))))
+
+                -- 3) 第一次就 nil：空 chunk
+                print("C1", select("#", (load(function() return nil end))()))
+                print("C2", pcall(load(function() return nil end)))
+
+                -- 4) 读取器给的不是字符串也不是数字
+                print("D1", pcall(load, function() return true end))
+                print("D2", pcall(load, function() return {} end))
+                print("D3", pcall(load, function() return print end))
+                print("D4", pcall(load, chunks({ SRC, true })))
+                print("D5", pcall(load, chunks({ true, SRC })))
+
+                -- 5) 读取器自己抛错
+                print("E1", pcall(load, function() error("READER") end))
+                print("E2", pcall(load, chunks({ "return ", "x" })))
+                local k = 0
+                print("E3", pcall(load, function()
+                  k = k + 1
+                  if k == 1 then return "return " end
+                  error("MID")
+                end))
+                k = 0
+                print("E4", pcall(load, function()
+                  k = k + 1
+                  if k == 1 then return SRC end
+                  error("AFTER")
+                end))
+
+                -- 6) 名字与模式配读取器
+                print("F1", pcall(load(once(SRC), "a\\0b")))
+                print("F2", select(2, load(once("x="), "=n")))
+                print("F3", pcall(load(once(SRC), "=n", "b")))
+                print("F4", pcall(load(once(SRC), "=n", "t")))
+                print("F5", pcall(load(once(SRC), "=n", "bt")))
+
+                -- 7) 读取器喂二进制 chunk
+                local bin = string.dump(function() return 7 end)
+                print("G1", (load(perbyte(bin)))())
+                print("G2", (load(once(bin)))())
+                print("G3", pcall(load(once(bin), "=n", "t")))
+                print("G4", (load(perbyte(bin), "=n", "b"))())
+                print("G5", pcall(load(chunks({ bin:sub(1, 1), bin:sub(2) }))))
+
+                -- 8) env 参数
+                local envs = { print = print }
+                print("H1", (load(once("return print"), "=n", "t", envs))() == print)
+                print("H2", (load(once("return _ENV.print"), "=n", "t", envs))() == print)
+                print("H3", pcall(load(once(SRC), "=n", "t", 5)))
+                print("H4", pcall(load(once(SRC), "=n", "t", nil)))
+                local h5 = load(once("return 3"), "=n", "t", false)
+                print("H5", h5 ~= nil and h5() or "nilchunk")
+
+                -- 9) load 的第一个参数不是函数也不是字符串
+                print("I1", pcall(load, true))
+                print("I2", pcall(load, {}))
+                print("I3", pcall(load))
+                print("I4", pcall(load, 42))
+                print("I5", pcall(load, 42, "=n", "t"))
+                print("I6", (load("return 42") or function() return "x" end)())
+
+                -- 10) 读取器返回带 \\0 的串：Zio 按长度拼，不砍
+                print("J1", (load(chunks({ "return '", "a\\0b", "'" })))():byte(1, -1))
+                print("J2", #(load(once("return 'a\\0b'")))())
+                print("J3", pcall(load(once("return 1\\0+ 2"))))
+
+                -- 11) 读取器在 load 里不能 yield（lua_load 走 luaD_callnoyield）
+                print("K1", coroutine.resume(coroutine.create(function()
+                  return pcall(load, function() coroutine.yield(1) return nil end)
+                end)))
+                print("K2", coroutine.resume(coroutine.create(function()
+                  local ok, e = pcall(load, function() coroutine.yield(1) return SRC end)
+                  return ok, e
+                end)))
+                -- 12) 先给 nil 再给内容：nil 就是结束，后面的不会被问
+                print("K3", select("#", (load(chunks({ nil, SRC })))()))
+                print("K4", pcall(load(chunks({ nil, SRC }))))
+                -- 13) 读取器返回的串里带换行与 BOM（load 不像 loadfile 那样吃 BOM）
+                print("K5", pcall(load(once("\\239\\187\\191return 1"))))
+                print("K6", pcall(load(once("#!/x\\nreturn 1"))))
+                print("K7", (load(once("\\n\\n  return 1  ")))())
+                """);
+    }
 }

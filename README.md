@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 827 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 828 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1786,6 +1786,21 @@ judge a path differently, so it gets `ENOENT` by C's rule. **Directories
 themselves are fine and must not be "fixed":** `loadfile("/tmp")` succeeds at
 `fopen` in C and fails at *read*, so it takes the other branch —
 `cannot read /tmp: Is a directory`.
+
+#### A sweep that came back clean: `load`'s reader contract
+
+54 lines on `lua_load`'s `lua_Reader`, which nothing had swept: one shot versus
+one byte at a time versus arbitrary chunk splits, **empty strings are *not* the
+end** (`Zio` asks again; only `nil` terminates, so `{"", "", src}` compiles as
+`src` while `{"", ""}` compiles as an *empty chunk*), a reader returning
+`true` / a table / a function terminates the load, a reader that raises
+propagates even when half the source is already consumed, a reader cannot
+`yield` (`lua_load` uses `luaD_callnoyield`), and `load` — unlike `loadfile` —
+does **not** eat a BOM or a `#!` line (that belongs to the loading layer, not the
+lexer).
+
+It found nothing, which is itself the point: the reader is where a byte-stream
+translation is most likely to lose or duplicate a byte.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 
