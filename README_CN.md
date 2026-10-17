@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 855 个用例绿，JaCoCo 行覆盖 0.95（门禁 0.94）。（上游套件这道闸门要
+全量 856 个用例绿，JaCoCo 行覆盖 0.95（门禁 0.94）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2152,6 +2152,42 @@ run  xpcall_msgh	true  in msgh                             <- 本实现
   一直读下去 —— 探针第一版**把参考实现二进制挂住了**，只能 `pkill`。
 
 反向验证：把 `callNoYield` 换回 `call`，正好红 2 行，测试失败。
+
+### to-be-closed 矩阵：`__close` 里抛的错也要过消息处理函数
+
+`<close>` 是 5.4 唯一的新语法、边界最多，所以这张矩阵按**怎么离开这个块**铺开
+（掉到块尾／嵌套／`return` 提前／`break`／`goto` 跳出／`error` 展开，错误对象分
+字符串与表两种），交叉 **__close 自己干什么**（记一笔／抛错／抛非字符串／返回多
+值／`yield`／是个数字／是可调用表／压根没有），再交叉 `pcall` / `xpcall` / 协程 /
+`coroutine.close`。56 行。
+
+咬出两处分歧，同一个根因：**`__close` 里抛出的错误也要过消息处理函数**。
+
+```
+msgh orig | close a err=H | msgh E:a | xpcall -> false  H      <- 参考实现
+msgh orig | close a err=H |           xpcall -> false  E:a     <- 本实现
+```
+
+`luaD_pcall` 是在**最后一句**才 `L->errfunc = old_errfunc` 的，而
+`luaD_closeprotected` 就在那句**之前** —— 所以跑 `__close` 的整个过程中处理函数
+一直装着，`__close` 里的 `error()` 和别的错一样走到 `luaG_errormsg`。容易漏的是
+它的实际后果：**最终结果是处理函数的返回值，不是 `__close` 那个错**。同一处修复
+顺带产出了「处理函数自己抛错」那条的 `error in error handling` —— 那句话正是
+`__close` 的错**第二次**过一个已经在失败的处理函数时被兜出来的。
+
+第二处是同一条规则在协程侧的那一面：`finishpcallk` 是在 `luaF_close` **之后**才
+恢复 `L->errfunc`，所以处理函数必须在**关 `__close` 之前**跑，不是之后。放反了的
+表现是 `close a err=after | msgh h2 after`（参考给的是
+`msgh h2 after | close a err=H-h2`）—— 关变量拿到的是没处理过的原始错。
+
+把那次调用提前又牵出第二个独立的坑：处理函数必须在把 `top` 压回 `fIdx + 1`
+**之前**跑。`luaG_errormsg` 是在**出错那一刻的栈顶**压调用帧的，那会儿被保护函数
+的局部变量都还在；先收 `top` 再跑，它就从 `fIdx + 2` 开始写 —— 那正是第一个局部
+变量（也就是那个 `<close>` 变量）的槽，于是 `__close` 被覆盖成处理函数自己，
+下一次调用报 `attempt to call a nil value`。
+
+**有一条组合是故意不放进矩阵的**：消息处理函数自己抛错。C 的 `luaG_errormsg` 会
+在那里无限递归到 C 栈溢出，输出几百行、行数随栈深度而变。矩阵只钉它的**结果**。
 
 ### 还没补上的
 

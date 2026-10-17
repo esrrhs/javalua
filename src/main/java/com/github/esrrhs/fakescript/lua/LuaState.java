@@ -1648,7 +1648,7 @@ public final class LuaState {
              * 第三段（函数体里 {@code error(10)}）正测这条：三个 {@code <close>}
              * 变量要能<b>依次</b> yield 出去。
              */
-            v = closeUpvalsOnUnwind(saved, v, yieldable()); // 返回值可能已被 __close 换掉
+            v = closeUpvalsOnUnwind(saved, v, yieldable(), handler); // 返回值可能已被 __close 换掉
             top = oldTop;
             shrinkStack(); // 与 C 版 luaD_pcall 末尾那句同位置
             return v;
@@ -1725,9 +1725,12 @@ public final class LuaState {
      * @param forceYy 同 {@link #closeUpvals(int, LuaValue, boolean)} 的
      *                {@code forceYy}；由调用方按「这个 {@code pcall} 是不是
      *                可 yield 的 {@code pcall}」给
+     * @param handler 消息处理函数（{@code null} 表示没有）。<b>关闭期间抛出的错
+     *                也要过它</b>——见下面 {@code catch} 里的注释
      * @return 最终的错误对象（可能与传入的 {@code errObj} 不同）
      */
-    private LuaValue closeUpvalsOnUnwind(CallInfo target, LuaValue errObj, boolean forceYy) {
+    private LuaValue closeUpvalsOnUnwind(CallInfo target, LuaValue errObj, boolean forceYy,
+            LuaValue handler) {
         if (target == null || openUpvals.isEmpty()) {
             return errObj;
         }
@@ -1756,6 +1759,29 @@ public final class LuaState {
                     String prefix = where(); // 出错那刻的帧，先于恢复
                     v = LuaValue.ofString(
                             LuaString.latin1(prefix + v.asString().toJavaString()));
+                }
+                /*
+                 * {@code __close} 自己抛的错<b>也要过消息处理函数</b>。
+                 * <p>
+                 * C 版 {@code luaD_pcall} 是到<b>最后一句</b>才
+                 * {@code L->errfunc = old_errfunc} 恢复的，而
+                 * {@code luaD_closeprotected} 就在那句<b>之前</b>——所以跑
+                 * {@code __close} 的整个过程中 {@code L->errfunc} 仍然设着，
+                 * {@code __close} 里 {@code error(...)} 走到
+                 * {@code luaG_errormsg} 时处理函数照样被调。
+                 * <p>
+                 * 漏掉这一步的实测分歧（{@code xpcall} + 带 {@code <close>} 的函数
+                 * 体里 {@code error}，且 {@code __close} 也 {@code error}）：
+                 * <pre>
+                 * 参考：msgh orig | close a err=H | msgh E:a | false  H
+                 * 本实现：msgh orig | close a err=H |            false  E:a
+                 * </pre>
+                 * 也就是<b>最终结果是处理函数的返回值</b>，不是 {@code __close}
+                 * 那个原始错。{@code error in error handling} 那一条也靠这里：
+                 * 处理函数自己抛错时，{@code __close} 的错再过一次它被兜成那句话。
+                 */
+                if (handler != null) {
+                    v = applyErrMsg(v, handler);
                 }
                 ci = saved;
                 errObj = new LuaValue(v);
@@ -1991,12 +2017,44 @@ public final class LuaState {
             LuaValue errObj = (closeErrPending != null)
                     ? closeErrPending
                     : new LuaValue(stack[top - 1]);
+            /*
+             * 消息处理函数<b>在关 {@code __close} 之前</b>跑，不是之后。
+             * <p>
+             * C 版是在<b>抛出点</b>（{@code luaG_errormsg}）调的，那会儿
+             * {@code __close} 还没跑；{@code finishpcallk} 里那句
+             * {@code L->errfunc = old_errfunc} 也是在 {@code luaF_close}
+             * <b>之后</b>才恢复的。放在关完之后跑的话，{@code __close} 收到的
+             * 就是<b>没处理过的原始错</b>，而且顺序也反了。
+             * <p>
+             * 实测（协程里 {@code xpcall}，函数体先 yield 再 {@code error}，
+             * 且带一个 {@code <close>}）：
+             * <pre>
+             * 参考：msgh h2 after | close a err=H-h2
+             * 本实现（旧）：close a err=after | msgh h2 after
+             * </pre>
+             */
+            boolean alreadyHandled = closeErrPending != null;
             closeErrPending = null;
-            top = fIdx + 1;
-            errObj = closeUpvalsFrom(fIdx, errObj);
-            if (c.errHandler != null) {
+            /*
+             * {@link #closeErrPending} 不为 null 意味着这一趟是「{@code __close}
+             * 里 yield 出去、现在 resume 回来接着关」，而那个错误对象<b>在 yield
+             * 之前就已经过过处理函数了</b>（{@code closeUpvalsOnUnwind} 的调用方
+             * 先 {@code applyErrMsg} 再关）。这里再过一次就会多调一次处理函数——
+             * 实测参考实现在那条路径上一次都不调。
+             * <p>
+             * <b>处理函数必须在把 {@code top} 压回 {@code fIdx + 1} 之前跑。</b>
+             * {@code applyHandler} 是照 {@code luaG_errormsg} 在<b>出错那一刻的
+             * 栈顶</b>压调用帧的，那会儿被保护函数的局部变量都还在。先把
+             * {@code top} 收到 {@code fIdx + 1} 再跑，它就从 {@code fIdx + 2}
+             * 开始写——而那正是第一个局部变量（也就是那个 {@code <close>} 变量）
+             * 的槽，于是 {@code __close} 被覆盖成消息处理函数自己，报
+             * 「attempt to call a nil value」。
+             */
+            if (c.errHandler != null && !alreadyHandled) {
                 errObj = applyHandler(c.errHandler, errObj, fIdx);
             }
+            top = fIdx + 1;
+            errObj = closeUpvalsFrom(fIdx, errObj, c.errHandler);
             stack[fIdx].set(errObj);
             top = fIdx + 1;
             c.recst = LUA_OK;
@@ -2014,8 +2072,13 @@ public final class LuaState {
      * 与 {@link #closeUpvalsOnUnwind} 同构，同样要处理「{@code __close} 自己又
      * 出错，新错误顶掉旧错误」——C 版 {@code luaF_close} 一次只关一批，
      * 出错就抛，由 {@code luaD_closeprotected} 循环接着关剩下的。
+     *
+     * @param handler 消息处理函数；{@code __close} 抛的错要过它（理由同
+     *                {@link #closeUpvalsOnUnwind} 里那段：{@code finishpcallk}
+     *                也是在 {@code luaF_close} <b>之后</b>才恢复
+     *                {@code L->errfunc}，所以关闭期间它仍然生效）
      */
-    private LuaValue closeUpvalsFrom(int level, LuaValue errObj) {
+    private LuaValue closeUpvalsFrom(int level, LuaValue errObj, LuaValue handler) {
         while (true) {
             if (openUpvals.isEmpty()) {
                 return errObj;
@@ -2045,7 +2108,16 @@ public final class LuaState {
                 closeErrPending = errObj;
                 throw y;
             } catch (LuaError e2) {
-                errObj = e2.value;
+                LuaValue v = e2.value;
+                if (e2.where == null && v != null && v.isString()) {
+                    String prefix = where(); // 与 closeUpvalsOnUnwind 同形
+                    v = LuaValue.ofString(
+                            LuaString.latin1(prefix + v.asString().toJavaString()));
+                }
+                if (handler != null) {
+                    v = applyErrMsg(v, handler);
+                }
+                errObj = v;
                 if (openUpvals.size() >= before) {
                     return errObj; // 一个也没关掉，再试也不会有进展
                 }
