@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 842 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 845 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2029,6 +2029,40 @@ assumed away:
   libc as a `size_t` and whether the buffer can be allocated is libc's call: on
   the same machine `2^31` fails while `2^40` succeeds, and `"no"` with `-1`
   succeeds while `"line"` with `-1` fails. Not modelable on the Java side.
+
+#### The success path: a third matrix, over every library function
+
+The two earlier sweeps over *every* library function asked two questions: does the
+function **exist** (the symbol audit), and what does it do when you hand it the
+**wrong** arguments (the arity and wrong-type sweeps). Both go through
+`luaL_check*` / `luaL_opt*` — the checking branch. Neither touches the code that
+runs *after* the checks pass. A `string.rep` that computes the wrong thing would
+have stayed green under both.
+
+So there is now a third matrix: hand every library function a set of **valid**
+arguments and compare the return **values**, not their types. 209 lines in three
+scripts — `string` and `math` (68), `table`/`utf8`/`os`/`coroutine` (44),
+`io`/`debug`/the globals (97).
+
+Values are described by a `d()` that keeps the comparison deterministic without
+weakening it: a number carries its `math.type` subtype, a string carries its
+length, a table is expanded two levels with keys sorted (so neither `pairs` order
+nor an address can leak in). Only a handful of things compare type instead of
+value — `os.time`, `os.clock`, `collectgarbage("count")`, and `tostring` of a
+table.
+
+Two results worth having: seeded `math.random` matches (the xoshiro256\*\*
+sequence is right, not just its range), and `getmetatable("")` dumps the entire
+string metatable in one line — `__index` and all seventeen methods.
+
+**The matrix's sensitivity was measured, not assumed.** Breaking one line of
+`string.upper` (shifting `'a'…'z'` to `'B'…'Z'`) turns the run red at
+`s.upper [2] q(3)[Abc]`. A matrix that cannot fail is worse than no matrix, and
+the only way to know is to break something and watch it go red.
+
+209 lines, byte-identical, first run. Which is also the suspicious outcome — see
+the note above about matrices whose lines are uniformly `nil`. Here 205 of 209
+lines carry real values, so the matrix is not vacuous.
 
 ### What is still missing
 
