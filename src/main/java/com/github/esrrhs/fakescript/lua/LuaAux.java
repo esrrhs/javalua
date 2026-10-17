@@ -188,8 +188,9 @@ public final class LuaAux {
      * 这条报错也得在，否则 {@code os.setlocale(nil, 'bogus')} 会静默通过。
      */
     public static int checkOption(LuaState L, int arg, String def, String[] lst) {
-        String name = (def != null) ? optString(L, arg, LuaString.latin1(def)).toJavaString()
-                : checkString(L, arg).toJavaString();
+        // C 用 strcmp 比的是 const char*：\0 之后的内容既不参与比较，也不写进报错
+        String name = ((def != null) ? optString(L, arg, LuaString.latin1(def))
+                : checkString(L, arg)).toCString().toJavaString();
         for (int i = 0; i < lst.length; i++) {
             if (lst[i].equals(name)) {
                 return i;
@@ -388,6 +389,16 @@ public final class LuaAux {
      * Lua 脚本里 {@code io.open} 失败后要看 {@code errno} 的<b>数值</b>
      * （{@code "No such file or directory" == 2}），所以不能只留消息文本。
      */
+    /**
+     * {@link #errnoOf(IOException)} 的兜底重载：路径里带上 Java 文件系统不接受的东西时
+     * （{@code InvalidPathException} 是个 {@code RuntimeException}），C 那边
+     * {@code remove} / {@code rename} 拿到的是同一个被 {@code \0} 砍过的路径、
+     * 报的是 {@code ENOENT}。
+     */
+    public static int errnoOf(Exception e) {
+        return (e instanceof IOException) ? errnoOf((IOException) e) : 2; // ENOENT
+    }
+
     public static int errnoOf(IOException e) {
         if (e instanceof java.nio.file.NoSuchFileException) {
             return 2; // ENOENT

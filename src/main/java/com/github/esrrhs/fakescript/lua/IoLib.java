@@ -585,10 +585,16 @@ public final class IoLib {
         }
     }
 
-    /** {@code io.open} */
+    /**
+     * {@code io.open}
+     * <p>
+     * 文件名与模式都是 {@code fopen} 的 {@code const char*}，在第一个 {@code \0}
+     * 处砍断：{@code io.open("p", "r\0w")} 的模式是 {@code "r"}，不是 {@code "r\0w"}
+     * （后者 {@code checkMode} 会判成 invalid mode）。
+     */
     private static int ioOpen(LuaState L) {
-        String filename = LuaAux.checkString(L, 1).toJavaString();
-        String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toJavaString();
+        String filename = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
         newFile(L, f);
         LuaAux.argCheck(L, checkMode(mode), 2, "invalid mode");
@@ -602,8 +608,8 @@ public final class IoLib {
 
     /** {@code io.popen} */
     private static int ioPopen(LuaState L) {
-        String filename = LuaAux.checkString(L, 1).toJavaString();
-        String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toJavaString();
+        String filename = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
         L.push(LuaValue.ofUserdata(f));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
@@ -775,7 +781,7 @@ public final class IoLib {
             toFile(L); // 确认默认输入还开着
             toclose = false;
         } else {
-            String filename = LuaAux.checkString(L, 1).toJavaString();
+            String filename = LuaAux.checkString(L, 1).toCString().toJavaString();
             openCheck(L, filename, "r");
             L.replace(1);
             toclose = true;

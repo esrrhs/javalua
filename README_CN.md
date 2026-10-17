@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 825 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 826 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1585,6 +1585,33 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
 * `coroutine.wrap` 抛出的错带**两层**位置前缀；`pcall(error, "x")` **没有**前缀
   （C 函数没有行号）；库函数报错**有**，因为 `luaL_error` 的 `luaL_where(L, 1)`
   取的是调用者那一层。
+
+#### 内嵌 `\0` 矩阵（88 行）：C 在十三个门口各砍一刀
+
+一条轴、一条规则：Lua 字符串是字节串，但 C 里凡是接 `const char *` 的 API ——
+`strlen` / `%s` / `strstr` / `strchr` / `strcmp` —— 都在第一个 NUL 处停。88 行，
+咬出**十三处**分歧，全是同一个 bug 在十三个不同门口：
+
+| 在第一个 `\0` 处砍断 | chunk 名（`luaS_new`）、模块名与 `package.loaded` 的键、`searchpath` 四个参数、`io.open` / `io.lines` / `os.remove` / `os.rename` / `os.getenv` 的文件名、`fopen` 的**模式**、`debug.getinfo` 的 `what`、`debug.sethook` 的 mask、`luaL_traceback` 的消息、`luaL_checkoption`（`collectgarbage`）、`string.pack` 的格式串、`__name` |
+| --- | --- |
+| **不**砍断 | `string.format("%s")`（走 `luaL_tolstring`，带长度）、`error` 的消息（`lua_concat`）、`os.date`（按 `s + slen` 扫完整个格式串）、表键、`gsub`、`upper` |
+| 是**拒绝**而不是砍断 | 带修饰符的 `%s` 与 `string.pack` 的 `z`：`luaL_argcheck(L, l == strlen(s), arg, "string contains zeros")` |
+
+其中两处值得单独说：
+
+**`os.remove("/x\0y")` 直接把进程干掉了。** `Paths.get` 抛
+`InvalidPathException`，它是 `RuntimeException`、**不是 `LuaError`**，而
+`pcall` 只拦 `LuaError`，于是整颗逃逸出去。按 C 字符串语义截断之后这类根本
+不会出现了，`catch` 顺手也把 `RuntimeException` 兜住。
+
+**`__name` 是它的第二份拷贝。** `luaL_typeerror` 与 `luaG_typeerror` 都走
+`luaT_objtypename`，但 `typeArgError` 自己又写了一份
+`metafieldOf(v, "__name")` —— 于是两条规则（截断、只认表与 userdata）**两条都
+错**。现在跟另外两处一样调 `LuaTm.objTypeName`。
+
+两个 `debug` 上的最阴：`debug.getinfo(f, "S\0ln")` **不该**报 `invalid option`
+（C 扫到 NUL 就收工，`l` 和 `n` 它根本没看见）；`debug.sethook(f, "l\0c")`
+只装行钩子，`"c\0l"` 只装调用钩子 —— 两者的计数正好反过来。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 

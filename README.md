@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 825 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 826 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1738,6 +1738,36 @@ Four more things the sweep pinned down, none of which were bugs:
 * `coroutine.wrap`'s error carries **two** position prefixes; `pcall(error, "x")`
   has **none** (a C function has no line); a library error **does** have one,
   because `luaL_error`'s `luaL_where(L, 1)` asks for the *caller*.
+
+#### The NUL sweep: thirteen places C cuts a Lua string at `\0`
+
+One axis, one rule: a Lua string is a byte string, but every C API that takes a
+`const char *` — `strlen`, `%s`, `strstr`, `strchr`, `strcmp` — stops at the
+first NUL. 88 lines, and it found thirteen divergences, all of them the same bug
+in thirteen different doorways:
+
+| cut at the first `\0` | chunk name (`luaS_new`), module name and `package.loaded`'s key, all four `searchpath` arguments, `io.open` / `io.lines` / `os.remove` / `os.rename` / `os.getenv` filename, `fopen`'s *mode*, `debug.getinfo`'s `what`, `debug.sethook`'s mask, `luaL_traceback`'s message, `luaL_checkoption` (`collectgarbage`), `string.pack`'s format, and `__name` |
+| --- | --- |
+| **not** cut | `string.format("%s")` (goes through `luaL_tolstring`, which carries the length), `error`'s message (`lua_concat`), `os.date` (it iterates `s + slen`), table keys, `gsub`, `upper` |
+| **rejected** instead of cut | `%s` *with modifiers*, and `string.pack`'s `z` — `luaL_argcheck(L, l == strlen(s), arg, "string contains zeros")` |
+
+Two of them are worth calling out.
+
+**`os.remove("/x\0y")` crashed the whole process.** `Paths.get` throws
+`InvalidPathException`, which is a `RuntimeException` — not a `LuaError`, so
+`pcall` cannot catch it (only `LuaError` is) and it escapes all the way out.
+Truncating to C-string semantics removes the case entirely; the `catch` now also
+covers `RuntimeException` as a backstop.
+
+**`__name` was the second copy.** `luaL_typeerror` and `luaG_typeerror` both go
+through `luaT_objtypename`, but `typeArgError` had its own `metafieldOf(v,
+"__name")` lookup — which got *both* rules wrong (no truncation, and no
+table/userdata restriction). It now calls `LuaTm.objTypeName` like the other two.
+
+The two `debug` ones are the subtlest: `debug.getinfo(f, "S\0ln")` must **not**
+report `invalid option` (C stops scanning at the NUL, so it never sees `l` and
+`n` at all), and `debug.sethook(f, "l\0c")` installs only the line hook while
+`"c\0l"` installs only the call hook — the counts come out inverted.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 

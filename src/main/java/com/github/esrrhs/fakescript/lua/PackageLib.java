@@ -258,10 +258,12 @@ public final class PackageLib {
 
     /** {@code ll_searchpath} */
     private static int searchpath(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toJavaString();
-        String path = LuaAux.checkString(L, 2).toJavaString();
-        String sep = LuaAux.optString(L, 3, LuaString.latin1(".")).toJavaString();
-        String dirsep = LuaAux.optString(L, 4, LuaString.latin1(DIRSEP)).toJavaString();
+        // 四个参数全都是 const char*（ll_searchpath 的签名 + luaL_gsub 的替换串），
+        // 在第一个 \0 处砍断：searchpath("a\0b", "./?.lua") 找的是 "./a.lua"。
+        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String path = LuaAux.checkString(L, 2).toCString().toJavaString();
+        String sep = LuaAux.optString(L, 3, LuaString.latin1(".")).toCString().toJavaString();
+        String dirsep = LuaAux.optString(L, 4, LuaString.latin1(DIRSEP)).toCString().toJavaString();
         String f = searchPath(L, name, path, sep, dirsep);
         if (f != null) {
             L.push(LuaValue.ofString(LuaString.latin1(f)));
@@ -348,7 +350,8 @@ public final class PackageLib {
 
     /** {@code searcher_preload} */
     private static int searcherPreload(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toJavaString();
+        // 模块名在 C 里是 const char*，第一个 \0 之后的内容连错误消息里都不出现
+        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
         LuaValue v = preloadTable(L).get(name);
         if (v == null || v.isNil()) {
             L.push(LuaValue.ofString(LuaString.latin1(
@@ -362,7 +365,7 @@ public final class PackageLib {
 
     /** {@code searcher_Lua} */
     private static int searcherLua(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
         String filename = findFile(L, name, "path", DIRSEP);
         if (filename == null) {
             return 1; // 消息已压栈
@@ -475,7 +478,8 @@ public final class PackageLib {
 
     /** {@code ll_require} */
     private static int requireFn(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toJavaString();
+        // 模块名是 const char*，第一个 \0 之后的内容连 package.loaded 的键都进不去
+        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
         L.setTop(1);
         LuaTable loaded = L.loadedTable();
         LuaValue cached = loaded.get(name);

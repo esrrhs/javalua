@@ -569,7 +569,13 @@ public final class DebugLib {
         LuaState L1 = getThread(L, argHolder);
         int arg = argHolder[0];
         LuaString optStr = LuaAux.optString(L, arg + 2, LuaString.latin1("flnSrtu"));
-        String options = optStr.toJavaString();
+        /*
+         * what 是 const char*：C 的 lua_getinfo 扫到第一个 \0 就收工，后面那几个
+         * 字符<b>连看都不看</b>。不截断的话 debug.getinfo(f, "S\0ln") 会把 'l' 'n'
+         * 也当成 option 解析 —— 而它们在这里是合法的、在别处却可能不合法，
+         * 于是凭空多出一条 "invalid option"。
+         */
+        String options = optStr.toCString().toJavaString();
         LuaAux.argCheck(L, options.isEmpty() || options.charAt(0) != '>', arg + 2,
                 "invalid option '>'");
         LuaDebug ar = new LuaDebug();
@@ -836,16 +842,23 @@ public final class DebugLib {
         L.callNoYield(f, 0);
     }
 
-    /** {@code makemask}：{@code "crl"} 这样的字符串转成掩码 */
-    private static int makeMask(String smask, int count) {
+    /**
+     * {@code makemask}：{@code "crl"} 这样的字符串转成掩码。
+     * <p>
+     * C 用的是 {@code strchr(smask, 'c')} 而 {@code smask} 是 {@code const char*}，
+     * 所以第一个 {@code \0} 之后的字符<b>看不见</b>：{@code "c\0l"} 只装调用钩子，
+     * {@code "l\0c"} 只装行钩子。实测两者打出来的计数完全相反。
+     */
+    private static int makeMask(LuaString smask, int count) {
+        String s = smask.toCString().toJavaString();
         int mask = 0;
-        if (smask.indexOf('c') >= 0) {
+        if (s.indexOf('c') >= 0) {
             mask |= Lua.LUA_MASKCALL;
         }
-        if (smask.indexOf('r') >= 0) {
+        if (s.indexOf('r') >= 0) {
             mask |= Lua.LUA_MASKRET;
         }
-        if (smask.indexOf('l') >= 0) {
+        if (s.indexOf('l') >= 0) {
             mask |= Lua.LUA_MASKLINE;
         }
         if (count > 0) {
@@ -910,7 +923,7 @@ public final class DebugLib {
             LuaAux.checkType(L, arg + 1, Lua.TFUNCTION);
             count = (int) LuaAux.optInteger(L, arg + 3, 0);
             func = HOOKF;
-            mask = makeMask(smask.toJavaString(), count);
+            mask = makeMask(smask, count);
         }
         LuaTable ht = hookTable(L);
         ht.set(LuaValue.ofThread(L1), new LuaValue(L.arg1(arg + 1)));
@@ -1197,7 +1210,8 @@ public final class DebugLib {
             L.push(new LuaValue(m)); // 非字符串原样返回
             return 1;
         }
-        String msg = m.isNil() ? null : LuaAux.asString(m).toJavaString();
+        // luaL_traceback 用 strlen(msg) 取长度：  之后的内容不进回溯
+        String msg = m.isNil() ? null : LuaAux.asString(m).toCString().toJavaString();
         int level = (int) LuaAux.optInteger(L, arg + 2, (L == L1) ? 1 : 0);
         L.push(LuaValue.ofString(LuaString.utf8(traceback(L, L1, msg, level))));
         return 1;
