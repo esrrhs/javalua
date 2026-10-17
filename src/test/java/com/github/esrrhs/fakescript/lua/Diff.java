@@ -205,7 +205,7 @@ final class Diff {
             return messageOf(e) + "\n";
         }
         L.close();
-        String stdout = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        String stdout = latin1(bos.toByteArray());
         return (err == null) ? stdout : stdout + messageOf(err) + "\n";
     }
 
@@ -398,7 +398,7 @@ final class Diff {
          * 「__gc 根本没实现」。
          */
         L.close();
-        String stdout = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        String stdout = latin1(bos.toByteArray());
         /*
          * 出错时<b>不能把 stdout 丢掉</b>。参考实现的 stdout 与 stderr 被合并
          * 捕获，所以「先打印十几行、然后崩」的脚本，参考输出是那十几行加错误
@@ -413,9 +413,21 @@ final class Diff {
 
     private static String messageOf(LuaValue err) {
         if (err.isString()) {
-            return err.asString().toJavaString();
+            // 与捕获输出同一套解码，否则消息里的非 UTF-8 字节会被换成 U+FFFD
+            return latin1(err.asString().bytes);
         }
         return "(error object is a " + err.typeName() + " value)";
+    }
+
+    /**
+     * 字节摊成字符：Latin-1 是字节↔字符的一一映射，比对因此是<b>逐字节</b>的。
+     * <p>
+     * 按 UTF-8 解码的话非法字节会变成 U+FFFD，而参考实现那边的同一批字节也变成
+     * U+FFFD —— 于是「一边 0x80、另一边 0xFF」被判成一致。差分闸门对整片非
+     * UTF-8 输出是瞎的，这本身就是一类假绿。
+     */
+    private static String latin1(byte[] b) {
+        return new String(b, StandardCharsets.ISO_8859_1);
     }
 
     private static String messageOf(LuaError e) {

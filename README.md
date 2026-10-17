@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 797 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 799 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate.
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
@@ -1130,6 +1130,52 @@ that had nothing to do with coroutines:
   upstream suite and every earlier fuzz seed were silent about it.
 
 `RuntimeTest.libraryFunctionNamesResolveInsideCoroutines` pins it.
+
+#### The gate itself had a hole
+
+A systematic sweep of `string.format("%q", ...)` — every byte 0–255, in four
+positions — was the first probe that wrote **non-UTF-8 bytes** to stdout. It found
+nothing wrong with the engine, and something wrong with the harness: both sides
+captured the reference's and this port's output into a Java `String` by decoding
+UTF-8. Any invalid byte becomes `U+FFFD`, so `0x80` and `0xEF 0xBF 0xBD` compare
+*equal*:
+
+```
+>>> b'"\x80"\n'.decode('utf-8', 'replace') == b'"\xef\xbf\xbd"\n'.decode('utf-8', 'replace')
+True
+>>> b'"\x80"\n'.decode('latin-1') == b'"\xef\xbf\xbd"\n'.decode('latin-1')
+False
+```
+
+Measured rather than assumed: with `print` deliberately changed to round-trip
+through a Java `String` (i.e. corrupting every non-UTF-8 byte), the new `%q`
+sweep is **red under Latin-1 and green under UTF-8** — the old gate let a real
+byte-level corruption through. The gate now decodes Latin-1, which is a
+byte-for-char bijection, so comparisons are genuinely byte-exact.
+`RuntimeTest.quoteFormatMatchesReferenceForEveryByte` is the pin.
+
+#### One thing that is *not* a divergence: subnormal `%a`
+
+`quotefloat` formats through C's `%a`:
+
+```c
+int nb = lua_number2strx(L, buff, MAX_ITEM, "%" LUA_NUMBER_FRMLEN "a", n);
+```
+
+C99 fixes one hexadecimal digit to the left of the point and says it "is `0` only
+if the argument is denormalized" — which leaves *how* a subnormal is written
+**unspecified**. glibc and Apple libc pick opposite answers:
+
+| value | glibc (CI: ubuntu) | Apple libc / musl |
+| --- | --- | --- |
+| `5e-324` | `0x0.0000000000001p-1022` | `0x1p-1074` |
+| `3 * 5e-324` | `0x0.0000000000003p-1022` | `0x1.8p-1073` |
+
+This port matches **glibc**, because the gate that matters — CI — runs on
+`ubuntu-latest`. `StringLibTest.subnormalQuoteFollowsGlibc` pins it with a plain
+assertion *outside* the differential table, so that nobody "fixes" it by matching
+a macOS reference binary and breaks Linux. (`Double.toHexString` already produces
+the glibc form, so there is nothing to implement.)
 
 ### What is still missing
 

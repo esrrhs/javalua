@@ -338,7 +338,14 @@ final class ReferenceLua {
             while ((n = in.read(buf)) > 0) {
                 bos.write(buf, 0, n);
             }
-            return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+            /*
+             * 用 Latin-1 而不是 UTF-8 解码：Latin-1 是字节↔字符的<b>一一映射</b>，
+             * 比对因此是逐字节的。按 UTF-8 解码的话，任何非法字节都会变成
+             * U+FFFD —— 两边同时变成 U+FFFD，于是「一边输出 0x80、另一边输出
+             * 0xFF」这种真分歧被判成一致。差分闸门对整片非 UTF-8 输出是瞎的，
+             * 这件事本身就是一类假绿。
+             */
+            return new String(bos.toByteArray(), StandardCharsets.ISO_8859_1);
         } catch (Exception e) {
             return "";
         }

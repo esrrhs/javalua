@@ -559,4 +559,70 @@ class RuntimeTest {
                 + "print(z or false or 'fall')\n"
                 + "print((a and nil) or 'after')\n");
     }
+
+    /**
+     * {@code string.format('%q')} 的系统性探针：{@code addquoted} 的每条分支、
+     * 以及 0..255 <b>每一个字节</b>原样输出。
+     * <p>
+     * 扫全部 256 个字节不只是为了 {@code %q}：字节 0x80–0xFF 是非法 UTF-8，
+     * 它们被<b>原样</b>写进 stdout。这一段因此同时是「输出逐字节一致」的钉子
+     * ——而逐字节这件事本身曾经是假的：闸门两边都用 UTF-8 解码捕获到的输出，
+     * 非法字节在两边都变成 {@code U+FFFD}，于是「一边写 0x80、另一边写 0xFF」
+     * 会被判成一致。实测：{@code b'"\x80"'} 与 {@code b'"\xef\xbf\xbd"'}
+     * 按 UTF-8 解码后<b>相等</b>（都是 {@code U+FFFD}），按 Latin-1 解码才不等。
+     * 闸门现在用 Latin-1（字节↔字符一一对应）。
+     * <p>
+     * <b>不含次正规浮点</b>：{@code %q} 走 C 的 {@code %a}，而 C99 对次正规数
+     * 的前导数字写的是 <i>unspecified</i> —— glibc 与 Apple libc 实测相反
+     * （详见 {@code StringLibTest.subnormalQuoteFollowsGlibc}）。
+     */
+    @Test
+    void quoteFormatMatchesReferenceForEveryByte() {
+        Diff.assertMatches(""
+                + "local function emit(s) print(string.format('%q', s)) end\n"
+                + "for b = 0, 255 do emit(string.char(b)) end\n"
+                + "for b = 0, 255 do emit(string.char(b) .. '5') end\n"
+                + "for b = 0, 255 do emit(string.char(b) .. 'z') end\n"
+                + "for b = 0, 255 do emit('a' .. string.char(b) .. '9b') end\n"
+                // 需要补成 \ddd 的那些：后一位是数字时 \d 会被读成 \dd
+                + "emit('\\1\\12\\123')\n"
+                + "emit(string.char(1, 50) .. string.char(2, 51) .. string.char(0, 48))\n"
+                + "emit('\"')\n"
+                + "emit('\\\\')\n"
+                + "emit('\\n')\n"
+                + "emit('\\r')\n"
+                + "emit('\\t')\n"
+                + "emit('\\0')\n"
+                + "emit('a\\0b')\n"
+                + "emit('\\\\\"\\\\')\n"
+                // 浮点：quotefloat 的十六进制分支（次正规除外，见上）
+                + "local fs = {0.0, -0.0, 1.0, -1.0, 0.5, -0.5, 1/3, 1/7, 0.1, 0.2, 0.3,\n"
+                + "  1e300, 1e-300, 1e308, math.pi, math.sqrt(2), 2^53, 2^63, 2^64, -2^63,\n"
+                + "  math.maxinteger, math.mininteger, 1e15, 1e16, 1e17, 0.000001, 0.0000001}\n"
+                + "for i = 1, #fs do print(string.format('%q', fs[i])) end\n"
+                + "print(string.format('%q', 1/0), string.format('%q', -1/0),\n"
+                + "      string.format('%q', 0/0))\n"
+                // 整数：MIN_INTEGER 走十六进制
+                + "local is = {0, 1, -1, 7, 255, 65535, 2147483647, -2147483648,\n"
+                + "  math.maxinteger, math.mininteger, 1000000000000, -1000000000000}\n"
+                + "for i = 1, #is do print(string.format('%q', is[i])) end\n"
+                + "print(string.format('%q', nil), string.format('%q', true),\n"
+                + "      string.format('%q', false), string.format('%q', '10'),\n"
+                + "      string.format('%q', '  x  '))\n"
+                // 往返：%q 出来的要能被 load 原样读回
+                + "local rt = {'a', '\\n', '\"', '\\\\', '\\0', '\\1', '\\12', '\\123',\n"
+                + "  '\\x7f', '\\xff', 'a\\0b', '\\\\1', '\\0012', 'he said \\\"hi\\\"\\n'}\n"
+                + "for i = 1, #rt do\n"
+                + "  local q = string.format('%q', rt[i])\n"
+                + "  local ok, v = pcall(load('return ' .. q))\n"
+                + "  print(q, ok, (ok and v == rt[i]) or '-')\n"
+                + "end\n"
+                // 报错路径
+                + "print(pcall(string.format, '%q', {}))\n"
+                + "print(pcall(string.format, '%q', print))\n"
+                + "print(pcall(string.format, '%5q', 'x'))\n"
+                + "print(pcall(string.format, '%.3q', 'x'))\n"
+                + "print(pcall(string.format, '%-q', 'x'))\n"
+                + "print(pcall(string.format, '%q'))\n");
+    }
 }

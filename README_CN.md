@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 797 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 799 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -982,6 +982,47 @@ bug：
   自己会填自己的那张表，所以整个上游套件和此前所有 fuzz 种子对此都一声不吭。
 
 由 `RuntimeTest.libraryFunctionNamesResolveInsideCoroutines` 钉住。
+
+#### 闸门本身有个洞
+
+对 `string.format('%q', ...)` 的系统性扫描（0–255 每个字节、四种位置）是第一个
+往 stdout 里写**非 UTF-8 字节**的探针。引擎本身没查出问题，倒是把探针自己查了
+出来：两边都把捕获到的输出按 UTF-8 解码成 Java `String`。任何非法字节都会变成
+`U+FFFD`，于是 `0x80` 与 `0xEF 0xBF 0xBD` 判成<b>相等</b>：
+
+```
+>>> b'"\x80"\n'.decode('utf-8', 'replace') == b'"\xef\xbf\xbd"\n'.decode('utf-8', 'replace')
+True
+>>> b'"\x80"\n'.decode('latin-1') == b'"\xef\xbf\xbd"\n'.decode('latin-1')
+False
+```
+
+不是推理，是量的：把 `print` 故意改成经 Java `String` 往返一趟（于是每个非
+UTF-8 字节都被写坏），新的 `%q` 扫描在 Latin-1 下<b>红</b>、在 UTF-8 下<b>绿</b>
+—— 旧闸门放行了真实的字节级损坏。闸门现在按 Latin-1 解码（字节↔字符一一对应），
+比对才算真的逐字节。钉子：
+`RuntimeTest.quoteFormatMatchesReferenceForEveryByte`。
+
+#### 有一处<b>不是</b>分歧：次正规数的 `%a`
+
+`quotefloat` 走的是 C 的 `%a`：
+
+```c
+int nb = lua_number2strx(L, buff, MAX_ITEM, "%" LUA_NUMBER_FRMLEN "a", n);
+```
+
+C99 只规定小数点左边恰好一位十六进制数字，并且「这个数字只在数<b>次正规</b>时为
+0」—— 次正规<b>具体怎么写是 unspecified</b>。glibc 与 Apple libc 选的正好相反：
+
+| 值 | glibc（CI 的 ubuntu） | Apple libc / musl |
+| --- | --- | --- |
+| `5e-324` | `0x0.0000000000001p-1022` | `0x1p-1074` |
+| `3 * 5e-324` | `0x0.0000000000003p-1022` | `0x1.8p-1073` |
+
+这里取 **glibc**：真正作数的闸门（CI）跑在 `ubuntu-latest` 上。
+`StringLibTest.subnormalQuoteFollowsGlibc` 用普通断言在差分表<b>之外</b>钉住它，
+免得有人照 macOS 上的参考实现「修」一把反而把 Linux 上本来对的行为改错。
+（`Double.toHexString` 给出的正是 glibc 那种写法，所以不需额外实现。）
 
 ### 还没补上的
 
