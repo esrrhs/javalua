@@ -897,7 +897,8 @@ public final class BaseLib {
      */
     private static int loadFn(LuaState L) {
         LuaValue a = L.arg1(1);
-        String mode = LuaAux.optString(L, 3, LuaString.latin1("bt")).toJavaString();
+        // checkmode 比的是 const char*：load(src, name, "t\0b") 的模式是 "t"
+        String mode = LuaAux.optString(L, 3, LuaString.latin1("bt")).toCString().toJavaString();
         int env = L.isNoneArg(4) ? 0 : 4;
         // lua_tolstring：<b>数字也算字符串</b>，load(42) 编的是 "42"
         LuaString src = (a.isString() || a.isNumber()) ? LuaAux.asString(a) : null;
@@ -1017,7 +1018,7 @@ public final class BaseLib {
         LuaString fname = LuaAux.optString(L, 1, null);
         LuaString modeArg = LuaAux.optString(L, 2, null);
         // luaL_loadfilex 的 mode 是 NULL 时内部按 "bt" 处理
-        String mode = (modeArg == null) ? "bt" : modeArg.toJavaString();
+        String mode = (modeArg == null) ? "bt" : modeArg.toCString().toJavaString();
         int env = L.isNoneArg(3) ? 0 : 3;
         if (fname == null) {
             // 无参：从 stdin 读。chunk 名是 "=stdin"
@@ -1031,7 +1032,9 @@ public final class BaseLib {
             }
             return loadAux(L, loadBuffer(L, src, LuaString.latin1("=stdin").bytes, mode), env);
         }
-        String path = fname.toJavaString();
+        // luaL_loadfilex 的 filename 是 const char*：第一个 \0 之后的内容既进不了
+        // fopen，也进不了 "cannot open ..." 那条消息
+        String path = fname.toCString().toJavaString();
         byte[] src;
         try {
             // luaL_loadfilex 会先吃掉 BOM 与首行的 #!...；这一步属于加载层，
@@ -1039,11 +1042,19 @@ public final class BaseLib {
             src = Parser.skipFilePreamble(
                     java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)));
         } catch (Exception e) {
+            /*
+             * 空路径是 C 与 Java 唯一判不一致的一处：{@code fopen("")} 给
+             * {@code ENOENT}（实测 {@code loadfile("")} 报
+             * {@code cannot open : No such file or directory}），而 Java 把空路径
+             * 解析成当前目录、读的时候给 {@code Is a directory}。
+             * 目录本身不用改：{@code loadfile("/tmp")} 在 C 里 fopen 是<b>成功</b>的、
+             * 失败在读，走的就是 {@code cannot read ...: Is a directory} 那条分支。
+             */
+            int en = path.isEmpty() ? 2 : LuaAux.errnoOf(
+                    (e instanceof java.io.IOException) ? (java.io.IOException) e : null);
             LuaAux.pushFail(L);
             L.push(LuaValue.ofString(LuaString.latin1(
-                    "cannot open " + path + ": " + LuaAux.strError(LuaAux.errnoOf(
-                            (e instanceof java.io.IOException)
-                                    ? (java.io.IOException) e : null)))));
+                    "cannot open " + path + ": " + LuaAux.strError(en))));
             return 2;
         }
         /*

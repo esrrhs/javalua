@@ -6824,4 +6824,83 @@ class RuntimeTest {
                 print("XD", pcall(function() debug.sethook() end))
                 """);
     }
+
+    /**
+     * 内嵌 {@code \0} 第二轮：{@code load} / {@code loadfile} /
+     * {@code io.output} / {@code io.input} 这几个门口。40 行逐字节一致。
+     * <p>
+     * <b>{@code load} 的 mode</b>：{@code checkmode} 比的是 {@code const char*}，
+     * 所以 {@code load(src, name, "t\0b")} 的模式是 {@code "t"} ——
+     * {@code "b\0t"} 会去 undump 一个文本 chunk 然后报
+     * {@code attempt to load a text chunk (mode is 'b')}。
+     * <p>
+     * <b>{@code loadfile} 的文件名</b>同样在 {@code \0} 处砍断，
+     * 砍出来的名字才进 {@code cannot open ...} 那条消息。
+     * <p>
+     * 还咬出 <b>{@code loadfile("")}</b>：C 的 {@code fopen("")} 给
+     * {@code ENOENT}，报 {@code cannot open : No such file or directory}；
+     * Java 把空路径解析成当前目录、读的时候给 {@code Is a directory}，
+     * 于是我们报成了 {@code Input/output error}。空路径是 C 与 Java 唯一
+     * 判不一致的一处，单独按 C 的判据取 {@code ENOENT} ——
+     * <b>目录本身不用改</b>：{@code loadfile("/tmp")} 在 C 里 {@code fopen}
+     * 是<b>成功</b>的、失败在读，走的是
+     * {@code cannot read /tmp: Is a directory} 那条分支。
+     */
+    @Test
+    void embeddedNulLoadMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 内嵌 \\0 第二轮：load / loadfile / io.output / io.input 这几个门口
+                local function bytes(s)
+                  local t = {}
+                  for i = 1, #s do t[#t + 1] = s:byte(i) end
+                  return table.concat(t, ",")
+                end
+
+                -- 1) load 的 mode：checkmode 比的是 const char*
+                print("A1", pcall(load, "return 1", "=n", "t\\0b"))
+                print("A2", pcall(load, "return 1", "=n", "b\\0t"))
+                print("A3", pcall(load, "return 1", "=n", "\\0"))
+                print("A4", pcall(load, "return 1", "=n", "x\\0t"))
+                print("A5", pcall(load, "return 1", "=n", "t"))
+                print("A6", pcall(load, "return 1", "=n", "bt"))
+                print("A7", pcall(load, "return 1", "=n", "bt\\0z"))
+                -- 二进制 chunk 走 undump：模式也是先被 \\0 砍过
+                print("A8", pcall(load, string.dump(function() return 1 end), "=n", "b\\0t"))
+                print("A9", pcall(load, string.dump(function() return 1 end), "=n", "t\\0b"))
+                print("AA", pcall(load, string.dump(function() return 1 end), "=n", "bt"))
+
+                -- 2) loadfile 的文件名与 mode
+                print("B1", loadfile("/nonexistent-dir-xyz/x\\0y"))
+                print("B2", select(2, loadfile("/nonexistent-dir-xyz/x\\0y")))
+                print("B3", select(2, loadfile("/nonexistent-dir-xyz/x")))
+                print("B4", select(2, loadfile("\\0")))
+                print("B5", select(2, loadfile("/nonexistent-dir-xyz/x", "t\\0b")))
+                print("B6", select(2, loadfile("/nonexistent-dir-xyz/x", "x\\0t")))
+
+                -- 3) io.output / io.input 给的是文件名
+                print("C1", pcall(io.output, "/nonexistent-dir-xyz/o\\0ut"))
+                print("C2", pcall(io.input, "/nonexistent-dir-xyz/in\\0put"))
+                io.output(io.stdout)
+                io.input(io.stdin)
+                print("C3", pcall(io.output, "/nonexistent-dir-xyz/out"))
+                print("C4", pcall(io.input, "/nonexistent-dir-xyz/input"))
+
+                -- 4) package.loaded 里预先放一个带 \\0 的键：require 查的是被砍过的名字
+                package.loaded["a"] = "PRE"
+                print("D1", pcall(require, "a"))
+                print("D2", pcall(require, "a\\0b"))
+                package.loaded["a"] = nil
+                print("D3", pcall(require, "a\\0b"))
+
+                -- 5) require 一个能被找到的模块：文件名里带 \\0 也照样砍
+                print("E1", pcall(package.searchpath, "m", "./?.lua\\0x"))
+                print("E2", pcall(package.searchpath, "m\\0n", "./?.lua"))
+
+                -- 6) os.date / os.time 的格式与月份名不含 NUL，但 os.date 的 s 是按长度扫的
+                print("F1", bytes(os.date("%Y\\0%m\\0%d", 0)))
+                print("F2", bytes(os.date("!\\0%Y", 0)))
+                print("F3", bytes(os.date("\\0", 0)))
+                print("F4", bytes(os.date("%%\\0%%", 0)))
+                """);
+    }
 }

@@ -708,7 +708,7 @@ public final class IoLib {
             LuaValue a = L.arg1(1);
             LuaString s = (a.isString() || a.isNumber()) ? LuaAux.asString(a) : null;
             if (s != null) {
-                openCheck(L, s.toJavaString(), mode);
+                openCheck(L, s.toCString().toJavaString(), mode);
             } else {
                 toFile(L); // 确认是个开着的句柄
                 L.push(a);

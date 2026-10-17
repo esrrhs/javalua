@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 826 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 827 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1612,6 +1612,21 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
 两个 `debug` 上的最阴：`debug.getinfo(f, "S\0ln")` **不该**报 `invalid option`
 （C 扫到 NUL 就收工，`l` 和 `n` 它根本没看见）；`debug.sethook(f, "l\0c")`
 只装行钩子，`"c\0l"` 只装调用钩子 —— 两者的计数正好反过来。
+
+#### 内嵌 `\0` 第二轮（40 行）：`load` / `loadfile` / `io.output`
+
+把 `src/main` 里剩下的 `.toJavaString()` 逐个过一遍，又揪出三个门口：
+`load` 的**模式**（`checkmode` 比的是 `const char*`）、`loadfile` 的文件名、
+`io.output` / `io.input` 拿到的文件名。于是 `load(src, name, "t\0b")` 的模式是
+`"t"`，而 `load(src, name, "b\0t")` 会去 undump 一个文本 chunk、报
+`attempt to load a text chunk (mode is 'b')`。
+
+还咬出一处 C 与 Java **判路径判得不一样**的地方：**`loadfile("")`**。C 的
+`fopen("")` 给 `ENOENT`，报 `cannot open : No such file or directory`；Java 把
+空路径解析成当前目录、失败在读，给 `Is a directory`，我们于是报成了
+`Input/output error`。空路径是唯一一处，按 C 的判据单独取 `ENOENT`。
+**目录本身不用改、也不该改**：`loadfile("/tmp")` 在 C 里 `fopen` 是**成功**的，
+失败在读，走的是另一条分支 —— `cannot read /tmp: Is a directory`。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 
