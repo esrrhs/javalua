@@ -719,7 +719,30 @@ class FuzzTest {
             vars.add(t);
             StringBuilder sb = new StringBuilder("local ").append(t).append(" = ")
                     .append(tableLiteral(1)).append('\n');
-            switch (pick(7)) {
+            switch (pick(8)) {
+            case 7:
+                /*
+                 * 跨表 move：这才是 tmove 那个「第三条件」生效的地方。
+                 * 同表 move 走的是 t > e || t <= f 两条，第三条件恒假；
+                 * 跨表时它与前两条无关，一律正向。曾经漏掉它，症状是
+                 * 内容完全一致、只有 #t 不一样（插入次序反了 → 布局变了）。
+                 * 所以这里 f/t 取到负数（会把洞开在数组部分之外），
+                 * 并且把目标表按 -2..8 逐格 dump 出来 —— 只比 #t 才看得见。
+                 */
+                sb.append("local tb2").append(t).append(" = ").append(tableLiteral(1))
+                        .append('\n');
+                sb.append("table.move(").append(t).append(", ").append(pick(5) - 2)
+                        .append(", ").append(1 + pick(5)).append(", ").append(pick(5) - 2)
+                        .append(", tb2").append(t).append(")\n");
+                sb.append("local d").append(t).append(" = {}\n");
+                for (int i = -2; i <= 8; i++) {
+                    sb.append("d").append(t).append("[").append(i + 3).append("] = tostring(")
+                            .append("rawget(tb2").append(t).append(", ").append(i).append("))\n");
+                }
+                sb.append("print(#tb2").append(t).append(", table.concat(d").append(t)
+                        .append(", ','))\n");
+                sb.append("print(#").append(t).append(")");
+                return sb.toString();
             case 0:
                 sb.append("table.insert(").append(t).append(", ").append(expression(1)).append(')');
                 break;
@@ -779,7 +802,24 @@ class FuzzTest {
         private String stdLibOps() {
             String tmp = "q" + (tmpCounter++);
             StringBuilder sb = new StringBuilder();
-            switch (pick(11)) {
+            switch (pick(12)) {
+            case 11: // xpcall：消息处理函数必须是函数，且校验发生在调用之前
+                /*
+                 * 曾经只判「参数够不够两个」，于是 xpcall(f, 5) 照常调 f，
+                 * f 抛错后拿 5 当处理函数。这里把三种形态都铺到：
+                 * 非函数的处理函数、显式 nil、以及干脆一个参数都不给。
+                 */
+                sb.append("print(pcall(xpcall, function() error('E') end, ")
+                        .append(chance(50) ? "5" : "nil").append("))\n");
+                sb.append("print(pcall(xpcall))\n");
+                sb.append("print(xpcall(function() return ").append(nonVarargExpression(1))
+                        .append(" end, function(m) return 'H:' .. tostring(m) end))\n");
+                sb.append("print(pcall(xpcall, function() error({}) end,"
+                        + " function(m) return type(m) end))\n");
+                sb.append("print(pcall(xpcall, function() error(setmetatable({},"
+                        + " {__tostring = function() return 'TS' end})) end,"
+                        + " function(m) return m end))");
+                break;
             case 7: // math.random 的序列：必须先播种
                 /*
                  * 不播种的 math.random 每次进程都不一样，所以只能整段出现：

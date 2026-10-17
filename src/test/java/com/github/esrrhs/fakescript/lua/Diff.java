@@ -351,6 +351,16 @@ final class Diff {
         int base = L.top;
         L.push(LuaValue.ofFunction(Diff::pmain));
         L.push(LuaValue.ofString(LuaString.of(src.getBytes(StandardCharsets.UTF_8))));
+        /*
+         * 第二个实参不是凑数的：{@code lua.c: main} 给 {@code pmain} 传的是
+         * {@code (argc, argv)} <b>两个</b>实参，栈的初始 {@code top} 因此是 3。
+         * 只传一个就比参考实现少占一格，而<b>少一格会一路带到底</b> ——
+         * 脚本栈溢出时的递归深度差一层，最深那一帧也就换了个函数，
+         * 报错行号随之不同（fuzz seed 7984 撞的就是这个：参考报第 67 行，
+         * 我们报第 65 行）。按帧大小铺开量过：补上这一格之后
+         * 0/1/2/3/4/6/8/16/32 个局部变量的九种递归深度<b>全部</b>与参考一致。
+         */
+        L.push(LuaValue.ofInteger(2));
         return L.pcall(base, 0);
     }
 

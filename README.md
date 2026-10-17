@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 809 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 811 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1378,6 +1378,41 @@ the traceback really is last.
 This is the second time the gate has been found blind rather than the code wrong
 (the first was UTF-8 decoding of captured output). A gate that quietly compares
 less than it claims is worse than no gate: it reports green.
+
+#### One the fuzzer found, where the bug was in the *harness*
+
+At scale (16500 generated programs) the fuzzer produced a program whose stack
+overflow was reported on **line 67** by the reference and **line 65** by this
+port. The engine was fine; the harness was one stack slot short:
+
+```c
+  lua_pushcfunction(L, &pmain);   /* to call 'pmain' in protected mode */
+  lua_pushinteger(L, argc);       /* 1st argument */
+  lua_pushlightuserdata(L, argv); /* 2nd argument */
+  status = lua_pcall(L, 2, 1, 0); /* do the call */
+```
+
+`lua.c`'s `main` passes `pmain` **two** arguments, so the stack's initial `top`
+is 3. `Diff.runLikeLuaC` passed one. One missing slot is carried all the way
+down: the recursion that overflows the stack goes one level deeper, so the
+innermost frame is a different function, so the reported line differs.
+
+The reason it took a while to see: it does **not** always differ. Each frame
+costs `k + 1` slots (`k` = number of locals) and the depth is
+`floor((limit - base) / (k + 1))`, so a base one slot off only changes the answer
+when it happens to cross a division boundary. Measured across frame sizes:
+
+| locals `k` | 0 | 1 | 2 | 3 | 4 | 6 | 8 | 16 | 32 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| differed before | yes | yes | yes | no | no | yes | no | no | no |
+
+Trying one example would have looked fine. Fixing the harness makes all nine
+match, and `RuntimeTest.stackOverflowDepthAndLineMatchReference` now sweeps them.
+
+(The other trap in that probe: `local function f() return f() end` is a **tail
+call**, consumes no stack, and loops forever instead of overflowing — the
+reference binary had to be killed after five minutes. The probe uses
+`return 1 + f()`.)
 
 ### What is still missing
 
