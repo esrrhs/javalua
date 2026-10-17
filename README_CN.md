@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 823 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 824 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1517,6 +1517,25 @@ macOS 报 `time result cannot be represented in this installation`）；删**目
 `collectgarbage("step")` 的返回值（参考实现的一「步」永远走不完一轮、恒
 `false`；我们没有增量收集器，一步就是一整轮、恒 `true`。**刻意**取 `true`：
 取 `false` 会让 `repeat until collectgarbage("step")` 这类写法死循环）。
+
+#### `debug` × 协程 交叉矩阵：`_LOADED` 得挂在注册表上
+
+两边各自都铺过（114 / 99 行），没铺的是**交叉**那一层：给协程做 `getinfo` /
+`getlocal` / `traceback` / `sethook`、钩子的**计数**（打印成一个数而不是一条一行
+—— 计数本身就是对行号表与调用序列的强校验，`tail call` 事件也钉在里面）、
+registry / `uservalue` / `setmetatable`，以及协程状态机的补充。
+
+咬出一处：**`_LOADED` 必须是注册表的一个字段**：
+
+```c
+#define LUA_LOADED_TABLE  "_LOADED"     /* lauxlib.h */
+```
+
+`package.loaded` 不是「别处存一份、注册表里再放一份」，它**就是**那个注册表字段，
+所以 `debug.getregistry()["_LOADED"]` 得拿得到。我们只在 `LuaState` 里存了一份，
+于是 `type(debug.getregistry()["_LOADED"])` 给 `nil`，参考实现给 `table` —— 靠
+注册表做手脚的脚本会直接失效。改成从注册表里读回来：脚本把 `_LOADED` 换掉时
+我们也跟着换。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 

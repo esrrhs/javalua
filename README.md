@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 823 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 824 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1663,6 +1663,27 @@ in the reference never finishes a cycle, so it is always `false`; with no
 incremental collector one step *is* a full round, so we return `true`.
 Deliberately: returning `false` would make the `repeat until
 collectgarbage("step")` idiom spin forever.
+
+#### The `debug` × coroutine sweep: `_LOADED` lives in the registry
+
+Both sides had been swept separately (114 and 99 lines), but not the
+**cross-product**: `getinfo` / `getlocal` / `traceback` / `sethook` *on a
+coroutine*, hook **counts** (printed as a number instead of one line per event —
+the count itself is a strong check on the line table and the call sequence, and it
+pins the `tail call` hook event), registry / `uservalue` / `setmetatable`, and the
+rest of the coroutine state machine.
+
+It found one thing: **`_LOADED` has to be a field of the registry.**
+
+```c
+#define LUA_LOADED_TABLE  "_LOADED"     /* lauxlib.h */
+```
+
+`package.loaded` is not stored somewhere else with a copy in the registry — it
+*is* the registry field, so `debug.getregistry()["_LOADED"]` must return it. We
+kept it in a `LuaState` field only, so `type(debug.getregistry()["_LOADED"])`
+gave `nil` where the reference gives `table`. Now it is read back out of the
+registry, so a script that swaps `_LOADED` swaps ours too.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 

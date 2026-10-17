@@ -208,6 +208,9 @@ public final class LuaState {
     public LuaTable globals;
     public final LuaTable registry;
 
+    /** {@code lauxlib.h: LUA_LOADED_TABLE} —— 注册表里挂 {@code package.loaded} 的那个键 */
+    private static final String LOADED_KEY = "_LOADED";
+
     /**
      * 注册表里的 {@code _LOADED} 表，也就是 {@code package.loaded}。
      * <p>
@@ -348,6 +351,15 @@ public final class LuaState {
              * 不挂的话 pcall(print, ...) 的报错里函数名会变成 "?"。
              */
             loaded.set("_G", LuaValue.ofTable(globals));
+            /*
+             * {@code LUA_LOADED_TABLE} 是<b>注册表里的一个字段</b>
+             * （{@code lauxlib.h: #define LUA_LOADED_TABLE "_LOADED"}），
+             * 不是别处另存一份：{@code debug.getregistry()._LOADED} 必须拿得到
+             * {@code package.loaded}。之前只在字段里存，于是
+             * {@code type(debug.getregistry()["_LOADED"])} 给 nil 而参考实现
+             * 给 table —— 靠注册表做手脚的脚本（老代码里不少）会直接失效。
+             */
+            registry.set(LOADED_KEY, LuaValue.ofTable(loaded));
         }
     }
 
@@ -359,7 +371,16 @@ public final class LuaState {
      * 也让库函数的报错带上 {@code 'string.len'} 这样的全名。
      */
     public LuaTable loadedTable() {
-        return loaded;
+        /*
+         * 从注册表里取，而不是直接用 {@link #loaded} 字段 —— 脚本可以把
+         * {@code debug.getregistry()._LOADED} 换成别的表，那时参考实现用的
+         * 就是换过的那份。取不到表时（被置成 nil / 数字）退回内部那份：
+         * C 会在 {@code lua_getfield} 上抛 Lua 错误，这里继续用旧表只是
+         * 「没那么严格」，但换成 NPE 是<b>不行</b>的（实现自身的 Java 异常
+         * 不能被 pcall 吞成脚本报错）。
+         */
+        LuaValue v = registry.get(LOADED_KEY);
+        return (v != null && v.isTable()) ? v.asTable() : loaded;
     }
 
     /**
