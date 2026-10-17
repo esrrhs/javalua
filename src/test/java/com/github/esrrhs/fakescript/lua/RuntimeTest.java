@@ -5043,4 +5043,383 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+
+    /**
+     * {@code io} 库矩阵 —— 参考实现与本实现逐字节比对。
+     * <p>
+     * {@code io} 原本是十个标准库里铺得最薄的一片（167 行），这一片把它补到
+     * 124 行输出：{@code open} 的十六种合法模式与九种非法模式、{@code read}
+     * 的全部格式（{@code l} / {@code L} / {@code a} / {@code n} / 数字 / 多格式
+     * / 缺省）、{@code write} 的整数与浮点写出形态、{@code seek} 的三个起点与
+     * 越界、{@code lines}、{@code setvbuf}、{@code close} 关两次、
+     * {@code io.output} / {@code io.input} 的切换，以及二进制安全
+     * （含 {@code \0} 与非法 UTF-8）。
+     * <p>
+     * 咬出一处：<b>{@code seek} 的负目标位置是 {@code EINVAL}(22)</b>，不是随便
+     * 一个 IO 错。C 的 {@code fseek} 在 {@code SET} / {@code CUR} / {@code END}
+     * 三种起点上都是这个判据（实测三种都给 {@code nil, "Invalid argument", 22}），
+     * 而 Java 的 {@code RandomAccessFile.seek} 抛的是 "Negative seek offset"，
+     * 掉进 {@code errnoOf} 的兜底分支就成了 {@code EIO}(5)。往 EOF <b>之后</b>
+     * 定位是<b>允许</b>的，别一起拦。
+     * <p>
+     * 另有两处不属于分歧、只能绕开：{@code fopen} 一个<b>目录</b>在 macOS 与
+     * glibc 上都成功但读的行为不同，而 JVM 压根不允许把目录当流打开；
+     * {@code print} 走的是 C 层 {@code stdout}，不受 {@code io.output} 切换影响
+     * —— 这两条写进比对只会两边都假红。
+     */
+    @Test
+    void ioLibraryDeepMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- io 库矩阵。
+                -- 临时文件一律放 target/rt/（两边 cwd 都是仓库根，写根目录会留垃圾）。
+                local D = "target/rt/"
+                local function P(n)
+                  return D .. n
+                end
+                local function pr(...)
+                  print(...)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                -- 文件句柄带地址，只打类型
+                local function s(v)
+                  local tt = type(v)
+                  if tt == "table" or tt == "function" or tt == "thread" or tt == "userdata" then
+                    return tt
+                  end
+                  return tostring(v)
+                end
+                local function rm(p)
+                  return os.remove(P(p))
+                end
+                local function mk(name, content)
+                  local f = io.open(P(name), "wb")
+                  if not f then return false end
+                  f:write(content)
+                  f:close()
+                  return true
+                end
+                local function slurp(name)
+                  local f = io.open(P(name), "rb")
+                  if not f then return nil end
+                  local c = f:read("a")
+                  f:close()
+                  return c
+                end
+
+                -- 1) 静态结构
+                pr("A1", s(io.stdout), s(io.stderr), s(io.stdin))
+                pr("A2", io.type(io.stdout), io.type(io.stderr), io.type(io.stdin))
+                pr("A3", io.type(1), io.type("x"), io.type({}), io.type(nil))
+                pr("A4", s(io.open), s(io.lines), s(io.read), s(io.write), s(io.close))
+                pr("A5", pc(io.type))
+
+                -- 2) open：模式的各种形态
+                pr("B1", pc(io.open, P("_io_nope"), "r"))
+                pr("B2", s(select(1, io.open(P("_io_w"), "w"))))
+                rm("_io_w")
+                local modes = { "r", "w", "a", "r+", "w+", "a+", "rb", "wb", "ab", "r+b", "w+b",
+                                "a+b", "br", "bw", "rt", "wt" }
+                -- 先把文件建出来：不然第 1 个 "r" 的成败取决于上一次运行有没有留下残骸，
+                -- 两边跑的先后一变结论就反了。
+                mk("_io_mode", "x")
+                for i, m in ipairs(modes) do
+                  -- 坏模式是<b>抛错</b>不是返 nil+消息（lauxlib 的 l_checkmode 判据是
+                  -- '[rwa]%+?b?'），所以必须走 pcall，否则脚本在这里就断了。
+                  local ok, f, e = pcall(io.open, P("_io_mode"), m)
+                  pr("B3", i, m, ok, s(f), e)
+                  if ok and f then f:close() end
+                end
+                rm("_io_mode")
+                -- 坏模式
+                local bad = { "rw", "x", "rr", "r++", "+", "b", "", "r+x", "w+b+" }
+                for i, m in ipairs(bad) do
+                  pr("B4", i, string.format("%q", m), select(2, pc(io.open, P("_io_bad"), m)))
+                end
+                rm("_io_bad")
+                -- 缺省模式是 "r"
+                do
+                  local f, e = io.open(P("_io_def"))
+                  pr("B5", select(2, pc(io.open, P("_io_def"))))
+                  if f then f:close() end
+                end
+                rm("_io_def")
+                -- 参数类型（数字会被就地转成字符串：真的去打开叫 "5" 的文件。
+                -- 先删一次：H8/H9 的 io.output(5) 会把它建出来，留在盘上会让下一轮 B6 的
+                -- 成败反过来 —— 这种「上一次运行的残骸决定这一次结果」的坑已经踩过一回。）
+                os.remove("5")
+                pr("B6", pc(io.open, 5))
+                pr("B7", pc(io.open, nil))
+                pr("B8", pc(io.open, "x", 5))
+                pr("B9", pc(io.open))
+                -- 「打开目录」不测：fopen 一个目录在 macOS 与 glibc 上都成功，但读的行为不同，
+                -- 而 JVM 根本不允许把目录当流打开。属于平台能力差异，放进比对只会两边都假红。
+
+                -- 3) 读：格式串
+                mk("_io_r", "line1\\nline2\\n\\nline4\\n")
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C1", f:read("l"), f:read("l"), f:read("l"), f:read("l"), f:read("l"))
+                  f:close()
+                end
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C2", string.format("%q", f:read("L")), string.format("%q", f:read("L")))
+                  f:close()
+                end
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C3", string.format("%q", f:read("a")))
+                  f:close()
+                end
+                do
+                  -- 数字：各种形态
+                  local f = io.open(P("_io_num"), "w")
+                  f:write("12 3.5 -7 0x10 1e3 .5 5. .inf -.inf nan 12abc\\n")
+                  f:close()
+                  local g = io.open(P("_io_num"), "r")
+                  local out = {}
+                  for i = 1, 12 do out[i] = tostring(g:read("n")) end
+                  pr("C4", table.concat(out, ","))
+                  pr("C5", g:read("n"), g:read("n"))
+                  g:close()
+                  rm("_io_num")
+                end
+                do
+                  -- 一次读多个格式
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C6", f:read("l", "l", "l"))
+                  f:close()
+                end
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C7", string.format("%q", f:read(3)), string.format("%q", f:read(0)),
+                     string.format("%q", f:read(100)))
+                  f:close()
+                end
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C8", pc(f.read, f, "x"))
+                  pr("C9", pc(f.read, f, 5, "x"))
+                  f:close()
+                end
+                -- 已关闭 / 只写打开
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  f:close()
+                  pr("C10", pc(f.read, f, "l"))
+                  pr("C11", pc(f.close, f))
+                end
+                do
+                  local f = io.open(P("_io_r2"), "w")
+                  pr("C12", pc(f.read, f, "l"))
+                  f:close()
+                  rm("_io_r2")
+                end
+                -- 缺省格式是 "l"
+                do
+                  local f = io.open(P("_io_r"), "r")
+                  pr("C13", string.format("%q", f:read()))
+                  f:close()
+                end
+                -- 空文件
+                do
+                  mk("_io_empty", "")
+                  local f = io.open(P("_io_empty"), "r")
+                  pr("C14", f:read("l"), f:read("a"), f:read("L"), f:read("n"), f:read(10))
+                  f:close()
+                  rm("_io_empty")
+                end
+                -- 没有最后的换行
+                do
+                  mk("_io_nonl", "abc")
+                  local f = io.open(P("_io_nonl"), "r")
+                  pr("C15", string.format("%q", f:read("l")), string.format("%q", f:read("L")))
+                  f:close()
+                  rm("_io_nonl")
+                end
+
+                -- 4) 写
+                do
+                  local f = io.open(P("_io_w2"), "w")
+                  pr("D1", s(f:write("a")), s(f:write("b", "c")), s(f:write(1)), s(f:write(2.5)))
+                  pr("D2", s(f:write()))
+                  pr("D3", pc(f.write, f, {}))
+                  pr("D4", pc(f.write, f, nil))
+                  pr("D5", pc(f.write, f, true))
+                  f:close()
+                  pr("D6", string.format("%q", slurp("_io_w2")))
+                  rm("_io_w2")
+                end
+                do
+                  -- 追加
+                  local f = io.open(P("_io_ap"), "w")
+                  f:write("x")
+                  f:close()
+                  local g = io.open(P("_io_ap"), "a")
+                  g:write("y")
+                  g:close()
+                  pr("D7", string.format("%q", slurp("_io_ap")))
+                  rm("_io_ap")
+                end
+                do
+                  mk("_io_rd", "x")
+                  local f = io.open(P("_io_rd"), "r")
+                  pr("D8", pc(f.write, f, "z"))
+                  f:close()
+                  rm("_io_rd")
+                end
+                -- 整数的写出形态（区分整数与浮点）
+                do
+                  local f = io.open(P("_io_num2"), "w")
+                  f:write(1, 1.0, -0.0, 1e15, 2^53, math.maxinteger, 0.1)
+                  f:close()
+                  pr("D9", string.format("%q", slurp("_io_num2")))
+                  rm("_io_num2")
+                end
+
+                -- 5) seek
+                do
+                  local f = io.open(P("_io_sk"), "w")
+                  f:write("0123456789")
+                  f:close()
+                  local g = io.open(P("_io_sk"), "r")
+                  pr("E1", g:seek("set", 3), string.format("%q", g:read(2)))
+                  pr("E2", g:seek("cur"), g:seek("cur", -2), string.format("%q", g:read(2)))
+                  pr("E3", g:seek("end"), g:seek("end", -3), string.format("%q", g:read(3)))
+                  pr("E4", g:seek("set"), string.format("%q", g:read(1)))
+                  pr("E5", g:seek())
+                  pr("E6", pc(g.seek, g, "nope"))
+                  pr("E7", pc(g.seek, g, "set", "x"))
+                  pr("E8", pc(g.seek, g, 5))
+                  pr("E9", g:seek("set", 1000), g:read(1), g:read("a"))
+                  pr("E10", pc(g.seek, g, "set", -1))
+                  g:close()
+                  pr("E11", pc(g.seek, g, "set", 0))
+                  rm("_io_sk")
+                end
+
+                -- 6) lines
+                do
+                  mk("_io_ln", "a\\nb\\nc")
+                  local out = {}
+                  for l in io.lines(P("_io_ln")) do out[#out + 1] = l end
+                  pr("F1", table.concat(out, ","))
+                  local out2 = {}
+                  for l in io.lines(P("_io_ln"), "L") do out2[#out2 + 1] = string.format("%q", l) end
+                  pr("F2", table.concat(out2, ","))
+                  local out3 = {}
+                  for a, b in io.lines(P("_io_ln"), "l", "l") do out3[#out3 + 1] = tostring(a) .. tostring(b) end
+                  pr("F3", table.concat(out3, ","))
+                  pr("F4", pc(function()
+                    for l in io.lines(P("_io_nope2")) do end
+                  end))
+                  -- 文件句柄的 lines
+                  local f = io.open(P("_io_ln"), "r")
+                  local out4 = {}
+                  for l in f:lines() do out4[#out4 + 1] = l end
+                  pr("F5", table.concat(out4, ","))
+                  f:close()
+                  pr("F6", pc(function()
+                    for l in f:lines() do end
+                  end))
+                  rm("_io_ln")
+                end
+
+                -- 7) flush / setvbuf / close
+                do
+                  local f = io.open(P("_io_fl"), "w")
+                  pr("G1", f:flush())
+                  pr("G2", pc(f.setvbuf, f, "no"))
+                  pr("G3", pc(f.setvbuf, f, "full", 1024))
+                  pr("G4", pc(f.setvbuf, f, "line"))
+                  pr("G5", pc(f.setvbuf, f, "nope"))
+                  pr("G6", pc(f.setvbuf, f, "full", "x"))
+                  pr("G7", pc(f.setvbuf, f))
+                  f:write("z")
+                  f:close()
+                  pr("G8", string.format("%q", slurp("_io_fl")))
+                  pr("G9", pc(f.close, f)) -- 关第二次是<b>抛错</b>，不是返回 nil+消息
+                  pr("G10", io.type(f))
+                  rm("_io_fl")
+                end
+                do
+                  local f = io.open(P("_io_cl"), "w")
+                  pr("G11", f:close(), io.type(f))
+                  pr("G12", pc(f.flush, f))
+                  pr("G13", pc(f.write, f, "x"))
+                  rm("_io_cl")
+                end
+                pr("G14", pc(io.close, 5))
+                pr("G15", pc(io.close))
+
+                -- 8) io.output / io.input
+                do
+                  local old = io.output()
+                  pr("H1", io.type(old))
+                  local f = io.open(P("_io_out"), "w")
+                  pr("H2", io.type(io.output(f)))
+                  pr("H3", s(io.write("123")), s(io.write(4)))
+                  io.output(old)
+                  pr("H4", string.format("%q", slurp("_io_out")))
+                  rm("_io_out")
+                end
+                do
+                  local f = io.open(P("_io_in"), "w")
+                  f:write("q")
+                  f:close()
+                  local old = io.input()
+                  local g = io.open(P("_io_in"), "r")
+                  pr("H5", io.type(io.input(g)))
+                  pr("H6", string.format("%q", io.read("a")))
+                  io.input(old)
+                  pr("H7", io.type(io.input()))
+                  rm("_io_in")
+                end
+                -- io.output(5) / io.input(5) 返回的是新句柄（带地址），只比「成了没有」与类型
+                pr("H8", select(1, pc(io.output, 5)), io.type(io.output()))
+                pr("H9", select(1, pc(io.input, 5)), io.type(io.input()))
+                -- 上面两句把默认输入／输出切到叫 "5" 的文件上了，用完还原并删掉它
+                io.output(io.stdout)
+                io.input(io.stdin)
+                os.remove("5")
+
+                -- 9) 句柄的元表 / tostring / 相等
+                do
+                  local f = io.open(P("_io_mt"), "w")
+                  local g = io.open(P("_io_mt2"), "w")
+                  pr("I1", f == g, f == f)
+                  pr("I2", tostring(f) == tostring(f))
+                  pr("I3", (tostring(f):sub(1, 6)))
+                  pr("I4", pc(function() return f .. "" end))
+                  pr("I5", pc(function() return #f end))
+                  pr("I6", pc(function() return f.x end))
+                  pr("I7", pc(function() f.x = 1 end))
+                  f:close()
+                  g:close()
+                  rm("_io_mt")
+                  rm("_io_mt2")
+                end
+
+                -- 10) 二进制安全：含 \\0 与非法 UTF-8
+                do
+                  local f = io.open(P("_io_bin"), "wb")
+                  f:write("a\\0b\\255\\254c")
+                  f:close()
+                  local g = io.open(P("_io_bin"), "rb")
+                  local c = g:read("a")
+                  pr("J1", #c, string.format("%q", c))
+                  g:close()
+                  rm("_io_bin")
+                end
+
+                rm("_io_r")
+                rm("_io_w")
+                pr("DONE")
+                """);
+    }
 }

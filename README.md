@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 820 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 821 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1568,6 +1568,35 @@ below it, or a failed `load` leaks two levels each time.
 from the platform `libc` (`dlopen(...)` on macOS, `cannot open shared object
 file...` on glibc), and this implementation does not load dynamic libraries at
 all — three different strings, so the sweep compares only that it is a string.
+
+#### The deep `io` sweep: `fseek` owes you `EINVAL`
+
+`io` was the thinnest of the ten standard libraries at 167 lines. This one adds
+**124 lines** of output: sixteen legal `open` modes and nine illegal ones (which
+*raise* rather than returning `nil` + message — `l_checkmode` wants `[rwa]%+?b?`),
+every `read` format, how `write` renders integers versus floats, all three
+`seek` origins and their out-of-range cases, `lines`, `setvbuf`, closing twice,
+`io.output` / `io.input` switching, and binary safety with `\0` and invalid UTF-8.
+
+It found one thing: **a negative target position is `EINVAL`, not a generic I/O
+error.**
+
+```
+reference: nil	Invalid argument	22        -- seek("set", -1)
+before:    nil	Input/output error	5
+```
+
+`fseek` gives `EINVAL` for a negative resulting offset from *all three* origins
+(`SET`, `CUR`, `END`), while Java's `RandomAccessFile.seek` throws *"Negative
+seek offset"*, which falls through `errnoOf`'s catch-all into `EIO`. Seeking
+**past** EOF is legal and returns the new position — easy to block by accident
+while fixing this.
+
+Two things are deliberately absent. `fopen` on a **directory** succeeds on both
+macOS and glibc but then behaves differently on read, and the JVM will not open a
+directory as a stream at all. And `print` writes to the C-level `stdout`, so it
+is *not* redirected by `io.output` — a script that assumes otherwise produces
+two different wrong answers.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 
