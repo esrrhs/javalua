@@ -256,14 +256,17 @@ public final class BaseLib {
             return 1;
         }
         // 带进制
+        /*
+         * 三道校验的<b>顺序</b>照抄 C：{@code luaL_checkinteger(2)} →
+         * {@code luaL_checktype(1, LUA_TSTRING)} → {@code luaL_argcheck(2 <= base <= 36)}。
+         * 范围检查在<b>最后</b>，所以 {@code tonumber(1, 1)} 报的是
+         * {@code bad argument #1 (string expected, got number)} 而不是
+         * {@code bad argument #2 (base out of range)} —— 曾经把范围检查放在
+         * 中间，那两条全反了。
+         */
         long base = checkInteger(L, 1);
-        if (base < 2 || base > 36) {
-            throw L.libError("bad argument #2 to 'tonumber' (base out of range)");
-        }
-        if (!v.isString()) {
-            throw L.libError("bad argument #1 to 'tonumber' (string expected, got "
-                    + v.typeName() + ")");
-        }
+        LuaAux.checkType(L, 1, Lua.TSTRING);
+        LuaAux.argCheck(L, base >= 2 && base <= 36, 2, "base out of range");
         Long parsed = parseBase(v.asString().bytes, (int) base);
         if (parsed == null) {
             L.pushNil();

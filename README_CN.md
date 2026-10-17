@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 814 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 815 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1354,6 +1354,43 @@ C 里 `lua_type` 对越界下标返回 `LUA_TNONE`、取值拿到的是 `nil`；
 
 （顺带：`__index` 链、`__eq` / `__lt` 的回退、`__metatable` 保护、元方法自身
 报错、把带 `__call` 的表当元方法用 —— 那些一行不差。）
+
+#### 可选参数矩阵：两处「校验顺序写反」
+
+上一片只试了「0 个 / 1 个实参」，这一片把第 2、第 3 个参数「给不给、给什么」
+也做全排列：七十来个函数，按 `{nil, 1, "x"}` 的所有组合从 0 个实参一直喂到
+各函数的形参上限，**1866 行**。咬出两条，都是同一个毛病 —— **多道校验的先后
+写反了**：
+
+**其一，`string.gsub`。**
+
+```c
+  int tr = lua_type(L, 3);                          /* 只记类型，不校验 */
+  lua_Integer max_s = luaL_optinteger(L, 4, srcl + 1);
+  int anchor = (*p == '^');
+  lua_Integer n = 0;
+  int changed = 0;
+  ...
+  luaL_argexpected(L, tr == LUA_TNUMBER || tr == LUA_TSTRING ||
+                   tr == LUA_TFUNCTION || tr == LUA_TTABLE, 3,
+                      "string/function/table");
+```
+
+第 4 个参数的校验在<b>前面</b>。于是 `gsub(s, p, nil, "x")` 报的是
+`bad argument #4 (number expected, got string)`，而我们因为先校验第 3 个参数，
+报成了 `bad argument #3 (string/function/table expected, got nil)`。
+
+**其二，`tonumber`。** 三道校验的顺序是
+`luaL_checkinteger(2)` → `luaL_checktype(1, LUA_TSTRING)` →
+`luaL_argcheck(2 <= base <= 36, 2, "base out of range")`，**范围检查在最后**：
+
+| | 参考实现 | 修之前 |
+| --- | --- | --- |
+| `tonumber(nil, 1)` | `bad argument #1 (string expected, got nil)` | `bad argument #2 (base out of range)` |
+| `tonumber(1, 1)` | `bad argument #1 (string expected, got number)` | `bad argument #2 (base out of range)` |
+
+三个函数不在这张表里：`os.time` / `os.date` 第一个参数为 `nil` 时读的是时钟，
+`math.randomseed(nil)` 拿时钟播种，`io.lines` 无参会去读 stdin。
 
 ### 还没补上的
 
