@@ -31,10 +31,12 @@ public final class LuaUserdata {
     public LuaTable metatable;
 
     public LuaUserdata(Object data) {
+        LuaState.chargeGc();
         this.data = data;
     }
 
     public LuaUserdata(Object data, LuaTable metatable) {
+        LuaState.chargeGc();
         this.data = data;
         this.metatable = metatable;
     }
@@ -94,7 +96,14 @@ public final class LuaUserdata {
             L.stack[func].set(tm);
             L.stack[func + 1].setObject(Lua.VUSERDATA, this);
             L.top = func + 2;
-            L.callNoYield(func, 0);
+            // 与 LuaTable 同：CIST_FIN 打在发起终结的那一帧上
+            boolean wasFin = L.ci.fin;
+            L.ci.fin = true;
+            try {
+                L.callNoYield(func, 0);
+            } finally {
+                L.ci.fin = wasFin;
+            }
         } catch (LuaError e) {
             // __gc 里的错误一律静默（实测参考实现如此）
         } finally {

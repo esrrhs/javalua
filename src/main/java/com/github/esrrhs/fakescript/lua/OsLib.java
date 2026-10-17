@@ -586,7 +586,7 @@ public final class OsLib {
         if (v == null) {
             L.pushNil();
         } else {
-            L.push(LuaValue.ofString(LuaString.of(v.getBytes(StandardCharsets.UTF_8))));
+            L.push(LuaValue.ofString(L.newString(v.getBytes(StandardCharsets.UTF_8))));
         }
         return 1;
     }
@@ -703,7 +703,7 @@ public final class OsLib {
                 dir = null; // 退回 java.io.tmpdir
             }
             File f = File.createTempFile("lua_", "", dir);
-            L.push(LuaValue.ofString(LuaString.of(
+            L.push(LuaValue.ofString(L.newString(
                     f.getAbsolutePath().getBytes(StandardCharsets.UTF_8))));
             return 1;
         } catch (IOException e) {

@@ -381,7 +381,7 @@ final class StringPack {
                 break;
             }
         }
-        L.push(LuaValue.ofString(LuaString.of(out.toByteArray())));
+        L.push(LuaValue.ofString(L.newString(out.toByteArray())));
         return 1;
     }
 
@@ -469,12 +469,12 @@ final class StringPack {
                         Double.longBitsToDouble(getLong(data, at, h.islittle, SZ_DOUBLE))));
                 break;
             case KCHAR:
-                L.push(LuaValue.ofString(LuaString.of(data, at, size[0])));
+                L.push(LuaValue.ofString(L.newString(data, at, size[0])));
                 break;
             case KSTRING: {
                 long len = unpackint(L, data, at, h.islittle, size[0], false);
                 LuaAux.argCheck(L, len <= ld - pos - size[0], 2, "data string too short");
-                L.push(LuaValue.ofString(LuaString.of(data, at + size[0], (int) len)));
+                L.push(LuaValue.ofString(L.newString(data, at + size[0], (int) len)));
                 pos += len;
                 break;
             }
@@ -484,7 +484,7 @@ final class StringPack {
                     len++;
                 }
                 LuaAux.argCheck(L, pos + len < ld, 2, "unfinished string for format 'z'");
-                L.push(LuaValue.ofString(LuaString.of(data, at, len)));
+                L.push(LuaValue.ofString(L.newString(data, at, len)));
                 pos += len + 1;
                 break;
             }

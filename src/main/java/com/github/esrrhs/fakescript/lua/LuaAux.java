@@ -217,9 +217,18 @@ public final class LuaAux {
     }
 
     /** {@code luaL_checkstack} */
+    /**
+     * {@code lauxlib.c: luaL_checkstack}。
+     * <p>
+     * 措辞是 {@code "stack overflow (%s)"}——括号里那段才是各个库自己的说明
+     * （{@code too many results to unpack}、{@code string slice too long} 等）。
+     * 之前这里只调 {@link LuaState#checkStack}，把 {@code msg} 丢了，
+     * 于是大参数 {@code table.unpack} 报的是裸的 {@code stack overflow}，
+     * 与参考实现逐字不符。
+     */
     public static void checkStack(LuaState L, int n, String msg) {
-        if (n > 0) {
-            L.checkStack(n);
+        if (n > 0 && !L.checkStackOk(n)) {
+            throw L.libError((msg != null) ? "stack overflow (" + msg + ")" : "stack overflow");
         }
     }
 

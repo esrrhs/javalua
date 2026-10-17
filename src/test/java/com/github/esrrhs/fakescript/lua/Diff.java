@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 /**
  * 运行期差分的公共驱动 —— 把「一段脚本跑两遍、比对输出」这件事收在一处。
@@ -79,6 +80,26 @@ final class Diff {
         assertEquals(r, normalize(mineRaw(src), false), "script:\n" + src);
     }
 
+    /**
+     * 断言一个<b>文件</b>在本实现与参考实现上的输出一致。
+     * <p>
+     * 与 {@link #assertFullMatches} 的差别是输入来自磁盘而不是字符串：上游自带的
+     * 测试套件是一堆 {@code .lua} 文件，而且它们互相 {@code require}
+     * （{@code bitwise.lua} 要 {@code require "bwcoercion"}，
+     * {@code cstack.lua} 要 {@code require "tracegc"}），只能按文件跑。
+     *
+     * @param dir  用例所在目录（同时是 {@code require} 的搜索起点与工作目录）
+     * @param name 文件名
+     */
+    static void assertFileMatches(File dir, String name) {
+        requireReference();
+        String r = normalize(refFileRaw(dir, name), false);
+        assertEquals(true, !r.isEmpty(),
+                "用例在参考实现上没有产生任何输出，等于没测。file: " + name);
+        assertEquals(r, normalize(mineFileRaw(dir, name), false),
+                "file: " + name + "\n见 target/rt/" + name + ".ref 与 .mine");
+    }
+
     /** 只比对第一行（回溯与后续内容不可比时用） */
     static void assertFirstLineMatches(String src) {
         requireReference();
@@ -137,6 +158,126 @@ final class Diff {
         return normalize(mineRaw(src), true);
     }
 
+    /** 在参考实现上跑一个文件：工作目录设为用例目录，参考实现才有 {@code ./?.lua} */
+    private static String refFileRaw(File dir, String name) {
+        String out = ReferenceLua.runFile(new File(dir, name).getAbsolutePath(), dir).output;
+        String bin = ReferenceLua.find();
+        if (bin != null) {
+            out = out.replace(new File(bin).getAbsolutePath() + ": ", "");
+        }
+        return out;
+    }
+
+    /**
+     * 只在本实现上跑一个文件，返回<b>原始</b>输出——<b>不碰参考实现</b>。
+     * <p>
+     * 给「输出不该逐字节比、但要保证能跑完」的那批用例用。它们要么打印随实现
+     * 而变的数字（{@code cstack.lua} 的 {@code final count}），要么依赖本实现
+     * 没有的设施（{@code gc.lua} 的增量收集器参数）。放进严格比对表会永远红，
+     * 完全不跑又会漏掉「栈上限被改坏导致死循环／OOM」这类回归——
+     * 而这类回归<b>真的发生过</b>：{@code cstack.lua} 一度把
+     * surefire 的 forked JVM 撑到 {@code Java heap space}，
+     * {@code db.lua} 一度死循环等一个永远不跑的 {@code __gc}。
+     */
+    static String mineFileOnly(File dir, String name) {
+        return mineFileRaw(dir, name);
+    }
+
+    /** 在本实现上跑一个文件，返回<b>原始</b>输出 */
+    private static String mineFileRaw(File dir, String name) {
+        File f = new File(dir, name);
+        byte[] bytes;
+        try {
+            bytes = Files.readAllBytes(f.toPath());
+        } catch (java.io.IOException e) {
+            throw new AssertionError("读不到用例文件：" + f, e);
+        }
+        LuaState L = new LuaState();
+        LuaLibs.openAll(L);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
+        L.out = ps;
+        L.err = ps;
+        LuaValue err;
+        try {
+            err = runFileLikeLuaC(L, dir, f.getAbsolutePath(), bytes);
+        } catch (LuaError e) {
+            return messageOf(e) + "\n";
+        }
+        L.close();
+        String stdout = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        return (err == null) ? stdout : stdout + messageOf(err) + "\n";
+    }
+
+    /**
+     * 照 {@code lua.c} 的形状驱动一个文件。
+     * <p>
+     * 比 {@link #runLikeLuaC} 多一步：把用例目录前置到 {@code package.path}。
+     * 参考实现靠的是「进程工作目录就是用例目录」—— {@code LUA_PATH_DEFAULT} 里的
+     * {@code ./?.lua} 因此能找到 {@code bwcoercion}、{@code tracegc} 这些被
+     * {@code require} 的同伴文件。JVM 的工作目录改不了（它是整个 Maven 进程共享
+     * 的），所以只能在 {@code package.path} 上补一条绝对路径——输出不受影响，
+     * 这批用例里没有一个打印 {@code package.path}。
+     */
+    private static LuaValue runFileLikeLuaC(LuaState L, File dir, String absPath, byte[] bytes) {
+        LuaValue pkg = L.getGlobals().get(LuaString.latin1("package"));
+        if (pkg != null && pkg.tt == Lua.TTABLE) {
+            LuaTable t = pkg.asTable();
+            LuaValue p = t.get(LuaString.latin1("path"));
+            if (p != null && p.isString()) {
+                t.set("path", LuaValue.ofString(LuaString.utf8(
+                        dir.getAbsolutePath() + "/?.lua;" + p.asString().toJavaString())));
+            }
+        }
+        int base = L.top;
+        L.push(LuaValue.ofFunction(Diff::pmainFile));
+        L.push(LuaValue.ofString(LuaString.of(bytes)));
+        L.push(LuaValue.ofString(LuaString.utf8("@" + absPath)));
+        return L.pcall(base, 0);
+    }
+
+    /**
+     * {@code lua.c: pmain} 跑文件的形态：chunk 名是 {@code @} 加路径。
+     * <p>
+     * 消息处理函数是<b>压在栈上</b>再交给 {@code lua_pcall} 的，形状照
+     * {@code lua.c: docall}：
+     * <pre>
+     * int base = lua_gettop(L) - narg;      // 函数所在的下标
+     * lua_pushcfunction(L, msghandler);     // 压在 chunk 之上
+     * lua_insert(L, base);                  // 再插到 chunk <b>下面</b>
+     * lua_pcall(L, narg, nres, base);
+     * </pre>
+     * 这一步不只是「多占一格」：栈上因此多了一个槽，递归深度就少一层。上游
+     * {@code errors.lua} 打印的「expected stack overflow after N calls」是
+     * 照着参考实现那个数字断言的，少这一格就会多报一层。
+     */
+    private static int pmainFile(LuaState L) {
+        byte[] bytes = L.arg1(1).asString().bytes;
+        String chunk = L.arg1(2).asString().toJavaString();
+        int base = L.top;
+        L.pushClosure(L.load(bytes, chunk));
+        int func = pushMsgHandler(L, base);
+        LuaValue err = L.pcall(func, 0, L.stack[base]);
+        if (err != null) {
+            throw new LuaError(err, "");
+        }
+        return 0;
+    }
+
+    /**
+     * {@code lua.c: docall} 那两行：把 {@code msghandler} 压到栈顶，再插到
+     * {@code base} 处（chunk <b>下面</b>）。
+     *
+     * @return 插完之后 chunk 所在的下标
+     */
+    private static int pushMsgHandler(LuaState L, int base) {
+        L.push(LuaValue.ofFunction(Diff::msghandler));
+        LuaValue tmp = new LuaValue(L.stack[base]);
+        L.stack[base].set(L.stack[base + 1]);
+        L.stack[base + 1].set(tmp);
+        return base + 1;
+    }
+
     /**
      * 照 {@code lua.c} 的形状驱动：{@code main} 里 {@code lua_pcall(pmain)}，
      * 脚本是 {@code pmain} 这个函数<b>里面</b>加载并调用的。
@@ -164,7 +305,8 @@ final class Diff {
         // lua.c: docall —— 未捕获的错误会经过 msghandler，回溯就是它加的
         int base = L.top;
         L.pushClosure(L.load(bytes, CHUNK));
-        LuaValue err = L.pcall(base, 0, LuaValue.ofFunction(Diff::msghandler));
+        int func = pushMsgHandler(L, base);
+        LuaValue err = L.pcall(func, 0, L.stack[base]);
         if (err != null) {
             throw new LuaError(err, "");
         }

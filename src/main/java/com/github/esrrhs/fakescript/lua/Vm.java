@@ -279,7 +279,25 @@ public final class Vm {
                         c += OpCode.getArgAx(code[pc]) * (OpCode.MAXARG_C + 1);
                     }
                     pc++;
+                    /*
+                     * {@code L->top = ra + 1} —— C 版那句「correct top in case
+                     * of emergency GC」。<b>不能省</b>：{@code OP_CALL} 收尾时
+                     * 会把 {@code top} 拉回 {@code ra}（{@code moveresults} 的
+                     * {@code case 0}），此后 {@code top} 就落在还活着的寄存器
+                     * 底下；而 {@code top} 之上的槽在 Lua 里<b>对 GC 不可见</b>
+                     * （{@code traversethread} 只 mark {@code [stack, top)}）。
+                     * 少了这一句，下面那个收集点就会把活着的局部量当成死区
+                     * （实测：{@code local m} 被清成 nil）。
+                     */
+                    L.top = ra + 1;
                     L.stack[ra].setTable(new LuaTable(c, b));
+                    /*
+                     * {@code checkGC(L, ra+1)}：C 版主循环里仅有的两个收集点
+                     * 之一（另一个在 {@code OP_CLOSURE}）。
+                     */
+                    if (L.gcDue()) {
+                        L.maybeCollect(L);
+                    }
                     break;
                 }
                 case OpCode.OP_SETLIST: {
@@ -946,8 +964,20 @@ public final class Vm {
                 /* ---------------- 闭包与可变参数 ---------------- */
 
                 case OpCode.OP_CLOSURE: {
-                    pushClosure(L, cl.p.p[OpCode.getArgBx(i)], cl.upvals,
-                            base, base + OpCode.getArgA(i));
+                    int ra = base + OpCode.getArgA(i);
+                    pushClosure(L, cl.p.p[OpCode.getArgBx(i)], cl.upvals, base, ra);
+                    /*
+                     * {@code checkGC(L, ra+1)}。这里 C 版没有那句
+                     * {@code L->top = ra+1}（{@code OP_NEWTABLE} 有），但收集
+                     * 要在栈上跑 {@code __gc}，{@code top} 得先落在活寄存器
+                     * 之上——照 {@code OP_NEWTABLE} 的做法抬一下。
+                     */
+                    if (L.gcDue()) {
+                        int savedTop = L.top;
+                        L.top = Math.max(savedTop, ra + 1);
+                        L.maybeCollect(L);
+                        L.top = savedTop;
+                    }
                     break;
                 }
                 case OpCode.OP_VARARG: {
@@ -1570,7 +1600,7 @@ public final class Vm {
                 }
                 byte[] buff = new byte[(int) tl];
                 copyToBuff(L, t, n, buff);
-                L.stack[t - n].setString(LuaString.of(buff));
+                L.stack[t - n].setString(L.newString(buff));
             }
             total -= n - 1;
             L.top -= n - 1;

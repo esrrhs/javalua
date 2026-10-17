@@ -24,6 +24,17 @@ public class LuaError extends RuntimeException {
     /** 是否可加回溯（对应 {@code luaL_traceback}）。{@code error(msg, 0)} 时不加 */
     public boolean addTraceback = true;
 
+    /**
+     * {@code LUA_ERRERR}：错误处理过程本身又出错了。
+     * <p>
+     * {@code ldo.c: luaD_seterrorobj} 对这一档不取栈顶那个错误值，而是固定写
+     * {@code "error in error handling"}。看起来像句废话，但它是<b>可观测</b>的：
+     * 上游 {@code cstack.lua} 第一个用例就是 {@code xpcall(loop, loop)}——
+     * 消息处理函数自己也在无限递归，最终断言 {@code msg == "error in error
+     * handling"}。带位置前缀就会被 {@code ==} 判否。
+     */
+    public boolean errErr;
+
     public LuaError(LuaValue value) {
         super(value == null ? "nil" : value.toString(), null, false, false);
         this.value = value;

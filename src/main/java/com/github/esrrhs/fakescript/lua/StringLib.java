@@ -147,7 +147,7 @@ public final class StringLib {
         for (int i = 0; i < b.length; i++) {
             out[i] = b[b.length - i - 1];
         }
-        L.push(LuaValue.ofString(LuaString.of(out)));
+        L.push(LuaValue.ofString(L.newString(out)));
         return 1;
     }
 
@@ -159,7 +159,7 @@ public final class StringLib {
             int c = s.byteAt(i);
             out[i] = (byte) ((c >= 'A' && c <= 'Z') ? c + 32 : c);
         }
-        L.push(LuaValue.ofString(LuaString.of(out)));
+        L.push(LuaValue.ofString(L.newString(out)));
         return 1;
     }
 
@@ -170,7 +170,7 @@ public final class StringLib {
             int c = s.byteAt(i);
             out[i] = (byte) ((c >= 'a' && c <= 'z') ? c - 32 : c);
         }
-        L.push(LuaValue.ofString(LuaString.of(out)));
+        L.push(LuaValue.ofString(L.newString(out)));
         return 1;
     }
 
@@ -206,7 +206,7 @@ public final class StringLib {
             }
         }
         System.arraycopy(s.bytes, 0, out, p, l);
-        L.push(LuaValue.ofString(LuaString.of(out)));
+        L.push(LuaValue.ofString(L.newString(out)));
         return 1;
     }
 
@@ -248,7 +248,7 @@ public final class StringLib {
             }
             out[i] = (byte) c;
         }
-        L.push(LuaValue.ofString(LuaString.of(out)));
+        L.push(LuaValue.ofString(L.newString(out)));
         return 1;
     }
 
@@ -279,7 +279,7 @@ public final class StringLib {
         L.setTop(1);
         LClosure cl = (LClosure) v.o;
         byte[] bytes = Dump.dumpBytes(cl.p, strip);
-        L.push(LuaValue.ofString(LuaString.of(bytes)));
+        L.push(LuaValue.ofString(L.newString(bytes)));
         return 1;
     }
 
@@ -734,7 +734,7 @@ public final class StringLib {
         int l = getOneCapture(ms, i, s, e, cap);
         if (l != CAP_POSITION) {
             LuaString out = (l <= 0 || cap[0] < 0) ? LuaString.EMPTY
-                    : LuaString.of(ms.src, cap[0], l);
+                    : ms.L.newString(ms.src, cap[0], l);
             ms.L.push(LuaValue.ofString(out));
         }
     }
@@ -926,7 +926,7 @@ public final class StringLib {
             int fIdx = L.top;
             L.push(L.arg1(3));
             int n = pushCaptures(ms, s, e);
-            L.call(fIdx, 1);
+            L.callNoYield(fIdx, 1); /* lstrlib.c: lua_call —— 不可 yield */
             break;
         }
         case TR_TABLE: {
@@ -1133,12 +1133,26 @@ public final class StringLib {
                 checkFormat(L, form, form.substring(1), "-", false);
                 LuaValue v = L.arg1(arg);
                 /*
+                 * {@code lua_topointer} 只对「可回收对象」有地址，数字、布尔、
+                 * nil 一律返回 {@code NULL}。C 版拿到 NULL 就把转换符改成
+                 * {@code %s}、拿 {@code "(null)"} 当字符串格式化——所以
+                 * {@code string.format("%p", 4)} 是 {@code "(null)"}，
+                 * 不是 {@code 0x0}（上游 {@code strings.lua} 有这一条）。
+                 */
+                if (v.isNil() || v.isBoolean() || v.isNumber()) {
+                    String digits = "(null)";
+                    if (sp.hasPrec) {
+                        digits = digits.substring(0, Math.min(sp.prec, digits.length()));
+                    }
+                    out.addAscii(assemble(sp, "", "", digits, false));
+                    break;
+                }
+                /*
                  * 与参考实现必然不同：C 打印的是真实地址，我们只有 Java 的
                  * identity hash。硬编一个假地址不如如实给一个稳定的数——
                  * 至少同一个值在同一次运行里得到同一个串。
                  */
-                String hex = "0x"
-                        + Long.toHexString(System.identityHashCode(v.isNil() ? null : v.o));
+                String hex = "0x" + Long.toHexString(System.identityHashCode(v.o));
                 out.addAscii(assemble(sp, "", "", hex, false));
                 break;
             }

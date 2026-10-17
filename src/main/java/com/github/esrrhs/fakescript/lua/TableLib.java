@@ -93,7 +93,7 @@ public final class TableLib {
         L.stack[f].set(tm);
         L.stack[f + 1].set(v);
         L.top = f + 2;
-        L.call(f, 1);
+        L.callTmMightYield(f, 1);
         LuaValue r = L.stack[L.top - 1];
         Long i = Vm.toInteger(r, Arith.F2I_EQ);
         L.top = f;
@@ -257,11 +257,17 @@ public final class TableLib {
             return 0; // 空区间
         }
         long n = e - i; // 元素个数减一
-        if (n >= Integer.MAX_VALUE - 1) {
+        int count = (int) n + 1;
+        /*
+         * 这里走的是 {@code lua_checkstack} + {@code luaL_error}，而不是
+         * {@code luaL_checkstack}：后者会拼成
+         * {@code "stack overflow (too many results to unpack)"}，而参考实现
+         * {@code ltablib.c: tunpack} 给的是不带前缀的那句。
+         * {@code count} 撑不下时两条路同归一处，所以合起来判。
+         */
+        if (n >= Integer.MAX_VALUE - 1 || !L.checkStackOk(count)) {
             throw L.libError("too many results to unpack");
         }
-        int count = (int) n + 1;
-        LuaAux.checkStack(L, count, "too many results to unpack");
         LuaValue t = L.arg1(1);
         for (long k = i; k < e; k++) {
             L.push(getI(L, t, k));
@@ -294,7 +300,14 @@ public final class TableLib {
         L.push(L.arg1(2));
         L.push(a);
         L.push(b);
-        L.call(f, 1);
+        /*
+         * {@code sort_comp} 用的是 {@code lua_call}（= 不可 yield）：
+         * 实测 {@code pcall(table.sort, {1,2,3}, coroutine.yield)} 在参考实现里
+         * 得到 {@code false, "attempt to yield across a C-call boundary"}，
+         * 也就是「根本没 yield 出去」。用可 yield 的 {@code call} 会真的挂起，
+         * 恢复时 {@code table.sort} 那一帧没有续体，直接 NPE。
+         */
+        L.callNoYield(f, 1);
         boolean r = L.stack[L.top - 1].toBoolean();
         L.top--;
         return r;

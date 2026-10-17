@@ -253,10 +253,12 @@ public final class LuaTable {
     }
 
     public LuaTable() {
+        LuaState.chargeGc();
     }
 
     /** 预分配两段。仅供需要预置大小的场合（如构造 registry） */
     public LuaTable(int arraySize, int hashSize) {
+        LuaState.chargeGc();
         if (arraySize > 0) {
             setArrayVector(arraySize);
         }
@@ -1116,7 +1118,18 @@ public final class LuaTable {
              * 「attempt to yield across a C-call boundary」，用 L.call 就会让它
              * 「成功」，反而与参考实现不一致。
              */
-            L.callNoYield(func, 0);
+            /*
+             * CIST_FIN 打在<b>当前</b>帧上（{@code lgc.c: GCTM} 的做法），
+             * 不是终结器那帧。终结器里 {@code debug.getinfo(1)} 问的是
+             * {@code ci->previous}——正是这里被标记的这一帧。
+             */
+            boolean wasFin = L.ci.fin;
+            L.ci.fin = true;
+            try {
+                L.callNoYield(func, 0);
+            } finally {
+                L.ci.fin = wasFin;
+            }
         } catch (LuaError e) {
             // 静默
         } catch (LuaYield y) {

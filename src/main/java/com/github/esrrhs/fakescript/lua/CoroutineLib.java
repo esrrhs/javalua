@@ -64,10 +64,27 @@ public final class CoroutineLib {
      * @return 结果个数；{@code -1} 表示出错（错误对象已压在 {@code L} 上）
      */
     private static int auxresume(LuaState L, LuaState co, int narg) {
+        /*
+         * 两处 {@code lua_checkstack} 都不许抛：失败要报的是
+         * {@code too many arguments to resume} / {@code too many results to
+         * resume}，不是 {@code stack overflow}。差在这两句上，上游
+         * {@code coroutine.lua} 末尾 {@code table.unpack({}, 1, lim)} 那一组
+         * 用例就过不去——参考实现给的是「结果太多搬不回来」，
+         * 而不是「协程自己栈溢出了」。
+         */
+        if (!co.checkStackOk(narg)) {
+            L.push(LuaValue.ofString(LuaString.latin1("too many arguments to resume")));
+            return -1;
+        }
         LuaState.xmove(L, co, narg);
         int[] nres = new int[1];
-        int status = co.resume(narg, nres);
+        int status = co.resume(L, narg, nres);
         if (status == LuaState.LUA_OK || status == LuaState.LUA_YIELD) {
+            if (!L.checkStackOk(nres[0] + 1)) {
+                co.pop(nres[0]); // lua_pop(co, nres)：结果照样从协程上摘掉
+                L.push(LuaValue.ofString(LuaString.latin1("too many results to resume")));
+                return -1;
+            }
             LuaState.xmove(co, L, nres[0]);
             return nres[0];
         }
@@ -112,11 +129,20 @@ public final class CoroutineLib {
             int stat = co.getStatus();
             if (stat != LuaState.LUA_OK && stat != LuaState.LUA_YIELD) {
                 /*
-                 * auxresume 已经把错误对象搬到 L 上了。这里只有「关 tbc 变量时
-                 * 又出了新错误」才再搬一次——否则会把栈上的陈值当成错误消息，
-                 * 表现是 wrap 出来的函数报错时丢掉全部内容，只剩个裸串。
+                 * {@code lua_closethread(co, L)} + {@code lua_xmove(co, L, 1)}。
+                 * <p>
+                 * 注意 {@code xmove} 是往 {@code L} <b>压</b>一个值，不是覆盖：
+                 * {@code auxresume} 搬过来的那个还在下面，真正被当作错误对象的
+                 * 是这次新压上来的栈顶。
+                 * <p>
+                 * 而 {@code luaE_resetthread} 要交出的是
+                 * {@code luaD_seterrorobj(L, status, L->stack + 1)} 的结果，
+                 * 源头是「搬走一格之后的栈顶」——所以 {@code luaB_error} 必须照
+                 * C 版写（先 {@code settop(1)} 再 {@code where}+{@code concat}），
+                 * 那一格才正好是带位置的错误对象。
                  */
-                if (co.closeThreadValue() != null) {
+                LuaValue prev = new LuaValue(L.stack[L.top - 1]); // auxresume 刚搬上来的错误对象
+                if (co.closeThreadValue(L, prev) != null) {
                     LuaState.xmove(co, L, 1);
                 }
             }
@@ -127,8 +153,15 @@ public final class CoroutineLib {
                 err = LuaValue.ofString(
                         LuaString.latin1(prefix + err.asString().toJavaString()));
                 L.stack[L.top - 1].set(err);
+                /*
+                 * {@code where} 非 null = 「位置已经加过了」。这里哪怕
+                 * {@code prefix} 是空串也要传非 null——{@code pcall} 见到
+                 * {@code null} 会再补一次位置，报出
+                 * {@code file:3: file:2: boom} 这种叠前缀。
+                 */
+                throw new LuaError(err, prefix);
             }
-            throw new LuaError(err, null);
+            throw new LuaError(err, "");
         }
         return r;
     }
@@ -227,7 +260,7 @@ public final class CoroutineLib {
         switch (status) {
         case COS_DEAD:
         case COS_YIELD: {
-            LuaValue err = co.closeThreadValue();
+            LuaValue err = co.closeThreadValue(L);
             if (err == null) {
                 L.push(LuaValue.ofBoolean(true));
                 return 1;

@@ -210,11 +210,27 @@ public final class Lexer {
     }
 
     public Lexer(Zio z, byte[] chunkName, StringPool strings) {
+        this(z, chunkName, strings, z.getc());
+    }
+
+    /**
+     * {@code firstChar} 是<b>已经从流里读出来</b>的那个首字节。
+     * <p>
+     * 对应 {@code ldo.c: f_parser}：{@code int c = zgetc(z)} 读完首字节后
+     * 直接把它交给 {@code luaY_parser(..., c)}，词法器是<b>带着它起步</b>的。
+     * 少了这一手，首字节就要再读一遍——对惰性读函数来说就是<b>多调一次</b>。
+     * 实测 {@code load(function () return table.remove(t, 1) end)}
+     * （{@code t = {nil, "return ", "3"}}）：首读返回 nil 即结束，参考实现
+     * 只调读函数一次并编出空 chunk；再读一次就会接着吃掉 {@code "return "}
+     * 和 {@code "3"}，编出 {@code return 3}——上游 {@code calls.lua} 断言
+     * 的是前者（{@code f() == nil}）。
+     */
+    public Lexer(Zio z, byte[] chunkName, StringPool strings, int firstChar) {
         this.z = z;
         this.strings = strings;
         this.sourceBytes = (chunkName == null) ? new byte[] { '?' } : chunkName;
         this.source = new String(sourceBytes, StandardCharsets.UTF_8);
-        this.current = z.getc(); // firstchar
+        this.current = firstChar; // firstchar
     }
 
     /* ---------- 字符与缓冲区 ---------- */
@@ -349,10 +365,38 @@ public final class Lexer {
         return t.token;
     }
 
-    /** {@code luaX_newstring} */
+    /**
+     * {@code luaX_newstring}。
+     * <p>
+     * 除了驻留短串，这里还多一步：<b>长串也要去重</b>。C 版把 {@code ls->h}
+     * 当集合用（键是串本身），命中就返回<b>表里存的那一副本</b>；注释写得很明白
+     * ——{@code "It also internalizes long strings, ensuring there is only one
+     * copy of each unique string"}。
+     * <p>
+     * 少了这一步，同一个 50 字符串字面量在主 chunk 与内层函数里会是两个对象，
+     * 于是 {@code string.format("%p", s)} 给出不同地址。上游
+     * {@code literals.lua}「reuse of long strings」整段都在断言这个；而那段里
+     * {@code sd = "..." .. "..."} 又要<b>不等于</b>字面量——运行时拼接不进这张表，
+     * 所以新对象，正好对上。
+     */
     public LuaString newString(byte[] buf, int off, int len) {
-        return strings.intern(LuaString.of(buf, off, len));
+        LuaString s = strings.intern(LuaString.of(buf, off, len));
+        if (s.isShort()) {
+            return s; // 短串已由驻留池全局唯一
+        }
+        LuaString saved = savedStrings.get(s);
+        if (saved != null) {
+            return saved;
+        }
+        savedStrings.put(s, s);
+        return s;
     }
+
+    /**
+     * {@code ls->h} 当集合用的那一半：内容 → 首次出现的那个实例。
+     * 只活到编译结束（C 版也是「锚住到编译完」），所以强引用即可。
+     */
+    private final Map<LuaString, LuaString> savedStrings = new HashMap<>();
 
     /* ---------- 常量缓存（lcode.c: addk 用的 ls->h） ---------- */
 

@@ -102,6 +102,17 @@ public final class IoLib {
             L.registry.set(key, v);
         }
         io.set(fname, v);
+        /*
+         * {@code liolib.c: createstdfile} 最后那句
+         * {@code lua_setfield(L, -2, fname)} 是<b>弹栈</b>的。
+         * <p>
+         * 少了这一步，开库之后主线程栈上就永久压着三个 FILE*（stdin/stdout/
+         * stderr）——栈顶凭空高 3 格。这不只是「多占三格」：{@code top} 之上的
+         * 槽对脚本是看不见的，但递归深度是按 {@code top} 算的，于是同样的
+         * {@code LUAI_MAXSTACK} 少递归三层。上游 {@code errors.lua} 打印的
+         * 「expected stack overflow after N calls」正是对着这个数断言的。
+         */
+        L.pop(1);
     }
 
     /* ==================== 文件句柄 ==================== */
@@ -788,7 +799,7 @@ public final class IoLib {
             bos.write('\n');
         }
         byte[] b = bos.toByteArray();
-        L.push(LuaValue.ofString(LuaString.of(b, 0, b.length)));
+        L.push(LuaValue.ofString(L.newString(b, 0, b.length)));
         return (c == '\n') || b.length > 0;
     }
 
@@ -804,14 +815,14 @@ public final class IoLib {
             bos.write(buf, 0, n);
         }
         byte[] b = bos.toByteArray();
-        L.push(LuaValue.ofString(LuaString.of(b, 0, b.length)));
+        L.push(LuaValue.ofString(L.newString(b, 0, b.length)));
     }
 
     /** {@code read_chars} */
     private static boolean readChars(LuaState L, LuaFile f, long n) {
         byte[] buf = new byte[(int) n];
         int nr = f.read(buf, 0, buf.length);
-        L.push(LuaValue.ofString(LuaString.of(buf, 0, Math.max(nr, 0))));
+        L.push(LuaValue.ofString(L.newString(buf, 0, Math.max(nr, 0))));
         return nr > 0;
     }
 

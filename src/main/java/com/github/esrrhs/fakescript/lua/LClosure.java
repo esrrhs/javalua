@@ -28,6 +28,7 @@ public final class LClosure {
      * {@code p.sizeupvalues} 是否相等无关。
      */
     public LClosure(Proto p, int nupvals) {
+        LuaState.chargeGc();
         this.p = p;
         this.upvals = new UpVal[Math.max(nupvals, p.sizeupvalues)];
     }
