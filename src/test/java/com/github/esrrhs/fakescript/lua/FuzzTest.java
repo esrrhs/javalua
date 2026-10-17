@@ -33,11 +33,18 @@ import org.junit.jupiter.api.Test;
  */
 class FuzzTest {
 
-    /** 种子数量。每个种子生成一整段程序，跑两边比对 */
-    private static final int SEEDS = 1500;
+    /**
+     * 种子数量。每个种子生成一整段程序，跑两边比对。
+     * <p>
+     * 默认值是「CI 跑得完」的量。本地要长跑就用
+     * {@code ./mvnw test -Dtest=FuzzTest -Dfuzz.seeds=20000 -Dfuzz.coSeeds=5000}
+     * 把它调大——生成器是确定性的（种子递增，不用 {@code Math.random}），
+     * 所以多跑只会多覆盖，不会让已有用例变得不稳。
+     */
+    private static final int SEEDS = Integer.getInteger("fuzz.seeds", 1500);
 
     /** 协程模式的种子数 */
-    private static final int CO_SEEDS = 600;
+    private static final int CO_SEEDS = Integer.getInteger("fuzz.coSeeds", 600);
 
     /** 协程模式的种子偏移：与常规模式的种子错开，落盘文件名不会撞车 */
     private static final int CO_SEED_BASE = 100000;
@@ -306,7 +313,9 @@ class FuzzTest {
         }
 
         private String simpleStatement() {
-            switch (pick(8)) {
+            switch (pick(9)) {
+            case 8: // 带元方法的表
+                return metaTable();
             case 0: { // 局部声明（可能多重）
                 int n = 1 + pick(3);
                 StringBuilder sb = new StringBuilder("local ");
@@ -412,9 +421,11 @@ class FuzzTest {
             if (d > 2) {
                 return atom();
             }
-            switch (pick(8)) {
+            switch (pick(9)) {
             case 0:
                 return atom();
+            case 8: // 标准库调用
+                return libCall(d);
             case 1: { // 二元算术
                 if (chance(15)) {
                     return atom(); // 偶尔退化，免得表达式过长
@@ -444,6 +455,113 @@ class FuzzTest {
         private String comparison() {
             String[] ops = { "<", "<=", ">", ">=", "==", "~=" };
             return "(" + atom() + " " + ops[pick(ops.length)] + " " + atom() + ")";
+        }
+
+        /* ==================== 标准库 ==================== */
+
+        /*
+         * 生成器原本只碰语言本身（闭包 / upvalue / 变长参数 / 多重赋值），
+         * 而阶段 10 从上游用例里挖出来的缺陷——tunpack 的溢出判断、tmove 的
+         * 越界判据、tonumber 的 \0、luaG_tointerror 的 varinfo——全在<b>库</b>
+         * 里。语言本身已经很干净了，继续只生成语言构造等于在同一块地里反复锄。
+         * 所以这里让表达式也能长出库调用，参数照样是随机的：类型不对、下标越界、
+         * 进制越界这些分支会被大量组合踩到。
+         */
+
+        /** 不放在字符串里的格式串，避免转义把生成结果弄成语法错误 */
+        private static final String[] FORMATS = {
+                "%d", "%s", "%x", "%o", "%c", "%5d", "%-5d", "%05d", "%+d",
+                "%.3f", "%e", "%g", "%q", "%%", "%d%%",
+        };
+
+        private static final String[] PATTERNS = {
+                "%a+", "%d+", "%s*", "[abc]", "[^abc]", "(%a)", "(%d)(%d)",
+                "^a", "a$", ".", "%.", "%w*", "[a-c]+",
+        };
+
+        private static final String[] REPLS = {
+                "x", "%0", "%1", "%1%1", "", "-",
+        };
+
+        private static final String[] MATH1 = {
+                "floor", "ceil", "abs", "type", "tointeger", "sqrt",
+        };
+
+        private String libCall(int d) {
+            switch (pick(14)) {
+            case 0:
+                return "string.len(" + atom() + ")";
+            case 1:
+                return "string.sub(" + atom() + ", " + (pick(7) - 3)
+                        + (chance(50) ? ", " + (pick(7) - 3) : "") + ")";
+            case 2:
+                return "string.rep(" + atom() + ", " + pick(3) + ")";
+            case 3:
+                return "string.byte(" + atom() + (chance(50) ? ", " + (1 + pick(4)) : "") + ")";
+            case 4:
+                return "string.char(" + (48 + pick(30)) + (chance(40) ? ", " + (48 + pick(30)) : "")
+                        + ")";
+            case 5:
+                return "string.format('" + FORMATS[pick(FORMATS.length)] + "', " + atom() + ")";
+            case 6:
+                return "string.upper(" + atom() + ")";
+            case 7:
+                return "string.lower(" + atom() + ")";
+            case 8:
+                return "string.reverse(" + atom() + ")";
+            case 9:
+                return "string.find(" + atom() + ", '" + PATTERNS[pick(PATTERNS.length)] + "'"
+                        + (chance(40) ? ", " + (1 + pick(4)) : "") + ")";
+            case 10:
+                return "string.match(" + atom() + ", '" + PATTERNS[pick(PATTERNS.length)] + "')";
+            case 11:
+                return "string.gsub(" + atom() + ", '" + PATTERNS[pick(PATTERNS.length)] + "', '"
+                        + REPLS[pick(REPLS.length)] + "'" + (chance(40) ? ", " + pick(3) : "") + ")";
+            case 12:
+                return "math." + MATH1[pick(MATH1.length)] + "(" + atom() + ")";
+            default:
+                return "tonumber(" + atom() + (chance(45) ? ", " + (2 + pick(35)) : "") + ")";
+            }
+        }
+
+        /** 挂一两个元方法的新表：元方法派发与 luaV_finishOp 的组合全靠这里踩 */
+        private String metaTable() {
+            String t = "m" + (tmpCounter++);
+            StringBuilder mm = new StringBuilder();
+            int n = 1 + pick(2);
+            for (int i = 0; i < n; i++) {
+                if (i > 0) {
+                    mm.append(", ");
+                }
+                switch (pick(8)) {
+                case 0:
+                    mm.append("__add = function(a, b) return 7 end");
+                    break;
+                case 1:
+                    mm.append("__concat = function(a, b) return 'C' end");
+                    break;
+                case 2:
+                    mm.append("__len = function() return 3 end");
+                    break;
+                case 3:
+                    mm.append("__index = function(t, k) return tostring(k) .. '!' end");
+                    break;
+                case 4:
+                    mm.append("__call = function(s, x) return x end");
+                    break;
+                case 5:
+                    mm.append("__lt = function(a, b) return true end");
+                    break;
+                case 6:
+                    mm.append("__unm = function(a) return -1 end");
+                    break;
+                default:
+                    mm.append("__tostring = function() return 'T' end");
+                    break;
+                }
+            }
+            vars.add(t);
+            return "local " + t + " = setmetatable({}, {" + mm + "})";
         }
 
         private String keyExpr() {
@@ -487,7 +605,15 @@ class FuzzTest {
         }
 
         private String atom() {
-            switch (pick(9)) {
+            switch (pick(12)) {
+            case 9: // 无穷：tonumber / string.format('%d') / 位运算都会在这里翻车
+                return pick(2) == 0 ? "(1/0)" : "(-1/0)";
+            case 10: { // 数字形状的字符串：tonumber 与算术的隐式转换
+                String[] ss = { "'3.5'", "'-7'", "'0x10'", "'  12  '", "'1e2'", "'abc'" };
+                return ss[pick(ss.length)];
+            }
+            case 11: // 整数上下界：溢出那条路
+                return pick(2) == 0 ? "math.maxinteger" : "math.mininteger";
             case 0:
                 return String.valueOf(pick(21) - 10); // 小整数，含负数
             case 1:
