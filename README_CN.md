@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 824 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 825 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1536,6 +1536,55 @@ registry / `uservalue` / `setmetatable`，以及协程状态机的补充。
 于是 `type(debug.getregistry()["_LOADED"])` 给 `nil`，参考实现给 `table` —— 靠
 注册表做手脚的脚本会直接失效。改成从注册表里读回来：脚本把 `_LOADED` 换掉时
 我们也跟着换。
+
+#### 错误矩阵（208 行）：`__name` 上的两处
+
+一条此前没人铺过的轴：`error(msg, level)` 的 level 从 `-1` 一路到
+`math.maxinteger`、各种类型的**错误对象**（以及 `print` / `tostring` /
+`string.format("%s")` 各自怎么处置它）、`luaL_where` 的位置前缀在**每一个可能
+抛错的语法位置**上的取值（表构造、数值与泛型 `for`、十二个元方法、`gsub` 的替换
+函数、`sort` 的比较器、协程、`<close>`、方法、`__index` 链、尾调用、`load` 出来的
+chunk 配 `=` / `@` / 字符串三种名字）、`xpcall` 的形状、钩子里抛错、以及 `strip`
+过的 chunk。208 行一致。
+
+咬出两处，都在 `luaT_objtypename` 上：
+
+```c
+const char *luaT_objtypename (lua_State *L, const TValue *o) {
+  Table *mt;
+  if ((ttistable(o) && (mt = hvalue(o)->metatable) != NULL) ||
+      (ttisfulluserdata(o) && (mt = uvalue(o)->metatable) != NULL)) {
+    const TValue *name = luaH_getshortstr(mt, luaS_new(L, "__name"));
+    if (ttisstring(name))  /* is '__name' a string? */
+      return getstr(tsvalue(name));  /* use it as type name */
+  }
+  return ttypename(ttype(o));  /* else use standard type name */
+}
+```
+
+**`__name` 是 C 字符串**：`getstr()` 交出来的是 `const char *`，`luaG_typeerror`
+用 `%s` 拼，于是在第一个 `\0` 处被砍断 —— `__name = "A\0B"` 报的是
+`attempt to perform arithmetic on a A value`，只有 `A`。我们把整个字节数组都
+交出去了。（`luaL_tolstring` 那条路上同一个坑早就修过，这是它的第二份拷贝。）
+
+**只有表与（完整）userdata 认 `__name`**：其余类型**连类型元表都不看**，直接走
+`ttypename`。所以 `debug.setmetatable(nil, {__name = "NilT"})` 之后 `nil + 1`
+参考实现报的仍是 `... on a nil value`。我们的查找走的是 `luaT_gettmbyobj`，它会
+把**类型元表**也算进来，于是多报了 `NilT`。
+
+另有四条钉住了、但并不是 bug 的：
+
+* **`debug.traceback` 把非字符串、非 `nil` 的消息原样返回**（`ldblib.c:
+  db_traceback`），所以 `xpcall(f, debug.traceback)` 碰上表错误对象返回的是那张
+  **表**，不是回溯。而 `lua_tostring` **不**认 `__tostring` —— 这正是 `lua.c` 的
+  `msghandler` 要显式 `luaL_callmeta(L, 1, "__tostring")` 的原因。
+* **行钩子在这一行的第一条指令之前触发**，所以 `print(pcall(f))` 与钩子写在
+  同一行是**拦不住**的；调用钩子连 `print` / `pcall` 自己都算。
+* **`xpcall` 会丢掉处理器的第二个返回值**：`ldo.c: dothecall` 是
+  `luaD_callnoyield(L, L->top - 2, 1)`，结果数写死 1。
+* `coroutine.wrap` 抛出的错带**两层**位置前缀；`pcall(error, "x")` **没有**前缀
+  （C 函数没有行号）；库函数报错**有**，因为 `luaL_error` 的 `luaL_where(L, 1)`
+  取的是调用者那一层。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 
