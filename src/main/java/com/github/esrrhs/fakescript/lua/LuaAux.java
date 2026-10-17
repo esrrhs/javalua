@@ -377,7 +377,21 @@ public final class LuaAux {
         if (stat == -1) {
             fileResult(L, false, null, errnoOf(null));
         } else {
-            L.push(LuaValue.ofBoolean(stat == 0));
+            /*
+             * 失败时压的是 {@code luaL_pushfail}，而 5.4 里它<b>就是 nil</b>
+             * （{@code lauxlib.h: #define luaL_pushfail(L) lua_pushnil(L)}），
+             * 不是 false。早先这里写的是 {@code ofBoolean(stat == 0)}，于是
+             * {@code io.popen("exit 3"):close()} 给的是
+             * {@code false, "exit", 3} 而参考实现给 {@code nil, "exit", 3}。
+             * <p>
+             * 只有 {@code io.popen} 的收尾走这里 —— {@code os.execute} 有自己
+             * 一份（那边本来就是对的，所以这个 bug 在 os 那边看不出来）。
+             */
+            if (stat == 0) {
+                L.push(LuaValue.ofBoolean(true));
+            } else {
+                pushFail(L);
+            }
             L.push(LuaValue.ofString(LuaString.latin1("exit")));
             L.push(LuaValue.ofInteger(stat));
         }

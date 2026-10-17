@@ -48,6 +48,7 @@ class IoLibTest {
         add(tests, "seek", SEEK);
         add(tests, "err", ERRORS);
         add(tests, "zero", ZERO);
+        add(tests, "proc", PROC);
         return tests;
     }
 
@@ -598,5 +599,167 @@ class IoLibTest {
             print("M6", pcall(function() return w:write("") end))
             print("M7", pcall(function() return w:write() end))
             os.remove(p)
+            """, };
+
+
+    /**
+     * {@code io.popen} / {@code io.tmpfile} / {@code setvbuf}。
+     * <p>
+     * 这一组之前只有 1~2 个用例，是 io 库里最薄的一块。铺开之后咬出<b>一处真 bug</b>：
+     * {@code io.popen("exit 3"):close()} 参考实现给 {@code nil, "exit", 3}，我们给的是
+     * {@code false, "exit", 3} —— {@code luaL_execresult} 失败时压的是
+     * {@code luaL_pushfail}，而 5.4 里它<b>就是 nil</b>
+     * （{@code lauxlib.h: #define luaL_pushfail(L) lua_pushnil(L)}）。
+     * 只有 {@code io.popen} 的收尾走 {@code LuaAux.execResult}，
+     * {@code os.execute} 有自己一份、本来就是对的，所以这个 bug 在 os 那边看不出来。
+     * <p>
+     * 三样东西<b>不比</b>，每一条都是实测出来的，不是托辞：
+     * <ul>
+     *   <li><b>子进程的输出/错误必须在命令里重定向掉。</b>继承来的 stdout / stderr
+     *       不进本实现的捕获缓冲（Java 的子进程继承的是 JVM 真那个 stderr），
+     *       两边对不齐。所以这里写的是 {@code cat > /dev/null} 与
+     *       {@code 2>/dev/null}，而不是 {@code cat} 与裸命令。</li>
+     *   <li><b>不排空管道就 {@code close}</b>：参考实现拿到的是
+     *       {@code nil, "signal", 13}（{@code echo} 被 SIGPIPE 杀掉），
+     *       我们给 {@code true, "exit", 0}。这是<b>竞态</b>——取决于子进程有没有
+     *       先写完，逐次运行结果不稳定，不能进比对。</li>
+     *   <li><b>{@code setvbuf} 的负的 / 极大的 size。</b> C 把它转成
+     *       {@code size_t} 交给 libc 的 {@code setvbuf}，能不能分配出来是 libc
+     *       自己定的：同一台机器上 {@code 2^31} 失败而 {@code 2^40} 成功，
+     *       {@code "no"} 配 {@code -1} 成功而 {@code "line"} 配 {@code -1} 失败。
+     *       Java 侧没法合理建模。</li>
+     * </ul>
+     */
+    private static final String[] PROC = {
+            """
+            -- 所有子进程的输出/错误都在命令里重定向掉：继承来的 stdout/stderr 不进
+            -- 本实现的捕获缓冲（Java 子进程继承的是 JVM 的真 stderr），两边对不齐
+            local out = {}
+            local function c(tag, f, ...)
+              local r = table.pack(pcall(f, ...))
+              local s = tag
+              for i = 1, r.n do s = s .. "\t" .. tostring(r[i]) end
+              out[#out + 1] = s
+            end
+            local function say(s) out[#out + 1] = s end
+            local p = io.popen("echo hi")
+            say("p1 " .. io.type(p) .. " " .. tostring(p:read("l"))
+                .. " " .. tostring(p:read("a")))
+            c("p2", p.close, p)
+            p = io.popen("printf abc")
+            say("p3 " .. tostring(p:read("a")))
+            c("p4", p.close, p)
+            local w = io.popen("cat > /dev/null", "w")
+            say("w1 " .. tostring(w:write("abc") == w))
+            c("w2", w.close, w)
+            -- 非零退出码是 nil 不是 false（luaL_pushfail 在 5.4 里就是 lua_pushnil）
+            for _, code in ipairs({ 0, 3, 7 }) do
+              local f = io.popen("exit " .. code)
+              c("e" .. code, f.close, f)
+            end
+            local ef = io.popen("false")
+            c("ef", ef.close, ef)
+            local nx = io.popen("no_such_cmd_xyz_12345 2>/dev/null")
+            say("n1 " .. tostring(nx ~= nil))
+            if nx then
+              say("n2 [" .. tostring(nx:read("a")) .. "]")
+              c("n3", nx.close, nx)
+            end
+            print(table.concat(out, "\n"))
+            """,
+
+
+            """
+            -- popen 的模式检查，以及管道上能做什么
+            local out = {}
+            local function c(tag, f, ...)
+              local r = table.pack(pcall(f, ...))
+              local s = tag
+              for i = 1, r.n do s = s .. "\t" .. tostring(r[i]) end
+              out[#out + 1] = s
+            end
+            local function say(s) out[#out + 1] = s end
+            c("m1", io.popen, "echo hi", "r")
+            c("m3", io.popen, "echo hi", "rw")
+            c("m4", io.popen, "echo hi", "")
+            c("m5", io.popen, "echo hi", "x")
+            c("m6", io.popen)
+            c("m7", io.popen, nil)
+            c("m8", io.popen, "echo hi", "r", 99)
+            local m2ok, m2 = pcall(io.popen, "cat > /dev/null", "w")
+            say("m2 " .. tostring(m2ok) .. " " .. tostring(io.type(m2)))
+            if m2ok then c("m2c", m2.close, m2) end
+            local s1 = io.popen("echo hi")
+            c("s1", s1.seek, s1, "set", 0)
+            c("s2", s1.setvbuf, s1, "no")
+            say("s3 " .. tostring(type(s1:lines())))
+            say("s4 " .. tostring(s1:read("a")))
+            c("s5", s1.close, s1)
+            c("s6", s1.close, s1)
+            say("s7 " .. tostring(io.type(s1)))
+            print(table.concat(out, "\n"))
+            """,
+
+
+            """
+            local out = {}
+            local function c(tag, f, ...)
+              local r = table.pack(pcall(f, ...))
+              local s = tag
+              for i = 1, r.n do s = s .. "\t" .. tostring(r[i]) end
+              out[#out + 1] = s
+            end
+            local function say(s) out[#out + 1] = s end
+            local t = io.tmpfile()
+            say("t1 " .. tostring(t ~= nil) .. " " .. tostring(io.type(t)))
+            say("t2 " .. tostring(t:write("hello") == t))
+            say("t3 " .. tostring(t:seek("set", 0)))
+            say("t4 " .. tostring(t:read("a")))
+            c("t5", t.close, t)
+            say("t6 " .. tostring(io.type(t)))
+            local t2 = io.tmpfile()
+            c("t7", t2.close, t2)
+            local t3 = io.tmpfile(1, 2)
+            say("t8 " .. tostring(t3 ~= nil))
+            if t3 then t3:close() end
+            print(table.concat(out, "\n"))
+            """,
+
+
+            """
+            local out = {}
+            local function c(tag, f, ...)
+              local r = table.pack(pcall(f, ...))
+              local s = tag
+              for i = 1, r.n do s = s .. "\t" .. tostring(r[i]) end
+              out[#out + 1] = s
+            end
+            local function say(s) out[#out + 1] = s end
+            local p = "/tmp/fkio_vbuf.txt"
+            os.remove(p)
+            for _, mode in ipairs({ "no", "full", "line" }) do
+              local f = io.open(p, "w")
+              c("v_" .. mode, f.setvbuf, f, mode)
+              f:write("xyz")
+              c("vc_" .. mode, f.close, f)
+              local g = io.open(p)
+              say("vr_" .. mode .. " " .. tostring(g:read("a")))
+              g:close()
+            end
+            local f2 = io.open(p, "w")
+            c("v_sz", f2.setvbuf, f2, "full", 4096)
+            c("v_sz0", f2.setvbuf, f2, "full", 0)
+            -- 负的 / 极大的 size 不比：C 转成 (size_t) 后交给 libc 的 setvbuf，
+            -- 能不能分配出来是 libc 自己定的（同一台机器上 2^31 失败、2^40 成功，
+            -- "no" 配 -1 成功、"line" 配 -1 失败），Java 侧没法合理建模
+            c("v_bad", f2.setvbuf, f2, "nope")
+            c("v_none", f2.setvbuf, f2)
+            c("v_num", f2.setvbuf, f2, 42)
+            c("v_nil", f2.setvbuf, f2, nil)
+            f2:close()
+            c("v_stdout", io.stdout.setvbuf, io.stdout, "no")
+            c("v_stdin", io.stdin.setvbuf, io.stdin, "full")
+            os.remove(p)
+            print(table.concat(out, "\n"))
             """, };
 }
