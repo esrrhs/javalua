@@ -34,6 +34,7 @@ class TableLibTest {
         add(tests, "sort", SORT);
         add(tests, "meta", META);
         add(tests, "err", ERRORS);
+        add(tests, "overflow", OVERFLOW);
         return tests;
     }
 
@@ -192,6 +193,46 @@ class TableLibTest {
             print(pcall(table.insert, t, 1))
             local u = setmetatable({}, {__len = function() return "x" end})
             print(pcall(#u))
+            """,
+    };
+
+    /**
+     * {@code ltablib.c} 里两处<b>整数溢出</b>的边界。
+     * <p>
+     * 两处 C 版都靠「无符号/有符号回绕」来判越界，而 Java 的 {@code long}
+     * 回绕的方向不一样，直译会漏判——漏了之后不是报错，是
+     * {@code OutOfMemoryError}（{@code unpack} 一路 push）或者报<b>错的那一条
+     * 参数</b>（{@code move}）。上游 {@code sort.lua} 一上来就撞这两处。
+     */
+    private static final String[] OVERFLOW = {
+
+            /* tunpack：n 是无符号的，e - i 溢出时按无符号比 */
+            """
+            local maxI, minI = math.maxinteger, math.mininteger
+            local maxi, mini = (1 << 31) - 1, -(1 << 31)
+            print(pcall(table.unpack, {}, 0, maxi))
+            print(pcall(table.unpack, {}, 1, maxi))
+            print(pcall(table.unpack, {}, 0, maxI))
+            print(pcall(table.unpack, {}, 1, maxI))
+            print(pcall(table.unpack, {}, mini, maxi))
+            print(pcall(table.unpack, {}, -maxi, maxi))
+            print(pcall(table.unpack, {}, minI, maxI))
+            print(pcall(table.unpack, {}, 1, 2^31))
+            print(pcall(table.unpack, {}, 1, 999999))
+            print(pcall(table.unpack, {}, 1, 1000001))
+            """,
+
+            /* tmove：判据是 e < MAXINTEGER + f，化简成 e - f < MAXINTEGER 会漏 */
+            """
+            local maxI, minI = math.maxinteger, math.mininteger
+            print(pcall(table.move, {}, 0, maxI, 1))
+            print(pcall(table.move, {}, -1, maxI - 1, 1))
+            print(pcall(table.move, {}, minI, -1, 1))
+            print(pcall(table.move, {}, minI, maxI, 1))
+            print(pcall(table.move, {}, 1, maxI, 2))
+            print(pcall(table.move, {}, 1, 2, maxI))
+            print(pcall(table.move, {}, minI, -2, 2))
+            print(pcall(table.move, {}, 1, 2, 3, 4))
             """,
     };
 

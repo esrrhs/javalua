@@ -185,7 +185,22 @@ public final class TableLib {
         checkTab(L, 1, TAB_R);
         checkTab(L, tt, TAB_W);
         if (e >= f) {
-            if (!(f > 0 || e - f < Long.MAX_VALUE)) {
+            /*
+             * 必须是 {@code e < Long.MAX_VALUE + f}，不能化简成
+             * {@code e - f < Long.MAX_VALUE}。两者在无溢出时等价，但这里<b>就是
+             * 要判溢出</b>：{@code f} 为负得厉害时 {@code e - f} 先回绕成负数，
+             * 化简后的式子反而成立，判断就漏过去了。
+             * <p>
+             * 实测（上游 {@code sort.lua:185}）：
+             * {@code table.move({}, math.mininteger, math.maxinteger, 1)}
+             * 参考实现报 {@code bad argument #3 ... (too many elements to move)}，
+             * 照化简的写法会走到下面那条，报
+             * {@code bad argument #4 ... (destination wrap around)}。
+             * <p>
+             * {@code f > 0} 短路之后 {@code Long.MAX_VALUE + f} 的 {@code f}
+             * 必为非正，因此这边的加法本身不会再溢出——与 C 版一致。
+             */
+            if (!(f > 0 || e < Long.MAX_VALUE + f)) {
                 throw L.argError(3, "too many elements to move");
             }
             long n = e - f + 1;
@@ -257,15 +272,29 @@ public final class TableLib {
             return 0; // 空区间
         }
         long n = e - i; // 元素个数减一
+        /*
+         * {@code n} 必须按<b>无符号</b>比。C 版它是 {@code lua_Unsigned}，
+         * {@code e - i} 溢出时按无符号回绕成一个<b>巨大</b>的数，于是
+         * {@code unpack({}, minI, maxI)} 直接落进下面那句
+         * {@code "too many results to unpack"}。
+         * <p>
+         * Java 的 {@code long} 回绕成<b>负数</b>，照有符号比就漏过去了：
+         * {@code count} 于是变成 0，循环从 {@code minI} 一路 push 到
+         * {@code maxI}——上游 {@code sort.lua} 第一节就是这么把
+         * {@code table.unpack} 撑到 {@code OutOfMemoryError} 的。
+         */
+        if (Long.compareUnsigned(n, Integer.MAX_VALUE) >= 0) {
+            throw L.libError("too many results to unpack");
+        }
         int count = (int) n + 1;
         /*
          * 这里走的是 {@code lua_checkstack} + {@code luaL_error}，而不是
          * {@code luaL_checkstack}：后者会拼成
          * {@code "stack overflow (too many results to unpack)"}，而参考实现
          * {@code ltablib.c: tunpack} 给的是不带前缀的那句。
-         * {@code count} 撑不下时两条路同归一处，所以合起来判。
+         * {@code count} 撑不下时两条路同归一处，所以分两步判。
          */
-        if (n >= Integer.MAX_VALUE - 1 || !L.checkStackOk(count)) {
+        if (!L.checkStackOk(count)) {
             throw L.libError("too many results to unpack");
         }
         LuaValue t = L.arg1(1);

@@ -18,6 +18,12 @@ import org.junit.jupiter.params.provider.ValueSource;
  * 递归层数，{@code gc.lua} 依赖本实现没有的增量收集器，
  * {@code literals.lua} 依赖 C 程序才设得上的 locale 小数点）。
  * <p>
+ * {@code sort.lua} 也是同一个道理：它打印排序耗时与比较次数
+ * （{@code sorting 50000 random elements in 13.71 msec.}），而待排数据是
+ * {@code math.random} 生成的——参考实现每次运行的种子都不一样，两个数都不可能
+ * 对上。但它是唯一一处把 {@code table.unpack} / {@code table.move} 的
+ * <b>整数溢出边界</b>整组走过来的用例，所以必须跑。
+ * <p>
  * <b>为什么不能干脆不跑。</b>这几个文件是全套里最容易把实现「跑死」的：
  * <ul>
  *   <li>{@code cstack.lua} 整篇都在制造栈溢出与 C 栈溢出，没有
@@ -53,6 +59,8 @@ final class UpstreamSmokeTest {
             "literals.lua",
             "locals.lua",
             "constructs.lua",
+            "sort.lua",
+            "math.lua",
     })
     void runsToCompletion(String name) {
         String out = Diff.mineFileOnly(dir, name);
