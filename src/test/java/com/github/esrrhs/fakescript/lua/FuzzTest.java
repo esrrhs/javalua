@@ -434,7 +434,9 @@ class FuzzTest {
         }
 
         private String simpleStatement() {
-            switch (pick(10)) {
+            switch (pick(11)) {
+            case 10: // 语句级的标准库用法（gmatch / next / 非字符串错误值 / pack）
+                return stdLibOps();
             case 9: // table 库的一串操作（阶段 10 的缺陷就在这块）
                 return tableOps();
             case 8: // 带元方法的表
@@ -610,8 +612,59 @@ class FuzzTest {
                 "floor", "ceil", "abs", "type", "tointeger", "sqrt",
         };
 
+        /**
+         * 只给「必须是字符串」的位置用。
+         * <p>
+         * 一律写成 Lua 转义（{@code \xNN}）而不是真的非 ASCII 字符：源文件落盘时
+         * 经过一层编码，字节就不受控了，而这里要的正是具体的字节
+         * ——多字节 UTF-8、内嵌 {@code \0}、以及非 UTF-8 的 {@code \xff}。
+         */
+        private static final String[] SUBJECTS = {
+                "'abc'", "'abc123'", "'  x  y  '", "''", "'a,b,c'",
+                "'\\xc3\\xa4\\xc3\\xb6'", "'\\xe4\\xb8\\xad\\xe6\\x96\\x87'",
+                "'a\\x00b'", "'\\xff\\xfe'", "'A\\xc3\\xa9B'", "'\\x7f'",
+        };
+
+        /** {@code string.pack} 的格式串与配套参数：两者的元数必须对齐 */
+        private static final String[][] PACKCASES = {
+                { "i4", "7" }, { "I4", "7" }, { "i2", "-3" }, { "b", "1" }, { "B", "255" },
+                { "h", "300" }, { "l", "123456" }, { "j", "-9" }, { "n", "1.5" }, { "d", "0.1" },
+                { "f", "2.5" }, { "s1", "'ab'" }, { "s2", "'abc'" }, { "z", "'hi'" },
+                { "c3", "'xyz'" }, { "<i4", "-1" }, { ">i4", "-1" }, { "=i4", "1" },
+                { "!4i4", "5" }, { "Xi4", "6" }, { "i1i1", "1, 2" }, { "i4c2", "3, 'ab'" },
+                { "<I8", "math.maxinteger" }, { "Bn", "200, 1.25" },
+        };
+
         private String libCall(int d) {
-            switch (pick(14)) {
+            switch (pick(22)) {
+            case 14: // utf8：此前一个都没生成过
+                return "utf8.len(" + strAtom() + (chance(40) ? ", " + pick(3) : "") + ")";
+            case 15:
+                return "utf8.char(" + (65 + pick(26))
+                        + (chance(40) ? ", " + (0x4E2D + pick(80)) : "") + ")";
+            case 16:
+                return "utf8.codepoint(" + strAtom() + (chance(50) ? ", " + (1 + pick(3)) : "")
+                        + (chance(30) ? ", " + (1 + pick(4)) : "") + ")";
+            case 17:
+                return "utf8.offset(" + strAtom() + ", " + (pick(5) - 1)
+                        + (chance(40) ? ", " + (pick(4) - 1) : "") + ")";
+            case 18:
+                return "math.fmod(" + atom() + ", " + atom() + ")";
+            case 19:
+                return (chance(50) ? "math.max(" : "math.min(") + atom() + ", " + atom() + ")";
+            case 20: // 走 luaL_checkinteger：字符串能不能转整数那两条报错文本
+                return "math.ult(" + atom() + ", " + atom() + ")";
+            case 21:
+                switch (pick(4)) {
+                case 0:
+                    return "rawequal(" + atom() + ", " + atom() + ")";
+                case 1:
+                    return "rawlen(" + atom() + ")";
+                case 2:
+                    return "select(" + (1 + pick(3)) + ", " + listLiteral() + ")";
+                default:
+                    return "string.rep(" + atom() + ", " + pick(3) + ", '-')";
+                }
             case 0:
                 return "string.len(" + atom() + ")";
             case 1:
@@ -705,6 +758,93 @@ class FuzzTest {
             return sb.toString();
         }
 
+        /**
+         * 标准库里那些「不是一行表达式」的用法。
+         * <p>
+         * 为什么单独开一格：{@link #libCall} 只能生成表达式，而 {@code gmatch}
+         * 的迭代器、{@code next} 的遍历、{@code error} 的非字符串错误值都是
+         * <b>语句级</b>的 —— 手写用例最稀薄的地方，生成器此前一个都没碰过。
+         * <p>
+         * 两条硬约束，违反任何一条都会制造假的不一致：
+         * <ol>
+         *   <li><b>{@code print} 一张表会打出地址</b>，两边必然不同。所以返回表
+         *       或函数的值都不直接打印：{@code gmatch} 取迭代次数与拼接结果，
+         *       {@code error} 的错误对象统一挂 {@code __tostring}。</li>
+         *   <li><b>{@code next} / {@code pairs} 的顺序由实现决定</b>，只取条数，
+         *       不取键的先后。</li>
+         * </ol>
+         */
+        private String stdLibOps() {
+            String tmp = "q" + (tmpCounter++);
+            StringBuilder sb = new StringBuilder();
+            switch (pick(7)) {
+            case 0: // gmatch：迭代次数 + 拼起来的结果
+                // 字符串字面量必须先括起来才能接 ':' —— 实测 'abc':gmatch(...)
+                // 在 for-in 的表达式表里是 'do' expected near ':'
+                sb.append("local ").append(tmp).append(" = {}\n");
+                sb.append("for w in (").append(strAtom()).append("):gmatch('")
+                        .append(PATTERNS[pick(PATTERNS.length)]).append("') do ")
+                        .append(tmp).append("[#").append(tmp).append(" + 1] = w end\n");
+                sb.append("print(#").append(tmp).append(", table.concat(").append(tmp)
+                        .append(", '|'))");
+                break;
+            case 1: // utf8.codes：把码点挨个拼出来
+                sb.append("local ").append(tmp).append(" = {}\n");
+                sb.append("for _, c in utf8.codes(").append(strAtom()).append(") do ")
+                        .append(tmp).append("[#").append(tmp).append(" + 1] = c end\n");
+                sb.append("print(#").append(tmp).append(", table.concat(").append(tmp)
+                        .append(", ','))");
+                break;
+            case 2: // next / pairs：只取条数与「有没有下一个」
+                sb.append("local ").append(tmp).append(" = ").append(tableLiteral(0)).append('\n');
+                sb.append("local n").append(tmp).append(" = 0\n");
+                sb.append("local k").append(tmp).append(" = next(").append(tmp).append(")\n");
+                sb.append("while k").append(tmp).append(" ~= nil do n").append(tmp)
+                        .append(" = n").append(tmp).append(" + 1 k").append(tmp)
+                        .append(" = next(").append(tmp).append(", k").append(tmp)
+                        .append(") end\n");
+                sb.append("print(n").append(tmp).append(", next(").append(tmp)
+                        .append(") ~= nil, rawlen(").append(tmp).append("))");
+                break;
+            case 3: // 非字符串错误值：__tostring / nil / 带 level 的 error / xpcall
+                sb.append("local e").append(tmp).append(" = setmetatable({}, ")
+                        .append("{__tostring = function() return 'EO' end})\n");
+                sb.append("print(pcall(error, e").append(tmp).append("))\n");
+                sb.append("print(pcall(function() error(nil) end))\n");
+                sb.append("print(pcall(function() error('m', 2) end))\n");
+                sb.append("print(xpcall(function() error('x') end,")
+                        .append(" function(m) return 'H:' .. tostring(m) end))");
+                break;
+            case 4: { // pack / packsize / unpack 往返
+                String[] c = PACKCASES[pick(PACKCASES.length)];
+                sb.append("print(pcall(function()\n");
+                sb.append("  local p").append(tmp).append(" = string.pack('").append(c[0])
+                        .append("', ").append(c[1]).append(")\n");
+                sb.append("  print(#p").append(tmp).append(", string.packsize('").append(c[0])
+                        .append("'))\n");
+                sb.append("  print(string.unpack('").append(c[0]).append("', p")
+                        .append(tmp).append("))\n");
+                sb.append("end))");
+                break;
+            }
+            case 5: // table.pack / select('#')：n 是精确的，#p 是有边界语义的，只打前者
+                sb.append("local p").append(tmp).append(" = table.pack(").append(listLiteral())
+                        .append(")\n");
+                sb.append("print(p").append(tmp).append(".n, select('#', table.unpack(p")
+                        .append(tmp).append(")))");
+                break;
+            default: // gsub 的函数替换：返回 nil 表示保留原匹配
+                sb.append("local s").append(tmp).append(" = ").append(strAtom()).append('\n');
+                sb.append("local r, n = string.gsub(s").append(tmp).append(", '")
+                        .append(PATTERNS[pick(PATTERNS.length)])
+                        .append("', function(c) return ")
+                        .append(chance(50) ? "c .. '!'" : "nil").append(" end)\n");
+                sb.append("print(r, n)");
+                break;
+            }
+            return sb.toString();
+        }
+
         /** 挂一两个元方法的新表：元方法派发与 luaV_finishOp 的组合全靠这里踩 */
         private String metaTable() {
             String t = "m" + (tmpCounter++);
@@ -789,6 +929,17 @@ class FuzzTest {
                 sb.append(atom());
             }
             return sb.toString();
+        }
+
+        /**
+         * 一个<b>大概是字符串</b>的原子。
+         * <p>
+         * 七成给 {@link #SUBJECTS}（具体字节受控），三成给 {@link #atom()}
+         * ——数字会被 {@code luaL_checklstring} 转成字符串，nil / 布尔会报错，
+         * 这两条路都值得走一走。
+         */
+        private String strAtom() {
+            return chance(70) ? SUBJECTS[pick(SUBJECTS.length)] : atom();
         }
 
         private String atom() {

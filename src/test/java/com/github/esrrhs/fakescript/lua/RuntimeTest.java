@@ -391,6 +391,63 @@ class RuntimeTest {
                 + "print(0.0, -0.0, 1/0, -1/0, 0/0)\n");
     }
 
+    /**
+     * {@code #t} 的<b>具体取值</b>，而不只是「某个合法边界」。
+     * <p>
+     * 手册只要求 {@code #t} 返回一个边界，但真实程序看得到具体是哪一个，所以要
+     * 和参考实现一模一样。差在 {@code ltable.c: luaH_getn} 的分支 (1a)：
+     * 数组末格为空、但倒数第二格还在时，C 直接答 {@code limit-1}，<b>不去二分</b>
+     * ——注释写明了动机，{@code t[#t] = nil} 之后立刻再取长度是最常见的一串操作。
+     * <p>
+     * 少了 (1a)：数组 {@code [1, nil, 3, nil]} 二分给 {@code 1}，参考实现给
+     * {@code 3}。系统性地铺开各种空洞之后，4968 条结果里错 212 条（4.3%）。
+     * 这里用循环铺一个子集；每条都把 {@code #t} 取两次 —— C 会顺手把 {@code alimit}
+     * 改成一个「提示」，两次结果必须一致。
+     */
+    @Test
+    void tableLengthBoundaryMatchesReference() {
+        Diff.assertMatches(""
+                // 实测撞出来的那几条
+                + "local p = table.pack(1, nil, 3, nil) print(p.n, #p)\n"
+                + "local q = {1, 2, 3, 4} q[2] = nil q[4] = nil print(#q)\n"
+                // 单个空洞：n 从 1 到 32，空洞扫过每个位置
+                + "local function build(n, skip)\n"
+                + "  local t = {}\n"
+                + "  for i = 1, n do if not skip(i) then t[i] = i end end\n"
+                + "  return t\n"
+                + "end\n"
+                + "for n = 1, 32 do\n"
+                + "  for h = 1, n do\n"
+                + "    local t = build(n, function(i) return i == h end)\n"
+                + "    print(n, h, #t, #t)\n"
+                + "  end\n"
+                + "end\n"
+                // 两个空洞
+                + "for n = 2, 14 do\n"
+                + "  for a = 1, n do\n"
+                + "    for b = a, n do\n"
+                + "      local t = build(n, function(i) return i == a or i == b end)\n"
+                + "      print(n, a, b, #t, #t)\n"
+                + "    end\n"
+                + "  end\n"
+                + "end\n"
+                // 全空 / 只留头 / 只留尾 / 隔一个空一个
+                + "for n = 1, 24 do\n"
+                + "  local t = build(n, function(i) return true end) print(n, #t, #t)\n"
+                + "  t = build(n, function(i) return i > 1 end) print(n, #t, #t)\n"
+                + "  t = build(n, function(i) return i < n end) print(n, #t, #t)\n"
+                + "  t = build(n, function(i) return i % 2 == 0 end) print(n, #t, #t)\n"
+                + "  t = build(n, function(i) return i % 2 == 1 end) print(n, #t, #t)\n"
+                + "end\n"
+                // table.pack 的 32 种 nil 组合：n 是精确的，#p 与 unpack 用 #p
+                + "for m = 0, 31 do\n"
+                + "  local args = {}\n"
+                + "  for k = 1, 5 do args[k] = ((m >> (k - 1)) & 1) == 1 and k or nil end\n"
+                + "  local r = table.pack(table.unpack(args, 1, 5))\n"
+                + "  print(r.n, #r, select('#', table.unpack(r)))\n"
+                + "end\n");
+    }
+
     @Test
     void errorMessagesMatchReference() {
         List<String> bad = new ArrayList<>();
