@@ -805,6 +805,41 @@ C 帧。它表现为每次回溯末尾那行 `[C]: in ?`，以及
 确定性用例（`TableLibTest.choosePivotStaysInsideTheInterval`），直接验 C 版那条
 `lua_assert`——`lo + r4 <= p <= up - r4`——而不再指望五万元素的排序碰巧踩中。
 
+#### 阶段 11：预编译 chunk 要从<b>每一道门</b>进得来
+
+`ldo.c: f_parser` 先读一个字节：是 `LUA_SIGNATURE` 的首字节就走 `luaU_undump`，
+否则才进 `luaY_parser`。就这一步，调用方<b>完全不必声明</b>自己给的是源码还是
+字节码——`load` / `loadfile` / `dofile` / `require` 因此全都天然支持预编译 chunk。
+
+这个分派原先只存在于 `BaseLib` 的 `load` / `loadfile` 里，`lua_load` 本身
+（`LuaState.load`）不看签名，于是 **`require` 一个预编译模块会失败**：
+
+```
+error loading module 'mod' from file '/tmp/mod.lua':
+	/tmp/mod.lua:1: unexpected symbol near '<\27>'
+```
+
+参考实现能加载并正常返回模块。`PackageLib` 走的是 `LuaState.loadFile`，所以这个
+缺陷出现在 `require` 而不是 `load`。修法落在 `lua_load` 那一层，不是给 `require`
+打补丁：
+
+* `LuaState.load` / `loadFile` 现在按 `Lua.LUA_SIGNATURE0` 分派；
+* `loadFile` 仍然先过 `lauxlib` 那段前奏（BOM、`#!`）——预编译 chunk 的首字节
+  不会是 `#`，所以顺序不能反；
+* 二进制分支<b>不回退</b>首字节：`luaU_undump` 的注释是
+  「skip 1st char (already read and checked)」，`checkHeader` 从第二个字节比。
+
+`BinaryChunkTest` 两个方向都验：
+
+* **真实 `luac` 编出来的 chunk**（`ReferenceLua.compile`，按 `LUAC54_BIN` 或
+  参考 `lua` 同目录找），两边跑同一份产物逐字节比。自己编给自己判卷等于没判，
+  所以产物必须出自参考实现的编译器。语料覆盖 upvalue、变长参数、`goto`、
+  混合表构造、整数与浮点边界、协程、300 项的常量表，另有两条是<b>故意报错</b>
+  的——错误消息里带着行号与局部变量名，undump 丢了调试信息就会红；
+* **本实现自己 `string.dump` 出来的 chunk**（`require`、`dofile`、`loadfile`、
+  `mode` 参数、`binary string` 源名规则，以及被截断与被篡改的 chunk——那些必须
+  是加载期错误而不是崩）。
+
 ### 还没补上的
 
 语言与十个标准库本身没有缺项，上游套件里能逐字节比的那些也都比过了。剩下的是

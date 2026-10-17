@@ -68,11 +68,19 @@ jobs:
         mkdir -p target/lua54-tests
         tar xzf /tmp/tests.tar.gz -C target/lua54-tests --strip-components=1
         ls target/lua54-tests/*.lua | wc -l
+    #
+    # 跑全量而不是只挑几个类,并且不跳过覆盖率门禁。
+    #
+    # 只挑 ConformanceTest/CodegenTest/ParserTest 等于把上游套件、差分 fuzz、
+    # 二进制 chunk 兼容这两批闸门留在 CI 之外——它们在 CI 上一次都没跑过,
+    # 绿的只是本地。而覆盖率门禁跟一致性测试绑在一起(没有参考二进制时
+    # 一致性测试整类跳过,门禁跟着跳过),所以 -Djacoco.skip=true 一加,
+    # 覆盖率这条线在 CI 上也是空的:两条最硬的闸门都形同虚设。
     - name: Run conformance tests
       env:
         LUA54_BIN: target/lua54/src/lua
         FKDUMP_BIN: target/lua54/src/fkdump
-      run: ./mvnw -B test -Dtest='ConformanceTest,CodegenTest,ParserTest' -Djacoco.skip=true
+      run: ./mvnw -B test
 
   quality:
     # spotbugs静态分析报告(报告模式,不阻断)

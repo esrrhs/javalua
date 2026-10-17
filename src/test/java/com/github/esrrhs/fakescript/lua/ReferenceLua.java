@@ -87,6 +87,92 @@ final class ReferenceLua {
         }
     }
 
+    /**
+     * 找到可用的 {@code luac5.4}；找不到返回 {@code null}。
+     * <p>
+     * 它是「二进制 chunk 双向兼容」那个用例的编译器：本实现要跑<b>参考实现
+     * 编出来的</b> chunk，而不是自己编出来的——后者等于用自己的编译器给自己
+     * 判卷。{@code make} 默认会把 {@code luac} 和 {@code lua} 一起编出来，
+     * 所以 CI 上 {@code target/lua54/src/luac} 一定在。
+     */
+    static String findLuac() {
+        return findSibling("luac", "LUAC54_BIN", "luac5.4", "luac");
+    }
+
+    /**
+     * 按同一套规则找「参考实现旁边的另一个工具」。
+     *
+     * @param sibling 与 {@code lua} 同目录时它的文件名
+     * @param env     指定它的环境变量
+     * @param names   PATH 上可能的名字
+     */
+    private static String findSibling(String sibling, String env, String... names) {
+        String e = System.getenv(env);
+        if (e != null && !e.isEmpty() && canRun(e)) {
+            return e;
+        }
+        String lua = find();
+        if (lua != null) {
+            java.io.File f = new java.io.File(new java.io.File(lua).getParentFile(), sibling);
+            if (f.canExecute() && canRun(f.getAbsolutePath())) {
+                return f.getAbsolutePath();
+            }
+        }
+        for (String n : names) {
+            if (canRun(n)) {
+                return n;
+            }
+        }
+        return null;
+    }
+
+    private static boolean canRun(String bin) {
+        try {
+            java.io.File f = new java.io.File(bin);
+            ProcessBuilder pb = new ProcessBuilder(
+                    f.isAbsolute() ? bin : (f.getPath().contains(java.io.File.separator)
+                            ? f.getAbsolutePath() : bin),
+                    "-v");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String out = readAll(p.getInputStream());
+            p.waitFor();
+            return out.contains("Lua 5.4");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * 用参考实现自己的编译器把源码编成二进制 chunk。
+     *
+     * @return 产物路径；编译失败返回 {@code null}
+     */
+    static java.io.File compile(byte[] source, String outPath) {
+        String luac = findLuac();
+        if (luac == null) {
+            return null;
+        }
+        try {
+            java.nio.file.Path out = Paths.get(outPath);
+            java.nio.file.Path parent = out.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            java.nio.file.Path src = Paths.get(outPath + ".lua");
+            Files.write(src, source);
+            ProcessBuilder pb = new ProcessBuilder(luac, "-o", outPath, src.toString());
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            readAll(p.getInputStream());
+            int code = p.waitFor();
+            Files.deleteIfExists(src);
+            return (code == 0) ? out.toFile() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 跑一段脚本，返回退出码与合并后的输出 */
     static Result run(String script) {
         String bin = find();
