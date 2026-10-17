@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 837 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 838 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1967,6 +1967,32 @@ lines and calls a function: if `allowhook` re-entry protection were broken, this
 would be infinite recursion rather than a comparison failure.
 
 It came back clean.
+
+#### The integer / float subtype grid
+
+In 5.4 a "number" is one of two **subtypes**, and `math.type` can see the
+difference. This is the single most likely thing to get wrong when porting 5.4:
+a "everything is a double" implementation runs most scripts fine and diverges
+quietly in `//`, `%`, `string.format("%d")` and `math.tointeger`. So every door
+in the standard library that can hand back a number is swept, comparing only the
+subtype — values are never printed (`os.time` and `math.random` differ per run).
+
+156 lines, in two halves: everyday shapes (the math library's
+"integer in, integer out; float in, float out", four ways of writing `tonumber`,
+the bitwise operators, every `string.unpack` width, `io`'s `seek`, `os.date`'s
+fields) and the boundaries (`maxinteger + 1`, `mininteger // -1`,
+`math.fmod(1, 0)` and `1 // 0` **raise** rather than returning nan,
+`math.floor(-0.0)` is an integer, `math.tointeger(2^63)` is `nil`).
+
+Every line is wrapped in `pcall` — that is how the two raising cases were found.
+Without it the script dies at the first one and the remaining hundred lines are
+never compared, while the test still looks green.
+
+The first version of this sweep had a bug worth recording: merging the two probe
+scripts left the second half calling the *first* half's helper, which took a
+value instead of a thunk — so 72 of 156 lines silently read `tag nil` and the
+test was green anyway. **A matrix whose lines are all `nil` proves nothing**;
+check the reference output for uniformly-empty lines before believing a clean run.
 
 ### What is still missing
 
