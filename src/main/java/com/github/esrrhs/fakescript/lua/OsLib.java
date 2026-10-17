@@ -587,7 +587,8 @@ public final class OsLib {
     }
 
     private static int getenv(LuaState L) {
-        String v = System.getenv(LuaAux.checkString(L, 1).toJavaString());
+        // getenv 的参数是 const char*：在第一个 \0 处砍断
+        String v = System.getenv(LuaAux.checkString(L, 1).toCString().toJavaString());
         if (v == null) {
             L.pushNil();
         } else {
@@ -614,7 +615,7 @@ public final class OsLib {
             L.push(LuaValue.ofBoolean(true));
             return 1;
         }
-        String cmd = LuaAux.checkString(L, 1).toJavaString();
+        String cmd = LuaAux.checkString(L, 1).toCString().toJavaString();
         int stat;
         try {
             Process p = new ProcessBuilder("sh", "-c", cmd).start();
@@ -671,25 +672,28 @@ public final class OsLib {
     }
 
     private static int remove(LuaState L) {
-        String path = LuaAux.checkString(L, 1).toJavaString();
+        // remove 的参数是 const char*：在第一个 \0 处砍断。不砍的话 Java 的
+        // Paths.get 会抛 InvalidPathException —— 而它不是 LuaError，pcall 拦不住，
+        // 会整颗逃逸成 Java 异常（实测 os.remove("a\0b") 直接崩掉进程）。
+        String path = LuaAux.checkString(L, 1).toCString().toJavaString();
         try {
             Files.delete(Paths.get(path));
             L.push(LuaValue.ofBoolean(true));
             return 1;
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             LuaAux.fileResult(L, false, path, LuaAux.errnoOf(e));
             return 3;
         }
     }
 
     private static int rename(LuaState L) {
-        String from = LuaAux.checkString(L, 1).toJavaString();
-        String to = LuaAux.checkString(L, 2).toJavaString();
+        String from = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String to = LuaAux.checkString(L, 2).toCString().toJavaString();
         try {
             Files.move(Paths.get(from), Paths.get(to));
             L.push(LuaValue.ofBoolean(true));
             return 1;
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
             return 3;
         }
@@ -737,7 +741,7 @@ public final class OsLib {
     private static int setlocale(LuaState L) {
         String loc = null;
         if (!L.isNoneArg(1) && !L.arg1(1).isNil()) {
-            loc = LuaAux.checkString(L, 1).toJavaString();
+            loc = LuaAux.checkString(L, 1).toCString().toJavaString();
         }
         LuaAux.checkOption(L, 2, "all", CATS); // 只为复现「invalid option」那条报错
         if (loc == null) {

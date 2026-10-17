@@ -2130,10 +2130,28 @@ public final class LuaState {
      * 字节开始比。
      */
     private LClosure loadDispatch(Zio z, byte[] chunkName, int firstChar) {
+        /*
+         * chunkname 在 C 里是 const char*，存进 Proto 之前经 luaS_new（strlen）--
+         * 于是第一个 \0 之后的内容根本不会成为源名。实测
+         * load("error('E')", "a\0b") 报的是 [string "a"]:1: E。
+         */
+        byte[] name = nulTruncate(chunkName);
         if (firstChar == Lua.LUA_SIGNATURE0) {
-            return undump(z, chunkName);
+            return undump(z, name);
         }
-        return load(z, chunkName, firstChar);
+        return load(z, name, firstChar);
+    }
+
+    /** 截到第一个 {@code \0}（{@code const char*} 语义），没有 {@code \0} 就原样返回 */
+    private static byte[] nulTruncate(byte[] b) {
+        for (int i = 0; i < b.length; i++) {
+            if (b[i] == 0) {
+                byte[] r = new byte[i];
+                System.arraycopy(b, 0, r, 0, i);
+                return r;
+            }
+        }
+        return b;
     }
 
     /**
@@ -2142,6 +2160,7 @@ public final class LuaState {
      * @see Lexer#Lexer(Zio, byte[], StringPool, int)
      */
     public LClosure load(Zio z, byte[] chunkName, int firstChar) {
+        chunkName = nulTruncate(chunkName);
         this.chunkName = chunkName;
         /*
          * luaD_protectedparser 那层保护：<b>出错时 nCcalls 要整体回滚</b>
@@ -2453,10 +2472,13 @@ public final class LuaState {
         String typeArg;
         if (!isNoneArg(arg)) {
             LuaValue v = stack[ci.func + arg];
-            LuaValue nm = metafieldOf(v, "__name");
-            if (nm != null && nm.isString()) {
-                typeArg = nm.asString().toJavaString();
-            } else if (v.tt == Lua.TLIGHTUSERDATA) {
+            /*
+             * 走 LuaTm.objTypeName，不要在这里自己取 __name：C 这边
+             * luaL_typeerror 用的就是 luaT_objtypename，于是「只有表与 userdata
+             * 认 __name」和「__name 是 C 字符串」两条规则在这里<b>同样成立</b>。
+             * 自己取一遍就是同一份逻辑的第二处拷贝 —— 而第二处拷贝已经漏过一次了。
+             */
+            if (v.tt == Lua.TLIGHTUSERDATA) {
                 /*
                  * {@code lauxlib.c: luaL_typeerror} 对<b>轻量</b> userdata 有
                  * 专门的措辞。{@code luaT_typenames_} 里它和完整 userdata
@@ -2466,7 +2488,7 @@ public final class LuaState {
                  */
                 typeArg = "light userdata";
             } else {
-                typeArg = v.typeName();
+                typeArg = LuaTm.objTypeName(this, v);
             }
         } else {
             typeArg = "no value";

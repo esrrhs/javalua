@@ -6636,4 +6636,192 @@ class RuntimeTest {
                 error(setmetatable({}, { __name = "MyType" }))
                 """);
     }
+
+    /**
+     * 内嵌 {@code \0} 的字符串矩阵：C 版凡是当 {@code const char *} 用的地方，
+     * 都会在第一个 {@code \0} 处被砍断（{@code strlen} / {@code %s} / {@code strstr} /
+     * {@code strchr}），而 Lua 字符串本身是字节串、<b>不以 {@code \0} 结尾</b>。
+     * 88 行逐字节一致。
+     * <p>
+     * 被砍断的一共有这些地方 —— 逐个钉住，少一个就是一处分歧：
+     * <ul>
+     *   <li><b>chunk 名</b>：{@code luaS_new} 用 {@code strlen}，所以
+     *       {@code load("error('E')", "a\0b")} 报的是 {@code [string "a"]:1: E}；</li>
+     *   <li><b>模块名与路径</b>：{@code luaL_gsub} 的替换串、
+     *       {@code package.loaded} 的键、{@code searchpath} 的四个参数；</li>
+     *   <li><b>文件名与 {@code fopen} 的 mode</b>：{@code io.open} / {@code io.lines} /
+     *       {@code os.remove} / {@code os.rename} / {@code os.getenv}；</li>
+     *   <li><b>{@code debug.getinfo} 的 what</b>：C 扫到 {@code \0} 就收工，
+     *       后面那几个字符<b>连看都不看</b>，不会变成 {@code invalid option}；</li>
+     *   <li><b>{@code debug.sethook} 的 mask</b>（{@code strchr}）：{@code "l\0c"}
+     *       只装行钩子，{@code "c\0l"} 只装调用钩子 —— 两者计数完全相反；</li>
+     *   <li><b>{@code luaL_traceback} 的消息</b>、<b>{@code luaL_checkoption}</b>
+     *       （{@code collectgarbage}）、<b>{@code string.pack} 的格式串</b>。</li>
+     * </ul>
+     * <p>
+     * 反过来，<b>不被砍断</b>的也得钉住：{@code string.format("%s")} 走的是
+     * {@code luaL_tolstring}（带长度），{@code error} 的消息走 {@code lua_concat}，
+     * {@code os.date} 用 {@code s + slen} 扫完整个格式串（实测
+     * {@code os.date("%Y\0%m", 0)} 给 {@code "1970"} + {@code \0} + {@code "01"}），
+     * 表键与 {@code gsub} / {@code upper} 也都是按字节的。
+     * <p>
+     * 还有一处<b>拒绝</b>而不是截断：带修饰符的 {@code %s} 与
+     * {@code string.pack} 的 {@code z} 会报
+     * {@code string contains zeros}（{@code luaL_argcheck(l == strlen(s))}）。
+     * <p>
+     * 最凶的一处是 {@code os.remove}：不截断的话 Java 的 {@code Paths.get} 抛
+     * {@code InvalidPathException}，而它<b>不是 {@code LuaError}</b>，
+     * {@code pcall} 拦不住，整颗逃逸成 Java 异常、进程当场崩掉。
+     * <p>
+     * 不比一处：{@code collectgarbage("count")} 的内存数值（没有收集器，
+     * 无从统计，见 {@code weakTableAndFinalizerMatrixMatchesReference}）。
+     */
+    @Test
+    void embeddedNulMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 内嵌 \\0 的字符串矩阵：C 版凡是当 const char* 用的地方，都会在第一个 \\0 处
+                -- 被砍断（strlen / %s / strstr），而 Lua 字符串本身是字节串、不以 \\0 结尾。
+                -- 这一片就是把这些地方逐个钉出来。
+                local function show(v)
+                  return (tostring(v):gsub("0x%x+", "0xADDR"))
+                end
+                local function bytes(s)
+                  local t = {}
+                  for i = 1, #s do t[#t + 1] = s:byte(i) end
+                  return table.concat(t, ",")
+                end
+
+                -- 1) chunk 名字：luaL_loadbufferx 的 chunkname 是 const char*
+                print("C1", pcall(function() return load("return 1", "a\\0b")() end))
+                local f1 = load("return 1", "a\\0b")
+                local i1 = debug.getinfo(f1, "S")
+                print("C2", bytes(i1.source), bytes(i1.short_src))
+                print("C3", pcall(load("error('E')", "a\\0b")))
+                print("C4", pcall(load("error('E')", "=a\\0b")))
+                print("C5", pcall(load("error('E')", "@a\\0b")))
+                print("C6", select(2, load("x=", "a\\0b")))
+                print("C7", select(2, load("x=", "=a\\0b")))
+                print("C8", select(2, load("x=", "@a\\0b")))
+                print("C9", select(2, load("x=", "@a\\0b\\0c")))
+
+                -- 2) 模块名 / searchpath：luaL_gsub 的替换串是 const char*
+                print("M1", pcall(require, "a\\0b"))
+                print("M2", package.searchpath("a\\0b", "./?.lua"))
+                print("M3", package.searchpath("a\\0b", "?"))
+                print("M4", pcall(package.searchpath, "a\\0b", "./?.lua;./?.x"))
+                print("M5", pcall(package.searchpath, "m", "?\\0z"))
+                print("M6", pcall(package.searchpath, "m", "./?.lua", ".", "\\0"))
+                print("M7", pcall(package.searchpath, "m", "./?.lua", "\\0", "-"))
+                print("M8", package.searchpath("a\\0b", "./?.lua", ".", "-"))
+
+                -- 3) 文件名：io.open / os.remove / os.rename 的错误消息用 %s 拼文件名
+                print("F1", pcall(io.open, "/nonexistent-dir-xyz/no\\0pe"))
+                print("F2", pcall(io.open, "\\0/nonexistent-dir-xyz/nope"))
+                print("F3", pcall(os.remove, "/nonexistent-dir-xyz/no\\0pe"))
+                print("F4", pcall(os.rename, "/nonexistent-dir-xyz/no\\0pe", "/nonexistent-dir-xyz/x"))
+                -- fopen 的 mode 也是 const char*
+                print("F5", pcall(io.open, "/nonexistent-dir-xyz/x", "r\\0w"))
+                print("F6", pcall(io.open, "/nonexistent-dir-xyz/x", "\\0r"))
+                print("F7", pcall(io.open, "/nonexistent-dir-xyz/x", "r"))
+                -- getenv 的名字同样是 const char*
+                print("F8", type(os.getenv("HOME\\0X")), type(os.getenv("HOME")), type(os.getenv("NOPE\\0X")))
+
+                -- 4) string.format：%s 是整串（走 luaL_tolstring 带长度），%q 也按字节
+                print("S1", bytes(("%s"):format("a\\0b")))
+                print("S2", pcall(string.format, "%.3s", "a\\0bc"))
+                print("S2b", #("%.3s"):format("ab"), pcall(function() return #("%.3s"):format("a\\0bc") end))
+                print("S3", bytes(("%q"):format("a\\0b")))
+                print("S4", #("%s"):format("a\\0b"))
+                print("S5", bytes(("%s%s"):format("a\\0", "b")))
+                print("S6", bytes(string.rep("a\\0b", 2)))
+                print("S7", bytes(("x"):rep(2, "\\0")))
+
+                -- 5) debug.getinfo 的 what：多出来的部分被 \\0 砍掉
+                local function gi()
+                  return 1
+                end
+                local a1 = debug.getinfo(gi, "S\\0ln")
+                print("G1", a1.source ~= nil, a1.short_src ~= nil, a1.currentline, a1.linedefined,
+                      a1.name, a1.namewhat, a1.what)
+                local a2 = debug.getinfo(gi, "Sln")
+                print("G2", a2.source ~= nil, a2.short_src ~= nil, a2.currentline, a2.linedefined,
+                      a2.name, a2.namewhat, a2.what)
+                print("G3", pcall(debug.getinfo, gi, "\\0"))
+                print("G4", pcall(debug.getinfo, gi, 5))
+                print("G5", pcall(debug.getinfo, gi, nil))
+
+                -- 6) traceback 的消息：luaL_traceback 用 strlen 取长度
+                print("T1", bytes(debug.traceback("a\\0b"):sub(1, 5)))
+                print("T2", bytes(debug.traceback("ab"):sub(1, 5)))
+                local okt, rt = xpcall(function() error("a\\0b") end, debug.traceback)
+                print("T3", okt, bytes(rt:sub(1, 5)))
+
+                -- 7) __name 走 C 字符串（luaT_objtypename）
+                local n3 = setmetatable({}, { __name = "A\\0B" })
+                print("N1", pcall(function() return n3 + 1 end))
+                print("N2", show(n3))
+                print("N3", pcall(string.rep, n3))
+                print("N4", pcall(function() return #n3 end))
+
+                -- 8) error 的消息本身按字节拼（lua_concat），不砍
+                local oke, ee = pcall(function() error("a\\0b") end)
+                print("E1", oke, #ee, bytes(ee:sub(-4)))
+                local oke2, ee2 = pcall(function() error("a\\0b", 0) end)
+                print("E2", oke2, #ee2, bytes(ee2))
+
+                -- 9) os.setlocale 的 locale 名
+                print("L1", pcall(os.setlocale, "a\\0b"))
+                print("L2", os.setlocale("C"))
+                print("L3", pcall(os.setlocale, "C\\0X"))
+                print("L4", os.setlocale())
+
+                -- 10) 表键 / 字符串库都按字节，不砍
+                local kt = {}
+                kt["a\\0b"] = 1
+                print("K1", #("a\\0b"), kt["a\\0b"], next(kt) == "a\\0b")
+                print("K2", bytes(table.concat({ "a\\0b", "c" }, "-")))
+                print("K3", bytes(tostring(("a\\0b"):upper())))
+                print("K4", bytes(("a\\0b"):gsub("\\0", "Z")))
+
+                -- 11) string.pack 的 z（零结尾串）与 format 带修饰符的 %s 都拒绝含 \\0 的串
+                print("P1", pcall(string.pack, "z", "a\\0b"))
+                print("P2", pcall(string.pack, "z", "ab"))
+                print("P3", bytes(string.pack("z", "ab")))
+                print("P4", pcall(string.packsize, "z", "a\\0b"))
+                print("P5", pcall(string.unpack, "z", "ab\\0c"))
+                print("P6", pcall(string.format, "%.3s", "a\\0bc"))
+                print("P7", pcall(string.format, "%10s", "a\\0bc"))
+                print("P8", pcall(string.format, "%-5s|", "a\\0bc"))
+                print("P9", pcall(string.format, "%s", "a\\0bc"))
+
+                -- 12) 其余拿字符串当 const char* 的入口
+                print("X1", pcall(collectgarbage, "collect\\0junk"))
+                print("X3", pcall(collectgarbage, "stop\\0"))
+                print("X4", pcall(collectgarbage, "\\0collect"))
+                print("X5", pcall(io.lines, "/nonexistent-dir-xyz/no\\0pe"))
+                print("X6", pcall(string.pack, "i\\0j", 1))
+                print("X7", bytes(string.pack("i\\0j", 1)))
+                print("X8", pcall(string.packsize, "i\\0j"))
+                print("X9", pcall(os.date, "%Y\\0%m", 0))
+                print("XA", os.date("%Y", 0))
+                -- sethook 的 mask 也走 strchr，\\0 之后的部分根本看不见
+                local cnt = 0
+                local okh = pcall(function()
+                  debug.sethook(function() cnt = cnt + 1 end, "l\\0c")
+                  local a = 1
+                  local b = a + 1
+                  return b
+                end)
+                print("XB", okh, cnt > 0)
+                local cnt2 = 0
+                local okh2 = pcall(function()
+                  debug.sethook(function() cnt2 = cnt2 + 1 end, "c\\0l")
+                  local a = 1
+                  local b = a + 1
+                  return b
+                end)
+                print("XC", okh2, cnt2 > 0)
+                print("XD", pcall(function() debug.sethook() end))
+                """);
+    }
 }

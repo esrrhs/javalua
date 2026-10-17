@@ -275,8 +275,10 @@ final class StringPack {
     /* ---------- string.pack ---------- */
 
     static int pack(LuaState L) {
+        // 格式串在 C 里是 const char*，主循环是 while (*fmt != '\0')：
+        // \0 之后的内容不是「非法选项」，是<b>根本不存在</b>。
         LuaString fmtStr = LuaAux.checkString(L, 1);
-        byte[] fmt = fmtStr.bytes;
+        byte[] fmt = fmtStr.toCString().bytes;
         Header h = new Header(L);
         h.islittle = NATIVE_LITTLE;
         h.maxalign = 1;
@@ -411,7 +413,7 @@ final class StringPack {
     /* ---------- string.packsize ---------- */
 
     static int packsize(LuaState L) {
-        byte[] fmt = LuaAux.checkString(L, 1).bytes;
+        byte[] fmt = LuaAux.checkString(L, 1).toCString().bytes;
         Header h = new Header(L);
         h.islittle = NATIVE_LITTLE;
         h.maxalign = 1;
@@ -433,7 +435,7 @@ final class StringPack {
     /* ---------- string.unpack ---------- */
 
     static int unpack(LuaState L) {
-        byte[] fmt = LuaAux.checkString(L, 1).bytes;
+        byte[] fmt = LuaAux.checkString(L, 1).toCString().bytes;
         LuaString dataStr = LuaAux.checkString(L, 2);
         byte[] data = dataStr.bytes;
         int ld = data.length;
