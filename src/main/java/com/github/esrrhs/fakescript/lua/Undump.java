@@ -140,18 +140,20 @@ public final class Undump {
      */
     private static final long MAX_SIZET = -1L;
 
-    private static int loadSize(LoadState S) {
-        long v = loadUnsigned(S, MAX_SIZET);
-        /*
-         * size_t 是 64 位，Java 的数组下标是 int。真拿到一个放不下的长度时，
-         * C 会去分配并抛 {@code LUA_ERRMEM}；本实现没有「内存不足」这一类错误，
-         * 而让它溢出成负数会更糟（{@code new byte[-1]} 抛的是 Java 异常，
-         * 会被引擎吞成脚本错误）。退而报 integer overflow。
-         */
-        if (v > Integer.MAX_VALUE) {
-            error(S, "integer overflow");
-        }
-        return (int) v;
+    /**
+     * 返回 {@code size_t}。Java 没有无符号 64 位，用 {@code long} 接，
+     * 由调用方（只有 {@link #loadStringN}）按实际能读到的字节数决定怎么存。
+     * <p>
+     * <b>这里不能对「大到 Java 数组放不下」的长度提前报错。</b>上一版就是这么
+     * 写的，注释还断言「C 会去分配并抛 {@code LUA_ERRMEM}」——照着 C 源码读
+     * 出来的结论，实测是错的：把源名长度写成 {@code 2^35-1}（变长整数
+     * {@code 7f 7f 7f 7f ff}），参考实现给的是 {@code truncated chunk} 而不是
+     * 内存错误。64 位上 malloc 34GB 是成功的，C 于是老老实实去读那 34GB，
+     * 读到流末尾报截断。提前报 {@code integer overflow} 等于凭空多出一个
+     * C 里不存在的分支，白白对不上一个用例。
+     */
+    private static long loadSize(LoadState S) {
+        return loadUnsigned(S, MAX_SIZET);
     }
 
     private static int loadInt(LoadState S) {
@@ -176,16 +178,39 @@ public final class Undump {
 
     /** {@code loadStringN}：可为 null 的字符串。size==0 表示没有 */
     private static LuaString loadStringN(LoadState S, Proto p) {
-        int size = loadSize(S);
+        long size = loadSize(S);
         if (size == 0) {
             return null;
         }
         size--; // 存的是 len+1，好让 0 表示「没有」
-        byte[] buff = new byte[size];
-        if (size > 0) {
-            loadBlock(S, buff, 0, size);
+        LuaString ts;
+        if (size <= MAXSHORTLEN) {
+            byte[] buff = new byte[(int) size];
+            if (size > 0) {
+                loadBlock(S, buff, 0, (int) size);
+            }
+            ts = LuaString.of(buff);
+        } else {
+            /*
+             * 长字符串<b>不能按声明的长度预分配</b>：畸形 chunk 可以声明
+             * {@code 2^35} 字节，而 {@code new byte[2^35]} 在 Java 里不存在——
+             * 但 C 那边 malloc 34GB 是成功的，于是它接着逐字节读，读到流末尾
+             * 报 {@code truncated chunk}。
+             * <p>
+             * 所以这里不预分配，改成<b>边读边攒</b>：攒多少取决于流里实际有
+             * 多少字节，而不是声明了多少；流一尽，{@code loadBlock} 就报
+             * truncated chunk，与参考实现逐字节对上。
+             */
+            ByteArrayOutputStream acc = new ByteArrayOutputStream();
+            byte[] block = new byte[8192];
+            for (long left = size; left > 0;) {
+                int n = (int) Math.min(left, block.length);
+                loadBlock(S, block, 0, n); // 中途流尽 → truncated chunk
+                acc.write(block, 0, n);
+                left -= n;
+            }
+            ts = LuaString.of(acc.toByteArray());
         }
-        LuaString ts = LuaString.of(buff);
         if (ts.isShort()) {
             ts = S.L.strings.intern(ts);
         }
@@ -203,16 +228,34 @@ public final class Undump {
 
     /* ---------- 各段 ---------- */
 
+    /**
+     * 指令逐条读，缓冲复用。
+     * <p>
+     * 上一版是先 {@code new byte[n * 4]} 整块读再拆。两个问题：
+     * <ul>
+     *   <li><b>{@code n * 4} 会整数溢出</b>。{@code n} 来自 {@code loadInt}，
+     *       上限受 {@code loadUnsigned} 约束，但那层约束一松（把
+     *       {@code limit >>>= 7} 写错一点点就够），{@code n * 4} 立刻变负数，
+     *       {@code new byte[-1073676284]} 抛的是
+     *       {@code NegativeArraySizeException}——<b>Java 异常，
+     *       {@code pcall} 抓不住</b>，一个畸形 chunk 就能把宿主进程炸掉。</li>
+     *   <li><b>多占一倍内存</b>。C 只分配 {@code n} 条指令；这边额外再铺
+     *       {@code 4n} 字节，等于照声明的尺寸双倍付款，而这个尺寸是
+     *       不可信输入给的。</li>
+     * </ul>
+     * 逐条读既不溢出、也只按 {@code n} 分配；流一尽照样由
+     * {@code loadBlock} 报 {@code truncated chunk}，与参考实现一致。
+     */
     private static void loadCode(LoadState S, Proto f) {
         int n = loadInt(S);
         f.code = new int[Math.max(n, 0)];
         f.sizecode = n;
-        byte[] b = new byte[n * SIZE_INSTRUCTION];
-        loadBlock(S, b, 0, b.length);
+        byte[] b = new byte[SIZE_INSTRUCTION];
         for (int i = 0; i < n; i++) {
+            loadBlock(S, b, 0, SIZE_INSTRUCTION);
             int v = 0;
             for (int k = SIZE_INSTRUCTION - 1; k >= 0; k--) { // 小端
-                v = (v << 8) | (b[i * SIZE_INSTRUCTION + k] & 0xFF);
+                v = (v << 8) | (b[k] & 0xFF);
             }
             f.code[i] = v;
         }
