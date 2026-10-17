@@ -35,12 +35,6 @@ public final class LuaUserdata {
         this.data = data;
     }
 
-    public LuaUserdata(Object data, LuaTable metatable) {
-        LuaState.chargeGc();
-        this.data = data;
-        this.metatable = metatable;
-    }
-
     /** 取 {@link LuaValue} 里的 userdata 载荷；调用方已确认是 userdata */
     public static Object dataOf(LuaValue v) {
         return ((LuaUserdata) v.o).data;

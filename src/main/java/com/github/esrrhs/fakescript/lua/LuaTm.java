@@ -139,7 +139,6 @@ final class LuaTm {
      * 压栈位置是当前 {@code L.top}——C 版靠 {@code EXTRA_STACK} 保证金，
      * 这里显式 {@code ensureSlots}。
      */
-    /** 两参版本：{@code __close(obj, err)} 只有两个参数 */
     /**
      * 与 {@link #callTm} 同形，但 {@code forceYy} 为真时<b>一定</b>用可 yield 的
      * {@code luaD_call}。
@@ -158,16 +157,6 @@ final class LuaTm {
         } else {
             L.callTmMightYield(func, 0);
         }
-    }
-
-    static void callTm(LuaState L, LuaValue f, LuaValue p1, LuaValue p2) {
-        int func = L.top;
-        L.ensureSlots(func + 3);
-        L.stack[func].set(f);
-        L.stack[func + 1].set(p1);
-        L.stack[func + 2].set(p2);
-        L.top = func + 3;
-        L.callTmMightYield(func, 0);
     }
 
     static void callTm(LuaState L, LuaValue f, LuaValue p1, LuaValue p2, LuaValue p3) {
