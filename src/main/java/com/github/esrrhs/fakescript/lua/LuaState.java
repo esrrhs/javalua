@@ -1679,8 +1679,22 @@ public final class LuaState {
             stack[hf].set(handler);
             stack[hf + 1].set(v);
             top = hf + 2;
-            LuaValue bad = pcall(hf, 1); // 处理函数自身出错不再兜底
-            if (bad != null) {
+            /*
+             * 处理函数<b>必须在不可 yield 的上下文里调</b>。
+             * <p>
+             * C 版这里是 {@code luaD_callnoyield}。上一版用的是 {@code pcall}，
+             * 于是 {@code xpcall} 的消息处理函数里 {@code coroutine.yield}
+             * 竟然成功了：实测参考实现给的是
+             * {@code false, "error in error handling"}，本实现给的是
+             * {@code true, "in msgh"}（协程停在 suspended）。
+             * <p>
+             * 道理是：能在错误处理的续体里 yield，就意味着「错误已经交出去一半」
+             * 的中间态可以被挂起，而 C 版没有这种状态。
+             */
+            try {
+                callNoYield(hf, 1);
+            } catch (LuaError e) { // 处理函数自身出错（含在里头 yield）不再兜底
+                top = hf;
                 return LuaValue.ofString(LuaString.latin1("error in error handling"));
             }
             LuaValue res = new LuaValue(stack[top - 1]);

@@ -8736,4 +8736,389 @@ print("lasthookline", last)
 dump("bigfn", big, "SL")
         """);
     }
+
+    /**
+     * 「协程 × C 边界」矩阵：在各种<b>由 C 发起的回调</b>里 {@code yield} 会怎样。
+     * <p>
+     * 每条都同时问 {@code coroutine.isyieldable()}，把「能不能」与「真做了会怎样」
+     * 分开记 —— 前者是纯查询，后者才牵扯 {@code nny}（C 版的 {@code nyci}）计数
+     * 在哪些入口被加一。这两件事被同一处缺陷同时答错时，只看后者会漏掉前者。
+     * <p>
+     * 覆盖的入口：{@code pcall} / {@code xpcall} / <b>{@code xpcall} 的消息处理
+     * 函数</b> / {@code table.sort} 比较函数 / {@code string.gsub} 替换函数 /
+     * {@code load} 的 reader / 八个元方法（含 {@code __close}）/ 四种泛型 for 的
+     * 迭代器 / 调试 hook / {@code coroutine.wrap} / 嵌套协程 / resume 已死与已
+     * 出错的协程 / 挂起的协程 resume 自己。
+     * <p>
+     * <b>咬出来的那一处真分歧</b>：{@code xpcall} 的消息处理函数里 yield。
+     * 参考实现给 {@code false, "error in error handling"} 且协程 <b>dead</b>；
+     * 本实现给 {@code true, "in msgh"} 且停在 suspended。原因是
+     * {@code LuaState.applyErrMsg} 用的是可 yield 的 {@code pcall}，而 C 版
+     * {@code ldo.c: luaD_callnoyield}。道理：能在错误处理的续体里 yield，就等于
+     * 承认「错误已交出去一半」这种中间态可以被挂起，而 C 版没有这种状态。
+     * 反向验证：把 {@code callNoYield} 改回 {@code call}，这里正好红 2 行。
+     * <p>
+     * <b>有一处不能比：{@code pairs} 的键顺序。</b>字符串键走 {@code luaS_hash}，
+     * seed 来自 {@code lstate.c: luai_makeseed} —— {@code time(NULL)} 加三个
+     * ASLR 地址，<b>每次启动都不一样</b>。实测同一份脚本在参考实现上连跑 5 次，
+     * {@code pairs} 的第一个键在 {@code a}/{@code b} 之间跳。所以本用例的
+     * {@code for_pairs} 走 {@code drain}：把协程跑到死、把全部 yield 值<b>排序</b>
+     * 再打印。任何打印字符串键先后的探针都是假红发生器。
+     * <p>
+     * 另一处：{@code load} 的 reader <b>必须有终止条件</b>（要 {@code return nil}），
+     * 否则 {@code load} 会一直读下去——第一版漏了这句，把参考实现二进制挂住了，
+     * 只能 {@code pkill}。
+     */
+    @Test
+    void coroutineYieldAcrossCBoundaryMatchesReference() {
+        Diff.assertMatches("""
+-- 协程 × C 边界矩阵：在各种「由 C 发起的回调」里 yield 会发生什么
+-- 每条都同时问 coroutine.isyieldable()，把「能不能」与「真做了会怎样」分开记
+
+local function show(name, ...)
+    local a = { ... }
+    local out = {}
+    for i = 1, select("#", ...) do
+        out[#out + 1] = tostring(a[i])
+    end
+    print(name, table.concat(out, "  "))
+end
+
+-- 在协程里跑 fn，打印 resume 的全部返回值
+local function run(name, fn)
+    local co = coroutine.create(fn)
+    show("run  " .. name, coroutine.resume(co))
+    show("  status " .. name, coroutine.status(co))
+end
+
+-- 只问能不能 yield，不真 yield
+local function ask(name, fn)
+    local co = coroutine.create(fn)
+    show("ask  " .. name, coroutine.resume(co))
+end
+
+-- 1) 基线：Lua 函数里直接 yield
+run("plain", function()
+    coroutine.yield(1, 2)
+    return "done"
+end)
+ask("isyieldable_plain", function()
+    return coroutine.isyieldable()
+end)
+
+-- 2) pcall / xpcall 里（Lua 的 pcall 是可 yield 的）
+run("pcall", function()
+    return pcall(function()
+        coroutine.yield("in pcall")
+        return 1
+    end)
+end)
+ask("isyieldable_pcall", function()
+    return pcall(function()
+        return coroutine.isyieldable()
+    end)
+end)
+run("xpcall", function()
+    return xpcall(function()
+        coroutine.yield("in xpcall")
+        return 1
+    end, function(m)
+        return "H:" .. tostring(m)
+    end)
+end)
+ask("isyieldable_xpcall", function()
+    return xpcall(function()
+        return coroutine.isyieldable()
+    end, tostring)
+end)
+-- 消息处理函数里 yield
+run("xpcall_msgh", function()
+    return xpcall(function()
+        error("boom")
+    end, function(m)
+        coroutine.yield("in msgh")
+        return "H" .. m
+    end)
+end)
+
+-- 3) C 发起的回调：sort / gsub / gmatch / load 的 reader
+run("sort", function()
+    local t = { 3, 1, 2 }
+    table.sort(t, function(a, b)
+        coroutine.yield("in sort")
+        return a < b
+    end)
+    return table.concat(t, ",")
+end)
+ask("isyieldable_sort", function()
+    local t = { 3, 1, 2 }
+    table.sort(t, function(a, b)
+        y = coroutine.isyieldable()
+        return a < b
+    end)
+    return y
+end)
+
+run("gsub_fn", function()
+    return string.gsub("abc", "%a", function(c)
+        coroutine.yield("in gsub")
+        return c:upper()
+    end)
+end)
+run("gsub_table", function()
+    return string.gsub("abc", "%a", { a = "A" })
+end)
+-- 注意：reader 必须有终止条件，否则 load 会一直读下去（无限循环）
+run("load_reader", function()
+    local n = 0
+    local f, err = load(function()
+        n = n + 1
+        if n == 1 then
+            coroutine.yield("in reader")
+            return "return "
+        elseif n == 2 then
+            return "42"
+        end
+        return nil
+    end)
+    return tostring(f), tostring(err)
+end)
+ask("isyieldable_load_reader", function()
+    local n = 0
+    local f, err = load(function()
+        n = n + 1
+        if n == 1 then
+            y = coroutine.isyieldable()
+            return "return "
+        elseif n == 2 then
+            return "42"
+        end
+        return nil
+    end)
+    return y, tostring(f), tostring(err)
+end)
+
+-- 4) 元方法里 yield
+local function meta(name, key, body)
+    run(name, function()
+        local t = setmetatable({}, { [key] = function(...)
+            coroutine.yield("in " .. key)
+            return body(...)
+        end })
+        return body2 and body2(t) or t
+    end)
+end
+run("meta_index", function()
+    local t = setmetatable({}, {
+        __index = function(_, k)
+            coroutine.yield("in __index")
+            return "V" .. tostring(k)
+        end,
+    })
+    return t.x
+end)
+run("meta_newindex", function()
+    local t = setmetatable({}, {
+        __newindex = function(_, k, v)
+            coroutine.yield("in __newindex")
+            rawset(_, k, v)
+        end,
+    })
+    t.x = 1
+    return t.x
+end)
+run("meta_call", function()
+    local t = setmetatable({}, {
+        __call = function(_, a)
+            coroutine.yield("in __call")
+            return a * 2
+        end,
+    })
+    return t(21)
+end)
+run("meta_concat", function()
+    local t = setmetatable({}, {
+        __concat = function(a, b)
+            coroutine.yield("in __concat")
+            return tostring(a) .. tostring(b)
+        end,
+    })
+    return t .. "x"
+end)
+run("meta_tostring", function()
+    local t = setmetatable({}, {
+        __tostring = function()
+            coroutine.yield("in __tostring")
+            return "TS"
+        end,
+    })
+    return tostring(t)
+end)
+run("meta_add", function()
+    local t = setmetatable({}, {
+        __add = function(a, b)
+            coroutine.yield("in __add")
+            return 7
+        end,
+    })
+    return t + 1
+end)
+run("meta_eq", function()
+    local mt = {
+        __eq = function()
+            coroutine.yield("in __eq")
+            return true
+        end,
+    }
+    local a, b = setmetatable({}, mt), setmetatable({}, mt)
+    return a == b
+end)
+run("meta_len", function()
+    local t = setmetatable({}, {
+        __len = function()
+            coroutine.yield("in __len")
+            return 9
+        end,
+    })
+    return #t
+end)
+run("meta_close", function()
+    local closed = false
+    do
+        local t <close> = setmetatable({}, {
+            __close = function()
+                coroutine.yield("in __close")
+                closed = true
+            end,
+        })
+    end
+    return closed
+end)
+
+-- 把协程跑到死，把所有 yield 值<b>排序</b>后一起打印。
+-- 排序是必须的：字符串键的遍历顺序由 luaS_hash 的 seed 决定，而参考实现的
+-- seed 是 lstate.c: luai_makeseed —— time(NULL) 加三个 ASLR 地址，
+-- 每次启动都不一样。实测同一份脚本连跑 5 次，pairs 首个键在 a/b 之间跳。
+-- 任何打印字符串键先后的探针都是「假红发生器」。
+local function drain(name, fn)
+    local co = coroutine.create(fn)
+    local all, res = {}, nil
+    for _ = 1, 50 do
+        res = { coroutine.resume(co) }
+        if coroutine.status(co) == "dead" then
+            break
+        end
+        all[#all + 1] = tostring(res[2])
+    end
+    table.sort(all)
+    show("drain " .. name, table.concat(all, "|"))
+    show("  drain_ret " .. name, table.unpack(res))
+    show("  drain_status " .. name, coroutine.status(co))
+end
+
+-- 5) 泛型 for：next/pairs（C 迭代器）与自定义（Lua 迭代器）
+drain("for_pairs", function()
+    local t = { a = 1, b = 2, c = 3 }
+    for k, v in pairs(t) do
+        coroutine.yield("p:" .. k .. "=" .. v)
+    end
+    return "ok"
+end)
+run("for_ipairs", function()
+    local t = { 10, 20 }
+    for i, v in ipairs(t) do
+        coroutine.yield("in ipairs:" .. i)
+    end
+    return "ok"
+end)
+run("for_next", function()
+    local t = { a = 1 }
+    for k, v in next, t do
+        coroutine.yield("in next:" .. k)
+    end
+    return "ok"
+end)
+run("for_custom", function()
+    local function iter(s, c)
+        if c >= 2 then
+            return nil
+        end
+        return c + 1, (c + 1) * 10
+    end
+    for i, v in iter, nil, 0 do
+        coroutine.yield("in custom:" .. i)
+    end
+    return "ok"
+end)
+ask("isyieldable_for_pairs", function()
+    local t = { a = 1 }
+    for k in pairs(t) do
+        return coroutine.isyieldable()
+    end
+end)
+
+-- 6) hook 里 yield
+run("hook_yield", function()
+    debug.sethook(function()
+        debug.sethook()
+        coroutine.yield("in hook")
+    end, "l")
+    local x = 1
+    return x
+end)
+ask("isyieldable_hook", function()
+    debug.sethook(function()
+        debug.sethook()
+        y = coroutine.isyieldable()
+    end, "l")
+    local x = 1
+    return y
+end)
+
+-- 7) 主协程里 yield
+show("main_yield", pcall(coroutine.yield, 1))
+show("main_isyieldable", coroutine.isyieldable())
+
+-- 8) coroutine.wrap 包起来再 yield
+local w = coroutine.wrap(function()
+    coroutine.yield("w1")
+    return "w2"
+end)
+show("wrap1", w())
+show("wrap2", w())
+show("wrap3", pcall(w))
+
+-- 9) 嵌套：协程里再开协程
+run("nested", function()
+    local inner = coroutine.create(function()
+        coroutine.yield("inner")
+        return "innerdone"
+    end)
+    show("  nested1", coroutine.resume(inner))
+    coroutine.yield("outer")
+    show("  nested2", coroutine.resume(inner))
+    return "outerdone"
+end)
+
+-- 10) resume 一个已经跑完的协程 / 出错的协程
+local c1 = coroutine.create(function()
+    return 1
+end)
+show("dead1", coroutine.resume(c1))
+show("dead2", coroutine.resume(c1))
+local c2 = coroutine.create(function()
+    error("inner error")
+end)
+show("errored1", coroutine.resume(c2))
+show("errored2", coroutine.resume(c2))
+-- 在挂起的协程里 resume 自己
+local c3
+c3 = coroutine.create(function()
+    show("self_resume", coroutine.resume(c3))
+    coroutine.yield()
+end)
+show("c3a", coroutine.resume(c3))
+show("c3b", coroutine.resume(c3))
+        """);
+    }
 }
