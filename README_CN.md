@@ -785,6 +785,26 @@ C 帧。它表现为每次回溯末尾那行 `[C]: in ?`，以及
   `tonumber('1\0')` 与 `tonumber('1\0', 2)` 双双被算成 `1`。
   `b_str2int` 现在整个改在字节上做，并回到长度上判「吃完了没有」。
 
+#### 还有一个：`table.sort` 选枢轴要用<b>无符号</b>算术
+
+`sort.lua` 在冒烟组里（它打印耗时，输出天生不可逐字节比），后来一次全量跑挂在
+`table.sort` 抛出的 `attempt to compare nil with number`。这个文件不播种，
+每次 `math.random()` 给的都是新数据，所以这是个<b>潜伏</b>缺陷：只有当某次分区
+严重失衡、`auxsort` 去换新的随机种子时才会露出来。
+
+* **`IdxT` 是 `unsigned int`，枢轴种子也是。** C 的 `rnd % (r4 * 2)` 是无符号
+  取模，恒在 `[0, r4*2)`；Java 的 `int` 有符号，而种子恰好就是 C 会生成的那
+  32 个比特——一半概率为负。有符号取模会把 `p` 拖到 `lo` 以下，极端时拖到 `1`
+  以下：`a[p]` 是 nil，`sort_comp` 就报
+  `attempt to compare nil with number`。现在用 `Integer.remainderUnsigned`。
+* **`rnd` 是按值传的。** C 里它是 `auxsort` 的形参，递归调用里重新随机不会漏回
+  外层帧。早先这里用 `int[]` 共享，于是在某个子树深处抽到的种子会一路影响整个
+  排序剩下的所有分区。
+
+「二十次跑挂一次」是很糟的找 bug 方式，所以 `choosePivot` 现在有一条自己的
+确定性用例（`TableLibTest.choosePivotStaysInsideTheInterval`），直接验 C 版那条
+`lua_assert`——`lo + r4 <= p <= up - r4`——而不再指望五万元素的排序碰巧踩中。
+
 ### 还没补上的
 
 语言与十个标准库本身没有缺项，上游套件里能逐字节比的那些也都比过了。剩下的是

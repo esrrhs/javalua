@@ -903,6 +903,31 @@ is a "we differ" — all four were plain mistakes on our side:
   on `s + l`. So both `tonumber('1\0')` and `tonumber('1\0', 2)` silently
   returned `1`. `b_str2int` is now written over bytes and re-checks the length.
 
+#### And one more: `table.sort` picks its pivot with *unsigned* arithmetic
+
+`sort.lua` lives in the smoke set — it prints timings, so its output can never be
+compared byte for byte — and a later full run failed inside it with
+`attempt to compare nil with number` out of `table.sort`. The file seeds nothing,
+so `math.random()` hands it fresh data on every run, which makes this a *latent*
+bug: it only surfaces when a partition comes out unbalanced enough for `auxsort`
+to draw a new random pivot.
+
+* **`IdxT` is `unsigned int`, and so is the pivot seed.** C's `rnd % (r4 * 2)` is
+  an unsigned modulo, always in `[0, r4*2)`. Java's `int` is signed, and the seed
+  carries exactly the 32 bits C would have produced — negative half the time. A
+  signed modulo then drags `p` below `lo`, and at the extreme below `1`, where
+  `a[p]` is nil and `sort_comp` reports `attempt to compare nil with number`.
+  Now `Integer.remainderUnsigned`, matching C.
+* **`rnd` is passed by value.** In C it is a parameter of `auxsort`, so
+  re-randomizing inside a recursive call never leaks back to the outer frame. It
+  used to be shared through an `int[]` here, which meant a seed drawn deep in one
+  subtree went on to steer every remaining partition of the whole sort.
+
+One run in twenty is a bad way to find a bug, so `choosePivot` now carries its own
+deterministic test (`TableLibTest.choosePivotStaysInsideTheInterval`) that checks
+the C `lua_assert` — `lo + r4 <= p <= up - r4` — directly, instead of hoping a
+50 000-element sort trips over it.
+
 ### What is still missing
 
 Nothing in the language or the ten standard libraries, and every upstream file

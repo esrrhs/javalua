@@ -1,9 +1,13 @@
 package com.github.esrrhs.fakescript.lua;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -43,6 +47,47 @@ class TableLibTest {
             String src = srcs[i];
             int n = i;
             tests.add(DynamicTest.dynamicTest(tag + "[" + n + "]", () -> Diff.assertMatches(src)));
+        }
+    }
+
+    /**
+     * {@code choosePivot} 的不变量 {@code lo + r4 <= p <= up - r4} —— C 版里
+     * 这是一条 {@code lua_assert}，Java 版得自己守住。
+     * <p>
+     * 为什么值得单独钉一条：{@code IdxT} 是 {@code unsigned int}，
+     * {@code rnd} 也是 {@code unsigned int}，所以 C 的取模恒为非负。Java 这边
+     * {@code int} 有符号，而随机种子本来就是 C 那 32 个比特——一半概率是负数，
+     * 有符号取模跟着变负，{@code p} 就掉出 {@code [lo, up]}，极端情形
+     * {@code p <= 0}，{@code a[p]} 是 nil，报出来的却是
+     * 「attempt to compare nil with number」。
+     * <p>
+     * 这条缺陷在 {@code sort.lua} 上的表现是<b>偶发</b>：它用未播种的
+     * {@code math.random()} 造 5 万个元素，只有分区严重失衡时才会去换随机种子。
+     * 反射直打私有方法，把一个概率性失败变成确定性断言。
+     */
+    @Test
+    void choosePivotStaysInsideTheInterval() throws Exception {
+        Method m = TableLib.class.getDeclaredMethod("choosePivot",
+                int.class, int.class, int.class);
+        m.setAccessible(true);
+        int[] seeds = {
+                0, 1, 7, 12345, Integer.MAX_VALUE,
+                -1, -12500, -24998, Integer.MIN_VALUE,
+                (int) 0xFFFFFFFFL, (int) 0xDEADBEEFL, (int) 0x80000000L,
+        };
+        int[][] ranges = {
+                {1, 50000}, {1, 5000}, {1, 1000}, {2, 101}, {100, 500}, {3, 40000},
+        };
+        for (int[] r : ranges) {
+            int lo = r[0];
+            int up = r[1];
+            int r4 = (up - lo) / 4;
+            for (int rnd : seeds) {
+                int p = (Integer) m.invoke(null, lo, up, rnd);
+                assertTrue(p >= lo + r4 && p <= up - r4,
+                        "choosePivot(" + lo + ", " + up + ", " + rnd + ") = " + p
+                                + "，越出了 [" + (lo + r4) + ", " + (up - r4) + "]");
+            }
         }
     }
 
@@ -132,6 +177,18 @@ class TableLibTest {
             local ok = true
             for i = 2, 30 do if t[i-1] > t[i] then ok = false end end
             print(ok, table.concat(t, ""))
+            """,
+
+            """
+            -- 越过 RANLIMIT(100) 才会走「随机枢轴」那条路；枢轴越界时 a[p] 是 nil，
+            -- sort_comp 会在调用比较函数之前就抛错，所以这里用 pcall 兜住。
+            math.randomseed(42)
+            local t = {}
+            for i = 1, 5000 do t[i] = math.random() end
+            print(pcall(table.sort, t, function(a, b) return a < b end))
+            local ok = true
+            for i = 2, 5000 do if t[i-1] > t[i] then ok = false end end
+            print(ok, #t)
             """,
 
             """
