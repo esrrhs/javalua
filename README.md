@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 863 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 864 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2712,6 +2712,33 @@ artifact, and chasing it would have burned an afternoon proving correct code
 correct. What actually tells you the path runs is the *comparison*, not the
 coverage number — which is the same lesson as "coverage going up ≠ the gap
 closed", from the other side.
+
+#### The `os.date` shape matrix: `*t` is a `strcmp`, not a prefix
+
+`OsLib` was at 0.952, and the existing `FORMAT` group only exercised the `!`
+(UTC) half. The new 337-line matrix adds the other half: **every conversion
+specifier in local time**, the same set at five timestamps (`0`, the 2038
+boundary, 1900, `-1`, and year 1), the error shapes for invalid specifiers, and
+the corners of `os.time` / `os.difftime` / `os.setlocale` / `os.getenv`.
+
+It found **one real bug**: `*t` was a *prefix* test, but C has
+`strcmp(s, "*t") == 0`. So `os.date("*t x")` should fall through to `strftime`,
+where `*`, `t`, the space and the `x` are all literals, and return the string
+`"*t x"` — this implementation returned a table instead.
+
+Fixing it surfaced a second detail, the same trap as everywhere else in this
+codebase: `strcmp` **stops at the first NUL**, so `os.date("*t\0x")` is *still*
+the table form in C. Comparing `f.length` against 2 is not enough; the string
+has to be truncated at `\0` first.
+
+Sensitivity: deleting the `E` / `O` two-character group from
+`LUA_STRFTIMEOPTIONS` turns 38 lines red, reverting `*t` to a prefix test turns
+1 red, and using `f.length` instead of the NUL-truncated length turns 2 red.
+
+Two things stay out of the matrix on purpose: **`!%z`** (macOS's `strftime`
+reports the *local* offset even under `gmtime`, glibc reports `+0000`; this
+implementation follows POSIX and can only agree with one of them) and
+**`os.date` / `os.time` with no argument** (wall clock).
 
 ### `__gc` is deliberately not chased further
 

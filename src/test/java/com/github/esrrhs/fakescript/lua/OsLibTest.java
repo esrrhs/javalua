@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -399,4 +400,193 @@ class OsLibTest {
         print(table.concat(out, "\\n"))
             """ };
 
+    /**
+     * {@code os.date} / {@code os.time} 的形状矩阵（337 行）。
+     * <p>
+     * 已有的 {@code FORMAT} 组只跑了 {@code !}（UTC）那一半；这里补齐另外半边：
+     * <b>本地时区</b>的每个转换符，以及同一批转换符在<b>多个时间点</b>上的值
+     * （{@code 0} / 2038 边界 / 1900 / {@code -1} / 公元 1 年），外加
+     * 非法转换符的报错形状、{@code os.time} / {@code os.difftime} /
+     * {@code os.setlocale} / {@code os.getenv} 的边角。
+     * <p>
+     * 咬出<b>一处真 bug</b>：{@code *t} 写成了「以 {@code *t} 开头」而 C 是
+     * {@code strcmp(s, "*t") == 0}。于是 {@code os.date("*t x")} 本该走
+     * strftime 那条路、把 {@code *} {@code t} 空格 {@code x} 全当字面量返回
+     * {@code "*t x"}，本实现却返回了表。修的时候又带出第二个细节：
+     * {@code strcmp} 见到 {@code \0} 就停，所以 {@code os.date("*t\0x")} 在 C 里
+     * <b>仍然是取表</b> —— 只比长度不算完，得先截到第一个 NUL。
+     * <p>
+     * 敏感性：把 {@code LUA_STRFTIMEOPTIONS} 里 {@code E} / {@code O} 两字符那组
+     * 删掉红 38 行；把 {@code *t} 退回前缀匹配红 1 行；把 {@code *t} 的长度
+     * 改成用 {@code f.length}（不截 NUL）红 2 行。
+     * <p>
+     * 不进矩阵的：{@code !%z}（macOS 的 strftime 在 gmtime 下给的是<b>本地</b>
+     * 偏移，glibc 给 {@code +0000}；本实现按 POSIX 给 {@code +0000}，只能在
+     * Linux 上对得上）、以及无参的 {@code os.date} / {@code os.time}（墙上时钟）。
+     */
+    @Test
+    void dateShapeMatrixMatchesReference() {
+        Diff.assertMatches("""
+                
+                local T0 = 0
+                local T1 = 1700000000
+                local T2 = -946080000        -- 1940 前后
+                local T3 = 2147483647        -- 2038 边界
+                local T4 = -2208988800       -- 1900-01-01
+                local T5 = -1
+                
+                local function show(r)
+                    if type(r) == "table" then
+                        return string.format("%d-%d-%d %d:%d:%d yday=%d wday=%d isdst=%s",
+                            r.year, r.month, r.day, r.hour, r.min, r.sec, r.yday, r.wday,
+                            tostring(r.isdst))
+                    end
+                    return tostring(r)
+                end
+                
+                local function d(tag, fmt, t)
+                    local ok, r = pcall(os.date, fmt, t)
+                    print(tag, ok and show(r) or ("ERR " .. tostring(r)))
+                end
+                
+                local function e(tag, f, ...)
+                    local ok, r = pcall(f, ...)
+                    print(tag, ok and show(r) or ("ERR " .. tostring(r)))
+                end
+                
+                -- 单字符转换符：C99 那一组（照 LUA_STRFTIMEOPTIONS 抄）
+                local singles = "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%"
+                for i = 1, #singles do
+                    local c = singles:sub(i, i)
+                    d("S_" .. c, "%" .. c, T1)
+                end
+                -- 同一批时间戳下的 UTC（! 前缀）
+                for i = 1, #singles do
+                    local c = singles:sub(i, i)
+                    -- %z / %Z 在 '!' 下两边 libc 不一致：macOS 的 strftime 用全局 timezone
+                    -- （给本地偏移），glibc 用 tm_gmtoff（给 +0000 / GMT）。不进矩阵。
+                    if c ~= "z" and c ~= "Z" then
+                        d("U_" .. c, "!%" .. c, T1)
+                    end
+                end
+                -- 另一个时间点：1970 与 2038 边界
+                for i = 1, #singles do
+                    local c = singles:sub(i, i)
+                    d("Z_" .. c, "%" .. c, T0)
+                    d("Y_" .. c, "%" .. c, T3)
+                end
+                -- 1900 与负数秒：zeroPad 的负数分支
+                for i = 1, #singles do
+                    local c = singles:sub(i, i)
+                    if c ~= "z" and c ~= "Z" then
+                        d("N_" .. c, "!%" .. c, T4)
+                        d("M_" .. c, "!%" .. c, T5)
+                    end
+                end
+                
+                -- 两字符转换符（E / O 修饰）
+                local doubles = { "Ec", "EC", "Ex", "EX", "Ey", "EY", "Od", "Oe", "OH", "OI",
+                                  "Om", "OM", "OS", "Ou", "OU", "OV", "Ow", "OW", "Oy" }
+                for _, c in ipairs(doubles) do
+                    d("D_" .. c, "%" .. c, T1)
+                    d("E_" .. c, "!%" .. c, T1)
+                end
+                
+                -- *t 与 !*t
+                d("t1", "*t", T1)
+                d("t2", "!*t", T1)
+                d("t3", "*t", T0)
+                d("t4", "!*t", T0)
+                d("t5", "*t", T2)
+                d("t6", "!*t", T5)
+                d("t7", "*t x", T1)
+                d("t8", "%*t", T1)
+                
+                -- 非法转换符
+                d("x1", "%q", T1)
+                d("x2", "%E", T1)
+                d("x3", "%O", T1)
+                d("x4", "%", T1)
+                d("x5", "abc%", T1)
+                d("x6", "%Ez", T1)
+                d("x7", "%Oq", T1)
+                d("x8", "%s", T1)
+                d("x9", "%k", T1)
+                d("xa", "%l", T1)
+                d("xb", "%%", T1)
+                d("xc", "", T1)
+                d("xd", "hello %Y world", T1)
+                d("xe", "!", T1)
+                d("xf", "!*", T1)
+                
+                -- 时间的形状
+                d("v1", "%Y", "1700000000")
+                d("v2", "%Y", 1700000000.0)
+                d("v3", "%Y", 1700000000.5)
+                d("v4", "%Y", true)
+                d("v5", "%Y", {})
+                d("v6", "%Y", 2^62)
+                d("v7", "%Y", -2^62)
+                d("v8", "%Y", 1e300)
+                d("v9", "%Y", 0/0)
+                e("vb", os.date, "%Y")
+                d("vc", "%Y", -62135596800)   -- 公元 1 年
+                d("vd", "!%C", -62135596800)
+                
+                -- os.time
+                local function tt(tag, t)
+                    e(tag, os.time, t)
+                end
+                tt("m1", { year = 2023, month = 11, day = 14, hour = 22, min = 13, sec = 20 })
+                tt("m2", { year = 2023, month = 11, day = 14 })
+                tt("m3", { year = 2023, month = 11, day = 14, isdst = true })
+                tt("m4", { year = 2023, month = 11, day = 14, isdst = false })
+                tt("m5", { year = 1970, month = 1, day = 1, hour = 0 })
+                tt("m6", { year = 1900, month = 1, day = 1 })
+                tt("m7", { year = 2023, month = 13, day = 1 })
+                tt("m8", { year = 2023, month = 0, day = 1 })
+                tt("m9", { year = 2023, month = 1, day = 32 })
+                tt("ma", { year = 2023, month = 1 })
+                tt("mb", { month = 1, day = 1 })
+                tt("mc", { year = 2023, month = 1, day = "1" })
+                tt("md", { year = 2023, month = 1, day = 1.5 })
+                tt("me", { year = 2023, month = 1, day = true })
+                tt("mf", { year = 2^40, month = 1, day = 1 })
+                tt("mg", {})
+                tt("mh", { year = 2023, month = 1, day = 1, hour = 25 })
+                e("mj", os.time, 42)
+                
+                -- os.difftime / os.clock 之外的杂项
+                e("n1", os.difftime, 100, 50)
+                e("n2", os.difftime, 50, 100)
+                e("n3", os.difftime, 0, 0)
+                e("n4", os.difftime, "100", 50)
+                e("n5", os.difftime)
+                e("n6", os.difftime, 1)
+                
+                -- os.setlocale
+                e("l1", os.setlocale)
+                e("l2", os.setlocale, "C")
+                e("l3", os.setlocale, "C", "all")
+                e("l4", os.setlocale, "xx")
+                e("l5", os.setlocale, nil, "bogus")
+                e("l6", os.setlocale, "C", "bogus")
+                e("l7", os.setlocale, 42)
+                e("l8", os.setlocale, "C", "time")
+                
+                -- os.getenv
+                e("g1", os.getenv, "NO_SUCH_VAR_XYZ_12345")
+                e("g2", os.getenv, "PATH")
+                e("g3", os.getenv, 42)
+                e("g4", os.getenv, true)
+                e("g5", os.getenv)
+                
+                -- 内嵌 \\0：C 的 strcmp 见到 \\0 就停
+                d("w1", "*t\\0x", T1)
+                d("w2", "!*t\\0x", T1)
+                d("w3", "%Y\\0abc", T1)
+                d("w4", "\\0*t", T1)
+                print("done")
+                """);
+    }
 }

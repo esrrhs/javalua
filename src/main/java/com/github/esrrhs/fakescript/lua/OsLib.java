@@ -206,7 +206,21 @@ public final class OsLib {
         if (c == null) {
             throw badDate(L);
         }
-        if (p + 1 < f.length + 1 && p + 2 <= f.length && f[p] == '*' && f[p + 1] == 't') {
+        /*
+         * C 这里是 {@code strcmp(s, "*t") == 0}，不是「以 *t 开头」—— 所以
+         * {@code os.date("*t x")} 走的是 strftime 那条路，{@code *}、{@code t}、
+         * 空格、{@code x} 全当字面量，结果是字符串 {@code "*t x"} 而不是表。
+         * 按前缀匹配会把这类格式串错认成取表。
+         * <p>
+         * 另一个细节：{@code strcmp} 遇到 {@code \0} 就停，所以
+         * {@code os.date("*t\0x")} 在 C 里<b>仍然是</b>取表 —— 先截到第一个 NUL
+         * 再比长度，不能直接用 {@code f.length}。
+         */
+        int n = 0;
+        while (p + n < f.length && f[p + n] != 0) {
+            n++;
+        }
+        if (n == 2 && f[p] == '*' && f[p + 1] == 't') {
             LuaTable r = new LuaTable(0, 9);
             LuaValue tv = LuaValue.ofTable(r);
             setAllFields(L, tv, c, utc);
