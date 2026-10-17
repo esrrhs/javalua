@@ -602,6 +602,8 @@ class FuzzTest {
         private static final String[] PATTERNS = {
                 "%a+", "%d+", "%s*", "[abc]", "[^abc]", "(%a)", "(%d)(%d)",
                 "^a", "a$", ".", "%.", "%w*", "[a-c]+",
+                // 位置捕获、平衡匹配、边界匹配：三类以前一个都没生成过
+                "()%a+", "%bxy", "%f[%a]%a+", "((%a)(%d))",
         };
 
         private static final String[] REPLS = {
@@ -777,7 +779,102 @@ class FuzzTest {
         private String stdLibOps() {
             String tmp = "q" + (tmpCounter++);
             StringBuilder sb = new StringBuilder();
-            switch (pick(7)) {
+            switch (pick(11)) {
+            case 7: // math.random 的序列：必须先播种
+                /*
+                 * 不播种的 math.random 每次进程都不一样，所以只能整段出现：
+                 * randomseed 固定种子 → 取一串 → 打印。序列由 xoshiro256** 定死，
+                 * 与实现无关，是个很硬的差分点。
+                 */
+                sb.append("math.randomseed(").append(pick(1000)).append(")\n");
+                sb.append("local ").append(tmp).append(" = {}\n");
+                for (int i = 0; i < 4; i++) {
+                    String e;
+                    switch (pick(4)) {
+                    case 0:
+                        e = "math.random()";
+                        break;
+                    case 1:
+                        e = "math.random(100)";
+                        break;
+                    case 2:
+                        e = "math.random(-5, 5)";
+                        break;
+                    default:
+                        e = "math.random(" + pick(3) + ", " + (pick(3) + 4) + ")";
+                        break;
+                    }
+                    sb.append("  ").append(tmp).append("[").append(i + 1).append("] = ")
+                            .append(e).append('\n');
+                }
+                sb.append("print(table.concat(").append(tmp).append(", ','))\n");
+                sb.append("print(pcall(math.random, ").append(pick(4) + 3).append(", ")
+                        .append(pick(3)).append("))");
+                break;
+            case 8: // os.time / os.date：一律用 '!' 强制 UTC，否则看机器时区
+                sb.append("print(os.time({year = 2020, month = 1, day = 1, hour = 0,"
+                        + " min = 0, sec = 0}))\n");
+                sb.append("print(os.date('!%Y-%m-%d %H:%M:%S', ")
+                        .append(pick(2000000000)).append("))\n");
+                sb.append("local d").append(tmp).append(" = os.date('!*t', ")
+                        .append(pick(2000000000)).append(")\n");
+                sb.append("print(d").append(tmp).append(".year, d").append(tmp)
+                        .append(".month, d").append(tmp).append(".day, d").append(tmp)
+                        .append(".hour, d").append(tmp).append(".wday, d").append(tmp)
+                        .append(".yday, d").append(tmp).append(".isdst)\n");
+                sb.append("print(pcall(os.date, '!%Y', 'x'), os.difftime(100, 50))");
+                break;
+            case 9: // coroutine：wrap / status / close / isyieldable
+                sb.append("local co").append(tmp).append(" = coroutine.create(function(a)\n");
+                sb.append("  local b = coroutine.yield(a + 1)\n");
+                sb.append("  coroutine.yield(b * 2)\n");
+                sb.append("  return ").append(nonVarargExpression(1)).append('\n');
+                sb.append("end)\n");
+                sb.append("print(coroutine.status(co").append(tmp).append("),"
+                        + " coroutine.isyieldable())\n");
+                sb.append("print(coroutine.resume(co").append(tmp).append(", 1))\n");
+                sb.append("print(coroutine.status(co").append(tmp).append("))\n");
+                sb.append("print(coroutine.resume(co").append(tmp).append(", 5))\n");
+                sb.append("print(coroutine.resume(co").append(tmp).append("))\n");
+                sb.append("print(coroutine.status(co").append(tmp).append("))\n");
+                sb.append("local w").append(tmp)
+                        .append(" = coroutine.wrap(function() for i = 1, 3 do"
+                                + " coroutine.yield(i) end end)\n");
+                sb.append("print(w").append(tmp).append("(), w").append(tmp)
+                        .append("(), w").append(tmp).append("())\n");
+                sb.append("print(pcall(w").append(tmp).append("))\n");
+                sb.append("local c").append(tmp)
+                        .append(" = coroutine.create(function() coroutine.yield() end)\n");
+                sb.append("coroutine.resume(c").append(tmp).append(")\n");
+                sb.append("print(coroutine.close(c").append(tmp).append("))");
+                break;
+            case 10: // debug：只打印确定量，绝不打函数/源名（地址与路径不可比）
+                sb.append("local function df").append(tmp).append("(a, b) local zz = 1"
+                        + " return zz end\n");
+                sb.append("local i").append(tmp).append(" = debug.getinfo(df")
+                        .append(tmp).append(")\n");
+                sb.append("print(i").append(tmp).append(".what, i").append(tmp)
+                        .append(".nups, i").append(tmp).append(".nparams, i").append(tmp)
+                        .append(".isvararg, i").append(tmp).append(".linedefined, i")
+                        .append(tmp).append(".currentline, type(i").append(tmp)
+                        .append(".func))\n");
+                sb.append("print(debug.getinfo(1).what, debug.getinfo(1).currentline,"
+                        + " debug.getinfo(print).what)\n");
+                sb.append("local nm").append(tmp).append(", vl").append(tmp)
+                        .append(" = debug.getlocal(1, 1)\n");
+                sb.append("print(type(nm").append(tmp).append("), type(vl")
+                        .append(tmp).append("))\n");
+                sb.append("local h").append(tmp).append(" = 0\n");
+                sb.append("debug.sethook(function() h").append(tmp).append(" = h")
+                        .append(tmp).append(" + 1 end, 'l')\n");
+                sb.append("for s = 1, 6 do local _ = s end\n");
+                sb.append("debug.sethook()\n");
+                sb.append("print(h").append(tmp).append(")\n");
+                sb.append("print(#debug.traceback() > 0,"
+                        + " #debug.traceback('m') > 0)\n");
+                sb.append("print(debug.getmetatable(1),"
+                        + " type(debug.setmetatable({}, {})))");
+                break;
             case 0: // gmatch：迭代次数 + 拼起来的结果
                 // 字符串字面量必须先括起来才能接 ':' —— 实测 'abc':gmatch(...)
                 // 在 for-in 的表达式表里是 'do' expected near ':'
@@ -833,13 +930,19 @@ class FuzzTest {
                 sb.append("print(p").append(tmp).append(".n, select('#', table.unpack(p")
                         .append(tmp).append(")))");
                 break;
-            default: // gsub 的函数替换：返回 nil 表示保留原匹配
+            case 6: // gsub 的函数替换：返回 nil 表示保留原匹配
                 sb.append("local s").append(tmp).append(" = ").append(strAtom()).append('\n');
                 sb.append("local r, n = string.gsub(s").append(tmp).append(", '")
                         .append(PATTERNS[pick(PATTERNS.length)])
                         .append("', function(c) return ")
                         .append(chance(50) ? "c .. '!'" : "nil").append(" end)\n");
                 sb.append("print(r, n)");
+                break;
+            default: // string.find 的 plain 与 init 两个参数
+                sb.append("print(pcall(string.find, ").append(strAtom()).append(", '")
+                        .append(PATTERNS[pick(PATTERNS.length)]).append("', ")
+                        .append(pick(4)).append(chance(50) ? ", true" : "")
+                        .append("))");
                 break;
             }
             return sb.toString();
@@ -929,6 +1032,24 @@ class FuzzTest {
                 sb.append(atom());
             }
             return sb.toString();
+        }
+
+        /**
+        /**
+         * 在非变长函数体里生成表达式。
+         * <p>
+         * {@link #expression} 会写 {@code (select('#', ...))}，而协程体造的是
+         * {@code function(a)} —— 不是变长函数，写出来就是
+         * {@code cannot use '...' outside a vararg function}。
+         */
+        private String nonVarargExpression(int d) {
+            boolean saved = vararg;
+            vararg = false;
+            try {
+                return expression(d);
+            } finally {
+                vararg = saved;
+            }
         }
 
         /**

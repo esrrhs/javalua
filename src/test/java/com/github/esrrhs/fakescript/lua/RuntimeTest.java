@@ -448,6 +448,38 @@ class RuntimeTest {
                 + "end\n");
     }
 
+    /**
+     * 库函数报错里的<b>全名</b>在协程里也得反查得到。
+     * <p>
+     * {@code lauxlib.c: pushglobalfuncname} 从 {@code _LOADED}（也就是
+     * {@code package.loaded}）里按值反查两层，才把 {@code '?'} 换成
+     * {@code 'math.random'}。而 {@code _LOADED} 在 C 里挂在<b>注册表</b>上，
+     * 注册表是 {@code global_State} 级别的 —— 所有 {@code lua_State} 共用一份。
+     * 这里早先每个 state 一份，协程拿到的是空表，于是：
+     * {@code bad argument #1 to '?'} vs 参考实现的 {@code 'math.random'}。
+     * <p>
+     * 不打印 {@code coroutine.running()}：那是线程地址，两边必然不同。
+     */
+    @Test
+    void libraryFunctionNamesResolveInsideCoroutines() {
+        Diff.assertMatches(""
+                + "local co = coroutine.create(function()\n"
+                + "  print(pcall(math.random, 5, 1))\n"
+                + "  print(pcall(string.rep, 'x', 'y'))\n"
+                + "  print(pcall(string.format, '%d', 'zz'))\n"
+                + "  print(pcall(table.concat, 5))\n"
+                + "  print(pcall(math.random, 'x'))\n"
+                + "end)\n"
+                + "print(coroutine.resume(co))\n"
+                // 主线程上也要对：两条路径共用同一份 _LOADED
+                + "print(pcall(math.random, 5, 1))\n"
+                + "print(pcall(string.rep, 'x', 'y'))\n"
+                + "local function f() return math.random(5, 1) end\n"
+                + "print(pcall(f))\n"
+                + "local g = math.random\n"
+                + "print(pcall(g, 5, 1))\n");
+    }
+
     @Test
     void errorMessagesMatchReference() {
         List<String> bad = new ArrayList<>();

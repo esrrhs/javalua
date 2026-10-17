@@ -198,8 +198,14 @@ public final class LuaState {
      * 于是 {@code pcall(string.len)} 报的是
      * 「bad argument #1 to 'string.len'」而不是「… to 'len'」。少的不是里子
      * 而是面子——但真实项目的日志与断言里全是这种字符串。
+     * <p>
+     * 与 {@link #registry} / {@link #globals} 一样<b>必须与主线程共享</b>：
+     * C 版 {@code _LOADED} 挂在注册表上，而注册表是 {@code global_State}
+     * 级别的，所有 {@code lua_State} 共用一份。早先这里是每个 state 一份，
+     * 于是协程里 {@code pcall(math.random, 5, 1)} 反查不到名字，报成
+     * 「bad argument #1 to '?'」——参考实现给的是 'math.random'。
      */
-    private final LuaTable loaded = new LuaTable();
+    private final LuaTable loaded;
 
     /**
      * 每个基础类型的默认元表，对应 {@code global_State.mt[]}。
@@ -279,12 +285,14 @@ public final class LuaState {
             strings = new StringPool();
             globals = new LuaTable();
             registry = new LuaTable();
+            loaded = new LuaTable();
             typeMt = new LuaTable[Lua.TTHREAD + 1];
             out = System.out;
         } else {
             strings = main.strings;
             globals = main.globals;
             registry = main.registry;
+            loaded = main.loaded;
             typeMt = main.typeMt;
             out = main.out;
         }
@@ -2414,7 +2422,7 @@ public final class LuaState {
 
     /** {@code lauxlib.c: pushglobalfuncname} 的前半段：在 {@code _LOADED} 里找两层 */
     private String globalFuncName() {
-        if (loaded == null || ci == null || ci.func >= stack.length) {
+        if (ci == null || ci.func >= stack.length) {
             return null;
         }
         String s = findFieldName(loaded, stack[ci.func], 2);
