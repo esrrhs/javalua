@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 796 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 797 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -954,6 +954,34 @@ fuzz 生成器学会了 `table.*`，立刻回本：五处不一致，没有一�
 两处都由 `RuntimeTest.tableLengthBoundaryMatchesReference` 钉住：空洞图案在脚本
 <b>内部</b>用循环铺开（用 LCG 会把随机数发生器本身也拉进比较范围），每张表把
 `#t` 读两次，因为 C 会在第一次调用时顺手把 `alimit` 改成一个提示。
+
+#### 把语料搬进协程里跑，又咬出一处
+
+同一批语料后来也塞进 `coroutine.create` 里跑了一遍，咬出一个跟协程其实没关系的
+bug：
+
+> 协程里的 `pcall(math.random, 5, 1)` 报
+> `bad argument #1 to '?' (interval is empty)`，参考实现报
+> `bad argument #1 to 'math.random' (interval is empty)`。
+
+* **`_LOADED` 是 `global_State` 级的，不是每线程一份。** `lauxlib.c` 的
+  `pushglobalfuncname` 会拿当前函数去 `package.loaded` 里反查两层，把 `'?'`
+  换成真名：
+
+  ```c
+  static void pushglobalfuncname (lua_State *L, lua_Debug *ar) {
+    ...
+    lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    if (findfield(L, L.top - 1, 2)) { ... }
+  ```
+
+  `LUA_LOADED_TABLE` 是 <b>registry</b> 的字段，而 registry 属于 `global_State`
+  —— 所有 `lua_State` 共用同一个。这里早先把 `loaded` 做成了每个 `LuaState`
+  一张，于是协程里的 `package.loaded` 是空的，协程内的每条诊断都退化成 `'?'`。
+  修法只有一行：`loaded = main.loaded`。注意它<b>只在协程里</b>现形——主线程
+  自己会填自己的那张表，所以整个上游套件和此前所有 fuzz 种子对此都一声不吭。
+
+由 `RuntimeTest.libraryFunctionNamesResolveInsideCoroutines` 钉住。
 
 ### 还没补上的
 

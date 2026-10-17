@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 796 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 797 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate.
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
@@ -1100,6 +1100,36 @@ Both are pinned by `RuntimeTest.tableLengthBoundaryMatchesReference`, which buil
 the hole patterns with loops inside the script (an LCG would put the generator
 itself into the comparison) and reads `#t` twice per table, because C rewrites
 `alimit` as a hint on the first call.
+
+#### One more, from running the corpus inside coroutines
+
+The same corpus was then also run through `coroutine.create`, which found a bug
+that had nothing to do with coroutines:
+
+> `pcall(math.random, 5, 1)` inside a coroutine reported
+> `bad argument #1 to '?' (interval is empty)`; the reference reports
+> `bad argument #1 to 'math.random' (interval is empty)`.
+
+* **`_LOADED` lives at `global_State` level, not per-thread.** `lauxlib.c`'s
+  `pushglobalfuncname` reverse-looks-up the current function in
+  `package.loaded`, two levels deep, to turn `'?'` into a real name:
+
+  ```c
+  static void pushglobalfuncname (lua_State *L, lua_Debug *ar) {
+    ...
+    lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    if (findfield(L, L.top - 1, 2)) { ... }
+  ```
+
+  `LUA_LOADED_TABLE` is a field of the *registry*, and the registry belongs to
+  `global_State` — every `lua_State` shares one. This port had made `loaded` a
+  per-`LuaState` table, so a coroutine's `package.loaded` was empty and every
+  diagnostic inside it degraded to `'?'`. The fix is one line in the
+  constructor: `loaded = main.loaded`. Note that this only shows up *inside a
+  coroutine* — the main thread populated its own table, which is why the whole
+  upstream suite and every earlier fuzz seed were silent about it.
+
+`RuntimeTest.libraryFunctionNamesResolveInsideCoroutines` pins it.
 
 ### What is still missing
 
