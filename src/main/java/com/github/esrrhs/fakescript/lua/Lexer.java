@@ -127,20 +127,6 @@ public final class Lexer {
             return c;
         }
 
-        @Override
-        public String toString() {
-            switch (token) {
-            case TK_NAME:
-            case TK_STRING:
-                return tokenName(token) + "(" + s.toJavaString() + ")";
-            case TK_INT:
-                return tokenName(token) + "(" + i + ")";
-            case TK_FLT:
-                return tokenName(token) + "(" + r + ")";
-            default:
-                return tokenName(token);
-            }
-        }
     }
 
     /**
@@ -179,11 +165,6 @@ public final class Lexer {
     public int linenumber = 1;
     public int lastline = 1;
 
-    /** 源名的原始字节（Lua 字符串是字节串，不当 {@code String} 处理） */
-    public byte[] sourceBytes() {
-        return sourceBytes;
-    }
-
     /** 当前 token */
     public Token t = new Token();
     /** 前瞻 token（{@code lookahead.token == TK_EOS} 表示没有） */
@@ -195,10 +176,6 @@ public final class Lexer {
 
     public Lexer(byte[] data, String source) {
         this(new Zio(data), source, new StringPool());
-    }
-
-    public Lexer(Zio z, String source) {
-        this(z, source, new StringPool());
     }
 
     public Lexer(Zio z, String source, StringPool strings) {

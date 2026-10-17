@@ -41,13 +41,6 @@ public final class Proto {
 
         public Upvaldesc() {
         }
-
-        public Upvaldesc(LuaString name, boolean instack, int idx, int kind) {
-            this.name = name;
-            this.instack = instack;
-            this.idx = idx;
-            this.kind = kind;
-        }
     }
 
     /** 局部变量描述（{@code LocVar}），仅供调试信息 */
@@ -60,21 +53,12 @@ public final class Proto {
 
         public LocVar() {
         }
-
-        public LocVar(LuaString varname, int startpc, int endpc) {
-            this.varname = varname;
-            this.startpc = startpc;
-            this.endpc = endpc;
-        }
     }
 
     /** 绝对行号条目（{@code AbsLineInfo}） */
     public static final class AbsLineInfo {
         public int pc;
         public int line;
-
-        public AbsLineInfo() {
-        }
 
         public AbsLineInfo(int pc, int line) {
             this.pc = pc;
