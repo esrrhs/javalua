@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 854 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 855 个用例绿，JaCoCo 行覆盖 0.95（门禁 0.94）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2113,6 +2113,45 @@ JVM 根本不让打开目录，于是本实现以同一种方式在五处同时�
 （`HOOKKEY` 不存在、钩不是函数）和**必须由宿主设置**才走得到的那条——
 `debug.gethook` 的 `"external hook"`：Lua 里 `sethook` 设的永远是 `HOOKF`，
 纯脚本到不了。
+
+### 协程 × C 边界矩阵：`xpcall` 的消息处理函数不许 yield
+
+每个「由 C 发起回调」的入口都有自己的 `nny`（C 版的 `nyci`）记账，漏掉一处 `+1`
+在没有东西正好在那个点上 yield 之前是看不见的。所以这是一张按 **yield 发生在哪里**
+铺开的矩阵：`pcall` / `xpcall` / **`xpcall` 的消息处理函数** / `table.sort` 的比较
+函数 / `string.gsub` 的替换函数 / `load` 的 reader / 八个元方法（含 `__close`）/
+四种泛型 for 迭代器 / 调试 hook / `coroutine.wrap` / 嵌套协程 / resume 已死与已出错
+的协程 / 挂起的协程 resume 自己。每一行还单独问一次 `coroutine.isyieldable()`，
+把「能不能」与「真做了会怎样」变成两个各自被测的答案。67 行。
+
+咬出一处真分歧，值得把话说准 —— 因为错的那一边看起来**更能干**，不是更差：
+
+```
+run  xpcall_msgh	true  false  error in error handling      <- 参考实现
+  status xpcall_msgh	dead
+run  xpcall_msgh	true  in msgh                             <- 本实现
+  status xpcall_msgh	suspended
+```
+
+`LuaState.applyErrMsg` 用的是可 yield 的 `pcall`，而 C 版是
+`luaD_callnoyield`。道理比症状重要：能在错误处理的续体里 yield，就等于承认
+「错误已交出去一半」这种<b>中间态</b>可以被挂起，而 C 版没有这种状态。改法是
+`callNoYield` 加一个 `catch (LuaError)`，处理函数自身出错不再兜底——
+`"error in error handling"` 正是从这里来的。
+
+另外两件被这张矩阵钉死的事：
+
+* **`pairs` 在字符串键上的顺序是随机 seed 的，不能比。** 字符串键走
+  `luaS_hash`，seed 来自 `lstate.c: luai_makeseed` —— `time(NULL)` 混三个 ASLR
+  地址。同一份脚本在参考实现上连跑 5 次，第一个键依次是 `a a b a b`。
+  **任何打印键先后的探针都是假红发生器**；这一片改成把协程跑到死、把收集到的
+  yield 值**排序**再打印。（本实现没有 seed，顺序固定且确定——这是一处有意留下
+  的安全不对称：参考实现自己的顺序同样不可观测，因为没有东西能依赖一个每次启动
+  都变的值。）
+* **`load` 的 reader 必须有终止条件。** 永不 `return nil` 的 reader 会让 `load`
+  一直读下去 —— 探针第一版**把参考实现二进制挂住了**，只能 `pkill`。
+
+反向验证：把 `callNoYield` 换回 `call`，正好红 2 行，测试失败。
 
 ### 还没补上的
 

@@ -207,8 +207,8 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 854 tests green, JaCoCo line coverage
-0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
+for each is listed under *Phase 10* below. 855 tests green, JaCoCo line coverage
+0.95 against a 0.94 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
 
@@ -2365,6 +2365,56 @@ plus a thread, and `traceback`'s tail-call marker. What remains uncovered is
 defensive (`HOOKKEY` missing, hook not a function) plus one line that **only a
 host can reach**: `debug.gethook`'s `"external hook"` — `sethook` from Lua always
 installs `HOOKF`, so no script gets there.
+
+### The coroutine × C-boundary matrix: `xpcall`'s message handler cannot yield
+
+Every entry point that C drives from inside a callback has its own `nny`
+(C's `nyci`) bookkeeping, and a single missing `+1` is invisible until something
+yields at exactly that spot. So this is a matrix over **where** the yield
+happens: `pcall`, `xpcall`, **`xpcall`'s message handler**, `table.sort`'s
+comparator, `string.gsub`'s replacement function, `load`'s reader, eight
+metamethods (including `__close`), all four kinds of generic-`for` iterator, a
+debug hook, `coroutine.wrap`, a nested coroutine, `resume` on a dead and on an
+errored coroutine, and a suspended coroutine resuming *itself*. Each row also
+asks `coroutine.isyieldable()` separately, so "may I" and "what happens if I do"
+are two measured answers rather than one. 67 lines.
+
+It found one real divergence, and it is worth stating precisely because the
+wrong behaviour looks *more* capable, not less:
+
+```
+run  xpcall_msgh	true  false  error in error handling      <- reference
+  status xpcall_msgh	dead
+run  xpcall_msgh	true  in msgh                             <- this implementation
+  status xpcall_msgh	suspended
+```
+
+`LuaState.applyErrMsg` was calling the handler with the yieldable `pcall`;
+C uses `luaD_callnoyield`. The reason matters more than the symptom: being able
+to yield inside the error-handling continuation means an
+**"error half-delivered"** intermediate state can be suspended — and C has no
+such state. Fixed with `callNoYield` plus a `catch (LuaError)` that stops
+backstopping the handler's own failure, which is what produces
+`"error in error handling"`.
+
+Two more things this matrix pinned down:
+
+* **`pairs` order over string keys is randomly seeded, so it cannot be
+  compared.** String keys go through `luaS_hash`, whose seed comes from
+  `lstate.c: luai_makeseed` — `time(NULL)` mixed with three ASLR addresses.
+  Running the same script against the reference five times gave `in pairs:a`,
+  `a`, `b`, `a`, `b`. Any probe that prints raw key order is a
+  **fake-red generator**; this one drains the coroutine to death and prints the
+  collected yields **sorted** instead. (This implementation has no seed at all,
+  so its order is fixed and deterministic — a deliberate, safe asymmetry: the
+  reference's own order is not observable either, since nothing can depend on
+  a value that changes every run.)
+* **`load`'s reader must terminate.** A reader that never returns `nil` makes
+  `load` read forever — the first version of this probe **hung the reference
+  binary** and had to be `pkill`ed.
+
+Reverse verification: swapping `callNoYield` back to `call` turns exactly two
+lines red, and the test fails.
 
 ### What is still missing
 
