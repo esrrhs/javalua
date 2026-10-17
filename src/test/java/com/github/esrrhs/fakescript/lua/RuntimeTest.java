@@ -5934,4 +5934,320 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+
+    /**
+     * {@code debug} × 协程 交叉矩阵 —— 参考实现与本实现逐字节比对。
+     * <p>
+     * 两边各自都铺过（114 / 99 行），但<b>交叉</b>的那一层没有：给协程做
+     * {@code getinfo} / {@code getlocal} / {@code traceback} / {@code sethook}、
+     * 钩子的<b>计数</b>（而不是逐条打印——计数本身就是对行号表与调用序列的强
+     * 校验，{@code tail call} 事件也钉在里面）、registry / uservalue /
+     * setmetatable、以及协程状态机的补充。
+     * <p>
+     * 咬出一处：<b>{@code _LOADED} 必须挂在注册表上</b>。
+     * <pre>
+     * #define LUA_LOADED_TABLE  "_LOADED"     // lauxlib.h
+     * </pre>
+     * C 的 {@code package.loaded} 是<b>注册表里的一个字段</b>，不是别处另存
+     * 一份：{@code debug.getregistry()["_LOADED"]} 得拿得到它。之前我们只在
+     * {@code LuaState} 里存了一份，于是 {@code type(...)} 给 {@code nil} 而
+     * 参考实现给 {@code table} —— 靠注册表做手脚的脚本会直接失效。改成从
+     * 注册表里读：脚本把 {@code _LOADED} 换掉时我们也跟着换。
+     */
+    @Test
+    void debugAndCoroutineMatrixMatchesReference() {
+        /*
+         * 用 assertFullMatches：脚本中途打印了 debug.traceback(co)，
+         * assertMatches 会把回溯之后的内容全部静默砍掉。回溯里没有地址，
+         * 两边同一份脚本、同一个 chunk 名，可以整段比。
+         */
+        Diff.assertFullMatches("""
+                -- debug × 协程 交叉矩阵。
+                -- 原则：凡是带地址、带实现细节的（函数地址、注册表内容）只比类型/形状；
+                -- 钩子用<b>计数</b>而不是逐条打印——计数本身就是对行号表与调用序列的强校验。
+                local function pr(...)
+                  print(...)
+                end
+                local function s(v)
+                  local tt = type(v)
+                  if tt == "table" or tt == "function" or tt == "thread" or tt == "userdata" then
+                    return tt
+                  end
+                  return tostring(v)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  -- 过一遍 s()：getlocal 之类会返回函数/表，直接 tostring 会带地址
+                  for i = 2, #r do t[#t + 1] = s(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                -- getinfo 结果里只挑确定的字段
+                local function gi(...)
+                  local ok, info = pcall(debug.getinfo, ...)
+                  if not ok then return "err:" .. tostring(info) end
+                  if type(info) ~= "table" then return tostring(info) end
+                  local out = {}
+                  for _, k in ipairs({ "what", "currentline", "nups", "nparams", "isvararg",
+                                       "name", "namewhat", "func", "linedefined",
+                                       "lastlinedefined" }) do
+                    local v = info[k]
+                    if k == "func" then v = s(v) end
+                    out[#out + 1] = k .. "=" .. tostring(v)
+                  end
+                  out[#out + 1] = "src=" .. (tostring(info.short_src):gsub("^.*[/\\\\]", ""))
+                  return table.concat(out, ",")
+                end
+
+                -- 1) 主线程上的 getinfo
+                local function outer()
+                  local a = 1
+                  local function inner()
+                    return gi(1, "nSlufL"), gi(2, "nSlufL")
+                  end
+                  return inner()
+                end
+                pr("A1", outer())
+                pr("A2", gi(0, "nSlufL"))        -- 0 层是 getinfo 自己
+                pr("A3", pc(debug.getinfo, 100)) -- 层号越界
+                pr("A4", pc(debug.getinfo, -1))
+                pr("A5", gi(print, "n"))         -- C 函数
+                pr("A6", gi(print, "S"))
+                pr("A7", gi(print, "nSlufL"))
+                pr("A8", pc(debug.getinfo, 5))
+                pr("A9", pc(debug.getinfo, "x"))
+                pr("A10", pc(debug.getinfo))
+                pr("A11", gi(outer, "f"))
+                pr("A12", type(debug.getinfo(1, "L").activelines))
+
+                -- 2) 局部变量与 upvalue
+                do
+                  local up = 7
+                  local function f(p, q, ...)
+                    local x, y = 1, 2
+                    return up, x, y
+                  end
+                  pr("B1", debug.getlocal(f, 1)) -- 函数（未运行）没有帧
+                  pr("B2", pc(debug.getlocal, 2, 1))
+                  local function g(p, q, ...)
+                    local x, y = 1, 2
+                    local names = {}
+                    local i = 1
+                    while true do
+                      local n, v = debug.getlocal(1, i)
+                      if not n then break end
+                      names[#names + 1] = n .. ":" .. s(v)
+                      i = i + 1
+                    end
+                    return table.concat(names, ",")
+                  end
+                  pr("B3", g(10, 20, 30, 40))
+                  local function h()
+                    local z = 1
+                    debug.setlocal(1, 1, 99)
+                    return z
+                  end
+                  pr("B4", h())
+                  pr("B5", pc(debug.setlocal, 1, 100, 5))
+                  local function k()
+                    return up
+                  end
+                  pr("B6", debug.getupvalue(k, 1))
+                  pr("B7", debug.getupvalue(k, 2))
+                  pr("B8", debug.getupvalue(print, 1)) -- C 函数没有 upvalue
+                  pr("B9", debug.setupvalue(k, 1, 42), up)
+                  pr("B10", debug.setupvalue(k, 1, 7), up)
+                end
+
+                -- 3) 协程上的 debug
+                do
+                  local co = coroutine.create(function(a, b)
+                    local x = a + b
+                    coroutine.yield(x)
+                    local y = x * 2
+                    return y
+                  end)
+                  pr("C1", coroutine.resume(co, 1, 2))
+                  pr("C2", gi(co, 0, "nSlufL"))
+                  pr("C3", gi(co, 1, "nSlufL"))
+                  pr("C4", pc(debug.getinfo, co, 5))
+                  pr("C5", debug.getlocal(co, 1, 1))
+                  pr("C6", debug.getlocal(co, 1, 2))
+                  pr("C7", debug.getlocal(co, 1, 3))
+                  pr("C8", pc(debug.setlocal, co, 1, 1, 100))
+                  pr("C9", coroutine.resume(co))
+                  pr("C10", coroutine.status(co))
+                  pr("C11", gi(co, 1, "nSlufL"))
+                  pr("C12", pc(debug.getlocal, co, 1, 1)) -- 死了之后再问是抛错
+                  pr("C13", pc(debug.sethook, co, print, "l"))
+                end
+                -- traceback 带协程：只比形状（含 chunk 名与行号）
+                do
+                  local co = coroutine.create(function()
+                    coroutine.yield()
+                    error("in-co")
+                  end)
+                  coroutine.resume(co)
+                  pr("C14", coroutine.resume(co))
+                  pr("C15", (debug.traceback(co)):gsub("%s+", " "))
+                end
+                do
+                  local co = coroutine.create(function() error("boom-co") end)
+                  local ok, e = coroutine.resume(co)
+                  pr("C16", ok, e)
+                  pr("C17", (debug.traceback(co)):gsub("%s+", " "))
+                  pr("C18", (debug.traceback(co, "MSG")):sub(1, 3))
+                end
+                pr("C19", pc(debug.traceback, 5))
+                pr("C20", pc(debug.traceback, "msg", 5))
+                pr("C21", type(debug.traceback()))
+
+                -- 4) 钩子：用计数而不是逐条打印
+                do
+                  local function runhook(mask)
+                    local n = 0
+                    debug.sethook(function() n = n + 1 end, mask)
+                    local x = 0
+                    for i = 1, 10 do x = x + i end
+                    local function g() return 1 end
+                    g()
+                    debug.sethook()
+                    return n
+                  end
+                  pr("D1", runhook("l"))
+                  pr("D2", runhook("c"))
+                  pr("D3", runhook("r"))
+                  pr("D4", runhook("cr"))
+                  pr("D5", runhook("lcr"))
+                end
+                do
+                  local seq = {}
+                  debug.sethook(function(what) seq[#seq + 1] = what end, "cr")
+                  local function a() return 1 end
+                  local function b() return a() end
+                  b()
+                  debug.sethook()
+                  pr("D6", table.concat(seq, ","))
+                end
+                do
+                  local n = 0
+                  debug.sethook(function() n = n + 1 end, "", 10)
+                  local x = 0
+                  for i = 1, 1000 do x = x + i end
+                  debug.sethook()
+                  pr("D7", n > 0, n < 2000)
+                end
+                do
+                  local n = 0
+                  local co = coroutine.create(function()
+                    local x = 0
+                    for i = 1, 10 do x = x + i end
+                    coroutine.yield(x)
+                  end)
+                  debug.sethook(co, function() n = n + 1 end, "l")
+                  coroutine.resume(co)
+                  debug.sethook(co)
+                  pr("D8", n > 0)
+                  local m = 0
+                  debug.sethook(function() m = m + 1 end, "l")
+                  local co2 = coroutine.create(function() local y = 0 for i = 1, 10 do y = y + i end end)
+                  coroutine.resume(co2)
+                  debug.sethook()
+                  pr("D9", m)
+                end
+                pr("D10", pc(debug.sethook, print, "x"))
+                pr("D11", pc(debug.sethook, 5, "l"))
+                pr("D12", pc(debug.sethook))
+                pr("D13", debug.gethook() == nil)
+                do
+                  debug.sethook(print, "l")
+                  pr("D14", s(debug.gethook()))
+                  debug.sethook()
+                end
+
+                -- 5) registry / uservalue / metatable
+                pr("E1", s(debug.getregistry()))
+                pr("E2", type(debug.getregistry()["_LOADED"]))
+                pr("E3", pc(debug.setmetatable, 5, {}))
+                do
+                  local t = {}
+                  pr("E4", debug.setmetatable(t, { __index = { a = 1 } }) == t, t.a)
+                  pr("E5", s(debug.getmetatable(t)))
+                  pr("E6", s(debug.getmetatable(5)))
+                  pr("E7", pc(debug.setmetatable, t, 5))
+                end
+                do
+                  local f = io.open("target/rt/_dbg_uv", "w")
+                  f:write("x")
+                  pr("E8", s(f), tostring(debug.getuservalue(f)))
+                  pr("E9", debug.setuservalue(f, 42), tostring(debug.getuservalue(f)))
+                  f:close()
+                  os.remove("target/rt/_dbg_uv")
+                  pr("E10", pc(debug.getuservalue, 5))
+                  pr("E11", pc(debug.setuservalue, 5, 1))
+                end
+
+                -- 6) 协程语义的补充
+                pr("F1", s(select(1, coroutine.running())), select(2, coroutine.running()))
+                do
+                  local main, ismain = coroutine.running()
+                  pr("F2", s(main), tostring(ismain))
+                end
+                do
+                  local co = coroutine.create(function(...) return ... end)
+                  pr("F3", coroutine.resume(co, 1, 2, 3))
+                  pr("F4", coroutine.resume(co))
+                end
+                do
+                  local co = coroutine.create(function() coroutine.yield(1, 2, 3) end)
+                  pr("F5", coroutine.resume(co))
+                  pr("F6", coroutine.status(co))
+                  pr("F7", coroutine.resume(co))
+                  pr("F8", coroutine.status(co))
+                end
+                do
+                  local w = coroutine.wrap(function() error("w-boom") end)
+                  pr("F9", pc(w))
+                end
+                do
+                  local co = coroutine.create(print)
+                  pr("F10", coroutine.resume(co, "x"))
+                end
+                do
+                  local co = coroutine.create(function()
+                    local a, b = coroutine.resume(coroutine.create(function() return 7 end))
+                    coroutine.yield(a, b)
+                  end)
+                  pr("F11", coroutine.resume(co))
+                end
+                do
+                  local co = coroutine.create(function() coroutine.yield(1) end)
+                  coroutine.resume(co)
+                  pr("F12", coroutine.close(co))
+                  pr("F13", coroutine.status(co))
+                  pr("F14", coroutine.close(co))
+                end
+                do
+                  local co = coroutine.create(function() coroutine.yield(1) error("x") end)
+                  coroutine.resume(co)
+                  pr("F15", pc(coroutine.close, co))
+                  pr("F16", coroutine.status(co))
+                end
+                do
+                  local co = coroutine.create(function() return 1 end)
+                  pr("F17", coroutine.resume(co))
+                  pr("F18", coroutine.resume(co))
+                  pr("F19", pc(coroutine.resume, 5))
+                  pr("F20", pc(coroutine.create, 5))
+                end
+                do
+                  local co = coroutine.create(function() return coroutine.isyieldable() end)
+                  pr("F21", coroutine.resume(co))
+                end
+
+                pr("DONE")
+
+                print("DONE")
+                """);
+    }
 }
