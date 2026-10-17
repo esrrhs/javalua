@@ -9121,4 +9121,626 @@ show("c3a", coroutine.resume(c3))
 show("c3b", coroutine.resume(c3))
         """);
     }
+
+    /**
+     * to-be-closed 语义矩阵：{@code <close>} 在各种「退出块」的时机里怎么被调、
+     * 传什么、自己出错/yield 会怎样。
+     * <p>
+     * {@code <close>} 是 5.4 唯一的新语法，边界也最多。按退出方式铺开：正常到块尾、
+     * 嵌套、{@code return} 提前、{@code break}、{@code goto} 跳出、{@code error}
+     * 展开（字符串与非字符串两种错误对象）、多个 tbc 的关闭次序；再按
+     * {@code __close} 自己的行为铺开：记一笔、抛错、抛非字符串、返回多值、
+     * {@code yield}、不是函数、是可调用表、压根没有；然后是它与
+     * {@code pcall} / {@code xpcall} / 协程 / {@code coroutine.close} 的交叠，
+     * 以及一批声明期的语法边界。56 行。
+     * <p>
+     * <b>咬出两处真分歧，都是同一个根因的两面</b>：{@code __close} 抛出的错误
+     * <b>也要过消息处理函数</b>。
+     * <ul>
+     *   <li>{@code xpcall} + 带 {@code <close>} 的函数体里 {@code error}，
+     *       且 {@code __close} 也 {@code error}：参考实现给
+     *       {@code msgh orig | close a err=H | msgh E:a | false  H}，本实现给
+     *       {@code ... | false  E:a} —— <b>最终结果是处理函数的返回值</b>，
+     *       不是 {@code __close} 那个原始错。原因是 C 的 {@code luaD_pcall}
+     *       到<b>最后一句</b>才 {@code L->errfunc = old_errfunc}，而
+     *       {@code luaD_closeprotected} 就在那句<b>之前</b>，所以跑
+     *       {@code __close} 的整个过程里处理函数仍然生效。</li>
+     *   <li>协程里 {@code xpcall}：处理函数要在关 {@code __close} <b>之前</b>跑。
+     *       参考给 {@code msgh h2 after | close a err=H-h2}，本实现（旧）给
+     *       {@code close a err=after | msgh h2 after} —— {@code __close}
+     *       收到的是没处理过的原始错，顺序也反了。</li>
+     * </ul>
+     * 连带修好的是「{@code error in error handling}」那一条：处理函数自己抛错时，
+     * {@code __close} 的错再过一次它就被兜成那句话（旧实现给的是原始错）。
+     * <p>
+     * <b>改这两处时踩到的第二个坑：</b>处理函数必须在把 {@code top} 压回
+     * {@code fIdx + 1} <b>之前</b>跑。{@code luaG_errormsg} 是在<b>出错那一刻的
+     * 栈顶</b>压调用帧的，那会儿被保护函数的局部变量都还在；先收 {@code top}
+     * 再跑，它就从 {@code fIdx + 2} 开始写 —— 而那正是第一个局部变量（也就是那个
+     * {@code <close>} 变量）的槽，于是 {@code __close} 被覆盖成处理函数自己，
+     * 报 {@code attempt to call a nil value}。
+     * <p>
+     * <b>有一条从矩阵里删掉了：</b>「消息处理函数自己抛错」的那条组合。C 的
+     * {@code luaG_errormsg} 会在那里<b>无限递归</b>到 C 栈溢出，输出几百行、
+     * 行数随栈深度而变，没法逐字节比。它的<b>结果</b>由 G 段单独钉住。
+     * 另外 {@code coroutine.close(coroutine.running())} 必须包 {@code pcall}：
+     * 参考实现在那里直接抛，不包的话脚本当场死在中间，后面整段一条也不会比。
+     */
+    @Test
+    void toBeClosedSemanticsMatchesReference() {
+        Diff.assertMatches("""
+-- to-be-closed 语义矩阵：__close 在各种「退出块」的时机里怎么被调、传什么、
+-- 自己出错/yield 会怎样。<close> 是 5.4 唯一的新语法，边界最多。
+
+local LOG
+
+local function show(...)
+    local a = { ... }
+    for i = 1, select("#", ...) do
+        a[i] = tostring(a[i])
+    end
+    LOG[#LOG + 1] = table.concat(a, "  ")
+end
+
+-- 造一个带 __close 的值。kind 决定 __close 做什么：
+--   "log"  记一笔就返回
+--   "err"  抛一个错
+--   "err2" 抛非字符串对象
+--   "multi" 返回多个值
+--   "yield" yield 出去
+--   "noclose" 没有 __close 元方法
+local function mk(tag, kind, extra)
+    local mt = {}
+    if kind == "log" then
+        mt.__close = function(self, err)
+            show("close", tag, "err=" .. tostring(err))
+            return extra
+        end
+    elseif kind == "err" then
+        mt.__close = function(self, err)
+            show("close", tag, "err=" .. tostring(err))
+            error("E:" .. tag, 0)
+        end
+    elseif kind == "err2" then
+        mt.__close = function(self, err)
+            show("close", tag, "err=" .. tostring(err))
+            error({ code = tag }, 0)
+        end
+    elseif kind == "multi" then
+        mt.__close = function(self, err)
+            show("close", tag, "err=" .. tostring(err))
+            return 1, 2, 3
+        end
+    elseif kind == "yield" then
+        mt.__close = function(self, err)
+            show("close", tag, "err=" .. tostring(err))
+            coroutine.yield("Y:" .. tag)
+        end
+    elseif kind == "notfn" then
+        mt.__close = 42
+    elseif kind == "callable" then
+        mt.__close = setmetatable({}, {
+            __call = function()
+                show("close", tag, "callable")
+            end,
+        })
+    elseif kind == "noclose" then
+        -- 什么都不放：<close> 但没有 __close
+    end
+    mt.__tostring = function()
+        return "<" .. tag .. ">"
+    end
+    return setmetatable({}, mt)
+end
+
+local function reset()
+    LOG = {}
+end
+
+local function dump(name)
+    print(name, table.concat(LOG, " | "))
+end
+
+-- ==================== A. 基本时机 ====================
+
+reset()
+do
+    local a <close> = mk("a", "log")
+    local b <close> = mk("b", "log")
+    show("body")
+end
+dump("A1_normal")
+
+reset()
+do
+    local a <close> = mk("a", "log")
+    do
+        local b <close> = mk("b", "log")
+        show("inner")
+    end
+    show("outer")
+end
+dump("A2_nested")
+
+reset()
+local function early()
+    local a <close> = mk("a", "log")
+    show("before return")
+    return "R"
+end
+show("A3_ret", early())
+dump("A3_return")
+
+reset()
+for i = 1, 3 do
+    local a <close> = mk("a" .. i, "log")
+    if i == 2 then
+        break
+    end
+    show("iter", i)
+end
+dump("A4_break")
+
+reset()
+do
+    local a <close> = mk("a", "log")
+    for i = 1, 2 do
+        local b <close> = mk("b" .. i, "log")
+        if i == 1 then
+            goto done
+        end
+    end
+    ::done::
+    show("after goto")
+end
+dump("A5_goto")
+
+reset()
+show("A6_err", pcall(function()
+    local a <close> = mk("a", "log")
+    error("boom", 0)
+end))
+dump("A6_error")
+
+reset()
+show("A7_err_obj", pcall(function()
+    local a <close> = mk("a", "log")
+    error({ c = 1 }, 0)
+end))
+dump("A7_error_obj")
+
+-- 多个 tbc 的关闭顺序（应是从里到外、后声明的先关）
+reset()
+do
+    local a <close> = mk("a", "log")
+    local b <close> = mk("b", "log")
+    local c <close> = mk("c", "log")
+end
+dump("A8_order")
+
+-- ==================== B. __close 自己出错 ====================
+
+reset()
+show("B1_close_err", pcall(function()
+    local a <close> = mk("a", "err")
+    return "body-ok"
+end))
+dump("B1")
+
+reset()
+show("B2_close_err_while_unwinding", pcall(function()
+    local a <close> = mk("a", "err")
+    error("orig", 0)
+end))
+dump("B2")
+
+reset()
+show("B3_two_tbc_first_err", pcall(function()
+    local a <close> = mk("a", "err")
+    local b <close> = mk("b", "log")
+end))
+dump("B3")
+
+reset()
+show("B4_two_tbc_second_err", pcall(function()
+    local a <close> = mk("a", "log")
+    local b <close> = mk("b", "err")
+end))
+dump("B4")
+
+reset()
+show("B5_nonstring_err", pcall(function()
+    local a <close> = mk("a", "err2")
+end))
+dump("B5")
+
+reset()
+show("B6_nonstring_err_unwinding", pcall(function()
+    local a <close> = mk("a", "err2")
+    error("orig", 0)
+end))
+dump("B6")
+
+reset()
+show("B7_where_prefix", pcall(function()
+    local a <close> = mk("a", "err")
+end))
+dump("B7")
+
+-- __close 抛的错带位置前缀（level 1，函数内）
+reset()
+local function inner()
+    local a <close> = mk("a", "err")
+    return 1
+end
+show("B8_lvl1", pcall(inner))
+dump("B8")
+
+reset()
+local function inner2()
+    local a <close> = mk("a", "err")
+    error("orig", 2)
+end
+show("B9_unwind_lvl1", pcall(inner2))
+dump("B9")
+
+-- __close 返回多个值：C 的 callclosemethod 只取一个（nresults = 0）
+reset()
+show("B10_multi", pcall(function()
+    local a <close> = mk("a", "multi")
+end))
+dump("B10")
+
+-- __close 不是函数 / 是可调用表 / 没有
+reset()
+show("B11_notfn", pcall(function()
+    local a <close> = mk("a", "notfn")
+end))
+dump("B11")
+
+reset()
+show("B12_callable", pcall(function()
+    local a <close> = mk("a", "callable")
+end))
+dump("B12")
+
+reset()
+show("B13_noclose", pcall(function()
+    local a <close> = mk("a", "noclose")
+end))
+dump("B13")
+
+reset()
+show("B14_noclose_unwinding", pcall(function()
+    local a <close> = mk("a", "noclose")
+    error("orig", 0)
+end))
+dump("B14")
+
+-- 元表上的 __close 在关闭前被改掉
+reset()
+show("B15_late_mt", pcall(function()
+    local t = setmetatable({}, { __close = function() show("close", "orig") end })
+    local a <close> = t
+    setmetatable(t, {})
+end))
+dump("B15")
+
+-- ==================== C. 与 pcall / xpcall 交互 ====================
+
+reset()
+show("C1_xpcall", xpcall(function()
+    local a <close> = mk("a", "err")
+    return 1
+end, function(m)
+    show("msgh", m)
+    return "H"
+end))
+dump("C1")
+
+reset()
+show("C2_xpcall_unwind", xpcall(function()
+    local a <close> = mk("a", "err")
+    error("orig", 0)
+end, function(m)
+    show("msgh", m)
+    return "H"
+end))
+dump("C2")
+
+reset()
+show("C3_pcall_nested", pcall(function()
+    local a <close> = mk("a", "log")
+    return pcall(function()
+        local b <close> = mk("b", "err")
+        return 1
+    end)
+end))
+dump("C3")
+
+-- ==================== D. 协程 ====================
+
+-- __close 里 yield
+reset()
+local co = coroutine.create(function()
+    local a <close> = mk("a", "yield")
+    show("after yield point")
+    return "done"
+end)
+show("D1a", coroutine.resume(co))
+show("D1b", coroutine.resume(co))
+dump("D1")
+
+-- 协程被 close：挂起状态的协程里的 tbc 怎么关
+reset()
+local co2 = coroutine.create(function()
+    local a <close> = mk("a", "log")
+    coroutine.yield("mid")
+    return "done"
+end)
+show("D2a", coroutine.resume(co2))
+show("D2b", coroutine.close(co2))
+dump("D2")
+
+-- 挂起 + __close 抛错
+reset()
+local co3 = coroutine.create(function()
+    local a <close> = mk("a", "err")
+    coroutine.yield("mid")
+    return "done"
+end)
+show("D3a", coroutine.resume(co3))
+show("D3b", coroutine.close(co3))
+dump("D3")
+
+-- 出错的协程被 close
+reset()
+local co4 = coroutine.create(function()
+    local a <close> = mk("a", "log")
+    error("coerr", 0)
+end)
+show("D4a", coroutine.resume(co4))
+show("D4b", coroutine.close(co4))
+show("D4c", coroutine.status(co4))
+dump("D4")
+
+-- 跑完的协程被 close（没有 tbc 要关）
+reset()
+local co5 = coroutine.create(function()
+    local a <close> = mk("a", "log")
+    return "done"
+end)
+show("D5a", coroutine.resume(co5))
+show("D5b", coroutine.close(co5))
+dump("D5")
+
+-- 协程里 __close 抛错，协程结束后 close
+reset()
+local co6 = coroutine.create(function()
+    local a <close> = mk("a", "err")
+    return "done"
+end)
+show("D6a", coroutine.resume(co6))
+show("D6b", coroutine.close(co6))
+show("D6c", coroutine.status(co6))
+dump("D6")
+
+-- 主协程里 coroutine.close(coroutine.running())：参考实现在这里直接抛，
+-- 不包 pcall 的话脚本当场死在中间，后面整段 E 一条也不会比（用例照样绿）
+reset()
+show("D7", pcall(coroutine.close, coroutine.running()))
+dump("D7")
+
+-- ==================== E. 语法/声明边界 ====================
+
+local srcs = {
+    "local a <close>",
+    "local a <close> = 1, 2",
+    "for i = 1, 2 do local a <close> = nil end",
+    "local function f() end local a <close> = f",
+    "local a <close>, b <const> = nil, 1",
+    "local a <const> <close> = setmetatable({}, {__close=function() end})",
+    "do local a <close> = nil end",
+    "t = {} local a <close> = t",
+    "local a <close> = nil local b <close> = a",
+}
+for i, s in ipairs(srcs) do
+    local f, e = load(s)
+    print("E" .. i, tostring(f) ~= "nil", tostring(e))
+end
+
+-- tbc 变量被闭包捕获：关的是 upvalue
+reset()
+local escaped
+do
+    local a <close> = setmetatable({}, {
+        __close = function(self, err)
+            show("close", "esc", "err=" .. tostring(err))
+            escaped = self
+        end,
+    })
+    local function cap()
+        return a
+    end
+    cap()
+end
+dump("E10_capture")
+
+-- 同一个值既是 tbc 又被赋给别处
+reset()
+do
+    local t = mk("t", "log")
+    local a <close> = t
+    show("same", tostring(a) == tostring(t))
+end
+dump("E11")
+
+-- ==================== F. 协程里的 xpcall × __close ====================
+-- C 版 ldo.c: lua_pcallk 的可 yield 那条分支同样会写 L->errfunc，而且
+-- luaD_call 是 longjmp 出去的，errfunc 在 yield 期间一直是设着的 ——
+-- 所以 finishpcallk 里跑 __close 时，消息处理函数依然生效。
+
+reset()
+local function cofn(msgh)
+    local co = coroutine.create(function()
+        return xpcall(function()
+            local a <close> = mk("a", "log")
+            error("orig", 0)
+        end, msgh)
+    end)
+    show("F_a", coroutine.resume(co))
+end
+cofn(function(m)
+    show("msgh", m)
+    return "H"
+end)
+dump("F1_coro_xpcall_log")
+
+reset()
+local co = coroutine.create(function()
+    return xpcall(function()
+        local a <close> = mk("a", "err")
+        error("orig", 0)
+    end, function(m)
+        show("msgh", m)
+        return "H"
+    end)
+end)
+show("F_a", coroutine.resume(co))
+dump("F2_coro_xpcall_closeerr")
+
+-- 协程里 xpcall 且 __close 里 yield
+reset()
+local co3 = coroutine.create(function()
+    return xpcall(function()
+        local a <close> = mk("a", "yield")
+        error("orig", 0)
+    end, function(m)
+        show("msgh", m)
+        return "H"
+    end)
+end)
+show("F3a", coroutine.resume(co3))
+show("F3b", coroutine.resume(co3))
+show("F3c", coroutine.status(co3))
+dump("F3")
+
+-- 协程里 pcall（无 handler）+ __close 抛错
+reset()
+local co4 = coroutine.create(function()
+    return pcall(function()
+        local a <close> = mk("a", "err")
+        error("orig", 0)
+    end)
+end)
+show("F4", coroutine.resume(co4))
+dump("F4")
+
+-- 嵌套 xpcall：内层的 __close 抛错，外层的 handler 会不会看到
+reset()
+show("F5", xpcall(function()
+    return xpcall(function()
+        local a <close> = mk("a", "err")
+        error("inner", 0)
+    end, function(m)
+        show("inner msgh", m)
+        return "IH"
+    end)
+end, function(m)
+    show("outer msgh", m)
+    return "OH"
+end))
+dump("F5")
+
+-- （删掉「消息处理函数自己抛错」这一条：C 版会在 luaG_errormsg 里无限递归
+-- 到 C stack overflow，输出几百行、行数随栈深度而变，不可逐字节比。
+-- 那条路径由「error in error handling」的最终结果单独钉住，见下面的 G 段。）
+
+-- 两个 tbc，第一个的 __close 抛错、第二个的 __close 看到的 err 是什么
+reset()
+show("F7", xpcall(function()
+    local a <close> = mk("a", "err")
+    local b <close> = mk("b", "log")
+    error("orig", 0)
+end, function(m)
+    show("msgh", m)
+    return "H"
+end))
+dump("F7")
+
+-- 两个 tbc 都在 __close 里抛错
+reset()
+show("F8", pcall(function()
+    local a <close> = mk("a", "err")
+    local b <close> = mk("b", "err")
+    error("orig", 0)
+end))
+dump("F8")
+-- 消息处理函数抛错 → 最终结果是不是 "error in error handling"（不比过程）
+reset()
+show("G1", xpcall(function()
+    local a <close> = mk("a", "err")
+    error("orig", 0)
+end, function(m)
+    error("in msgh", 0)
+end))
+dump("G1")
+
+-- ==================== H. 协程里「先 yield 再出错」：msgh 由谁调、调几次 ============
+local function mh(tag)
+    return function(m)
+        show("msgh", tag, m)
+        return "H-" .. tag
+    end
+end
+
+reset()
+local h1 = coroutine.create(function()
+    return xpcall(function()
+        coroutine.yield("Y1")
+        error("after", 0)
+    end, mh("h1"))
+end)
+show("H1a", coroutine.resume(h1))
+show("H1b", coroutine.resume(h1))
+dump("H1_yield_then_error")
+
+reset()
+local h2 = coroutine.create(function()
+    return xpcall(function()
+        local a <close> = mk("a", "log")
+        coroutine.yield("Y1")
+        error("after", 0)
+    end, mh("h2"))
+end)
+show("H2a", coroutine.resume(h2))
+show("H2b", coroutine.resume(h2))
+dump("H2_yield_then_error_tbc")
+
+reset()
+local h3 = coroutine.create(function()
+    return pcall(function()
+        coroutine.yield("Y1")
+        error("after", 0)
+    end)
+end)
+show("H3a", coroutine.resume(h3))
+show("H3b", coroutine.resume(h3))
+dump("H3_pcall_yield_then_error")
+
+-- 出错之后 resume 回来看 __close：__close 收到的 err 是原始错还是 msgh 的结果
+reset()
+local h4 = coroutine.create(function()
+    return xpcall(function()
+        local a <close> = mk("a", "err")
+        coroutine.yield("Y1")
+        error("after", 0)
+    end, mh("h4"))
+end)
+show("H4a", coroutine.resume(h4))
+show("H4b", coroutine.resume(h4))
+show("H4c", coroutine.status(h4))
+dump("H4_close_err_after_resume")
+        """);
+    }
 }

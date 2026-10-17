@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 855 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 856 tests green, JaCoCo line coverage
 0.95 against a 0.94 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2415,6 +2415,51 @@ Two more things this matrix pinned down:
 
 Reverse verification: swapping `callNoYield` back to `call` turns exactly two
 lines red, and the test fails.
+
+### The to-be-closed matrix: errors raised inside `__close` also reach the message handler
+
+`<close>` is the only new syntax in 5.4 and it has the most edges, so this is a
+matrix over **how the block is left** (falling off the end, nested, `return`,
+`break`, `goto`, `error` with a string and with a table) crossed with **what
+`__close` itself does** (log, raise, raise a non-string, return several values,
+`yield`, be a number, be a callable table, be absent), then crossed again with
+`pcall` / `xpcall` / coroutines / `coroutine.close`. 56 lines.
+
+It found two divergences with one root cause: **an error raised inside `__close`
+must go through the message handler too.**
+
+```
+msgh orig | close a err=H | msgh E:a | xpcall -> false  H      <- reference
+msgh orig | close a err=H |           xpcall -> false  E:a     <- this implementation
+```
+
+`luaD_pcall` restores `L->errfunc` on its **last** line, and
+`luaD_closeprotected` runs *before* that line — so the handler is still installed
+for the whole time `__close` runs, and `error()` inside it reaches
+`luaG_errormsg` just like any other error. The practical consequence is easy to
+miss: **the final result is the handler's return value, not `__close`'s error.**
+The same fix produces `"error in error handling"` in the case where the handler
+itself raises — that string comes from the `__close` error making a second pass
+through a handler that is already failing.
+
+The second divergence is the coroutine side of the same rule:
+`finishpcallk` restores `L->errfunc` *after* `luaF_close`, so the handler must
+run **before** the closing methods, not after. Getting this backwards shows up as
+`close a err=after | msgh h2 after` instead of `msgh h2 after | close a err=H-h2`
+— the closing method sees the raw, unhandled error.
+
+Moving that call earlier exposed a second, independent trap: the handler must be
+called **before** `top` is pulled back to `fIdx + 1`. `luaG_errormsg` pushes its
+call frame at the *current* top of the stack, where the protected function's
+locals still live; pull `top` back first and it starts writing at `fIdx + 2`,
+which is exactly the first local slot — the `<close>` variable — so `__close`
+gets overwritten with the handler itself and the next call reports
+`attempt to call a nil value`.
+
+One combination is deliberately **not** in the matrix: a message handler that
+raises. `luaG_errormsg` recurses there until the C stack overflows, producing
+several hundred lines whose count varies with stack depth. The matrix pins the
+*result* only.
 
 ### What is still missing
 
