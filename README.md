@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 862 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 863 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2647,6 +2647,71 @@ yields 4 characters, over `"\xff\xfe"` yields 0.
 Byte-identical on the first run. `Utf8Lib` went 0.930 → 0.995 with one line left:
 `throw L.libError("string slice too long")`, which needs a string of at least two
 gigabytes. It is recorded as unreachable rather than chased.
+
+#### A syntax-error matrix: every error string in `lparser.c` and `llex.c`
+
+`Parser` was the second-biggest hole (169 uncovered instructions) and, unlike
+`IoLib`/`PackageLib`, its gaps are pure logic. Reading the uncovered lines showed
+they were almost entirely **error messages** — and every single one of them was
+`nc`, meaning no test had ever produced that message at all.
+
+So the matrix is not a hand-picked list; it is an **enumeration of error sites in
+the C source**: `error_expected` and both shapes of `check_match`, `errorlimit`
+for locals/upvalues/constructor items, `attempt to assign to const variable`,
+`jumpscopeerror` / `undefgoto` / duplicate labels, `<name> or '...' expected`,
+`function arguments expected`, `unexpected symbol`, `unknown attribute`,
+`multiple to-be-closed variables`, `cannot use '...' outside a vararg function`,
+`'=' or 'in' expected`, `control structure too long`, plus the whole lexical set
+(unfinished string / long string / long comment, malformed number, hexadecimal
+digit, `missing '{'`, UTF-8 value too large, `missing '}'`, decimal escape too
+large, invalid escape sequence, invalid long string delimiter). 172 lines.
+
+Three things it pins down that would otherwise rot:
+
+* **`<name>` and `<eof>` are printed *without* quotes**, while `'end'` and `','`
+  are printed with them — `luaX_token2str` returns the bare string for
+  `token >= TK_EOS`. And the token after `near` goes through `txtToken`, which
+  uses the *raw source text* for strings and numbers, so the message can contain
+  nested quotes: `hexadecimal digit expected near ''\x''`.
+* **C stack overflow is *returned*, not raised.** Deep nesting trips
+  `luaE_incCstack`, but `luaD_protectedparser` catches it, so `load` hands back
+  `nil + "C stack overflow"`. Only `load`'s own argument check
+  (`bad argument #2 to 'load'`) actually raises. The probe wraps everything in
+  `pcall` so the two are distinguishable.
+* **`control structure too long` needs a loop body of more than `MAXARG_Bx`**
+  (262143) instructions, so that case is a generated 1 MB source — 0.02 s on the
+  reference, 0.6 s here, cheap enough to keep.
+
+Byte-identical on the first run, and sensitive: quoting every token name turns 11
+lines red, dropping `check_match`'s same-line shortcut turns 13 red, and
+`errorlimit`'s `"main function"` → `"main chunk"` turns 1 red.
+
+#### …and a hole in the coverage report, not in the code
+
+After installing it, `Parser`'s coverage barely moved — 169 → 167, while the
+uncovered-line list was **character for character identical**. That is not
+possible if 172 lines of new error paths really ran, and they did: instrumenting
+one of them with a `println` fires, and the byte-identical output can only have
+come from those `throw` sites.
+
+What gives it away is the line *above*:
+
+```html
+<span class="fc bfc" id="L1314" title="All 2 branches covered.">if (!lh.v.isVar()) {</span>
+<span class="nc" id="L1315">    throw ls.syntaxError("syntax error");</span>
+```
+
+JaCoCo knows the guarding branch was taken in both directions, and the line
+number table proves `1315` has instructions of its own — yet the line reads
+`nc`. `Parser` has **19 `throw` lines and not one of them is `fc`** (17 `nc`,
+2 `pc`), while the rest of the project is 136 `fc` / 41 `nc`.
+
+The consequence for target selection: **an uncovered `throw` line is not
+evidence of an uncovered path.** Half of `Parser`'s apparent hole is this
+artifact, and chasing it would have burned an afternoon proving correct code
+correct. What actually tells you the path runs is the *comparison*, not the
+coverage number — which is the same lesson as "coverage going up ≠ the gap
+closed", from the other side.
 
 ### `__gc` is deliberately not chased further
 

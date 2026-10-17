@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 862 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
+全量 863 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2340,6 +2340,62 @@ msgh orig | close a err=H |           xpcall -> false  E:a     <- 本实现
 第一跑逐字节一致。`Utf8Lib` 从 0.930 到 **0.995**，只剩一行：
 `throw L.libError("string slice too long")`，要一条不小于 2GB 的字符串才走得
 到。记为「走不到」，不去追。
+
+#### 语法错误矩阵：把 `lparser.c` 与 `llex.c` 里每一条报错都走一遍
+
+`Parser` 是第二大缺口（169 条未覆盖指令），而且跟 `IoLib` / `PackageLib` 不一样，
+它的缺口全是纯逻辑。逐行读未覆盖行发现几乎全是**报错文案** —— 而且每一条都是
+`nc`，也就是从来没有任何用例让它们出现<b>哪怕一次</b>。
+
+所以这片矩阵不是凭印象挑的，而是**按 C 源码的报错站点枚举**：
+`error_expected` 与 `check_match` 的两种形态、`errorlimit` 的局部变量 /
+upvalue / 构造器项、`attempt to assign to const variable`、
+`jumpscopeerror` / `undefgoto` / 重复标签、`<name> or '...' expected`、
+`function arguments expected`、`unexpected symbol`、`unknown attribute`、
+`multiple to-be-closed variables`、
+`cannot use '...' outside a vararg function`、`'=' or 'in' expected`、
+`control structure too long`，外加词法层那一整套（unfinished string /
+long string / long comment、malformed number、hexadecimal digit、`missing '{'`、
+UTF-8 value too large、`missing '}'`、decimal escape too large、
+invalid escape sequence、invalid long string delimiter）。172 行。
+
+钉住三件会悄悄坏掉的事：
+
+* **`<name>` 与 `<eof>` 打印出来是<b>不带引号</b>的**，而 `'end'` 与 `','` 带 ——
+  `luaX_token2str` 对 `token >= TK_EOS` 直接返回裸串。而 `near` 后面那个 token 走
+  `txtToken`，字符串与数字取**原文**，于是消息里会出现嵌套引号：
+  `hexadecimal digit expected near ''\x''`。
+* **C 栈溢出是「返回」不是「抛」。** 深度嵌套触发 `luaE_incCstack`，但
+  `luaD_protectedparser` 会兜住，所以 `load` 给的是
+  `nil + "C stack overflow"`；只有 `load` 自己的参数校验
+  （`bad argument #2 to 'load'`）才是真的抛。探针一律走 `pcall` 才能把这两种分开。
+* **`control structure too long` 要循环体超过 `MAXARG_Bx`**（262143）条指令才触发，
+  所以那条用例是现生成的 1MB 源码 —— 参考实现 0.02 秒、本实现 0.6 秒，留着不亏。
+
+第一跑逐字节一致，且敏感：给所有 token 名加引号红 11 行；去掉 `check_match` 的
+同行捷径红 13 行；`errorlimit` 的 `"main function"` 改成 `"main chunk"` 红 1 行。
+
+#### ……以及覆盖率报告自己有个洞，不是代码有洞
+
+装进去之后 `Parser` 的覆盖率几乎没动 —— 169 → 167，而<b>未覆盖行的清单逐字没变</b>。
+172 行新的报错路径真的跑过了的话，这不可能；而它们确实跑过了：给其中一行插个
+`println` 会打出来，而且那条逐字节一致的输出只可能来自那几处 `throw`。
+
+露出马脚的是**它上面那一行**：
+
+```html
+<span class="fc bfc" id="L1314" title="All 2 branches covered.">if (!lh.v.isVar()) {</span>
+<span class="nc" id="L1315">    throw ls.syntaxError("syntax error");</span>
+```
+
+JaCoCo 知道这个分支两个方向都走过，行号表也证明 1315 行有自己的指令 —— 可这一行
+显示 `nc`。`Parser` 一共有 **19 行 `throw`，没有一行是 `fc`**（17 个 `nc`、
+2 个 `pc`），而项目其余部分是 136 个 `fc` / 41 个 `nc`。
+
+对「怎么挑目标」的结论：**未覆盖的 `throw` 行不能当作「这条路径没跑到」的证据。**
+`Parser` 那半个缺口里有相当一部分是这个假象，追下去只会花一下午去证明本来正确的
+代码是对的。真正能说明路径跑到了的是**比对**，不是覆盖率数字 —— 这正是
+「覆盖率涨了 ≠ 缺口补上了」那条规矩的另一面。
 
 ### `__gc` 不再往深里做（有意停止）
 
