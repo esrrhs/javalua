@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 799 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 801 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -1002,6 +1002,34 @@ UTF-8 字节都被写坏），新的 `%q` 扫描在 Latin-1 下<b>红</b>、在 
 —— 旧闸门放行了真实的字节级损坏。闸门现在按 Latin-1 解码（字节↔字符一一对应），
 比对才算真的逐字节。钉子：
 `RuntimeTest.quoteFormatMatchesReferenceForEveryByte`。
+
+#### 把运算符和类型铺成矩阵，又咬出一处
+
+下一个探针是全矩阵：每个运算符 × 每对类型，无元方法，比<b>报错文本</b>，1651 行。
+第二个探针同样铺一遍但带上元方法 —— 两个 handler 谁先走、`__le` 回退成
+`not (b < a)`、`__index`/`__newindex` 的表与函数两种形态、`__concat` 的右结合、
+`__close` 的时机与错误传递，245 行。第二个干净，第一个咬出这一处：
+
+* **`luaG_tointerror` 用的是 `F2Ieq`，不是「取整到整数」。**
+  `lvm.h` 里 `LUA_FLOORN2I` 默认就定义成 `F2Ieq` —— 名字叫 floor，语义是
+  「只接受整数值」：
+
+  ```c
+  void luaG_tointerror (lua_State *L, const TValue *p1, const TValue *p2) {
+    lua_Integer temp;
+    if (!luaV_tointegerns(p1, &temp, LUA_FLOORN2I))
+      p2 = p1;          /* 左边转不成整数就报左边 */
+    luaG_runerror(L, "number%s has no integer representation", varinfo(L, p2));
+  }
+  ```
+
+  按「取整」的模式判，`1.5` 会被当成能转，于是 `1.5 & 3` 去报<b>右边</b>的
+  `3`：`number (local 'b') has no integer representation`；参考实现报左边
+  `(local 'a')`。矩阵里错 10 行。手写的用例只用 inf/nan 这两个极端值，两种模式
+  在它们上面结论一样 —— 所以此前每道闸门都放它过去了。
+
+两个矩阵都固化成了用例：`RuntimeTest.operatorTypeErrorsMatchReference` 与
+`RuntimeTest.metamethodDispatchMatchesReference`。
 
 #### 有一处<b>不是</b>分歧：次正规数的 `%a`
 
