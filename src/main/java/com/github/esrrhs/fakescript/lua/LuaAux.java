@@ -447,6 +447,8 @@ public final class LuaAux {
             return "Bad file descriptor";
         case 22: // EINVAL
             return "Invalid argument";
+        case 21: // EISDIR
+            return "Is a directory";
         case 29: // ESPIPE
             return "Illegal seek";
         default:
