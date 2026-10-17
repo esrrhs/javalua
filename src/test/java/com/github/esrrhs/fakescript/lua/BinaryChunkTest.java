@@ -234,5 +234,107 @@ class BinaryChunkTest {
             print(pcall(load, d:sub(1, 1) .. string.rep("\0", 40)))
             print(load(d .. "trailing"))
             """,
+
+            /*
+             * 畸形 chunk 矩阵：对一个真实 dump 做<b>逐长度截断 + 逐字节变异 +
+             * 变长整数上限注入 + 尾部垃圾</b>，共 865 行，把 {@code lundump.c}
+             * 的每一条 {@code error()} 都点名到。
+             * <p>
+             * 为什么要「逐字节」而不是挑几个坏样本：手挑的样本只覆盖想得到的位置，
+             * 而变异不需要预先知道哪个字节是干什么的一一它把
+             * {@code truncated chunk} / {@code integer overflow} /
+             * {@code bad format for constant string} / {@code version mismatch} /
+             * {@code format mismatch} / {@code corrupted chunk} /
+             * 三种 {@code size mismatch} / 两种 {@code format mismatch}
+             * 全都撞出来了，包括两个手挑时不会想到的地方。
+             * <p>
+             * chunk 名固定成 {@code "=X"}：{@code string.dump} 的产物里带着源名，
+             * 而源名默认就是脚本路径，两边路径不同会让 dump 差 7 个字节、
+             * 所有偏移跟着错位，矩阵就白扫了。
+             */
+
+            """
+-- Undump 畸形 chunk 扫描：截断 / 逐字节变异 / 变长整数注入 / 尾部垃圾 / 剥调试信息
+-- chunk 名固定为 "=X"，保证 dump 与脚本所在路径无关，两边字节完全一致
+local g = load("return function() return 'hi' end", "=X")()
+local base = string.dump(g)
+print("len " .. #base)
+
+local function try(s, name)
+    local f, e = load(s, name)
+    if f then
+        return "ok"
+    end
+    return "err " .. tostring(e)
+end
+
+-- 1) 逐长度截断
+for i = 0, #base do
+    print(string.format("trunc %d %s", i, try(base:sub(1, i), "=C")))
+end
+
+-- 2) 逐字节变异
+local MUT = { 0x00, 0x80, 0xff, 0x41 }
+for i = 1, #base do
+    for _, m in ipairs(MUT) do
+        local s = base:sub(1, i - 1) .. string.char(m) .. base:sub(i + 1)
+        print(string.format("mut %d %d %s", i, m, try(s, "=C")))
+    end
+end
+
+-- 3) chunk 名对错误信息的影响（签名第二个字节 L 改掉 / 版本字节改掉）
+local nosig = base:sub(1, 1) .. "X" .. base:sub(3)
+print("name nil    " .. try(nosig))
+print("name at     " .. try(nosig, "@file.lua"))
+print("name eq     " .. try(nosig, "=nm"))
+print("name plain  " .. try(nosig, "plain"))
+print("name empty  " .. try(nosig, ""))
+print("name sig    " .. try(nosig, "\\27zz"))
+local badver = base:sub(1, 4) .. string.char(0x63) .. base:sub(6)
+print("ver nil     " .. try(badver))
+print("ver at      " .. try(badver, "@file.lua"))
+
+-- 4) 变长整数上限：头 31 字节 + 32 字节 upval 数，之后第一个读的就是 size
+for n = 1, 12 do
+    local s = base:sub(1, 32) .. string.rep("\\127", n)
+    print(string.format("ovf %d %s", n, try(s, "=C")))
+end
+print("ovf2 " .. try(base:sub(1, 32) .. string.rep("\\127", 4) .. "\\255", "=C"))
+
+-- 5) 尾部垃圾：undump 不检查 EOF
+print("tail  " .. try(base .. "GARBAGE", "=C"))
+print("tail2 " .. try(base .. string.rep("Z", 100), "=C"))
+
+-- 6) 剥掉调试信息后的同一批扫描（布局不同，走的是另一组偏移）
+local st = string.dump(g, true)
+print("slen " .. #st)
+for i = 0, #st do
+    print(string.format("strunc %d %s", i, try(st:sub(1, i), "=C")))
+end
+for i = 1, #st do
+    for _, m in ipairs({ 0x00, 0x80 }) do
+        local s = st:sub(1, i - 1) .. string.char(m) .. st:sub(i + 1)
+        print(string.format("smut %d %d %s", i, m, try(s, "=C")))
+    end
+end
+
+-- 7) 带 upvalue 与内嵌函数的 chunk（结构更复杂，字段更多）
+local h = load([[
+  local x = 1
+  local function inner(a) return a + x end
+  return function(b) return inner(b) * 2 end
+]], "=Y")()
+local big = string.dump(h)
+print("blen " .. #big)
+for i = 0, #big do
+    print(string.format("btrunc %d %s", i, try(big:sub(1, i), "=C")))
+end
+for i = 1, #big do
+    for _, m in ipairs({ 0x00, 0x80 }) do
+        local s = big:sub(1, i - 1) .. string.char(m) .. big:sub(i + 1)
+        print(string.format("bmut %d %d %s", i, m, try(s, "=C")))
+    end
+end
+            """,
     };
 }

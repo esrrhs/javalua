@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 851 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 852 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2238,6 +2238,57 @@ used instead to exercise `EACCES`.
 The general lesson is the one from the directory bug again: **"the value differs
 per platform" is a reason to derive it from the platform, not to leave the case
 untested** — skipping it is what let a plain wrong constant survive.
+
+### Byte-by-byte mutation: naming every `error()` in `lundump.c`
+
+`Undump` had 11 branches no script had ever reached — truncated chunk, integer
+overflow, bad format for a constant string, version / format / size mismatch.
+Hand-picked bad samples only cover the positions you think of, so this sweep is
+**byte-by-byte mutation** instead: every truncation length, every byte position
+mutated to each of four values, varint-limit injections, and trailing garbage,
+run over the plain dump, the stripped dump, and a dump with upvalues and nested
+protos. 865 lines, 21 distinct outcomes, 542 lines that are not `ok`. All 11
+branches come out, two of them in places no hand-picked sample would have hit.
+
+Two traps first, because either one silently voids the whole sweep:
+
+* **`string.dump` output carries the source name, and the source name defaults to
+  the script path.** The reference runs `/tmp/x.lua`, ours runs
+  `target/rt/case.lua`, so the dumps differed by 7 bytes and every offset shifted
+  — the first run showed 40 "divergences" that were all this one cause. The probe
+  pins the chunk name to `"=X"`, after which the two dumps are byte-identical.
+* **The varint-limit injection has to land after `nupvals`.** The header is 31
+  bytes, not 30; byte 32 is the upvalue count.
+
+The sweep found exactly one real divergence, and it was **a branch we invented**:
+
+* **`loadSize`'s `v > Integer.MAX_VALUE → integer overflow` does not exist in C.**
+  The old comment asserted that "C would allocate and raise `LUA_ERRMEM`" — a
+  conclusion read off the C source, and measured to be wrong: with a source-name
+  length of `2^35-1` (varint `7f 7f 7f 7f ff`) the reference reports
+  `truncated chunk`, not a memory error. malloc of 34GB succeeds on 64-bit, so C
+  goes ahead and reads those 34GB and hits end-of-stream. The branch is gone; long
+  strings are now **accumulated while reading** — how much is buffered depends on
+  how many bytes the stream actually has, not on how many it claims, and hitting
+  the end still reports `truncated chunk`.
+
+The reverse check afterwards — swapping `loadUnsigned`'s `limit >>>= 7` for the
+`Long.MAX_VALUE >>> 7` its own comment warns about — **turned up a second defect
+in passing**:
+
+* **`loadCode`'s `new byte[n * 4]` can overflow to a negative number** and throw
+  `NegativeArraySizeException` — **a Java exception, which `pcall` cannot catch**,
+  so one malformed chunk takes down the host process. It also paid twice: C
+  allocates `n` instructions, this allocated `n` plus another `4n` bytes, i.e.
+  double whatever an untrusted input asked for. Reading instruction by instruction
+  from a reused buffer removes the overflow and allocates only `n`. The same
+  sabotage re-run afterwards: **no crash**, and 13 red lines — the matrix is
+  sensitive to errors this small.
+
+The lesson is the standing one: **a comment agreeing with the C source is not
+evidence.** The more plausible that comment looked, the easier it was to read the
+mismatch as a deliberate deviation — and a branch that exists nowhere in C stayed
+quiet until a machine checked it.
 
 ### What is still missing
 
