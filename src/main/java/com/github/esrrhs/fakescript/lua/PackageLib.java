@@ -16,10 +16,10 @@ import java.util.List;
  * <p>
  * 与参考实现<b>不一致</b>的地方（参考二进制是用 {@code dlopen} 编出来的）：
  * <ul>
- *   <li>{@code package.loadlib} 的第三个数是 {@code "absent"} 而不是
- *       {@code "open"}，消息是
+ *   <li>{@code package.loadlib} 的第二个返回值是
  *       {@code "dynamic libraries not enabled; check your Lua installation"}
- *       而不是 {@code dlerror()} 的文本；</li>
+ *       而不是 {@code dlerror()} 的文本（第三个返回值 {@code "open"} 是
+ *       一致的，实测过）；</li>
  *   <li>{@code require} 一个真能找到 {@code .so} 的模块时，本实现会停在
  *       「动态库未启用」这一步，参考实现会真的去 {@code dlopen}。</li>
  * </ul>
@@ -179,10 +179,16 @@ public final class PackageLib {
     /**
      * {@code getnextfilename} 的等价物：按 {@code ';'} 切出下一个模板。
      * <p>
-     * 没有直接用 {@code String.split}：两者的边界行为不同。实测
-     * {@code "a;"} 在 C 里只出一项 {@code "a"}（末尾分号不产生空项），而
-     * {@code String.split(";", -1)} 会多给一个空串；空串模板在拼错误消息时
-     * 会多出一行 {@code no file ''}。
+     * 没有直接用 {@code String.split}：两者的边界行为不同——
+     * {@code String.split(";", -1)} 在 {@code ";;"} 上给三个空串里的两个，
+     * 而 C 给整整三个。
+     * <p>
+     * 末尾分号也<b>会</b>产生一项空模板（{@code "a;"} 切出 {@code ["a", ""]}）：
+     * C 的 {@code getnextfilename} 先还原分隔符、再往后挪一格，此时 {@code name}
+     * 可能已经等于 {@code end}，但它<b>仍然返回</b>这个空串，下一轮才认出结束。
+     * 这一项<b>观察不到</b>——空文件名 {@code readable("")} 必为假，而错误消息
+     * 又是拿未切分的整条 {@code path} 拼的（{@code #errorNotFound}），不是拿
+     * 这张表拼的。这里照样照 C 写，省得哪天有人拿这张表干别的事时对不上。
      */
     private static List<String> splitPath(String path) {
         List<String> out = new ArrayList<>();
@@ -196,9 +202,6 @@ public final class PackageLib {
             if (s[p] == '\0') { // 上一轮把分隔符改成了 '\0'：还原并跳过
                 s[p] = PATH_SEP.charAt(0);
                 p++;
-                if (p >= end) {
-                    break;
-                }
             }
             int sep = p;
             while (sep < end && s[sep] != PATH_SEP.charAt(0)) {
@@ -332,15 +335,19 @@ public final class PackageLib {
         L.push(msg);
         /*
          * 第三个返回值的判据是 <b>失败发生在哪一步</b>：{@code ERRLIB} 是
-         * 「库打不开」（{@code lsys_load} 失败），给 {@code "open"}；
-         * {@code ERRFUNC} 是「库里没这个符号」，给 {@code "absent"}。
-         * 之前写死 {@code "absent"}，是因为兜底分支（没有 dlopen 的构建）
-         * 里 {@code LIB_FAIL} 恰好是 {@code "absent"}——但那个分支下
-         * {@code lookforfunc} 恒返回 {@code ERRLIB}，于是照样该给
-         * {@code "open"}。靠第三个值区分「缺库 / 缺符号」的代码（不少
-         * 模块用它决定要不要继续找）会因此走错分支。
+         * 「库打不开」（{@code lsys_load} 失败），给 {@code LIB_FAIL}
+         * （启用 dlopen 的构建里是 {@code "open"}）；{@code ERRFUNC} 是
+         * 「库里没这个符号」，C 写死 {@code "init"}——<b>与 {@code LIB_FAIL}
+         * 是两个不同的常量</b>，兜底分支把 {@code LIB_FAIL} 重新定义成
+         * {@code "absent"} 时并没有动它。
+         * <p>
+         * 之前这里写死 {@code "absent"}，是因为照兜底分支的 {@code LIB_FAIL}
+         * 记的；实测（参考二进制，macOS + dlopen）：库打不开给 {@code "open"}，
+         * 而库能打开、符号找不到给 {@code "init"}。本实现的
+         * {@code lookForFunc} 恒返回 {@code ERRLIB}，所以这一支走不到——
+         * 照样照 C 写，免得哪天真接上 dlopen 时对不上。
          */
-        L.push(LuaValue.ofString(LuaString.latin1(stat == ERRLIB ? LIB_FAIL : "absent")));
+        L.push(LuaValue.ofString(LuaString.latin1(stat == ERRLIB ? LIB_FAIL : "init")));
         return 3;
     }
 
@@ -413,7 +420,8 @@ public final class PackageLib {
 
     /** {@code searcher_C} */
     private static int searcherC(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toJavaString();
+        // 与 searcher_preload / searcher_Lua 同理：name 是 const char*
+        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
         String filename = findFile(L, name, "cpath", DIRSEP);
         if (filename == null) {
             return 1;
@@ -423,7 +431,7 @@ public final class PackageLib {
 
     /** {@code searcher_Croot} */
     private static int searcherCroot(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
         int p = name.indexOf('.');
         if (p < 0) {
             return 0; // 就是根，交给别的搜索器
