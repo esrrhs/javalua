@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 846 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 847 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2106,6 +2106,30 @@ Two of the three are the same shape as the `setvbuf` sizes: C hands the decision
 libc and there is nothing sensible to model. The difference is that here the
 *observable* is not just an errno but a file offset — which is why they are written
 down rather than merely excluded.
+
+#### `require` against a real filesystem
+
+The `package` gate used to exercise only the pure-Lua half of the searcher chain,
+by populating `package.preload` in memory. `PackageLib` was still the second-
+thinnest class by coverage, so there is now a matrix that writes **real modules to
+disk** and makes `require` find them: 57 lines covering what a module may return
+(nil, false, true, a number, nothing, multiple values), a module that raises, one
+with a syntax error, one that sets `package.loaded` itself, dotted names turning
+into directories, the cache on a second `require`, a circular `require` (the
+reference gives `C stack overflow`, not a sentinel), `package.loaded` pre-set to a
+value / `false` / `nil`, `package.preload` given a function / a function returning
+nil / a raising function / a non-function, `searchpath`'s `sep` and `rep`, and the
+`searchers` chain — its length, each entry called directly, and the whole chain
+replaced.
+
+One thing it pins down that would otherwise rot quietly: every
+`module 'X' not found` message prints the **entire** candidate list, so the default
+`package.path` has to match the reference binary's compiled-in `LUA_PATH_DEFAULT`
+character for character.
+
+57 lines, byte-identical on the first run — so, again, sensitivity measured rather
+than assumed: changing `searchpath`'s default `sep` from `"."` to `"-"` turns it
+red at `sp_dots`.
 
 ### What is still missing
 

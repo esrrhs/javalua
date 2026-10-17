@@ -44,6 +44,7 @@ class PackageLibTest {
         add(tests, "preload", PRELOAD);
         add(tests, "lua", LUAMOD);
         add(tests, "err", ERRORS);
+        add(tests, "deep", DEEP);
         return tests;
     }
 
@@ -287,4 +288,178 @@ class PackageLibTest {
             package.searchers = { function(n) error("searcher died") end }
             print(pcall(require, "fkpk_e5"))
             """, };
+
+    /**
+     * {@code require} / {@code package.searchpath} 的<b>深矩阵</b>（57 行）：
+     * 真在磁盘上造一批模块，然后走完整条搜索器链 —— 而不只是在内存里摆
+     * {@code package.preload}。之前这一块只覆盖了「纯 Lua 那条路」的一半。
+     * <p>
+     * 覆盖到的形状：模块返回 nil / false / true / 数字 / 无返回 / 多值（只取第一）、
+     * 模块抛错、模块语法错、模块里自己设 {@code package.loaded}、
+     * 点号模块名换目录分隔符、重复 {@code require} 的缓存、循环 {@code require}
+     * （参考给 {@code C stack overflow}，不是哨兵）、
+     * {@code package.loaded} 预置成值 / false / nil 的三种后果、
+     * {@code package.preload} 给函数 / 返回 nil / 抛错 / 非函数、
+     * {@code searchpath} 的 {@code sep} / {@code rep} 与缺参、
+     * {@code package.searchers} 的个数与逐个调用、整条链被换掉。
+     * <p>
+     * 顺带钉住一件容易悄悄坏掉的事：<b>{@code package.path} 的默认值</b>必须与参考
+     * 二进制编译时那套 {@code LUA_PATH_DEFAULT} 一致 —— 矩阵里每条
+     * {@code module 'X' not found} 都把 {@code /usr/local/share/lua/5.4/...} 那
+     * 一串<b>完整打印</b>出来，改一个字符就红。
+     * <p>
+     * 敏感性量过：把 {@code searchpath} 的默认 {@code sep} 从 {@code "."} 改成
+     * {@code "-"}，立刻红在 {@code sp_dots}。
+     * <p>
+     * 库目录用 {@code /tmp/fkreq} 并在开头 {@code rm -rf} 重建：两边跑在同一台
+     * 机器上，绝对路径对双方都可见，也不依赖 cwd。
+     */
+    private static final String[] DEEP = {"""
+        -- require / package.searchpath 深矩阵：真在磁盘上造模块，走完整条搜索器链
+        local out = {}
+        local function d(v)
+          local t = type(v)
+          if t == "nil" then return "nil" end
+          if t == "boolean" then return tostring(v) end
+          if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+          if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
+          return t
+        end
+        local function probe(name, f, ...)
+          local r = table.pack(pcall(f, ...))
+          local s = name .. " [" .. r.n .. "]"
+          for i = 2, r.n do s = s .. " " .. d(r[i]) end
+          if not r[1] then s = s .. " ERR " .. d(r[2]) end
+          out[#out + 1] = s
+        end
+        local function say(s) out[#out + 1] = s end
+
+        local D = "/tmp/fkreq"
+        local R = D .. "/repo"
+        os.execute("rm -rf " .. D .. " && mkdir -p " .. R .. "/sub")
+        local function put(path, body)
+          local f = assert(io.open(path, "w"))
+          f:write(body)
+          f:close()
+        end
+
+        put(R .. "/basic.lua", "return 'BASIC'\\n")
+        put(R .. "/nonil.lua", "-- 什么都不返回\\n")
+        put(R .. "/retnil.lua", "return nil\\n")
+        put(R .. "/retfalse.lua", "return false\\n")
+        put(R .. "/rettrue.lua", "return true\\n")
+        put(R .. "/retnum.lua", "return 42\\n")
+        put(R .. "/retmulti.lua", "return 1, 2, 3\\n")
+        put(R .. "/err.lua", "error('boom')\\n")
+        put(R .. "/syntax.lua", "this is not lua\\n")
+        put(R .. "/prints.lua", "print('SIDE'); return 'P'\\n")
+        put(R .. "/setsloaded.lua", "package.loaded['setsloaded'] = 'PRESET'; return 'FROMCHUNK'\\n")
+        put(R .. "/sub/inner.lua", "return 'INNER'\\n")
+        put(R .. "/counter.lua", "local n = (package.loaded['counter_n'] or 0) + 1\\n"
+                              .. "package.loaded['counter_n'] = n\\nreturn n\\n")
+        put(R .. "/circ.lua", "return require('circ')\\n")
+
+        -- 把仓库路径前置到 package.path，避免依赖 cwd
+        local oldpath = package.path
+        package.path = R .. "/?.lua;" .. R .. "/?/init.lua;" .. oldpath
+
+        say("path_head " .. tostring(package.path:sub(1, #R + 6)))
+
+        probe("r_basic", require, "basic")
+        probe("r_basic_twice", require, "basic")       -- 缓存：第二次不再跑
+        probe("r_prints", require, "prints")           -- 副作用只发生一次
+        probe("r_prints2", require, "prints")
+        probe("r_nonil", require, "nonil")             -- 无返回 → true
+        probe("r_retnil", require, "retnil")           -- 返回 nil → true
+        probe("r_retfalse", require, "retfalse")       -- 返回 false → false
+        probe("r_rettrue", require, "rettrue")
+        probe("r_retnum", require, "retnum")
+        probe("r_retmulti", require, "retmulti")       -- 只取第一个
+        probe("r_err", require, "err")
+        probe("r_syntax", require, "syntax")
+        probe("r_setsloaded", require, "setsloaded")   -- chunk 里先设了 loaded
+        probe("r_setsloaded2", require, "setsloaded")
+        probe("r_sub", require, "sub.inner")           -- 点号换成目录分隔符
+        probe("r_counter1", require, "counter")
+        probe("r_counter2", require, "counter")
+        probe("r_missing", require, "no_such_mod_xyz")
+        probe("r_missing_dots", require, "a.b.c.nope")
+        probe("r_circ", require, "circ")               -- 循环 require 给的是哨兵
+        probe("r_noname", require)
+        probe("r_nilname", require, nil)
+        probe("r_numname", require, 42)
+        probe("r_emptyname", require, "")
+        probe("r_boolname", require, true)
+
+        -- package.loaded 预置
+        package.loaded["preset"] = "PRE"
+        probe("l_preset", require, "preset")
+        package.loaded["prefalse"] = false
+        probe("l_prefalse", require, "prefalse")
+        package.loaded["prenil"] = nil
+        probe("l_prenil", require, "prenil")
+
+        -- package.preload
+        package.preload["frompreload"] = function() return "FROM_PRELOAD" end
+        probe("p_preload", require, "frompreload")
+        package.preload["preloadnil"] = function() return nil end
+        probe("p_preloadnil", require, "preloadnil")
+        package.preload["preloaderr"] = function() error("pe") end
+        probe("p_preloaderr", require, "preloaderr")
+        probe("p_preload_extra", function()
+          package.preload["multi"] = function(n) return "N=" .. tostring(n) end
+          return require("multi")
+        end)
+        probe("p_preload_badtype", function()
+          package.preload["notfn"] = 42
+          return require("notfn")
+        end)
+
+        -- searchpath
+        probe("sp_basic", package.searchpath, "basic", R .. "/?.lua")
+        probe("sp_missing", package.searchpath, "nope_xyz", R .. "/?.lua")
+        probe("sp_multi", package.searchpath, "nope_xyz", R .. "/?.lua;" .. R .. "/?/init.lua")
+        probe("sp_dots", package.searchpath, "sub.inner", R .. "/?.lua")
+        probe("sp_sep", package.searchpath, "sub.inner", R .. "/?.lua", ".", "/")
+        probe("sp_rep", package.searchpath, "subXinner", R .. "/?.lua", "X", "/")
+        probe("sp_rep2", package.searchpath, "sub--inner", R .. "/?.lua", "--", "/")
+        probe("sp_emptysep", package.searchpath, "basic", R .. "/?.lua", "", "")
+        probe("sp_nopath", package.searchpath, "basic", "")
+        probe("sp_nosep", package.searchpath, "basic", R .. "/?.lua")
+        probe("sp_badname", package.searchpath, 42, R .. "/?.lua")
+        probe("sp_badpath", package.searchpath, "basic", 42)
+        probe("sp_noargs", package.searchpath)
+        probe("sp_abs", package.searchpath, "basic", R .. "/?.lua;" .. R .. "/?.lua")
+
+        -- searchers 链本身
+        probe("s_count", function() return #package.searchers end)
+        probe("s_types", function()
+          local r = {}
+          for i, v in ipairs(package.searchers) do r[#r + 1] = type(v) end
+          return table.concat(r, ",")
+        end)
+        probe("s_call1", function() return package.searchers[1]("basic") end)
+        probe("s_call4", function() return package.searchers[4]("basic") end)
+        probe("s_call_missing1", function() return package.searchers[1]("nope_xyz_1") end)
+        probe("s_call_bad", function() return package.searchers[1](42) end)
+        probe("s_replace", function()
+          local old = package.searchers
+          package.searchers = { function(n) return function() return "REPLACED" end end }
+          local v = require("anything_xyz")
+          package.searchers = old
+          return v
+        end)
+        probe("s_empty", function()
+          local old = package.searchers
+          package.searchers = {}
+          local ok, e = pcall(require, "anything_xyz")
+          package.searchers = old
+          return ok, e
+        end)
+
+        package.path = oldpath
+        os.execute("rm -rf " .. D)
+        print(table.concat(out, "\\n"))
+            """ };
+
 }
