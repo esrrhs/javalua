@@ -5422,4 +5422,219 @@ class RuntimeTest {
                 pr("DONE")
                 """);
     }
+
+    /**
+     * {@code os} 库矩阵的下半边 —— 参考实现与本实现逐字节比对。
+     * <p>
+     * 既有那一片（854 行）铺的是 {@code os.date} 的每个转换说明符与
+     * {@code tonumber} 的全进制；这一片铺它没盖住的：{@code os.time} 的
+     * 各种表形态（非闰年进位、月/日/时越界、缺省值、多余字段）、
+     * {@code os.difftime}、{@code os.getenv}、{@code os.remove} /
+     * {@code os.rename}、{@code os.tmpname}、{@code os.execute} 的退出码、
+     * {@code os.setlocale}。
+     * <p>
+     * 咬出一处：<b>{@code os.time} 的字段是 {@code lua_tointegerx}，带字符串
+     * 转换</b>。{@code os.time{year = "2000", month = 1, day = 1}} 在参考实现里
+     * 就是 2000 年，而我们报 {@code field 'year' is not an integer}——
+     * {@code cvt2num} 让可解析的字符串也走 {@code luaV_tointeger}，库函数参数
+     * 走的是会做类型转换的那一套，与 VM 算术指令刻意不转换的做法相反。
+     * 顺带钉住 {@code month} / {@code day} 是<b>必填</b>（缺了报
+     * {@code field 'x' missing in date table}），以及大到越出 int 的字段报
+     * {@code field 'x' is out-of-bound}。
+     * <p>
+     * 两处刻意不测：{@code year = -100} 这种极端年份（{@code mktime} 的可用
+     * 范围随 libc 而定，macOS 报 {@code time result cannot be represented}），
+     * 以及删<b>目录</b>（{@code ENOTEMPTY} 的数值 macOS 是 66、glibc 是 39）。
+     */
+    @Test
+    void osTimeAndProceduralMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- os 库矩阵（补既有那片没盖住的半边）。
+                -- 既有那片铺的是 os.date 的每个转换说明符（UTC、固定时间戳）；这一片铺
+                -- os.time 的各种表形态与越界、difftime、getenv、remove/rename、tmpname、
+                -- execute、setlocale，以及 os.date 的参数校验。
+                -- 时区：两边同一台机器、同一份环境，所以本地时间的绝对数值是可比的。
+                local D = "target/rt/"
+                local function pr(...)
+                  print(...)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                local function s(v)
+                  local tt = type(v)
+                  if tt == "table" or tt == "function" or tt == "thread" or tt == "userdata" then
+                    return tt
+                  end
+                  return tostring(v)
+                end
+                local function rm(p)
+                  return os.remove(D .. p)
+                end
+                local function mk(name, content)
+                  local f = io.open(D .. name, "wb")
+                  if not f then return false end
+                  f:write(content or "x")
+                  f:close()
+                  return true
+                end
+
+                -- 1) 静态结构
+                pr("A1", s(os.time), s(os.date), s(os.difftime), s(os.getenv))
+                pr("A2", s(os.remove), s(os.rename), s(os.tmpname), s(os.execute), s(os.exit))
+                pr("A3", s(os.clock), s(os.setlocale))
+                -- os.time() 无参与 os.clock 的数值随时刻而变，只比形状
+                pr("A4", math.type(os.time()), math.type(os.clock()))
+
+                -- 2) os.time：给表
+                local T0 = os.time({ year = 1970, month = 1, day = 1, hour = 0 })
+                pr("B1", T0)
+                pr("B2", os.time({ year = 1970, month = 1, day = 2, hour = 0 }) - T0)
+                pr("B3", os.time({ year = 2000, month = 6, day = 15, hour = 12, min = 30, sec = 45 }) - T0)
+                pr("B4", os.time({ year = 2024, month = 2, day = 29, hour = 0 }) - T0)
+                pr("B5", os.time({ year = 2023, month = 2, day = 29, hour = 0 }) - T0) -- 非闰年，进位
+                pr("B6", os.time({ year = 2000, month = 13, day = 1, hour = 0 }) - T0)  -- 月越界
+                pr("B7", os.time({ year = 2000, month = 0, day = 1, hour = 0 }) - T0)
+                pr("B8", os.time({ year = 2000, month = 1, day = 0, hour = 0 }) - T0)
+                pr("B9", os.time({ year = 2000, month = 1, day = 32, hour = 0 }) - T0)
+                pr("B10", os.time({ year = 2000, month = 1, day = 1, hour = 24 }) - T0)
+                pr("B11", os.time({ year = 2000, month = 1, day = 1, hour = 0, min = 60 }) - T0)
+                pr("B12", os.time({ year = 2000, month = 1, day = 1, hour = 0, sec = 60 }) - T0)
+                pr("B13", os.time({ year = 2000, month = 1, day = 1, hour = -1 }) - T0)
+                -- month / day 是<b>必填</b>（getfield 的 d < 0），year 可选、hour 缺省 12。
+                -- 这两句是抛错，必须走 pcall，否则脚本在这里就断了。
+                pr("B14", pc(os.time, { year = 2000 }))
+                pr("B15", pc(os.time, { year = 2000, month = 1 }))
+                pr("B15b", os.time({ year = 2000, month = 1, day = 1 }) - T0) -- hour 缺省 12
+                -- 多余字段被忽略
+                pr("B16", os.time({ year = 2000, month = 3, day = 4, hour = 5,
+                                    yday = 999, wday = 9, isdst = true, extra = 1 })
+                           - os.time({ year = 2000, month = 3, day = 4, hour = 5 }))
+                pr("B17", os.time({ year = 2024, month = 7, day = 1, hour = 12, isdst = true })
+                           - os.time({ year = 2024, month = 7, day = 1, hour = 12, isdst = false }))
+                -- 参数形态
+                pr("B18", pc(os.time, 5))
+                pr("B19", pc(os.time, "x"))
+                pr("B20", pc(os.time, { year = "2000", month = 1, day = 1 }))
+                pr("B21", pc(os.time, { year = 2000.5, month = 1, day = 1 }))
+                pr("B22", pc(os.time, { year = 2000, month = 1, day = 1, hour = true }))
+                pr("B23", pc(os.time, { year = 10000, month = 1, day = 1, hour = 0 }))
+                -- year = -100 不测：mktime 的可用范围随 libc 而定（macOS 报
+                -- "time result cannot be represented"，glibc 未必），放进比对只在本地对。
+                pr("B25", pc(os.time, {}))
+                pr("B26", pc(os.time, { year = 2 ^ 40, month = 1, day = 1 }))
+                pr("B27", pc(os.time, { year = -2 ^ 40, month = 1, day = 1 }))
+                pr("B28", pc(os.time, { year = 2000, month = 2 ^ 40, day = 1 }))
+                pr("B29", pc(os.time, { year = 2000, month = 1, day = "3" }))
+                pr("B30", pc(os.time, { year = "2000", month = "1", day = "1", hour = "12" }))
+
+                -- 3) os.date 的参数校验与非 UTC 的 *t
+                do
+                  local t = os.time({ year = 2000, month = 6, day = 15, hour = 12, min = 30, sec = 45 })
+                  local d = os.date("*t", t)
+                  local keys = { "year", "month", "day", "hour", "min", "sec", "wday", "yday" }
+                  local out = {}
+                  for _, k in ipairs(keys) do out[#out + 1] = k .. "=" .. tostring(d[k]) end
+                  pr("C1", table.concat(out, ","))
+                  pr("C2", type(d.isdst))
+                  local keys2 = {}
+                  for k in pairs(d) do keys2[#keys2 + 1] = k end
+                  table.sort(keys2)
+                  pr("C3", table.concat(keys2, ","))
+                  -- 缺省格式是 %c；缺省时间是「现在」，只比长度
+                  pr("C4", (os.date(nil, t)):len() == (os.date("%c", t)):len())
+                  pr("C5", (os.date("%Y-%m-%d")):len())
+                  pr("C6", pc(os.date, "%Y", "x"))
+                  pr("C7", pc(os.date, 5, t))
+                  pr("C8", pc(os.date, "%Y", 5))
+                  pr("C9", pc(os.date, "%"))
+                  pr("C10", pc(os.date, "%Q", t))
+                  pr("C11", pc(os.date, "*t", 2 ^ 62))
+                  pr("C12", pc(os.date, "%Y", -1))
+                  local function fields(d)
+                    local out = {}
+                    for _, k in ipairs({ "year", "month", "day", "hour", "min", "sec", "wday", "yday" }) do
+                      out[#out + 1] = tostring(d[k])
+                    end
+                    return table.concat(out, ",")
+                  end
+                  pr("C13", fields(os.date("*t", 0)))
+                  pr("C14", fields(os.date("!*t", 0)))
+                  -- 带前导的其他 "*" 变体
+                  pr("C15", pc(os.date, "*x", t))
+                end
+
+                -- 4) difftime
+                pr("D1", os.difftime(100, 50), math.type(os.difftime(100, 50)))
+                pr("D2", os.difftime(50, 100))
+                pr("D3", pc(os.difftime, 1))
+                pr("D4", pc(os.difftime))
+                pr("D5", pc(os.difftime, "x", 1))
+                pr("D6", pc(os.difftime, 1, "x"))
+
+                -- 5) getenv
+                pr("E1", type(os.getenv("PATH")))
+                pr("E2", os.getenv("_NO_SUCH_ENV_VAR_XYZ_"))
+                pr("E3", pc(os.getenv))
+                pr("E4", pc(os.getenv, 5))
+                pr("E5", pc(os.getenv, true))
+
+                -- 6) remove / rename
+                do
+                  rm("_os_a")
+                  pr("F1", mk("_os_a"), os.remove(D .. "_os_a") == true)
+                  pr("F2", os.remove(D .. "_os_a")) -- 已删：nil + 消息 + errno
+                end
+                do
+                  rm("_os_b")
+                  rm("_os_c")
+                  pr("F3", mk("_os_b"), os.rename(D .. "_os_b", D .. "_os_c") == true)
+                  pr("F4", io.open(D .. "_os_c", "r") ~= nil)
+                  rm("_os_c")
+                  pr("F5", os.rename(D .. "_os_b", D .. "_os_c")) -- 源不存在
+                end
+                pr("F6", pc(os.remove))
+                pr("F7", pc(os.remove, 5))
+                pr("F8", pc(os.rename, "x"))
+                pr("F9", pc(os.rename, "x", 5))
+                -- 删目录不测：ENOTEMPTY 的数值 macOS 是 66、glibc 是 39，不可比。
+                pr("F10", pc(os.remove, D .. "_os_a", "x")) -- 多余参数
+                rm("_os_b")
+                rm("_os_c")
+
+                -- 7) tmpname
+                do
+                  local n = os.tmpname()
+                  pr("G1", type(n), n:len() > 0)
+                  local f = io.open(n, "w")
+                  pr("G2", f ~= nil)
+                  if f then
+                    f:write("x")
+                    f:close()
+                    pr("G3", os.remove(n) == true)
+                  end
+                end
+
+                -- 8) execute
+                pr("H1", os.execute("exit 0"))
+                pr("H2", os.execute("exit 3"))
+                pr("H3", os.execute("exit 1"))
+                pr("H4", pc(os.execute))
+                pr("H5", pc(os.execute, 5))
+                pr("H6", pc(os.execute, "x", "y"))
+
+                -- 9) setlocale：只试 "C" 与查询，且放在最后（改了会影响 %a/%B 的名字）
+                pr("I1", pc(os.setlocale, "C"))
+                pr("I2", pc(os.setlocale, "C", "numeric"))
+                pr("I3", pc(os.setlocale, nil, "nope"))
+                pr("I4", pc(os.setlocale, 5))
+
+                pr("DONE")
+
+                print("DONE")
+                """);
+    }
 }

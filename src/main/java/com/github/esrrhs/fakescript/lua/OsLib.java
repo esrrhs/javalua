@@ -128,8 +128,17 @@ public final class OsLib {
      */
     private static int getField(LuaState L, LuaValue t, String key, int def, int delta) {
         LuaValue v = field(L, t, key);
+        /*
+         * C 这里是 {@code lua_tointegerx}，<b>带字符串转换</b>
+         * （{@code cvt2num} 让可解析的字符串也走 {@code luaV_tointeger}）。
+         * 实测 {@code os.time{year="2000", month=1, day=1}} 在参考实现里就是
+         * 2000 年；只认整数／浮点会把它报成 {@code field 'year' is not an
+         * integer}。库函数参数走 {@code luaL_check*} 那一套（会做类型转换），
+         * 与 VM 算术指令刻意不转换的做法相反。
+         */
+        Long i = Vm.toInteger(v, Arith.F2I_EQ);
         long res;
-        if (!v.isInteger() && !(v.isFloat() && Vm.toInteger(v, Arith.F2I_EQ) != null)) {
+        if (i == null) {
             if (!v.isNil()) {
                 throw L.libError("field '" + key + "' is not an integer");
             }
@@ -138,10 +147,6 @@ public final class OsLib {
             }
             res = def;
         } else {
-            Long i = v.isInteger() ? Long.valueOf(v.i) : Vm.toInteger(v, Arith.F2I_EQ);
-            if (i == null) {
-                throw L.libError("field '" + key + "' is not an integer");
-            }
             res = i;
             boolean ok = (res >= 0) ? (res - (long) delta <= Integer.MAX_VALUE)
                     : (Integer.MIN_VALUE + (long) delta <= res);

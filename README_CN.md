@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 821 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 822 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1460,6 +1460,31 @@ C 靠 `luaD_rawrunprotected` 末尾的 `L->nCcalls = oldnCcalls`（在 `pcall` �
 两处刻意不测：`fopen` 一个**目录**在 macOS 与 glibc 上都成功、但读的行为不同，
 而 JVM 压根不允许把目录当流打开；`print` 写的是 C 层的 `stdout`，不受
 `io.output` 切换影响 —— 假设它会跟着变的脚本，两边会各自给出一个错的答案。
+
+#### `os.time` 那半边：`lua_tointegerx` 是带字符串转换的
+
+既有那片 854 行铺的是 `os.date` 的每个转换说明符；这一片铺它没盖住的半边：
+`os.time` 的各种表形态（非闰年进位、月/日/时越界、缺省值、被忽略的多余字段）、
+`difftime`、`getenv`、`remove` / `rename`、`tmpname`、`execute` 的退出码、
+`setlocale`。
+
+**日期表的字段是用 `lua_tointegerx` 读的，它会转换字符串**：
+
+```c
+  lua_Integer res = lua_tointegerx(L, -1, &isnum);   /* cvt2num：字符串也走 */
+```
+
+所以 `os.time{year = "2000", month = 1, day = 1}` **就是** 2000 年，而我们报
+`field 'year' is not an integer`。库函数参数走的是会做类型转换的 `luaL_check*`
+那一套，VM 的算术指令则刻意不转换 —— 两条相反的规矩，很容易写成同一条。
+
+顺带钉住：`month` / `day` 是**必填**（缺了报 `field 'month' missing in date
+table`，`year` 有缺省、`hour` 缺省 12）；字段大到越出 int 范围报
+`field 'x' is out-of-bound`；`yday` / `wday` 之类的多余字段被忽略。
+
+两处刻意不测：`year = -100` 这种极端年份（`mktime` 的可表示范围随 libc 而定，
+macOS 报 `time result cannot be represented in this installation`）；删**目录**
+（`ENOTEMPTY` 的数值 macOS 是 66、glibc 是 39）。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 
