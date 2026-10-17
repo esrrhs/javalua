@@ -676,6 +676,16 @@ public final class OsLib {
         // Paths.get 会抛 InvalidPathException —— 而它不是 LuaError，pcall 拦不住，
         // 会整颗逃逸成 Java 异常（实测 os.remove("a\0b") 直接崩掉进程）。
         String path = LuaAux.checkString(L, 1).toCString().toJavaString();
+        /*
+         * 空路径：C 的 remove("") 走 unlink 直接给 ENOENT（实测
+         * os.remove("") -> nil, ": No such file or directory", 2），
+         * 而 Java 的 Paths.get("") 抛的是别的异常、落进 errnoOf 的兜底成了 EIO。
+         * 与 loadfile("") 是同一类「C 与 Java 判路径不一致」的角落。
+         */
+        if (path.isEmpty()) {
+            LuaAux.fileResult(L, false, path, 2); // ENOENT
+            return 3;
+        }
         try {
             Files.delete(Paths.get(path));
             L.push(LuaValue.ofBoolean(true));
@@ -689,8 +699,39 @@ public final class OsLib {
     private static int rename(LuaState L) {
         String from = LuaAux.checkString(L, 1).toCString().toJavaString();
         String to = LuaAux.checkString(L, 2).toCString().toJavaString();
+        /*
+         * C 的 rename 有一张形状表，Java 的 Files.move 只对上了一半 ——
+         * 实测（参考二进制）逐条量过：
+         *   源不存在            -> nil, "No such file or directory", 2
+         *   文件 -> 已存在的目录 -> nil, "Is a directory", 21
+         *   目录 -> 已存在的文件 -> nil, "Not a directory", 20
+         *   目录 -> 空目录       -> true（替换）
+         *   目录 -> 非空目录     -> nil, "Directory not empty", ENOTEMPTY
+         *   文件 -> 已存在的文件 -> true（替换）
+         * 之前一律走不带 REPLACE_EXISTING 的 Files.move，于是「目标已存在」全报
+         * EEXIST，而 C 是会替换的；EISDIR / ENOTDIR 两个形状更是根本没判。
+         */
+        if (from.isEmpty() || to.isEmpty()) {
+            LuaAux.fileResult(L, false, null, 2); // ENOENT
+            return 3;
+        }
+        java.io.File sf = new java.io.File(from);
+        java.io.File df = new java.io.File(to);
+        int en = 0;
+        if (!sf.exists()) {
+            en = 2; // ENOENT
+        } else if (sf.isFile() && df.isDirectory()) {
+            en = 21; // EISDIR
+        } else if (sf.isDirectory() && df.isFile()) {
+            en = 20; // ENOTDIR
+        }
+        if (en != 0) {
+            LuaAux.fileResult(L, false, null, en);
+            return 3;
+        }
         try {
-            Files.move(Paths.get(from), Paths.get(to));
+            Files.move(sf.toPath(), df.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             L.push(LuaValue.ofBoolean(true));
             return 1;
         } catch (IOException | RuntimeException e) {

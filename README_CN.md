@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 850 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 851 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1494,9 +1494,13 @@ macOS 与 glibc 一样，只是 JVM 不愿意建模。现在建模了，见下�
 table`，`year` 有缺省、`hour` 缺省 12）；字段大到越出 int 范围报
 `field 'x' is out-of-bound`；`yday` / `wday` 之类的多余字段被忽略。
 
-两处刻意不测：`year = -100` 这种极端年份（`mktime` 的可表示范围随 libc 而定，
-macOS 报 `time result cannot be represented in this installation`）；删**目录**
-（`ENOTEMPTY` 的数值 macOS 是 66、glibc 是 39）。
+一处刻意不测：`year = -100` 这种极端年份（`mktime` 的可表示范围随 libc 而定，
+macOS 报 `time result cannot be represented in this installation`）。
+
+删**目录**原本也写在这里，理由是「`ENOTEMPTY` 的数值 macOS 是 66、glibc 是 39」
+—— 但「数值随系统变」是**按系统取值**的理由，不是跳过这条用例的理由。现在比了，
+`ENOTEMPTY` 按 `os.name` 取，见下文 *errno 形状表*。而且当初跳过它，正好把
+「errno 写死成 39、在哪儿都不对」这个错盖住了。
 
 #### 弱表 / `__gc` / `<close>` 矩阵：`isdecGCmodegen`
 
@@ -1983,6 +1987,28 @@ JVM 根本不让打开目录，于是本实现以同一种方式在五处同时�
   跑参考实现跑出来的</b>，而且它是错的。先量，再写。
 * 代码注释（`BaseLib`）里那句同样断言了「目录不用改」。
   **注释跟代码保持一致不是证据。**
+
+#### errno 形状表：`os.remove` / `os.rename`
+
+`LuaAux` 还剩 15 行没走到，其中大半是 `errnoOf` / `strError` 里 `ENOTEMPTY`、
+`EACCES` 这些从没有脚本碰过的分支。22 行点名打过去，咬出**五处**，四处是真 bug：
+
+* **`ENOTEMPTY` 的数值是操作系统定的，不是 libc 定的**：Linux 39、macOS/BSD 66。
+  这里写死 39，于是 `os.remove(非空目录)` 消息对、数字差 27。改成按 `os.name` 取。
+* **`strError` 得同时认两个数值。** 只改数字会得到「errno 66 对、消息却是
+  Input/output error」—— 数值常量与它的文本必须一起动。
+* **`os.remove("")`** 给 `EIO`，C 给 `ENOENT` —— 与 `loadfile("")` 同一类
+  「C 与 Java 判路径不一致」的角落。
+* **`os.rename` 的形状表整张没对**：文件 → 已存在的目录是 `EISDIR`(21)、
+  目录 → 已存在的文件是 `ENOTDIR`(20)、目录 → **空**目录是<b>成功</b>（替换）、
+  文件 → 已存在的文件也是替换。之前一律报 `EEXIST`，因为 `Files.move` 没带
+  `REPLACE_EXISTING`。
+
+一处不比：`os.remove("/etc")` 在本机是 `EPERM`，取决于 SIP 与这台机器的权限，
+不是 Lua 的事实。改用 `chmod 000` 的目录来走 `EACCES` 那条路。
+
+跟目录那个 bug 是同一条教训：**「这个值随平台变」是「按平台取」的理由，不是
+「不测」的理由** —— 恰恰是跳过它，才让一个写死的常量活到今天。
 
 ### 还没补上的
 

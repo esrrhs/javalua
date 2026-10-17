@@ -413,12 +413,29 @@ public final class LuaAux {
         return (e instanceof IOException) ? errnoOf((IOException) e) : 2; // ENOENT
     }
 
+    /**
+     * {@code ENOTEMPTY} 的<b>数值</b>是操作系统定的，不是 C 库定的：
+     * Linux 是 {@code 39}，macOS / BSD 是 {@code 66}。
+     * <p>
+     * 实测（参考二进制，本机 macOS）：{@code os.remove(非空目录)} 给
+     * {@code nil, "<p>: Directory not empty", 66} —— 之前这里写死 39，
+     * 消息对了、数字差 27。
+     */
+    private static final int ENOTEMPTY;
+
+    static {
+        String os = System.getProperty("os.name", "");
+        ENOTEMPTY = (os.contains("Mac") || os.contains("Darwin") || os.contains("BSD"))
+                ? 66
+                : 39;
+    }
+
     public static int errnoOf(IOException e) {
         if (e instanceof java.nio.file.NoSuchFileException) {
             return 2; // ENOENT
         }
         if (e instanceof java.nio.file.DirectoryNotEmptyException) {
-            return 39; // ENOTEMPTY
+            return ENOTEMPTY;
         }
         if (e instanceof java.nio.file.FileAlreadyExistsException) {
             return 17; // EEXIST
@@ -441,12 +458,20 @@ public final class LuaAux {
             return "Permission denied";
         case 17:
             return "File exists";
+        /*
+         * ENOTEMPTY 的<b>两个</b>数值都要认：Linux 39、macOS/BSD 66。
+         * 只写 39 的话 macOS 上 errno 对了、消息却落进兜底的
+         * "Input/output error"（实测就是这么红的：数字 66 对、消息错）。
+         */
         case 39:
+        case 66:
             return "Directory not empty";
         case 9: // EBADF
             return "Bad file descriptor";
         case 22: // EINVAL
             return "Invalid argument";
+        case 20: // ENOTDIR
+            return "Not a directory";
         case 21: // EISDIR
             return "Is a directory";
         case 29: // ESPIPE
