@@ -10637,4 +10637,102 @@ os.remove("io_t.txt")
 os.remove("io_big.txt")
         """);
     }
+
+    /**
+     * errno 形状表：{@code io.open} 的各种失败 × {@code os.rename} ×
+     * {@code os.remove}。与参考实现逐行比对。
+     * <p>
+     * 这个文件操作的 errno 不是「存在不存在」一个维度，而是由<b>目标的形状</b>
+     * 决定的，一共五个值：{@code ENOENT}(2)、{@code EACCES}(13)、
+     * {@code ENOTDIR}(20)、{@code EISDIR}(21)、{@code EINVAL}(22)，外加
+     * {@code ENOTEMPTY} 和 {@code EPERM}(1)。本实现原先只按<b>异常类型</b>判，
+     * 认不出的全落进 {@code ENOENT} / {@code EIO} 的兜底 —— 五条全错。
+     * <p>
+     * 修法是<b>反查而不是另列一张表</b>：errno 与 {@code strerror} 是一对逆函数，
+     * 而 Java 的 IO 异常把 libc 的 {@code strerror} 原文带在消息里
+     * （{@code FileNotFoundException} 是 {@code "<path> (Permission denied)"}，
+     * {@code FileSystemException} 的 {@code getReason()} 直接是
+     * {@code "Not a directory"}），所以拿 {@code LuaAux.strError} 那张表反查即可。
+     * <p>
+     * 两个写探针时的坑，都写在这儿的注释里免得再踩：
+     * <ul>
+     *   <li><b>素材放子目录，收尾整个删掉</b>，别在仓库根目录建临时文件；</li>
+     *   <li><b>不要用 {@code /etc/hosts} 这种真系统文件试 {@code os.remove}</b>
+     *       —— 一旦以 root 跑就<b>真删掉了</b>。只读权限那条用自己建的
+     *       {@code chmod 555} 目录。</li>
+     * </ul>
+     */
+    @Test
+    void errnoShapesMatchReference() {
+        Diff.assertMatches("""
+-- errno 形状表：io.open 的各种失败 × os.rename × os.remove
+-- 素材全放在子目录里，收尾整个删掉，不在仓库根目录留东西
+local D = "au_tmp/"
+local function p(tag, f, ...)
+    local ok, a, b, c = pcall(f, ...)
+    if not ok then
+        print(string.format("%s ERR %s", tag, tostring(a)))
+    else
+        print(string.format("%s %s | %s | %s", tag, tostring(a), tostring(b), tostring(c)))
+    end
+end
+
+os.execute("rm -rf au_tmp && mkdir -p au_tmp/d au_tmp/e")
+local w = io.open(D .. "f.txt", "w")
+w:write("f")
+w:close()
+local w2 = io.open(D .. "g.txt", "w")
+w2:write("g")
+w2:close()
+local w3 = io.open(D .. "d/inner", "w")
+w3:write("i")
+w3:close()
+
+-- A. io.open：目标的「形状」决定 errno，不只是"存在不存在"
+for _, m in ipairs({ "r", "w", "a", "r+", "w+", "a+", "rb", "wb" }) do
+    p("A[" .. m .. "]", io.open, D .. "d", m)           -- 目标是目录
+end
+p("A01", io.open, D .. "nodir/x.txt", "r")              -- 父目录不存在
+p("A02", io.open, D .. "nodir/x.txt", "w")
+p("A03", io.open, D .. "f.txt/y", "r")                  -- 父是文件 -> ENOTDIR
+p("A04", io.open, D .. "f.txt/y", "w")
+p("A05", io.open, "/etc/hosts", "w")                    -- 没写权限 -> EACCES
+p("A06", io.open, "/etc/hosts", "r")
+p("A07", io.open, "", "r")                              -- 空路径
+p("A08", io.open, D .. "f.txt", "rw")                   -- 非法模式
+p("A09", io.open, D .. "f.txt", "x")
+p("A10", io.open, "/etc", "w")                          -- 目录 + 写 -> EISDIR
+p("A11", io.open, "/dev/null", "w")
+p("A12", io.open, "/etc/hosts", "a")                    -- 追加也要写权限
+p("A13", io.open, "/etc/hosts", "r+")
+
+-- B. os.rename：C 的 rename 有一张形状表，Java 的 Files.move 只对上一半
+p("B01", os.rename, D .. "f.txt", D .. "g.txt")         -- 文件 -> 已存在的文件：替换
+p("B02", os.rename, D .. "g.txt", D .. "d")             -- 文件 -> 非空目录：EISDIR
+p("B03", os.rename, D .. "g.txt", D .. "e")             -- 文件 -> 空目录：EISDIR
+p("B04", os.rename, D .. "d", D .. "e")                 -- 目录 -> 空目录：替换
+p("B05", os.rename, D .. "nosuch_a", D .. "nosuch_b")   -- 源不存在
+p("B06", os.rename, D .. "e", D .. "nodir/x")           -- 目标的父不存在
+p("B07", os.rename, D .. "e", D .. "e")                 -- 自己到自己
+p("B08", os.rename, D .. "e", "")                       -- 空目标
+p("B09", os.rename, D .. "e", D .. "e/x")               -- 目标是自己下面的：ENOTDIR
+p("B10", os.rename, "", D .. "x")
+
+-- C. os.remove
+p("C01", os.remove, D .. "d")                           -- 非空目录 -> ENOTEMPTY
+p("C02", os.remove, D .. "e")                           -- 空目录
+p("C03", os.remove, D .. "nosuch_zzz")                  -- 不存在
+p("C04", os.remove, D .. "f.txt")
+p("C05", os.remove, "")                                 -- 空路径
+p("C06", os.remove, D .. "d/inner")                     -- 目录里的文件
+p("C07", os.remove, ".")                                -- 当前目录 -> EINVAL
+p("C08", os.remove, "/")                                -- 根 -> EISDIR
+p("C09", os.remove, "/etc")                             -- 权限 -> EPERM
+-- 只读目录里的文件 -> EACCES。不要拿 /etc/hosts 试：真删掉了就出事了
+os.execute("mkdir -p au_tmp/ro && touch au_tmp/ro/x && chmod 555 au_tmp/ro")
+p("C10", os.remove, D .. "ro/x")                        -- 目录只读 -> EACCES
+
+os.execute("chmod -R u+w au_tmp && rm -rf au_tmp")
+        """);
+    }
 }

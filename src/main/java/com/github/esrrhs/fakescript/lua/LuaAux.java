@@ -287,18 +287,6 @@ public final class LuaAux {
     }
 
     /**
-     * {@code luaL_getmetatable} 的取值部分：把命名元表压栈（没有就压 nil）。
-     */
-    public static void pushMetatable(LuaState L, String tname) {
-        LuaTable mt = getMetatableByName(L, tname);
-        if (mt == null) {
-            L.pushNil();
-        } else {
-            L.push(LuaValue.ofTable(mt));
-        }
-    }
-
-    /**
      * {@code luaL_testudata}：是 userdata 且元表正好是 {@code tname} 那张才给载荷，
      * 否则给 {@code null}（<b>不报错</b>——{@code io.type} 靠它区分「不是文件」）。
      */
@@ -430,6 +418,15 @@ public final class LuaAux {
                 : 39;
     }
 
+    /**
+     * {@code strError} 的反查表。
+     * <p>
+     * 放在这里而不是 {@link #errnoOf(IOException)} 里逐个判：errno 与 strerror
+     * 是<b>一对逆函数</b>，反查直接遍历这张表即可，不用再维护第二份 errno 清单。
+     */
+    private static final int[] ERRNO_BY_NAME =
+            { 1, 2, 13, 16, 17, 20, 21, 22, 29, ENOTEMPTY, 9 };
+
     public static int errnoOf(IOException e) {
         if (e instanceof java.nio.file.NoSuchFileException) {
             return 2; // ENOENT
@@ -443,19 +440,76 @@ public final class LuaAux {
         if (e instanceof java.nio.file.AccessDeniedException) {
             return 13; // EACCES
         }
+        /*
+         * 按类型判不出来时，<b>看异常消息里那段 strerror 文本</b>。
+         * <p>
+         * Java 的 IO 异常把 libc 的 {@code strerror} 原文带在消息里：
+         * {@code FileNotFoundException} 是 {@code "<path> (Permission denied)"}，
+         * {@code FileSystemException} 是 {@code "<a> -> <b>: Not a directory"}
+         * 或 {@code "<path>: Invalid argument"}（{@code getReason()} 直接给）。
+         * 于是 errno 可以<b>反查</b>出来，不用猜。
+         * <p>
+         * 不做这一步，这些形状会全部落进 {@code ENOENT} / {@code EIO} 的兜底：
+         * 实测（参考二进制）{@code io.open("文件/y", "r")} 是
+         * {@code Not a directory, 20}、{@code io.open("/etc/hosts", "w")} 是
+         * {@code Permission denied, 13}、{@code os.remove(".")} 是
+         * {@code Invalid argument, 22}、{@code os.remove("/")} 是
+         * {@code Is a directory, 21}、{@code os.remove("/etc")} 是
+         * {@code Operation not permitted, 1} —— 五个全错。
+         */
+        int n = errnoFromMessage(e);
+        if (n >= 0) {
+            return n;
+        }
         if (e instanceof java.io.FileNotFoundException) {
             return 2; // ENOENT
         }
         return 5; // EIO
     }
 
+    /** 从异常消息里那段 {@code strerror} 文本反查 errno；认不出来给 {@code -1} */
+    private static int errnoFromMessage(IOException e) {
+        String s = (e instanceof java.nio.file.FileSystemException)
+                ? ((java.nio.file.FileSystemException) e).getReason()
+                : inParens(e.getMessage());
+        if (s == null || s.isEmpty()) {
+            return -1;
+        }
+        for (int en : ERRNO_BY_NAME) {
+            if (strError(en).equals(s)) {
+                return en;
+            }
+        }
+        return -1;
+    }
+
+    /** 取 {@code "<path> (文本)"} 里括号中那一段 */
+    private static String inParens(String m) {
+        if (m == null) {
+            return null;
+        }
+        int a = m.lastIndexOf('(');
+        int b = (a < 0) ? -1 : m.lastIndexOf(')');
+        return (b > a) ? m.substring(a + 1, b) : null;
+    }
+
     /** {@code strerror}：只备了文件操作真正会碰到的那几个 errno */
     public static String strError(int en) {
         switch (en) {
+        case 1: // EPERM
+            return "Operation not permitted";
         case 2:
             return "No such file or directory";
         case 13:
             return "Permission denied";
+        /*
+         * EBUSY：{@code os.remove("/")} 在 macOS 上是 {@code EISDIR}(21)，
+         * 在 Linux 上是 {@code EBUSY}(16) —— 两个平台都不一样，但两边都是
+         * 从各自的 libc 推出来的，所以各自对得上。少了这一条，Linux 上就会
+         * 退化成 EIO。
+         */
+        case 16:
+            return "Device or resource busy";
         case 17:
             return "File exists";
         /*

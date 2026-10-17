@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 860 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 861 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2231,9 +2231,10 @@ branches that no Lua script had ever reached — `ENOTEMPTY`, `EACCES`, and frie
   "target already exists" case was reporting `EEXIST`, because the code called
   `Files.move` without `REPLACE_EXISTING`.
 
-One case is not compared: `os.remove("/etc")` is `EPERM` here, which depends on
-SIP and this machine's permissions — not a Lua fact. A `chmod 000` directory is
-used instead to exercise `EACCES`.
+(`os.remove("/etc")` used to be skipped as machine-dependent — it is `EPERM`
+here because of SIP. It is no longer skipped: see *The errno shape table* below,
+where the whole class of cases became **derived** instead of hard-coded, and
+therefore portable.)
 
 The general lesson is the one from the directory bug again: **"the value differs
 per platform" is a reason to derive it from the platform, not to leave the case
@@ -2591,6 +2592,38 @@ back to 0, and every later line overwrites the output from the start — the
 reference's output becomes a shuffled fragment of itself and looks exactly like a
 bug in the implementation. It only reports `ESPIPE` when stdout is a *pipe*. That
 depends on how the harness captures output, not on Lua.
+
+### The errno shape table: `errno` and `strerror` are inverse functions
+
+File operations do not fail along one axis ("exists or not"); the `errno` is
+decided by the **shape of the target**. `io.open("file/y")` is `ENOTDIR` (20),
+`io.open("/etc/hosts", "w")` is `EACCES` (13), `os.remove(".")` is `EINVAL` (22),
+`os.remove("/")` is `EISDIR` (21), `os.remove("/etc")` is `EPERM` (1) here. This
+implementation classified failures **by Java exception type** and fell back to
+`ENOENT` / `EIO` for everything else — so **five of those were wrong**.
+
+The fix is to *invert* rather than to enumerate a second table: `errno` and
+`strerror` are inverse functions, and Java's I/O exceptions carry the libc
+`strerror` text verbatim — `FileNotFoundException` as
+`"<path> (Permission denied)"`, `FileSystemException.getReason()` directly as
+`"Not a directory"`. So `LuaAux.errnoOf` now looks the text up in
+`LuaAux.strError`'s table and gets the number back. 44 lines, byte for byte
+identical, and sensitive — disabling the lookup turns 9 lines red.
+
+**This is also what makes the matrix portable.** `os.remove("/etc")` is `EPERM`
+on macOS (SIP) and `ENOTEMPTY` on Linux — but *both* sides now derive their
+answer from the same libc, so they agree on each platform instead of one side
+carrying a platform-specific constant. That is the whole argument against
+"this value varies per platform, so skip it": skipping it is what let a plain
+wrong constant survive, and deriving it is what makes it testable.
+
+Two traps while writing the probe, both recorded in the test's javadoc:
+
+* **Fixtures go in a subdirectory and are deleted at the end** — not scattered
+  over the repository root.
+* **Never exercise `os.remove` against a real system file.** `os.remove("/etc/hosts")`
+  would *succeed* and delete it if the suite ever ran as root. The `EACCES` case
+  uses a `chmod 555` directory the test creates itself.
 
 ### `__gc` is deliberately not chased further
 

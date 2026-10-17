@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 860 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
+全量 861 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2004,8 +2004,9 @@ JVM 根本不让打开目录，于是本实现以同一种方式在五处同时�
   文件 → 已存在的文件也是替换。之前一律报 `EEXIST`，因为 `Files.move` 没带
   `REPLACE_EXISTING`。
 
-一处不比：`os.remove("/etc")` 在本机是 `EPERM`，取决于 SIP 与这台机器的权限，
-不是 Lua 的事实。改用 `chmod 000` 的目录来走 `EACCES` 那条路。
+（`os.remove("/etc")` 原先是跳过的 —— 本机因为 SIP 它是 `EPERM`，看着像机器相关。
+现在不跳了：见下面「errno 形状表」那一节，整类用例从**写死**改成**按 libc 推导**，
+于是可移植了。）
 
 跟目录那个 bug 是同一条教训：**「这个值随平台变」是「按平台取」的理由，不是
 「不测」的理由** —— 恰恰是跳过它，才让一个写死的常量活到今天。
@@ -2293,6 +2294,31 @@ msgh orig | close a err=H |           xpcall -> false  E:a     <- 本实现
 **文件**时那条 `seek("set", 0)` 是**成功**的，写指针回到 0，后面每一行都从头覆盖
 —— 参考实现的输出会变成一坨乱序的残片，看起来跟「实现有 bug」一模一样。只有重定向
 到**管道**时才报 `ESPIPE`。这条取决于驱动怎么捕获输出，不属于 Lua 语义。
+
+### errno 形状表：errno 与 strerror 是一对逆函数
+
+文件操作不是「存在不存在」一个维度，`errno` 由**目标的形状**决定：
+`io.open("文件/y")` 是 `ENOTDIR`(20)、`io.open("/etc/hosts", "w")` 是
+`EACCES`(13)、`os.remove(".")` 是 `EINVAL`(22)、`os.remove("/")` 是
+`EISDIR`(21)、`os.remove("/etc")` 在本机是 `EPERM`(1)。本实现原先只按**Java 异常
+类型**分类，认不出的全落进 `ENOENT` / `EIO` 兜底 —— 五条全错。
+
+修法是**反查而不是另列一张表**：errno 与 strerror 是逆函数，而 Java 的 IO 异常
+把 libc 的 `strerror` 原文带在消息里（`FileNotFoundException` 是
+`"<path> (Permission denied)"`，`FileSystemException.getReason()` 直接是
+`"Not a directory"`），所以拿 `LuaAux.strError` 那张表反查就能拿回数字。
+44 行逐字节一致，且敏感 —— 去掉反查会红 9 行。
+
+**这也是这个矩阵能跨平台的原因。** `os.remove("/etc")` 在 macOS 上是 `EPERM`
+（SIP）、在 Linux 上是 `ENOTEMPTY`，但**两边现在都从同一个 libc 推导**，于是各自
+平台上一致，而不是一边揣着一个平台相关的常量。这正好反驳「这个值随平台变，所以
+跳过它」—— 恰恰是跳过它，才让一个写死的常量活到今天；而推导它，才让它可测。
+
+写探针时踩的两个坑，都记在用例 javadoc 里：
+
+* **素材放子目录、收尾整个删掉**，别撒在仓库根目录；
+* **永远不要拿真的系统文件试 `os.remove`**。`os.remove("/etc/hosts")` 一旦以
+  root 跑就**真删掉了**。走 `EACCES` 那条路用的是测试自己建的 `chmod 555` 目录。
 
 ### `__gc` 不再往深里做（有意停止）
 
