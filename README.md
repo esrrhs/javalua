@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 853 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 854 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2335,6 +2335,36 @@ matters: **without it the fix is worth 6 lines; with it, reverting turns 77 red.
 
 `next`'s **order** depends on the hash function and need not match, so key sets
 are always sorted before printing — the set is compared, not the order.
+
+### The `debug` frame-shape matrix: the hook frame is at level 3
+
+After filtering out the fake gaps, `DebugLib` still had 22 lines, all paths that
+only run when the stack has a particular shape: `currentLine` returning `-1` for
+non-Lua frames, `funcNameFromCallInfo`'s `ci.hooked` branch, the
+`getinfo`-with-a-*function* (rather than a level) path, and `traceback`'s
+`(...tail calls...)`. Two hand-picked examples never reach them, so this is a
+frame-shape matrix: top level, Lua frames, C frames (looking outward from
+`table.sort` and `pcall` callbacks), inside and outside a coroutine, a tail-call
+chain, and a long function under a line hook. 106 lines.
+
+Two things worth recording:
+
+* **The hook frame is at level 3.** Inside a hook, level 1 is the `pcall` wrapping
+  the call, level 2 is the printing helper, and **the hook's own frame is level
+  3**. Stop at level 2 and the `namewhat = "hook"` branch is never reached — and
+  on the report it looks exactly like every other uncovered line.
+* **One thing is not compared**: the `"(C temporary)"` of the outermost C frame is
+  whatever the host pushed when calling `pmain`. The reference pushes
+  `(argc, argv)`, so it reads back `2` and a userdata; this driver pushes the
+  script text. **That is the host's calling convention, not Lua semantics**, so
+  the script only goes up to level 2.
+
+Result: 106 lines match byte for byte, no real divergence, and three never-taken
+paths are now covered — `getupvalue` on a C closure, `getinfo` with a function
+plus a thread, and `traceback`'s tail-call marker. What remains uncovered is
+defensive (`HOOKKEY` missing, hook not a function) plus one line that **only a
+host can reach**: `debug.gethook`'s `"external hook"` — `sethook` from Lua always
+installs `HOOKF`, so no script gets there.
 
 ### What is still missing
 
