@@ -8468,4 +8468,272 @@ for d = 0, 2048, 128 do
 end
         """);
     }
+
+    /**
+     * {@code debug} 库的<b>帧形态</b>矩阵：hook 帧、C 帧、协程帧、尾调用帧、
+     * 传函数（而不是层号）的 {@code getinfo}，共 106 行。
+     * <p>
+     * 覆盖扫描指过来的是 {@code DebugLib} 的 22 行：{@code currentLine} 对非 Lua
+     * 帧返回 {@code -1}、{@code funcNameFromCallInfo} 的 {@code ci.hooked} 分支、
+     * {@code getinfo} 传函数+线程的另一条取帧路径、{@code traceback} 的
+     * {@code (...tail calls...)}。它们全都是「栈长得不一样时才走」的路径，手挑两
+     * 个例子碰不到。
+     * <p>
+     * <b>hook 帧要取到 level 3</b>：hook 里调 {@code getinfo} 时，level 1 是包在外
+     * 面的 {@code pcall}、level 2 是打印用的 helper，hook 自己的帧在<b>第 3 层</b>
+     * —— 只取到 2 层的话那条 {@code namewhat = "hook"} 永远走不到，而报告上它看
+     * 起来和别的未覆盖行一样。
+     * <p>
+     * <b>有一处不比</b>：最外层那个 C 帧的 {@code "(C temporary)"}，值正是宿主调用
+     * {@code pmain} 时压的实参——参考实现压的是 {@code (argc, argv)}，所以取出来是
+     * {@code 2} 和一个 userdata；本实现的驱动压的是脚本文本。那不是 Lua 语义，
+     * 是宿主自己的调用约定，比不出东西，脚本里只取到 level 2。
+     * <p>
+     * 用 {@code assertFullMatches}：脚本第 8 段打印的 {@code debug.traceback}
+     * <b>本身就是回溯</b>，而后面还有四段输出——走 {@code assertMatches} 会把它们
+     * 连着错误信息一起砍掉（这也是 {@code Diff} 直接判失败而不是默默砍的原因）。
+     */
+    @Test
+    void debugFrameShapesMatchReference() {
+        Diff.assertFullMatches("""
+-- debug 库帧形态矩阵：hook 帧 / C 帧 / 协程帧 / 尾调用帧 / 传函数的 getinfo
+-- 输出里不能出现地址：func 一律替换成 <fn>，activelines 只打条数
+
+local function dump(tag, ...)
+    local ok, info = pcall(debug.getinfo, ...)
+    if not ok then
+        print(tag, "ERR " .. tostring(info))
+        return
+    end
+    if info == nil then
+        print(tag, "nil")
+        return
+    end
+    local keys = {}
+    for k in pairs(info) do
+        keys[#keys + 1] = k
+    end
+    table.sort(keys)
+    local out = {}
+    for _, k in ipairs(keys) do
+        local v = info[k]
+        local tv = type(v)
+        if tv == "function" then
+            v = "<fn>"
+        elseif tv == "table" then
+            local c = 0
+            for _ in pairs(v) do
+                c = c + 1
+            end
+            v = "L(" .. c .. ")"
+        end
+        out[#out + 1] = k .. "=" .. tostring(v)
+    end
+    print(tag, table.concat(out, " "))
+end
+
+-- 1) 顶层各层号
+for l = 0, 4 do
+    dump("top" .. l, l, "nSlufLt")
+end
+dump("top99", 99, "nS")
+dump("topneg", -1, "nS")
+
+-- 2) Lua 函数里的层号
+local function inner()
+    dump("in1", 1, "nSlufLt")
+    dump("in2", 2, "nSlufLt")
+    dump("in3", 3, "nSlufLt")
+end
+local function outer()
+    inner()
+end
+outer()
+
+-- 3) C 帧：table.sort 的回调里往上看，level 2 是 C 函数
+local t = { 3, 1, 2 }
+local seen = 0
+table.sort(t, function(a, b)
+    seen = seen + 1
+    if seen == 1 then
+        dump("csort1", 1, "nSluf")
+        dump("csort2", 2, "nSluf")
+        dump("csort3", 3, "nSluf")
+    end
+    return a < b
+end)
+-- pcall 的 C 帧
+pcall(function()
+    dump("pcall1", 1, "nS")
+    dump("pcall2", 2, "nS")
+end)
+
+-- 4) 协程：外部取、内部取、传函数取
+local co = coroutine.create(function(x)
+    local loc = x + 1
+    dump("co_in1", 1, "nSluf")
+    dump("co_in2", 2, "nSluf")
+    coroutine.yield(loc)
+    dump("co_in1b", 1, "nSl")
+    return loc
+end)
+coroutine.resume(co, 10)
+dump("co_ext0", co, 0, "nSluf")
+dump("co_ext1", co, 1, "nSluf")
+dump("co_ext2", co, 2, "nSluf")
+coroutine.resume(co)
+dump("co_dead", co, 1, "nSl")
+-- 传函数 + 线程（走的是另一条取帧的路）
+local function plain()
+    return 1
+end
+dump("cofn1", co, plain, "nSluf")
+dump("cofn2", co, print, "nSluf")
+dump("fn1", plain, "nSluf")
+dump("fn2", print, "nSluf")
+
+-- 5) getlocal：层号与下标越界
+--    只到 l=2：l=3 是最外层那个 C 帧，它的「C temporary」正是宿主调用 pmain 时
+--    压的实参 —— 参考实现压的是 (argc, argv)，本实现的驱动压的是脚本文本，
+--    内容由宿主定，不是 Lua 语义，比不出东西。
+for l = 1, 2 do
+    for n = -2, 3 do
+        local ok, name, val = pcall(debug.getlocal, l, n)
+        print(string.format("gl l=%d n=%-3d ok=%s name=%s val=%s", l, n, tostring(ok),
+            tostring(name), tostring(val)))
+    end
+end
+-- getlocal 对协程
+local co2 = coroutine.create(function()
+    local a, b = 1, 2
+    coroutine.yield()
+end)
+coroutine.resume(co2)
+for n = -1, 3 do
+    local ok, name, val = pcall(debug.getlocal, co2, 1, n)
+    print(string.format("glco n=%-3d ok=%s name=%s val=%s", n, tostring(ok), tostring(name),
+        tostring(val)))
+end
+
+-- 6) getupvalue：Lua 闭包与 C 函数
+local up1, up2 = "u1", "u2"
+local function lf()
+    return up1, up2
+end
+for n = -1, 4 do
+    local ok, name, val = pcall(debug.getupvalue, lf, n)
+    print(string.format("gup lua n=%-3d ok=%s name=%s val=%s", n, tostring(ok), tostring(name),
+        tostring(val)))
+end
+for _, fn in ipairs({ "print", "type", "tostring", "string.rep", "table.sort", "load",
+    "require", "pcall", "select" }) do
+    local f = load("return " .. fn)()
+    for n = 0, 2 do
+        local ok, name, val = pcall(debug.getupvalue, f, n)
+        print(string.format("gup %-12s n=%d ok=%s name=%s val=%s", fn, n, tostring(ok),
+            tostring(name), tostring(val)))
+    end
+end
+
+-- 7) hook 内部取帧：hooked 帧的名字是 "hook"
+local count = 0
+debug.sethook(function(what, line)
+    count = count + 1
+    if count > 2 then
+        debug.sethook()
+        return
+    end
+    print("hook", what, tostring(line))
+    for lv = 1, 5 do
+        dump("  h" .. lv .. "n", lv, "n")
+        dump("  h" .. lv .. "Sl", lv, "Sl")
+    end
+end, "l")
+local aa = 1
+local bb = 2
+local cc = aa + bb
+debug.sethook()
+print("afterhook", aa, bb, cc)
+
+-- 8) 尾调用链 + traceback
+local function tb3()
+    return debug.traceback("msg3")
+end
+local function tb2()
+    return tb3()
+end
+local function tb1()
+    return tb2()
+end
+print("tb", (tb1():gsub("\\n", " | ")))
+-- 尾调用帧上取 info
+local function ti3()
+    dump("ti1", 1, "nSlt")
+    dump("ti2", 2, "nSlt")
+    dump("ti3", 3, "nSlt")
+    return 1
+end
+local function ti2()
+    return ti3()
+end
+local function ti1()
+    return ti2()
+end
+ti1()
+
+-- 9) 长函数 + hook：逼行号搜索走到 lineinfo 末尾
+local function big()
+    local s = 0
+    s = s + 1
+    s = s + 2
+    s = s + 3
+    s = s + 4
+    s = s + 5
+    s = s + 6
+    s = s + 7
+    s = s + 8
+    s = s + 9
+    s = s + 10
+    s = s + 11
+    s = s + 12
+    s = s + 13
+    s = s + 14
+    s = s + 15
+    s = s + 16
+    s = s + 17
+    s = s + 18
+    s = s + 19
+    s = s + 20
+    s = s + 21
+    s = s + 22
+    s = s + 23
+    s = s + 24
+    s = s + 25
+    s = s + 26
+    s = s + 27
+    s = s + 28
+    s = s + 29
+    s = s + 30
+    s = s + 31
+    s = s + 32
+    s = s + 33
+    s = s + 34
+    s = s + 35
+    s = s + 36
+    s = s + 37
+    s = s + 38
+    s = s + 39
+    s = s + 40
+    return s
+end
+local last = 0
+debug.sethook(function(what, line)
+    last = line
+end, "l")
+print("big", big())
+debug.sethook()
+print("lasthookline", last)
+dump("bigfn", big, "SL")
+        """);
+    }
 }
