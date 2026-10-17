@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 801 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 802 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate.
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
@@ -1185,6 +1185,38 @@ second one was clean; the first found this:
 Both matrices are now permanent tests:
 `RuntimeTest.operatorTypeErrorsMatchReference` and
 `RuntimeTest.metamethodDispatchMatchesReference`.
+
+#### Two more, from sweeping the format specifiers
+
+`lstrlib.c: str_format` is one of the densest functions in the source, so the next
+probe swept it: 22 verbs × 10 flag combinations × 5 widths × 9 precisions × 22
+value types — **20777 lines**. It found two things.
+
+* **The order of the two checks.** `str_format` does *not* validate the spec
+  first. For `d i u o x X` it calls `luaL_checkinteger` **before** `checkformat`,
+  and for `f e E g G` it calls `luaL_checknumber` first:
+
+  ```c
+  case 'd': case 'i':  flags = L_FMTFLAGSI;  goto intcase;
+  ...
+   intcase: {
+    lua_Integer n = luaL_checkinteger(L, arg);
+    checkformat(L, form, flags, 1);
+  ```
+
+  (`c`, `a` and `s` are the other way round.) Validating the spec first meant
+  `("%.100d"):format("x")` reported `invalid conversion specification` where the
+  reference reports `number expected, got string` — **6620 lines wrong**.
+
+* **A precision turns off the `0` flag for integer verbs.** C99: *"For `d`, `i`,
+  `o`, `u`, `x`, and `X` conversions, if a precision is specified, the `0` flag
+  is ignored."* So `("%05.3d"):format(42)` is `  042` — the precision pads to
+  `042`, then the width pads with **spaces** — not `00042`. 220 lines. Float verbs
+  have no such rule (`%08.3f` still zero-pads), so the fix is confined to
+  `emitInt`.
+
+`RuntimeTest.formatSpecifierMatrixMatchesReference` pins both; reverting either
+one alone turns it red.
 
 #### One thing that is *not* a divergence: subnormal `%a`
 

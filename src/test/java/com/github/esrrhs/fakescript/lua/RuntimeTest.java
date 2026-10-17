@@ -888,4 +888,133 @@ class RuntimeTest {
                 print(deep.v)
                 """);
     }
+
+    /**
+     * {@code string.format} 矩阵：动词 × 修饰符 × 宽度 × 精度 × 值类型，
+     * 20777 行。{@code lstrlib.c: str_format} 是 C 里分支最密的函数之一，
+     * 这一批是照着它的每个分支铺的，不是挑几个格式串点一下。它咬出两处：
+     * <ul>
+     *   <li><b>校验顺序</b>：{@code d i u o x X} 与 {@code f e E g G} 在 C 里是
+     *       <b>先</b> {@code luaL_checkinteger} / {@code luaL_checknumber}、
+     *       <b>后</b> {@code checkformat}（{@code intcase} 那一段的顺序）；
+     *       而 {@code c a s} 是先 {@code checkformat}。这里一律把格式串校验
+     *       放在前面，于是 {@code ("% .100d"):format("x")} 报的是
+     *       {@code invalid conversion specification} 而不是
+     *       {@code number expected, got string}——矩阵里错 6620 行。</li>
+     *   <li><b>整数动词给了精度时 {@code 0} 标志被忽略</b>：C99 写的是
+     *       「for d, i, o, u, x, and X conversions, if a precision is
+     *       specified, the 0 flag is ignored」。
+     *       {@code ("%05.3d"):format(42)} 是 {@code "  042"}（精度先补成
+     *       {@code "042"}，宽度再用<b>空格</b>补），不是 {@code "00042"}。
+     *       错 220 行。浮点动词没有这条规则，别一并改。</li>
+     * </ul>
+     */
+    @Test
+    void formatSpecifierMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- string.format 矩阵：动词 × 修饰符 × 宽度 × 精度 × 值类型
+                local VALS = {
+                  { "int",      function() return 42 end },
+                  { "negint",   function() return -42 end },
+                  { "maxint",   function() return math.maxinteger end },
+                  { "minint",   function() return math.mininteger end },
+                  { "zero",     function() return 0 end },
+                  { "flt",      function() return 1.5 end },
+                  { "negflt",   function() return -1.5 end },
+                  { "bigflt",   function() return 1e300 end },
+                  { "smallflt", function() return 1e-300 end },
+                  { "nan",      function() return 0 / 0 end },
+                  { "inf",      function() return 1 / 0 end },
+                  { "neginf",   function() return -1 / 0 end },
+                  { "zeroflt",  function() return 0.0 end },
+                  { "negzero",  function() return -0.0 end },
+                  { "str",      function() return "hi" end },
+                  { "longstr",  function() return string.rep("z", 120) end },
+                  { "emptystr", function() return "" end },
+                  { "nulstr",   function() return "a" .. string.char(0) .. "b" end },
+                  { "numstr",   function() return "42" end },
+                  { "nilv",     function() return nil end },
+                  { "bool",     function() return true end },
+                  { "tbl",      function() return {} end },
+                }
+
+                -- A) 动词 × 值（无修饰符）
+                local VERBS = { "d", "i", "x", "X", "o", "c", "e", "E", "f", "g", "G", "q",
+                                "s", "%", "a", "A", "u", "F", "b", "n", "1", "" }
+                for vi = 1, #VERBS do
+                  local v = VERBS[vi]
+                  for i = 1, #VALS do
+                    local ok, r = pcall(string.format, "%" .. v, VALS[i][2]())
+                    print("A", v, VALS[i][1], ok, tostring(r))
+                  end
+                end
+
+                -- B) 修饰符 × 宽度 × 精度：挑几个动词与几个值
+                local FLAGS = { "", "-", "+", " ", "#", "0", "-0", "+0", "#0", "-+ " }
+                local WIDTH = { "", "0", "1", "5", "12" }
+                local PREC = { "", ".", ".0", ".1", ".3", ".10", ".20", ".99", ".100" }
+                local BVERBS = { "d", "x", "f", "e", "g", "s", "c", "o", "q" }
+                local BVALS = { 1, 6, 8, 15, 20 }  -- int / flt / nan / str / nulstr
+
+                for bv = 1, #BVERBS do
+                  local verb = BVERBS[bv]
+                  for fi = 1, #FLAGS do
+                    for wi = 1, #WIDTH do
+                      for pi = 1, #PREC do
+                        local spec = "%" .. FLAGS[fi] .. WIDTH[wi] .. PREC[pi] .. verb
+                        for k = 1, #BVALS do
+                          local idx = BVALS[k]
+                          local ok, r = pcall(string.format, spec, VALS[idx][2]())
+                          print("B", spec, VALS[idx][1], ok, tostring(r))
+                        end
+                      end
+                    end
+                  end
+                end
+
+                -- C) 多参数 / 参数不够 / 参数过多
+                print(pcall(string.format, "%d %d", 1))
+                print(pcall(string.format, "%d %d", 1, 2, 3))
+                print(pcall(string.format, "%d", 1, 2))
+                print(pcall(string.format, "%%"))
+                print(pcall(string.format, "%%d", 1))
+                print(pcall(string.format, "%5%", 1))
+                print(pcall(string.format, "abc"))
+                print(pcall(string.format, ""))
+                print(pcall(string.format, "%", 1))
+                print(pcall(string.format, "a%", 1))
+                print(pcall(string.format, "%-", 1))
+                print(pcall(string.format, "%.", 1))
+                print(pcall(string.format, "%.d", 1))
+                print(pcall(string.format))
+                print(pcall(string.format, nil))
+                print(pcall(string.format, 1))
+                print(pcall(string.format, true))
+                print(pcall(string.format, {}))
+
+                -- D) %s 的 100 字节阈值（>100 且不截断时不进 buff）
+                for n = 95, 105 do
+                  local s = string.rep("y", n)
+                  print("D", n, pcall(string.format, "%s", s) == false, #string.format("%s", s),
+                        pcall(string.format, "%10s", s) == false,
+                        pcall(string.format, "%.3s", s) == false)
+                end
+
+                -- E) 数字字符串参与数值动词（字符串可转数字）
+                for _, v in ipairs({ "42", "42.0", "42.5", "0x2a", "  42  ", "1e3", "", " " }) do
+                  print("E", string.format("[%s]", v),
+                        pcall(string.format, "%d", v),
+                        pcall(string.format, "%5.2f", v),
+                        pcall(string.format, "%x", v))
+                end
+
+                -- F) 超大精度 / 超大宽度（C 里有上限检查）
+                print(pcall(string.format, "%200d", 1))
+                print(pcall(string.format, "%.200f", 1.5))
+                print(pcall(string.format, "%200s", "x"))
+                print(pcall(string.format, "%1000d", 1))
+                print(pcall(function() return #(string.format("%200d", 1)) end))
+                print(pcall(function() return #(string.format("%200s", "x")) end))
+                """);
+    }
 }

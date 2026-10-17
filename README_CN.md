@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 801 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 802 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -1030,6 +1030,36 @@ UTF-8 字节都被写坏），新的 `%q` 扫描在 Latin-1 下<b>红</b>、在 
 
 两个矩阵都固化成了用例：`RuntimeTest.operatorTypeErrorsMatchReference` 与
 `RuntimeTest.metamethodDispatchMatchesReference`。
+
+#### 把格式串铺成矩阵，又咬出两处
+
+`lstrlib.c: str_format` 是源码里分支最密的函数之一，所以下一个探针就照着它的每个
+分支铺：22 个动词 × 10 组修饰符 × 5 种宽度 × 9 种精度 × 22 种值类型 ——
+**20777 行**。咬出两处：
+
+* **两道校验的先后。** `str_format` 并<b>不</b>先校验格式串。`d i u o x X` 是
+  <b>先</b> `luaL_checkinteger`，`f e E g G` 是<b>先</b> `luaL_checknumber`：
+
+  ```c
+  case 'd': case 'i':  flags = L_FMTFLAGSI;  goto intcase;
+  ...
+   intcase: {
+    lua_Integer n = luaL_checkinteger(L, arg);
+    checkformat(L, form, flags, 1);
+  ```
+
+  （`c`、`a`、`s` 才是先校验格式串。）这里一律先校验格式串，于是
+  `("%.100d"):format("x")` 报 `invalid conversion specification`，参考实现报
+  `number expected, got string` —— **错 6620 行**。
+
+* **整数动词给了精度时，`0` 标志失效。** C99：「For `d`, `i`, `o`, `u`, `x`, and
+  `X` conversions, if a precision is specified, the `0` flag is ignored」。
+  所以 `("%05.3d"):format(42)` 是 `  042` —— 精度先补成 `042`，宽度再用<b>空格</b>
+  补，不是 `00042`。错 220 行。浮点动词没有这条规则（`%08.3f` 照旧补零），
+  所以改动只落在 `emitInt` 里。
+
+两处都由 `RuntimeTest.formatSpecifierMatrixMatchesReference` 钉住：单独回退任何
+一处，该用例就变红。
 
 #### 有一处<b>不是</b>分歧：次正规数的 `%a`
 
