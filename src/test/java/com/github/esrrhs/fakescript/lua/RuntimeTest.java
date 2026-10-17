@@ -4104,4 +4104,600 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+    /**
+     * 语法层与作用域矩阵，两半：
+     * <ul>
+     *   <li><b>编译期错误</b>：用 {@code load()} 把六十来个片段编一遍，报什么错
+     *       就打什么错。{@code goto} 跳进作用域、重复标签、给 {@code <const>}
+     *       赋值、{@code break} 在循环外、畸形数字与转义、函数名的各种形态 ——
+     *       这些<b>只有手写才碰得到</b>，fuzzer 生成的程序撞不上。</li>
+     *   <li><b>运行期语义</b>：多重赋值「右边先全部求值」、表构造器的求值顺序与
+     *       键覆盖、变长参数（含 {@code nil} 混在里面）、方法调用与 {@code :} 的
+     *       各种畸形用法、局部变量遮蔽与 upvalue 共享、{@code repeat} 的条件能
+     *       看见循环体里的 {@code local}、运算符优先级与结合性、字面量。</li>
+     * </ul>
+     * 干净（{@code N} 行）。留着是因为这片全是「改动词法/语法/作用域时会悄悄
+     * 坏掉」的地方，而现成用例里只有零散几处。
+     */
+    @Test
+    void syntaxAndScopeMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 语法层与作用域矩阵。两半：
+                -- A) 编译期错误：用 load() 把片段编一遍，报什么错就打什么错 —— goto 跳进
+                --    作用域、重复标签、给 <const> 赋值、break 在循环外这些只有手写才碰得到，
+                --    fuzzer 生成的程序基本不会撞上。
+                -- B) 运行期语义：多重赋值的求值顺序、表构造器的求值顺序、变长参数、方法调用、
+                --    局部变量遮蔽与 upvalue 共享、运算符优先级与结合性、字面量。
+                local function pr(...)
+                  print(...)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                
+                -- ============ A) 编译期错误 ============
+                local CHUNKS = {
+                  { "goto-ok-fwd", [[ do goto x ::x:: end ]] },
+                  { "goto-ok-back", [[ local i = 0 ::x:: i = i + 1 if i < 3 then goto x end ]] },
+                  { "goto-into-scope", [[ do goto x end local y = 1 ::x:: ]] },
+                  { "goto-into-scope2", [[ for i = 1, 3 do goto x end ::x:: ]] },
+                  { "goto-undefined", [[ goto nope ]] },
+                  { "goto-label-undefined-2", [[ ::a:: goto b ::b:: ]] },
+                  { "dup-label", [[ ::a:: ::a:: ]] },
+                  { "dup-label-block", [[ do ::a:: end do ::a:: end ]] },
+                  { "label-at-end", [[ local function f() ::done:: return 1 end ]] },
+                  { "goto-out-of-function", [[ local function f() goto out end ::out:: ]] },
+                  { "break-outside", [[ break ]] },
+                  { "break-in-func", [[ local function f() break end ]] },
+                  { "break-across-func", [[ for i = 1, 3 do local function f() break end end ]] },
+                  { "const-assign", [[ local x <const> = 1 x = 2 ]] },
+                  { "const-ok", [[ local x <const> = 1 local y = x + 1 ]] },
+                  { "const-nil", [[ local x <const> ]] },
+                  { "close-nil", [[ local x <close> = nil ]] },
+                  { "close-ok", [[ local x <close> = setmetatable({}, {__close=function() end}) ]] },
+                  { "attrib-unknown", [[ local x <nope> = 1 ]] },
+                  { "attrib-twice", [[ local x <const, close> = 1 ]] },
+                  { "syntax-do", [[ do ]] },
+                  { "syntax-end", [[ end ]] },
+                  { "syntax-if", [[ if 1 then ]] },
+                  { "syntax-1", [[ 1 + ]] },
+                  { "num-1e", [[ return 1e ]] },
+                  { "num-dot1", [[ return ..1 ]] },
+                  { "num-0b", [[ return 0b101 ]] },
+                  { "num-0x-p", [[ return 0x1p4 ]] },
+                  { "num-0x-", [[ return 0x.8 ]] },
+                  { "num-3dot", [[ return 3. ]] },
+                  { "str-badesc", [[ return "\\q" ]] },
+                  { "str-badhex", [[ return "\\xZZ" ]] },
+                  { "str-baduni", [[ return "\\u{110000}" ]] },
+                  { "str-uni-ok", [[ return "\\u{41}" ]] },
+                  { "str-z", [[ return "a\\z
+                     b" ]] },
+                  -- 这三条外层必须用 [==[ ：片段里自己带 ]]，用 [[ ]] 会被提前闭合
+                  { "str-unfinished", [==[ return "abc ]==] },
+                  { "longstr-unfinished", [==[ return [[abc ]==] },
+                  -- 这条片段自己带 ]==]，外层得再高两级
+                  { "longstr-level", [====[ return [==[a]]b]==] ]====] },
+                  { "self-outside", [[ function a:b() end ]] },
+                  { "func-name-expr", [[ function (a).b() end ]] },
+                  { "vararg-in-middle", [[ local function f(a, ..., b) end ]] },
+                  { "vararg-outside", [[ return ... ]] },
+                  { "assign-to-call", [[ f() = 1 ]] },
+                  { "assign-noname", [[ 1 = 2 ]] },
+                  { "multiple-local", [[ local a, = 1 ]] },
+                  { "return-mid", [[ return 1 + ]] },
+                  { "concat-num", [[ return 1 .. 2 ]] },
+                  { "eq-assign", [[ local a == 1 ]] },
+                  { "malformed-number", [[ return 1__2 ]] },
+                  { "newline-in-str", [[ return "a
+                b" ]] },
+                }
+                for _, e in ipairs(CHUNKS) do
+                  local f, err = load(e[2], "=CHUNK")
+                  if f then
+                    local ok, r = pcall(f)
+                    pr("A", e[1], "ok", ok, tostring(r))
+                  else
+                    pr("A", e[1], "err", tostring(err))
+                  end
+                end
+                
+                -- ============ B) 运行期语义 ============
+                -- 多重赋值：右边先全部求值
+                do
+                  local log = {}
+                  local function f(name, v)
+                    log[#log + 1] = name
+                    return v
+                  end
+                  local a, b = f("1", 10), f("2", 20)
+                  pr("B1", a, b, table.concat(log, ","))
+                  log = {}
+                  local x, y = 1, 2
+                  x, y = y, x
+                  pr("B2", x, y)
+                  log = {}
+                  local t = {}
+                  t[1], t[2] = f("a", 1), f("b", 2)
+                  pr("B3", t[1], t[2], table.concat(log, ","))
+                end
+                -- 个数不匹配
+                do
+                  local a, b, c = 1
+                  pr("B4", a, b, c)
+                  local d, e = 1, 2, 3
+                  pr("B5", d, e)
+                  local function g()
+                    return 1, 2, 3
+                  end
+                  local p, q, r, s = g()
+                  pr("B6", p, q, r, s)
+                  pr("B7", (g()))
+                  pr("B8", select("#", g()), select(2, g()))
+                  local arr = { g() }
+                  pr("B9", #arr)
+                  local arr2 = { (g()) }
+                  pr("B10", #arr2)
+                end
+                -- 表构造器的求值顺序与键覆盖
+                do
+                  local log = {}
+                  local function k(n)
+                    log[#log + 1] = n
+                    return n
+                  end
+                  local t = { k(1), k(2), k(3) }
+                  pr("C1", table.concat(log, ","), #t, t[1], t[2], t[3])
+                  log = {}
+                  local t2 = { [k("a")] = 1, b = k(2), k(3) }
+                  pr("C2", table.concat(log, ","), #t2, t2.a, t2.b, t2[1])
+                  log = {}
+                  local t3 = { [1] = k("x"), [1] = k("y") }
+                  pr("C3", table.concat(log, ","), t3[1], #t3)
+                  local t4 = { 1, 2, 3, n = 4, [5] = 5 }
+                  pr("C4", #t4, t4.n, t4[5])
+                  local t5 = { "a", "b", "c" }
+                  pr("C5", #t5, table.concat(t5, ""))
+                  local t6 = { nil, nil, 3 }
+                  pr("C6", #t6, t6[3])
+                end
+                -- 变长参数
+                do
+                  local function f(...)
+                    return select("#", ...), ...
+                  end
+                  pr("D1", f())
+                  pr("D2", f(1, 2, 3))
+                  pr("D3", f(nil, nil))
+                  pr("D4", f(1, nil, 3))
+                  local function g(a, ...)
+                    return a, select("#", ...)
+                  end
+                  pr("D5", g(1), g(1, 2), g(1, 2, 3))
+                  local function h(...)
+                    local p = table.pack(...)
+                    return p.n, select("#", ...)
+                  end
+                  pr("D6", h(), h(1, nil, 3))
+                  local function i(...)
+                    local t = { ... }
+                    return #t
+                  end
+                  pr("D7", i(1, 2, 3), i(1, nil, 3), i(nil))
+                  local function j(...)
+                    return ...
+                  end
+                  pr("D8", j(1, 2, 3))
+                  pr("D9", select("#"))
+                end
+                -- 方法与冒号
+                do
+                  local obj = { v = 7 }
+                  function obj:get()
+                    return self.v
+                  end
+                  function obj:set(x)
+                    self.v = x
+                    return self
+                  end
+                  pr("E1", obj:get(), obj:set(9).v)
+                  pr("E2", obj["get"](obj))
+                  pr("E3", pc(function() return obj.get() end))
+                  local s = "abc"
+                  pr("E4", s:upper(), s:sub(2), s:len(), ("x"):rep(3))
+                  pr("E5", ("%d-%s"):format(1, "a"))
+                  pr("E6", pc(function() return s:nope() end))
+                  pr("E7", pc(function() return (1):nope() end))
+                  pr("E8", pc(function() return (nil):nope() end))
+                  pr("E9", pc(function() return (true):nope() end))
+                end
+                -- 作用域与遮蔽
+                do
+                  local x = "outer"
+                  do
+                    local x = "inner"
+                    pr("F1", x)
+                  end
+                  pr("F2", x)
+                  local y = "o"
+                  local y = y .. "i"
+                  pr("F3", y)
+                  do
+                    local z = 1
+                    for i = 1, 2 do
+                      local z = i * 10
+                      pr("F4", i, z)
+                    end
+                    pr("F5", z)
+                  end
+                end
+                -- upvalue 共享
+                do
+                  local n = 0
+                  local function inc()
+                    n = n + 1
+                    return n
+                  end
+                  local function get()
+                    return n
+                  end
+                  inc()
+                  inc()
+                  pr("G1", get(), n)
+                  local fns = {}
+                  for i = 1, 3 do
+                    fns[i] = function() return i end
+                  end
+                  pr("G2", fns[1](), fns[2](), fns[3]())
+                  local function mk()
+                    local v = 0
+                    return function() v = v + 1 return v end, function() return v end
+                  end
+                  local a1, a2 = mk()
+                  local b1, b2 = mk()
+                  a1()
+                  a1()
+                  b1()
+                  pr("G3", a2(), b2())
+                end
+                -- repeat 的条件能看见循环体里的 local
+                do
+                  local n = 0
+                  repeat
+                    local done = n >= 2
+                    n = n + 1
+                  until done
+                  pr("H1", n)
+                  local m = 0
+                  repeat
+                    m = m + 1
+                    local stop = m > 5
+                  until stop
+                  pr("H2", m)
+                end
+                -- 运算符优先级与结合性
+                pr("I1", 2 ^ 3 ^ 2, -2 ^ 2, 2 ^ -2, (-2) ^ 2)
+                pr("I2", 1 .. 2 .. 3, "a" .. 1 .. "b")
+                pr("I3", 1 + 2 * 3 - 4 / 2, (1 + 2) * 3)
+                pr("I4", 7 // 2 * 2, 7 % 3 + 1)
+                pr("I5", 1 < 2 and 3 or 4, 1 > 2 and 3 or 4)
+                pr("I6", not nil, not not 1, not (1 == 2))
+                pr("I7", -"10", #"abc" + 1, -#  "ab")
+                pr("I8", 1 | 2 & 3 ~ 4, (1 | 2) & 3)
+                pr("I9", 1 << 2 >> 1, -1 >> 1, 1 << 1 + 1)
+                pr("I10", 2 ^ 2 ^ 3 == 2 ^ (2 ^ 3))
+                pr("I11", "a" .. "b" == "ab")
+                pr("I12", pc(function() return 1 < 2 < 3 end))
+                pr("I13", 10 // 3 // 2, 10 // (3 // 2))
+                pr("I14", -2 ^ -2, (-2) ^ (-2))
+                -- 字面量
+                pr("J1", 0x10, 0X10, 0x1p4, 0X1P4, 0x.8p1, 0xA, 0xff)
+                pr("J2", 1e2, 1E2, 1e+2, 1e-2, .5, 5., 5.0, 0.5e1)
+                pr("J3", math.type(0x10), math.type(1e2), math.type(1), math.type(1.0),
+                   math.type(3), math.type(3.0))
+                pr("J4", 1e15, 1e16, 0x10 == 16, 1e2 == 100)
+                pr("J5", "\\65", "\\x41", "A", "\\u{41}", "\\u{1F600}" == "\\240\\159\\152\\128")
+                pr("J6", #"\\u{41}", #"\\u{1F600}", "\\z" .. "a")
+                pr("J7", [[abc]], [==[a]]b]==], [[\\n]] == "\\\\n")
+                pr("J8", [[
+                line2]], #[[
+                ]])
+                pr("J9", 0x7fffffff, 0x80000000, 0xffffffff, 0xfffffffffffff)
+                -- 空语句（5.2 起 `;` 单独成句合法）
+                do
+                  local k1 = 1;
+                  ;
+                  pr("K1", k1)
+                end
+                -- 比较链里的 __lt
+                do
+                  local mt = { __lt = function(a, b) return true end }
+                  local a, b = setmetatable({}, mt), setmetatable({}, mt)
+                  pr("K2", a < b, a > b, a <= b, a >= b)
+                end
+                print("DONE")
+                """);
+    }
+    /**
+     * {@code debug} 库与 {@code utf8} 库矩阵。干净（{@code N} 行）。
+     * <ul>
+     *   <li><b>{@code getinfo}</b>：{@code what} 的每个字母单独与组合
+     *       （{@code n S l u f L t}），外加越界 level、传函数、传非字符串。</li>
+     *   <li><b>{@code getlocal} / {@code setlocal} / {@code getupvalue} /
+     *       {@code setupvalue}</b>：遍历全部槽与越界。</li>
+     *   <li><b>{@code sethook}</b>：{@code c} / {@code r} / {@code l} / count
+     *       四个掩码各跑一遍并打事件序列。</li>
+     *   <li><b>{@code traceback}</b>：<b>不</b>整段比对（里头有 chunk 名与地址），
+     *       只比行数与「有没有 {@code stack traceback:} / {@code in main chunk}」。</li>
+     *   <li><b>{@code utf8}</b>：{@code char / codepoint / len / offset / codes /
+     *       charpattern} 的越界与非法序列。</li>
+     * </ul>
+     * 两处坑，写这片时踩过：{@code debug.setlocal(1, 1, ...)} 在主 chunk 里改掉的
+     * 是第 1 个局部变量，也就是脚本自己的 {@code print} 包装，改完后面全炸；
+     * 以及 {@code getinfo} / {@code getmetatable} 返回的表打印出来带地址，
+     * 必须只比类型。
+     */
+    @Test
+    void debugAndUtf8LibraryMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- debug 库与 utf8 库矩阵。
+                -- debug 那半：getinfo 的每个 what 字母、getlocal/setlocal、getupvalue/
+                -- setupvalue、sethook 的四个掩码、getregistry、uservalue、traceback 的形状。
+                -- 回溯<b>不</b>整段比对（里头有 chunk 名与地址），只比行数与关键片段。
+                -- 只留到第一个换行
+                local function first(v)
+                  return (tostring(v):gsub("\\n.*", ""))
+                end
+                local function pr(...)
+                  print(...)
+                end
+                -- 函数/表的 tostring 带地址，只打类型
+                local function s(v)
+                  local tt = type(v)
+                  if tt == "table" or tt == "function" or tt == "thread" or tt == "userdata" then
+                    return tt
+                  end
+                  return tostring(v)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = s(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                
+                -- 1) getinfo：level 与 what
+                local function outer()
+                  return debug.getinfo(1)
+                end
+                local function outer2()
+                  return debug.getinfo(2)
+                end
+                pr("I0", s(debug.getinfo(0)), s(debug.getinfo(1)))
+                do
+                  local i = outer()
+                  pr("I1", i.source, i.short_src, i.currentline, i.linedefined, i.lastlinedefined,
+                     i.what, i.namewhat, tostring(i.name), i.nups, i.nparams, i.ntransfers,
+                     i.isvararg, s(i.func), type(i.activelines))
+                end
+                do
+                  local i = outer2()
+                  pr("I2", i.currentline > 0, i.what)
+                end
+                -- what 的每个字母，单独与组合
+                local WHATS = { "", "n", "S", "l", "u", "f", "L", "t", "nSlfLut", "Sn", "fl", "Sln" }
+                for _, w in ipairs(WHATS) do
+                  local ok, i = pcall(debug.getinfo, 1, w)
+                  if not ok then
+                    pr("W", string.format("%q", w), "err", tostring(i))
+                  else
+                    local keys = {}
+                    for k in pairs(i) do keys[#keys + 1] = k end
+                    table.sort(keys)
+                    local vals = {}
+                    for _, k in ipairs(keys) do vals[#vals + 1] = k .. "=" .. s(i[k]) end
+                    pr("W", string.format("%q", w), table.concat(vals, ","))
+                  end
+                end
+                pr("W2", pc(debug.getinfo, 100))
+                pr("W3", pc(debug.getinfo, -1))
+                pr("W4", pc(debug.getinfo))
+                pr("W5", pc(debug.getinfo, print, "S"))
+                pr("W6", pc(debug.getinfo, print))
+                pr("W7", pc(debug.getinfo, 1, 5))
+                pr("W8", pc(debug.getinfo, "x"))
+                
+                -- 2) getlocal / setlocal
+                do
+                  local a1, a2, a3 = 1, 2, 3
+                  local n = 1
+                  while true do
+                    local nm, v = debug.getlocal(1, n)
+                    if not nm then break end
+                    pr("L", n, nm, s(v))
+                    n = n + 1
+                  end
+                  -- setlocal 要在<b>自己的</b>那一层做：在主 chunk 里 setlocal(1, 1, ...)
+                  -- 改掉的是第 1 个局部变量，也就是 pr 自己 —— 后面就再也调不动 print 了
+                  local function inner()
+                    local p, q = 1, 2
+                    local nm = debug.setlocal(1, 1, 99)
+                    return nm, p, q
+                  end
+                  pr("L2", inner())
+                  pr("L2b", pc(debug.setlocal, 1, 0, 1))
+                  pr("L3", pc(debug.getlocal, 1, 0))
+                  pr("L4", pc(debug.getlocal, 100, 1))
+                  pr("L5", pc(debug.getlocal))
+                  pr("L6", pc(debug.getlocal, 1))
+                end
+                
+                -- 3) upvalue
+                do
+                  local up1, up2 = "u1", "u2"
+                  local function f()
+                    return up1, up2
+                  end
+                  local n = 1
+                  while true do
+                    local nm, v = debug.getupvalue(f, n)
+                    if not nm then break end
+                    pr("U", n, nm, s(v))
+                    n = n + 1
+                  end
+                  pr("U2", debug.getupvalue(f, 1))
+                  pr("U3", debug.setupvalue(f, 1, "NEW"), f())
+                  pr("U4", debug.setupvalue(f, 99, "x"))
+                  pr("U5", pc(debug.getupvalue, print, 1))
+                  pr("U6", pc(debug.getupvalue, 5, 1))
+                  pr("U7", pc(debug.getupvalue))
+                  pr("U8", pc(debug.setupvalue, f, 1))
+                end
+                
+                -- 4) sethook：只打印事件序列，不打印地址
+                do
+                  local log = {}
+                  local function hook(ev, ln)
+                    log[#log + 1] = ev .. ":" .. tostring(ln)
+                  end
+                  local function target(a)
+                    local x = a + 1
+                    return x
+                  end
+                  debug.sethook(hook, "c")
+                  target(1)
+                  debug.sethook()
+                  pr("H1", table.concat(log, "|"))
+                  log = {}
+                  debug.sethook(hook, "r")
+                  target(1)
+                  debug.sethook()
+                  pr("H2", table.concat(log, "|"))
+                  log = {}
+                  debug.sethook(hook, "l")
+                  target(1)
+                  debug.sethook()
+                  pr("H3", table.concat(log, "|"))
+                  log = {}
+                  debug.sethook(hook, "", 3)
+                  for i = 1, 10 do local _ = i end
+                  debug.sethook()
+                  pr("H4", table.concat(log, "|"))
+                  log = {}
+                  debug.sethook(hook, "crl")
+                  target(2)
+                  debug.sethook()
+                  pr("H5", (table.concat(log, "|"):gsub(":%d+", ":N")))
+                  pr("H6", debug.gethook() == nil, pc(debug.gethook))
+                  pr("H7", pc(debug.sethook, 5))
+                  pr("H8", pc(debug.sethook, hook, 5))
+                  pr("H9", pc(debug.sethook, hook, "z"))
+                  pr("H10", debug.sethook(hook, "cr", 2))
+                  debug.sethook()
+                  pr("H11", debug.gethook() == nil)
+                end
+                
+                -- 5) traceback 的形状（不整段比对）
+                do
+                  local tb = debug.traceback("MSG")
+                  local n = select(2, tb:gsub("\\n", ""))
+                  pr("T1", n, tb:sub(1, 4), (tb:find("stack traceback:", 1, true) ~= nil),
+                     (tb:find("in main chunk", 1, true) ~= nil))
+                  local tb2 = debug.traceback("M2", 2)
+                  local n2 = select(2, tb2:gsub("\\n", ""))
+                  pr("T2", n2, (tb2:find("in main chunk", 1, true) ~= nil))
+                  pr("T3", (debug.traceback():find("stack traceback:", 1, true) ~= nil))
+                  -- traceback(5) 的返回值<b>就是</b>回溯，整段打印会让 assertMatches 那道
+                  -- 「回溯后还有输出」的门禁炸掉，这里只留第一行
+                  local t4ok, t4v = pcall(debug.traceback, 5)
+                  pr("T4", t4ok, first(t4v))
+                  pr("T5", s(debug.traceback(nil, 0)) == "string")
+                  local co = coroutine.create(function()
+                    pr("T6", (debug.traceback("INCO"):find("INCO", 1, true) ~= nil))
+                  end)
+                  coroutine.resume(co)
+                  -- traceback(协程) 的返回值开头就是 "stack traceback:"，只打类型
+                  pr("T7", type(debug.traceback(co)))
+                end
+                
+                -- 6) registry / metatable / uservalue
+                pr("R1", s(debug.getregistry()), type(debug.getregistry()))
+                pr("R2", debug.getregistry()[1] == _G or debug.getregistry()[2] == _G)
+                pr("R3", pc(debug.getregistry, 1))
+                pr("R4", pc(debug.setmetatable, 5, {}))
+                pr("R5", pc(debug.setmetatable, {}, 5))
+                do
+                  local t = {}
+                  pr("R6", debug.setmetatable(t, { __index = { x = 1 } }) == t, t.x)
+                  pr("R7", s(debug.getmetatable(t)), debug.setmetatable(t, nil) == t,
+                     s(debug.getmetatable(t)))
+                end
+                pr("R8", pc(debug.getmetatable))
+                pr("R9", pc(debug.getmetatable, 5))
+                pr("R10", pc(debug.getuservalue, 5))
+                pr("R11", pc(debug.getuservalue, nil))
+                pr("R12", pc(debug.setuservalue, 5, {}))
+                pr("R13", pc(debug.setuservalue, nil, {}))
+                
+                -- 7) utf8
+                pr("F1", utf8.charpattern)
+                pr("F2", utf8.char(65, 66, 0x4E2D, 0x1F600) == "AB\\228\\184\\173\\240\\159\\152\\128")
+                pr("F3", #utf8.char(0x1F600), #utf8.char(0x4E2D), #utf8.char(65))
+                pr("F4", pc(utf8.char, -1))
+                pr("F5", pc(utf8.char, 0x7FFFFFFF))
+                pr("F6", pc(utf8.char, 0x110000))
+                pr("F7", pc(utf8.char, 1.5))
+                pr("F8", utf8.char() == "")
+                pr("F9", utf8.codepoint("AB", 1), utf8.codepoint("AB", 2))
+                pr("F10", pc(utf8.codepoint, "AB", 3))
+                pr("F11", pc(utf8.codepoint, "AB", 0))
+                pr("F12", pc(utf8.codepoint, "AB", -1))
+                pr("F13", utf8.codepoint("\\228\\184\\173"), utf8.codepoint("\\240\\159\\152\\128"))
+                pr("F14", utf8.codepoint("AB", 1, 2))
+                pr("F15", pc(utf8.codepoint, "AB", 1, 3))
+                pr("F16", pc(utf8.codepoint, "AB", 2, 1))
+                pr("F17", utf8.len("AB"), utf8.len("\\228\\184\\173"), utf8.len("\\240\\159\\152\\128"))
+                pr("F18", pc(utf8.len, "\\255"))
+                pr("F19", utf8.len("AB", 2), utf8.len("AB", 3))
+                pr("F20", pc(utf8.len, "AB", 4))
+                pr("F21", utf8.len("", 1) == 0, pc(utf8.len, "", 2))
+                pr("F22", pc(utf8.len, 5))
+                pr("F23", utf8.offset("ABC", 2), utf8.offset("ABC", 4))
+                pr("F24", utf8.offset("\\228\\184\\173", 2))
+                pr("F25", pc(utf8.offset, "ABC", 0))
+                pr("F26", pc(utf8.offset, "ABC", 5))
+                pr("F27", utf8.offset("hi\\228\\184\\173", -1))
+                pr("F28", pc(utf8.offset, "ABC", -5))
+                pr("F29", pc(utf8.offset, "ABC", 1.5))
+                -- 遍历 UTF-8 串
+                do
+                  local out = {}
+                  for p, c in utf8.codes("A\\228\\184\\173B") do
+                    out[#out + 1] = p .. ":" .. c
+                  end
+                  pr("F30", table.concat(out, ","))
+                  pr("F31", pc(function()
+                    for p, c in utf8.codes("\\255") do end
+                  end))
+                  local out2 = {}
+                  for p, c in utf8.codes("AB", 2) do
+                    out2[#out2 + 1] = p .. ":" .. c
+                  end
+                  pr("F32", table.concat(out2, ","))
+                end
+                -- 用 charpattern 走一遍
+                do
+                  local cnt = 0
+                  for c in ("A\\228\\184\\173\\240\\159\\152\\128"):gmatch(utf8.charpattern) do
+                    cnt = cnt + 1
+                  end
+                  pr("F33", cnt)
+                end
+                
+                print("DONE")
+                """);
+    }
 }
