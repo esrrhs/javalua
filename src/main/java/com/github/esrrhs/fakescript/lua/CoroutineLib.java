@@ -48,12 +48,20 @@ public final class CoroutineLib {
         t.set(LuaString.latin1(name), LuaValue.ofFunction(f));
     }
 
-    /** {@code lcorolib.c: getco} */
+    /**
+     * {@code lcorolib.c: getco}。
+     * <p>
+     * C 用的是 {@code luaL_argexpected(L, co, 1, "thread")}，类型名取自
+     * {@code luaL_typename(L, 1)} —— <b>缺参是 {@code no value}</b>，不是
+     * {@code nil}。曾经直接拿 {@code L.arg(0)} 的 {@code typeName()}，
+     * 于是 {@code coroutine.status()} 报 {@code got nil}，参考实现报
+     * {@code got no value}。
+     */
     private static LuaState getco(LuaState L, String fname) {
         LuaValue v = L.arg(0);
-        if (v.tt != Lua.VTHREAD) {
+        if (L.isNoneArg(1) || v.tt != Lua.VTHREAD) {
             throw L.libError("bad argument #1 to 'coroutine." + fname + "' (thread expected, got "
-                    + v.typeName() + ")");
+                    + L.argTypeName(1) + ")");
         }
         return v.asThread();
     }
@@ -183,9 +191,12 @@ public final class CoroutineLib {
      */
     private static void createCo(LuaState L, String fname) {
         LuaValue f = L.arg(0);
-        if (!f.isFunction()) {
+        if (L.isNoneArg(1) || !f.isFunction()) {
+            /*
+             * 同样是 {@code luaL_argexpected}：缺参报 {@code got no value}。
+             */
             throw L.libError("bad argument #1 to '" + fname + "' (function expected, got "
-                    + f.typeName() + ")");
+                    + L.argTypeName(1) + ")");
         }
         LuaState nl = L.newThread();
         L.push(LuaValue.ofThread(nl)); // 这个才是 create 的返回值

@@ -113,6 +113,24 @@ public final class LuaString {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
+    /**
+     * 按 <b>C 字符串</b>语义截断到第一个 {@code \0}。
+     * <p>
+     * 移植时凡是 C 版把 {@code LuaString} 当作 {@code const char *} 用的地方
+     * （格式化进 {@code "%s"}、拿去当类型名、拼进报错文案），内容都会在第一个
+     * NUL 处被悄悄砍断 —— 因为 C 字符串以 NUL 结尾，而 Lua 字符串不以 NUL 结尾。
+     * 实测 {@code tostring(setmetatable({}, {__name = "A\0B"}))}：参考实现打印
+     * {@code A: 0x...}，只有 {@code A}。
+     */
+    public LuaString toCString() {
+        for (int i = 0; i < bytes.length; i++) {
+            if (bytes[i] == 0) {
+                return new LuaString(Arrays.copyOf(bytes, i));
+            }
+        }
+        return this;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

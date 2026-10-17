@@ -2728,4 +2728,716 @@ class RuntimeTest {
                 print("K", pcall(rt2), guard)
                 """);
     }
+
+    /**
+     * {@code math} 全函数 × 30 个边界值（含 ±inf、nan、±0.0、maxinteger、
+     * mininteger、2^53、2^63、1/3）+ 二元函数取样 + {@code modf} 的双返回值 +
+     * {@code log} 的底 + 每个函数的六类参数错误 + 播种后的随机序列；外加
+     * {@code os} 里输出确定的那部分（{@code getenv}、{@code remove}/
+     * {@code rename} 的失败路径、{@code setlocale}、{@code difftime}、
+     * {@code time} 的越界字段、{@code date}）。1423 行，<b>干净</b>。
+     * <p>
+     * 留着的三条理由：
+     * <ul>
+     *   <li><b>浮点最后一比特</b>：{@code math.sin} 等走的是 {@code libm}，
+     *       我们的 {@code Math.sin} 与之未必逐比特一致。默认 {@code tostring}
+     *       只打 14 位有效数字，正好看不见 —— 这片能证明确实看不见，
+     *       而不是「恰好没测到」。</li>
+     *   <li><b>{@code math.random} 的序列</b>：xoshiro256** 定死的序列是很硬的
+     *       差分点，播种后必须逐个数对上。</li>
+     *   <li><b>{@code errno}/{@code strerror} 那一层</b>：{@code os.remove} /
+     *       {@code rename} 失败要带上一句 C 的错误文案。</li>
+     * </ul>
+     * 三处<b>不能测</b>的，别加回来：{@code os.clock}（耗时）、
+     * 无参 {@code math.randomseed}（拿当前时间播种，两边不可能一致）、
+     * 无参 {@code os.time}（当前时间）。
+     */
+    @Test
+    void mathAndOsMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- math 全函数 × 边界值 矩阵；外加 os 里那些输出确定的部分
+                -- os.clock（耗时）、os.execute 的退出码文案、os.time() 无参（当前时间）都不可比，不测。
+                local VALS = {
+                  -1 / 0, -1e308, -1e300, -2.5, -1.5, -1.0, -0.5, -0.0, 0, 0.0, 0.5, 1.0,
+                  1.5, 2.0, 2.5, 3.0, 100.0, 1e300, 1e308, 1 / 0, 0 / 0,
+                  math.maxinteger, math.mininteger, -math.maxinteger,
+                  2 ^ 53, 2 ^ 63, -(2 ^ 63), 0.1, 1 / 3, math.pi, math.huge,
+                }
+                local NAMES = {}
+                for i = 1, #VALS do
+                  NAMES[i] = string.format("%.17g", VALS[i])
+                end
+
+                -- 1) 一元函数
+                local UNARY = { "abs", "ceil", "floor", "sqrt", "sin", "cos", "tan", "asin",
+                                "acos", "atan", "exp", "tointeger", "type" }
+                for _, fn in ipairs(UNARY) do
+                  for i = 1, #VALS do
+                    local ok, r = pcall(math[fn], VALS[i])
+                    if ok then
+                      print("U", fn, NAMES[i], tostring(r), math.type(r))
+                    else
+                      print("U", fn, NAMES[i], "err", tostring(r))
+                    end
+                  end
+                end
+
+                -- 2) 二元函数
+                local BINARY = { "fmod", "max", "min", "atan", "ult", "log" }
+                for _, fn in ipairs(BINARY) do
+                  for i = 1, #VALS do
+                    for j = 1, #VALS do
+                      if (i + j) % 7 == 0 then -- 全矩阵太大，取样
+                        local ok, r = pcall(math[fn], VALS[i], VALS[j])
+                        if ok then
+                          print("B", fn, NAMES[i], NAMES[j], tostring(r), math.type(r))
+                        else
+                          print("B", fn, NAMES[i], NAMES[j], "err", tostring(r))
+                        end
+                      end
+                    end
+                  end
+                end
+
+                -- 3) modf 两个返回值
+                for i = 1, #VALS do
+                  local ok, a, b = pcall(math.modf, VALS[i])
+                  if ok then
+                    print("M", NAMES[i], tostring(a), math.type(a), tostring(b), math.type(b))
+                  else
+                    print("M", NAMES[i], "err", tostring(a))
+                  end
+                end
+
+                -- 4) log 的第二个参数
+                for _, b in ipairs({ 2, 10, 0.5, 1, 0, -1, 1 / 0 }) do
+                  for _, x in ipairs({ 8, 100, 1, 0, -1, 1 / 0 }) do
+                    print("L", b, x, tostring(select(2, pcall(math.log, x, b))))
+                  end
+                end
+
+                -- 5) 参数类型错误
+                -- math.atan 与 math.atan2 是同一个函数：报错里报哪个名字，
+                -- 取决于 lauxlib.c: findfield 遍历 package.loaded 时先撞见谁，
+                -- 而那个顺序由字符串哈希决定、哈希又被 luai_makeseed（按时间）
+                -- 播种。参考实现自己连跑八次，六次报 atan2、两次报 atan ——
+                -- 它是不确定的。所以这里先把名字统一成 atan 再比，
+                -- 否则这条差分用例会随机翻红。
+                local function fixname(s)
+                  return (tostring(s):gsub("'math%.atan2'", "'math.atan'"))
+                end
+                for _, fn in ipairs({ "abs", "ceil", "floor", "sqrt", "sin", "exp", "tointeger",
+                                      "fmod", "max", "min", "ult", "modf", "log", "atan" }) do
+                  local function pe(...)
+                    local ok, ev = pcall(math[fn], ...)
+                    print("E", fn, ok, ok and tostring(ev) or fixname(ev))
+                  end
+                  pe() pe(nil) pe("x") pe("1")
+                  local eok, ev = pcall(math[fn], {})
+                  print("E", fn, eok, type(ev))
+                  pe(true)
+                end
+
+                -- 6) 常量与 type
+                print("C", math.pi, math.huge, math.maxinteger, math.mininteger)
+                print("C2", math.type(1), math.type(1.0), math.type("1"), math.type(nil),
+                      math.type(math.maxinteger), math.type(1 / 0))
+                print("C3", pcall(math.type))
+                print("C4", pcall(math.type, 1, 2))
+
+                -- 7) random：播种后取整串
+                math.randomseed(42)
+                local rs = {}
+                for i = 1, 10 do rs[#rs + 1] = tostring(math.random()) end
+                print("R1", table.concat(rs, ","))
+                local rs2 = {}
+                for i = 1, 10 do rs2[#rs2 + 1] = tostring(math.random(100)) end
+                print("R2", table.concat(rs2, ","))
+                local rs3 = {}
+                for i = 1, 10 do rs3[#rs3 + 1] = tostring(math.random(-5, 5)) end
+                print("R3", table.concat(rs3, ","))
+                math.randomseed(42)
+                print("R4", math.random(), math.random(100))
+                print("R5", pcall(math.random, 5, 1))
+                print("R6", pcall(math.random, 1, 2, 3))
+                print("R7", pcall(math.random, "x"))
+                print("R8", pcall(math.random, 0))
+                print("R9", pcall(math.random, math.mininteger, math.maxinteger))
+                -- 无参 randomseed 拿当前时间播种，两边不可能一致，不测
+                print("R11", pcall(math.randomseed, "x"))
+                print("R12", pcall(math.randomseed, 1.5))
+
+                -- 8) os：输出确定的那部分
+                print("O1", type(os.getenv("PATH")), os.getenv("NO_SUCH_ENV_VAR_XYZ"))
+                print("O2", pcall(os.getenv))
+                print("O3", pcall(os.getenv, 5))
+                print("O4", pcall(os.getenv, true))
+                print("O5", os.remove("/nonexistent-dir-xyz/nope"))
+                print("O6", os.rename("/nonexistent-dir-xyz/a", "/nonexistent-dir-xyz/b"))
+                print("O7", pcall(os.remove))
+                print("O8", pcall(os.rename, 5, 6))
+                print("O9", tostring(os.setlocale()), tostring(os.setlocale("C")),
+                      tostring(os.setlocale("no-such-locale-xyz")))
+                print("O10", pcall(os.setlocale, 5))
+                print("O11", os.difftime(100, 50), os.difftime(50, 100), os.difftime(0, 0))
+                print("O12", pcall(os.difftime, "x", 1))
+                print("O13", pcall(os.difftime, 1))
+                print("O14", os.time({ year = 1970, month = 1, day = 1, hour = 0, min = 0, sec = 0 }))
+                print("O15", os.time({ year = 2038, month = 1, day = 19, hour = 3, min = 14, sec = 8 }))
+                print("O16", os.time({ year = 2020, month = 2, day = 29, hour = 12 }))
+                print("O17", os.time({ year = 2021, month = 2, day = 29, hour = 12 }))
+                print("O18", pcall(os.time, {}))
+                print("O19", pcall(os.time, "x"))
+                print("O20", pcall(os.time, 5))
+                print("O21", os.time({ year = 2020, month = 13, day = 1 }))
+                print("O22", os.time({ year = 2020, month = 1, day = 32 }))
+                print("O23", os.time({ year = 2020, month = 1, day = 1, hour = 25 }))
+                print("O24", os.time({ year = 2020, month = 1, day = 1, isdst = true }))
+                print("O25", os.time({ year = 2020, month = 1, day = 1, sec = 60 }))
+                print("O26", pcall(os.date, "%Y", os.time({ year = 2000, month = 6, day = 15, hour = 12 })))
+                print("O27", os.date("!*t", 0).year, os.date("!*t", 0).yday, os.date("!*t", 0).wday)
+                print("O28", pcall(os.date, "!%Y-%m-%d", 2147483647))
+                print("O29", pcall(os.date, "!%Y-%m-%d", -1))
+                print("O30", pcall(os.date, 5, 0))
+                print("O31", pcall(os.date, "%Y", "x"))
+
+                print("DONE")
+                """);
+    }
+    /**
+     * {@code string} 库<b>非模式匹配</b>那一半的系统矩阵——模式匹配的 pattern
+     * 语义另有 {@code patternMatchingMatrixMatchesReference} 那 24819 行单独覆盖，
+     * 这里只碰 {@code sub / byte / char / rep / upper / lower / len / reverse /
+     * format / tonumber(base) / tostring}。
+     * <p>
+     * 咬出来两条：
+     * <ul>
+     *   <li><b>{@code __name} 走 C 字符串语义</b>：{@code lauxlib.c: luaL_tolstring}
+     *       取到 {@code __name} 后用 {@code lua_tostring} 转成 {@code const char*}，
+     *       再用 {@code "%s"} 拼进「名字: 0x地址」——于是名字在第一个 {@code \0}
+     *       处被砍断。{@code __name = "A\0B"} 只打印出 {@code A}，我们把整个
+     *       {@code "A B"} 都打了出去。</li>
+     *   <li><b>{@code "%p"} 不补前导零</b>：地址写成了 {@code 0x%016x}，
+     *       参考实现是 {@code 0x7ab30002c0} 这种不补零的样子。</li>
+     * </ul>
+     * 另有<b>一处不能比</b>的：{@code "+"}/空格标志作用在 NaN 上时，macOS 的 libc
+     * 不打符号（{@code nan}）、glibc 打（{@code +nan}）。CI 的 conformance job
+     * 在 ubuntu 上跑、本机在 macOS 上跑，两边的<b>参考实现自己</b>就不一样，
+     * 所以脚本里先把 NaN 的符号抹掉再比。
+     */
+    @Test
+    void stringLibraryMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- string 库非模式匹配部分矩阵：sub/byte/char/rep/upper/lower/len/reverse/
+                -- format/tonumber(base)/tostring。模式匹配（find/match/gmatch/gsub 的 pattern
+                -- 语义）另有 24819 行矩阵单独覆盖，这里只用 plain 参数。
+                local S = {
+                  "", "a", "abc", "abcdef", "Hello World", "  pad  ",
+                  "\\0abc", "a\\0b", "\\0", "\\255\\254",
+                  "0", "-1", "1", "  1  ", "0x10", "1e3", " 0x1p4 ", "10", "z", "Z", "0777",
+                  "inf", "nan", "-inf", "true",
+                  string.rep("x", 70),
+                }
+                -- tostring 出来的表/函数/线程带 0x 地址，两边不可能一致，统一抹掉
+                local function norm(s)
+                  return (tostring(s):gsub("0x%x+", "0xADDR"))
+                end
+                -- libc 分歧："+"/空格标志作用在 NaN 上时，macOS 的 libc 不打符号（"nan"），
+                -- glibc 打（"+nan"）。CI 的 conformance job 在 ubuntu 上跑，本机在 macOS 上跑，
+                -- 两边的参考实现自己就不一样，故统一成不带符号再比。
+                local function fnorm(s)
+                  return (s:gsub("^[+ ]nan$", "nan"):gsub("^[+ ]NAN$", "NAN"))
+                end
+                local function show(s)
+                  -- 带 \\0 和非法 UTF-8 的字符串直接 print 会难读，转成十六进制再打
+                  return (string.gsub(s, ".", function(c)
+                    return string.format("\\\\%d", string.byte(c))
+                  end))
+                end
+                for i = 1, #S do
+                  print("S", i, show(S[i]))
+                end
+                
+                -- 1) len / upper / lower / reverse
+                for i = 1, #S do
+                  print("L", i, #S[i], string.len(S[i]))
+                  print("U", i, show(string.upper(S[i])), show(string.lower(S[i])))
+                  print("V", i, show(string.reverse(S[i])))
+                end
+                -- len 的非字符串实参
+                for _, v in ipairs({ nil, 5, 5.0, true, {}, print }) do
+                  print("LE", type(v), pcall(string.len, v))
+                end
+                
+                -- 2) sub 的 i/j 全边界交叉
+                local IJ = { -100, -8, -3, -1, 0, 1, 2, 3, 8, 100 }
+                for i = 1, #S do
+                  for _, a in ipairs(IJ) do
+                    for _, b in ipairs(IJ) do
+                      print("B", i, a, b, show(string.sub(S[i], a, b)))
+                    end
+                  end
+                end
+                print("B2", pcall(string.sub, "abcdef")) -- 第二个参数是必填的：luaL_checkinteger
+                print("B3", pcall(string.sub))
+                print("B4", pcall(string.sub, nil, 1))
+                print("B5", pcall(string.sub, "abc", "x"))
+                print("B6", pcall(string.sub, "abc", 1, "x"))
+                print("B7", pcall(string.sub, "abc", 1.5))
+                print("B8", show(string.sub("abc", 1.0)), pcall(string.sub, "abc", 1.5))
+                print("B9", show(string.sub("abc", 2.0, 3.0)))
+                print("B10", pcall(string.sub, "abc", math.mininteger))
+                print("B11", pcall(string.sub, "abc", 1, math.maxinteger))
+                
+                -- 3) byte / char
+                for i = 1, #S do
+                  for _, a in ipairs(IJ) do
+                    print("Y", i, a, string.byte(S[i], a))
+                    print("Y2", i, a, a + 2, string.byte(S[i], a, a + 2))
+                  end
+                end
+                print("C", pcall(string.char))
+                print("C2", show(string.char(65, 66, 0, 255)))
+                print("C3", pcall(string.char, -1))
+                print("C4", pcall(string.char, 256))
+                print("C5", pcall(string.char, 1.5))
+                print("C6", pcall(string.char, 1e300))
+                print("C7", pcall(string.char, "x"))
+                print("C8", #string.char(0, 0, 0))
+                
+                -- 4) rep
+                for _, n in ipairs({ -2, -1, 0, 1, 3 }) do
+                  for _, sep in ipairs({ nil, "", "-", "ab" }) do
+                    print("R", n, tostring(sep), pcall(string.rep, "ab", n, sep))
+                  end
+                end
+                print("R2", pcall(string.rep, "ab", 1e300))
+                print("R3", pcall(string.rep, "ab", "3"))
+                print("R4", pcall(string.rep))
+                print("R5", pcall(string.rep, "ab", 2, 5))
+                print("R6", #string.rep("ab", 0, "xyz"))
+                
+                -- 5) format：动词 × 值 × 修饰
+                local FMT = {
+                  "%d", "%5d", "%-5d|", "%05d", "%+d", "% d", "%.0d", "%i",
+                  "%x", "%X", "%#x", "%o", "%#o", "%c",
+                  "%f", "%.3f", "%10.2f", "%-10.2f|", "%+f", "%e", "%E", "%.3e",
+                  "%g", "%G", "%.0g", "%#g", "%a", "%A",
+                  "%s", "%10s", "%-10s|", "%.2s", "%q", "%%", "%5.2q",
+                }
+                local FV = {
+                  0, 1, -1, 255, math.maxinteger, math.mininteger,
+                  0.0, -0.0, 1 / 3, 1e300, 1 / 0, -1 / 0, 0 / 0,
+                  "str", "", "a\\0b", true, false, nil,
+                }
+                for _, f in ipairs(FMT) do
+                  for i = 1, #FV do
+                    local ok, r = pcall(string.format, f, FV[i])
+                    print("F", f, i, ok, ok and show(fnorm(r)) or tostring(r))
+                  end
+                end
+                -- format 的多参数与缺参
+                print("F2", pcall(string.format, "%d %s", 1, "a"))
+                print("F3", pcall(string.format, "%d %d", 1))
+                print("F4", pcall(string.format, "%d", "x"))
+                print("F5", pcall(string.format, "%d", 1.5))
+                print("F6", select(1, pcall(string.format, "%s", {})),
+                      norm(select(2, pcall(string.format, "%s", {}))))
+                print("F7", pcall(string.format))
+                print("F8", pcall(string.format, "%z", 1))
+                print("F9", pcall(string.format, "%1000000d", 1))
+                print("F10", string.format("%s", setmetatable({}, { __tostring = function() return "TT" end })))
+                print("F11", pcall(string.format, "%s", setmetatable({}, { __tostring = function() return 5 end })))
+                print("F12", pcall(string.format, "%s", setmetatable({}, { __tostring = function() error("boom") end })))
+                print("F13", string.format("%q", "a\\nb\\\\\\"c\\0d"))
+                print("F14", string.format("%q", "\\r\\t\\1\\255"))
+                print("F15", string.format("%q", 1), string.format("%q", 1.0), string.format("%q", 1 / 3))
+                print("F16", pcall(string.format, "%q", nil), pcall(string.format, "%q", true))
+                print("F17", string.format("%d%%%s", 1, "x"))
+                
+                -- 6) tonumber 带基数
+                local TN = { "0", "1", "10", "z", "Z", "-1", "-z", "ff", "FF", "  ff  ",
+                             "", " ", "0x10", "1e3", "1.5", "- 1", "+1", "1 2", "\\0", "0777" }
+                for _, s in ipairs(TN) do
+                  for _, b in ipairs({ nil, 1, 2, 8, 10, 16, 36, 37 }) do
+                    print("T", show(s), tostring(b), pcall(tonumber, s, b))
+                  end
+                end
+                print("T2", tonumber("10", 2), tonumber("z", 36), tonumber("Z", 36))
+                print("T3", pcall(tonumber, 5, 10))
+                print("T4", tonumber(5), tonumber("5"), math.type(tonumber("5")))
+                print("T5", tonumber("0x10"), tonumber("  0x10  "))
+                print("T6", tonumber("1e2"), math.type(tonumber("1e2")))
+                print("T7", tonumber(1 / 0), tonumber(0 / 0))
+                print("T8", pcall(tonumber, "10", 1.5))
+                print("T9", pcall(tonumber, "10", "16"))
+                print("T10", pcall(tonumber, "10", 0))
+                print("T11", pcall(tonumber, "10", -1))
+                print("T12", pcall(tonumber, "10", 38))
+                print("T13", tonumber("9223372036854775807"), math.type(tonumber("9223372036854775807")))
+                print("T14", tonumber("9223372036854775808"), math.type(tonumber("9223372036854775808")))
+                print("T15", tonumber("-9223372036854775808"), math.type(tonumber("-9223372036854775808")))
+                print("T16", tonumber("-9223372036854775809"), math.type(tonumber("-9223372036854775809")))
+                
+                -- 7) tostring / __name / __metatable
+                print("TS", tostring(nil), tostring(true), tostring(1), tostring(1.0), tostring("s"))
+                local mt = { __name = "MyType" }
+                print("TS2", norm(tostring(setmetatable({}, mt))))
+                print("TS3", select(1, pcall(tostring, setmetatable({}, { __name = 5 }))),
+                      norm(select(2, pcall(tostring, setmetatable({}, { __name = 5 })))))
+                print("TS4", norm(tostring(setmetatable({}, { __name = "A\\0B" }))))
+                local mtr = { __tostring = function() return "RR" end }
+                print("TS5", tostring(setmetatable({}, mtr)))
+                print("TS6", pcall(tostring, setmetatable({}, { __tostring = function() return nil end })))
+                print("TS7", pcall(tostring, setmetatable({}, { __tostring = function() return {} end })))
+                print("TS8", pcall(tostring, setmetatable({}, { __tostring = 5 })))
+                print("TS9", norm(tostring(print)), type(tostring(print)))
+                print("TS10", norm(tostring(coroutine.create(function() end))))
+                print("TS11", norm(tostring({})), norm(tostring(io.stdout)))
+                
+                print("DONE")
+                """);
+    }
+    /**
+     * 元方法语义矩阵 + 报错里的<b>变量来源推断</b>（{@code ldebug.c: varinfo} 给
+     * 的 {@code local 'x'} / {@code global 'g'} / {@code field 'f'} /
+     * {@code upvalue 'u'} / {@code method 'm'} 后缀），外加一片<b>参数缺失</b>
+     * 矩阵：六十来个库函数各用「不传 / nil / 数字 / 字符串 / 表 / 布尔」调一遍。
+     * 共 {@code N} 行。
+     * <p>
+     * 参数缺失那一片咬出来的东西最多，根子是同一个：
+     * <ul>
+     *   <li><b>{@code LuaState.arg} 越界读的是残值。</b>C 里 {@code lua_type}
+     *       对越界下标返回 {@code LUA_TNONE}、取值拿到 nil；我们的栈是复用数组，
+     *       越界读出来的是上一帧留下的东西 —— 于是 {@code pcall(setmetatable)}
+     *       有时报 {@code got function}、有时 {@code got nil}，
+     *       {@code assert()} 甚至会因为残值为真而返回 0 个值。<b>随机翻红</b>的
+     *       用例最难查，这种就是。</li>
+     *   <li><b>缺参要报 {@code no value}，不是 {@code nil}</b>：{@code rawlen}、
+     *       {@code rawequal}、{@code rawget}、{@code rawset}、
+     *       {@code setmetatable}、五个 {@code coroutine.*} 全都错成
+     *       {@code nil} 或干脆不报错。</li>
+     *   <li><b>{@code rawequal} 漏了两遍 {@code luaL_checkany}</b>：
+     *       {@code rawequal(1)} 本该报
+     *       {@code bad argument #2 ... (value expected)}，我们返回
+     *       {@code true true}。</li>
+     *   <li><b>{@code pairs} / {@code ipairs} 不要求是表</b>：C 只做
+     *       {@code luaL_checkany}，{@code pairs(5)} 照样返回三个值，真正炸是在
+     *       迭代时 {@code next(5)}。我们多加了「必须是表」，把它变成报错。</li>
+     *   <li><b>{@code select} 的 {@code #} 只比第一个字节</b>：C 是
+     *       {@code *lua_tostring(L, 1) == '#'}，所以 {@code select("#abc", 1)}
+     *       也是「数个数」；判断整串等于 {@code "#"} 就漏了。另外缺参报的是
+     *       {@code number expected, got no value}，不是 {@code value expected}。</li>
+     *   <li><b>{@code rawget} 没有「键不能是 nil」那条</b>：{@code rawget({}, nil)}
+     *       是 {@code true nil}。报「table index is nil」的是 {@code rawset}，
+     *       那条来自 {@code ltable.c: luaH_newkey}。</li>
+     *   <li><b>{@code setmetatable} 的第二个参数</b>走 {@code luaL_argexpected}，
+     *       必须带 {@code got <实际类型>}；且缺参是 {@code TNONE}，不属于
+     *       {nil, table}，所以 {@code setmetatable({})} 要报错。</li>
+     * </ul>
+     */
+    @Test
+    void metamethodsAndArgPresenceMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 元方法语义矩阵 + 报错里的变量来源推断（luaG_typeerror / varinfo）
+                -- 报错文案来自 ldblib 之外的地方：lvm.c: luaT_trybinTM 抛的
+                -- "attempt to perform arithmetic on a X value"，以及 luaG_runerror 那句
+                -- "attempt to ... "。名字后缀（local 'x' / global 'g' / field 'f' /
+                -- upvalue 'u' / method 'm' / constant 'k'）由 ldebug.c: varinfo 推断。
+                local function p(...)
+                  print(...)
+                end
+                -- tostring 出来的表/函数/线程带 0x 地址，两边不可能一致，统一抹掉
+                local function norm(s)
+                  return (tostring(s):gsub("0x%x+", "0xADDR"))
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local ok = r[1]
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return ok, table.concat(t, "\\t")
+                end
+                
+                -- 1) 算术元方法：全部二元操作符 × 全部类型组合
+                local VALS = { nil, true, false, 1, 2.5, "s", "10", {}, print }
+                local OPS = {
+                  { "+", function(a, b) return a + b end },
+                  { "-", function(a, b) return a - b end },
+                  { "*", function(a, b) return a * b end },
+                  { "/", function(a, b) return a / b end },
+                  { "//", function(a, b) return a // b end },
+                  { "%", function(a, b) return a % b end },
+                  { "^", function(a, b) return a ^ b end },
+                  { "&", function(a, b) return a & b end },
+                  { "|", function(a, b) return a | b end },
+                  { "~", function(a, b) return a ~ b end },
+                  { "<<", function(a, b) return a << b end },
+                  { ">>", function(a, b) return a >> b end },
+                  { "..", function(a, b) return a .. b end },
+                  { "==", function(a, b) return a == b end },
+                  { "<", function(a, b) return a < b end },
+                  { "<=", function(a, b) return a <= b end },
+                  { ">", function(a, b) return a > b end },
+                  { ">=", function(a, b) return a >= b end },
+                  { "~=", function(a, b) return a ~= b end },
+                }
+                for _, op in ipairs(OPS) do
+                  for i = 1, #VALS do
+                    for j = 1, #VALS do
+                      local ok, r = pc(op[2], VALS[i], VALS[j])
+                      p("O", op[1], i, j, ok, r)
+                    end
+                  end
+                end
+                
+                -- 2) 一元
+                local UN = {
+                  { "-", function(a) return -a end },
+                  { "#", function(a) return #a end },
+                  { "~", function(a) return ~a end },
+                  { "not", function(a) return not a end },
+                }
+                for _, op in ipairs(UN) do
+                  for i = 1, #VALS do
+                    local ok, r = pc(op[2], VALS[i])
+                    p("N", op[1], i, ok, r)
+                  end
+                end
+                
+                -- 3) 变量来源推断：同一个错误在不同上下文里名字后缀不同
+                G = nil
+                local function probe(label, f)
+                  local ok, r = pc(f)
+                  p("V", label, ok, r)
+                end
+                -- global
+                probe("global-arith", function() return nilG + 1 end)
+                probe("global-index", function() return nilG.x end)
+                probe("global-newindex", function() nilG.x = 1 end)
+                probe("global-call", function() return nilG() end)
+                probe("global-concat", function() return nilG .. "x" end)
+                probe("global-len", function() return #nilG end)
+                probe("global-compare", function() return nilG < 1 end)
+                -- local
+                probe("local-arith", function() local loc = nil return loc + 1 end)
+                probe("local-index", function() local loc = nil return loc.x end)
+                probe("local-call", function() local loc = nil return loc() end)
+                probe("local-concat", function() local loc = nil return loc .. "x" end)
+                probe("local-len", function() local loc = nil return #loc end)
+                probe("local-name-num", function() local n1, n2 = nil, nil return n2 + 1 end)
+                -- upvalue
+                do
+                  local up = nil
+                  probe("upvalue-arith", function() return up + 1 end)
+                  probe("upvalue-index", function() return up.x end)
+                  probe("upvalue-call", function() return up() end)
+                end
+                -- field（表里的键）
+                do
+                  local t = { fld = nil }
+                  probe("field-arith", function() return t.fld + 1 end)
+                  probe("field-index", function() return t.fld.x end)
+                  probe("field-call", function() return t.fld() end)
+                  probe("field-missing-arith", function() return t.nope + 1 end)
+                  probe("field-missing-call", function() return t.nope() end)
+                  probe("table-arith", function() return t + 1 end)
+                  probe("table-call", function() return t() end)
+                  probe("table-len", function() return #t end)
+                  probe("table-index-num", function() return t[1].x end)
+                end
+                -- method
+                do
+                  local t = {}
+                  probe("method-call", function() return t:m() end)
+                  probe("method-on-nil", function() local z = nil return z:m() end)
+                  probe("method-on-str", function() return ("s"):m() end)
+                  probe("method-on-num", function() local nn = 1 return nn:m() end)
+                  probe("method-on-bool", function() local bb = true return bb:m() end)
+                end
+                -- constant / 临时值
+                probe("const-arith", function() return (nil) + 1 end)
+                probe("str-arith", function() return "abc" + 1 end)
+                probe("bool-arith", function() return true + 1 end)
+                probe("num-index", function() return (1).x end)
+                probe("num-call", function() return (1)() end)
+                probe("bool-index", function() return (true).x end)
+                probe("bool-call", function() return (true)() end)
+                -- main chunk 里的 self / vararg
+                probe("vararg-arith", function(...) return ... + 1 end)
+                probe("vararg-call", function(...) return (...)() end)
+                
+                -- 4) 元方法被调用于各种场合
+                local function mkmt(fields)
+                  return setmetatable({}, fields)
+                end
+                local mtadd = mkmt({ __add = function(a, b) return "ADD" end })
+                p("M1", mtadd + 1, 1 + mtadd, mtadd + mtadd)
+                local mtconcat = mkmt({ __concat = function(a, b) return "CC" end })
+                p("M2", mtconcat .. "x", "x" .. mtconcat, mtconcat .. mtconcat)
+                local mtlen = mkmt({ __len = function() return 42 end })
+                p("M3", #mtlen, rawlen(mtlen))
+                p("M4", pcall(function() return #mkmt({ __len = function() return "x" end }) end))
+                p("M5", pcall(function() return #mkmt({ __len = 5 }) end))
+                p("M6", pcall(function() return #mkmt({ __len = function() end }) end))
+                local mteq = mkmt({ __eq = function() return true end })
+                local mteq2 = mkmt({ __eq = function() return true end })
+                p("M7", mteq == mteq2, mteq ~= mteq2, mteq == mteq, rawequal(mteq, mteq2))
+                p("M8", mteq == {}, {} == mteq, mteq == 1)
+                p("M9", pcall(function() return mkmt({ __eq = function() return nil end })
+                  == mkmt({ __eq = function() return nil end }) end))
+                local mtlt = mkmt({ __lt = function() return true end })
+                local mtlt2 = mkmt({ __lt = function() return false end })
+                p("M10", mtlt < mtlt2, mtlt2 < mtlt, mtlt > mtlt2, mtlt <= mtlt2)
+                p("M11", pcall(function() return mkmt({ __le = function() return 1 end })
+                  <= mkmt({ __le = function() return 1 end }) end))
+                p("M12", pcall(function() return mkmt({ __lt = function() return 5 end })
+                  < mkmt({ __lt = function() return 5 end }) end))
+                local mtcall = mkmt({ __call = function(self, ...) return "CALL", ... end })
+                p("M13", mtcall(), mtcall(1, 2), select(2, mtcall(1)))
+                p("M14", pcall(setmetatable({}, { __call = 5 })))
+                local mtindex = mkmt({ __index = function(t, k) return "I" .. tostring(k) end })
+                p("M15", mtindex.x, mtindex[1], rawget(mtindex, "x"))
+                local prototab = { proto = 1 }
+                local mtproto = setmetatable({}, { __index = prototab })
+                p("M16", mtproto.proto, mtproto.nope, rawget(mtproto, "proto"))
+                p("M17", pcall(function() return setmetatable({}, { __index = 5 }).x end))
+                p("M18", pcall(function() return setmetatable({}, { __index = "s" }).x end))
+                local mtnewindex = mkmt({ __newindex = function(t, k, v) rawset(t, "seen", k) end })
+                mtnewindex.x = 1
+                p("M19", mtnewindex.seen, rawget(mtnewindex, "x"))
+                p("M20", pcall(function() setmetatable({}, { __newindex = 5 }).x = 1 end))
+                local shallow = setmetatable({}, { __newindex = prototab })
+                shallow.y = 9
+                p("M21", prototab.y, shallow.y)
+                local mtunm = mkmt({ __unm = function() return "UNM" end })
+                p("M22", -mtunm)
+                local mtidiv = mkmt({ __idiv = function() return "ID" end })
+                p("M23", mtidiv // 1)
+                local mtmod = mkmt({ __mod = function() return "MOD" end })
+                p("M24", mtmod % 1)
+                local mtpow = mkmt({ __pow = function() return "POW" end })
+                p("M25", mtpow ^ 1)
+                local mtband = mkmt({ __band = function() return "BAND" end })
+                p("M26", mtband & 1)
+                local mtbnot = mkmt({ __bnot = function() return "BNOT" end })
+                p("M27", ~mtbnot)
+                local mtshl = mkmt({ __shl = function() return "SHL" end })
+                p("M28", mtshl << 1)
+                -- 元方法链：__index 指向的表自己也有元表
+                local lvl3 = { deep = 3 }
+                local lvl2 = setmetatable({}, { __index = lvl3 })
+                local lvl1 = setmetatable({}, { __index = lvl2 })
+                p("M29", lvl1.deep, lvl1.nope)
+                -- __index 循环
+                local a, b = {}, {}
+                setmetatable(a, { __index = b })
+                setmetatable(b, { __index = a })
+                p("M30", pcall(function() return a.x end))
+                -- 元方法自身报错
+                local mtboom = mkmt({ __add = function() error("add-boom") end })
+                p("M31", pcall(function() return mtboom + 1 end))
+                local mtboom2 = mkmt({ __index = function() error("idx-boom") end })
+                p("M32", pcall(function() return mtboom2.x end))
+                -- 元方法不是函数但可调（带 __call 的表）
+                local callable = setmetatable({}, { __call = function() return "CF" end })
+                p("M33", setmetatable({}, { __add = callable }) + 1)
+                p("M34", setmetatable({}, { __index = callable }).x)
+                
+                -- 5) 元表本身的读写与保护
+                p("T1", type(getmetatable("")), getmetatable(1), getmetatable(nil),
+                  getmetatable(true), getmetatable(print))
+                p("T2", type(getmetatable("")), getmetatable("").__index == string)
+                local guard = setmetatable({}, { __metatable = "LOCKED" })
+                p("T3", getmetatable(guard), pcall(setmetatable, guard, {}))
+                p("T4", pcall(setmetatable, guard, nil))
+                p("T5", tostring(guard):sub(1, 7))
+                p("T6", pcall(setmetatable, 5, {}))
+                p("T7", pcall(setmetatable, {}, 5))
+                p("T8", pcall(setmetatable))
+                p("T9", getmetatable(setmetatable({}, {})) == nil)
+                do
+                  local t = {}
+                  local m = {}
+                  p("T10", setmetatable(t, m) == t, getmetatable(t) == m)
+                  setmetatable(t, nil)
+                  p("T11", getmetatable(t))
+                end
+                p("T12", pcall(getmetatable))
+                p("T13", pcall(getmetatable, 5))
+                p("T14", pcall(rawget, 5, 1), pcall(rawget, {}, 1), pcall(rawget))
+                p("T15", pcall(rawequal, 1, 1), pcall(rawequal, 1), pcall(rawequal))
+                p("T16", pcall(rawlen, 5), pcall(rawlen, "abc"), pcall(rawlen))
+                p("T17", pcall(rawset, 5, 1, 1), pcall(rawset, {}, nil, 1))
+                do
+                  local t = {}
+                  p("T18", pcall(rawset, t, 0 / 0, 1))
+                end
+                -- 数字/字符串共享元表？
+                p("T19", getmetatable(1) == getmetatable(2), getmetatable("a") == getmetatable("b"))
+                -- 修改 string 元表会影响所有字符串
+                do
+                  local smt = getmetatable("")
+                  local old = smt.__index
+                  p("T20", type(old))
+                end
+                
+                -- 6) 参数缺失矩阵：每个函数用 0/1 个（故意错类型的）实参各调一次
+                -- 「一个参数也没传」在 C 里是 LUA_TNONE，报错文案是 "no value"；
+                -- 传了 nil 才是 "nil"。两者混掉就看不出缺参校验到底有没有做。
+                local FNS = {
+                  { "type", type }, { "tostring", tostring }, { "tonumber", tonumber },
+                  { "rawget", rawget }, { "rawset", rawset }, { "rawlen", rawlen },
+                  { "rawequal", rawequal }, { "next", next }, { "pairs", pairs },
+                  { "ipairs", ipairs }, { "select", select }, { "assert", assert },
+                  { "pcall", pcall }, { "error", error }, { "unpack", table.unpack },
+                  { "setmetatable", setmetatable }, { "getmetatable", getmetatable },
+                  { "collectgarbage", collectgarbage },
+                  { "coroutine.create", coroutine.create }, { "coroutine.resume", coroutine.resume },
+                  { "coroutine.status", coroutine.status }, { "coroutine.wrap", coroutine.wrap },
+                  { "coroutine.isyieldable", coroutine.isyieldable },
+                  { "coroutine.close", coroutine.close }, { "coroutine.running", coroutine.running },
+                  { "string.len", string.len }, { "string.sub", string.sub },
+                  { "string.rep", string.rep }, { "string.format", string.format },
+                  { "string.byte", string.byte }, { "string.char", string.char },
+                  { "table.insert", table.insert }, { "table.remove", table.remove },
+                  { "table.concat", table.concat }, { "table.sort", table.sort },
+                  { "table.move", table.move }, { "table.unpack", table.unpack },
+                  { "math.abs", math.abs }, { "math.fmod", math.fmod }, { "math.max", math.max },
+                  { "math.floor", math.floor }, { "math.tointeger", math.tointeger },
+                  -- 这四条的第 1、2 组实参（缺参 / nil）会落到「拿当前时间」，两边不可能一致：
+                  -- math.random 的序列取决于此前有没有播种，math.randomseed() 与 os.time()、
+                  -- os.date() 无参都是读时钟。只比 3~6 组（错类型的实参）。
+                  -- math.random 整个不测：Lua 5.4 建 state 时就拿时间+地址播种了，播种前的
+                  -- 序列两边不可能一致。定死的那串序列在 math/os 矩阵里用 randomseed(42) 比。
+                  { "math.randomseed", math.randomseed, { 1, 2 } },
+                  { "os.time", os.time, { 1, 2 } }, { "os.date", os.date, { 1, 2 } },
+                  { "os.difftime", os.difftime },
+                  { "os.getenv", os.getenv }, { "os.remove", os.remove }, { "os.rename", os.rename },
+                  { "io.open", io.open }, { "io.lines", io.lines },
+                  { "debug.getinfo", debug.getinfo }, { "debug.getlocal", debug.getlocal },
+                  { "debug.sethook", debug.sethook },
+                  -- debug.traceback 不能进这张表：它的返回值<b>就是</b>回溯，打印出来会落在这段
+                  -- 输出的中间，而 assertMatches 会从回溯处把后面全砍掉（那道门禁正是为此设的）。
+                  -- 回溯相关的语义另有 debug/load/require 那片矩阵用 assertFullMatches 覆盖。
+                  { "utf8.char", utf8.char }, { "utf8.len", utf8.len }, { "utf8.codepoint", utf8.codepoint },
+                }
+                local ARGS = { {}, { nil }, { 5 }, { "x" }, { {} }, { true } }
+                for _, e in ipairs(FNS) do
+                  local name, fn = e[1], e[2]
+                  local skip = e[3] or {}
+                  for i = 1, #ARGS do
+                    if not skip[i] then
+                      local r = { pcall(fn, table.unpack(ARGS[i], 1, #ARGS[i])) }
+                      local ok = r[1]
+                      local t = {}
+                      for j = 2, #r do t[#t + 1] = tostring(r[j]) end
+                      p("A", name, i, ok, norm(table.concat(t, "\\t")))
+                    end
+                  end
+                end
+                
+                print("DONE")
+                """);
+    }
 }
