@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 838 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 842 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1993,6 +1993,42 @@ scripts left the second half calling the *first* half's helper, which took a
 value instead of a thunk — so 72 of 156 lines silently read `tag nil` and the
 test was green anyway. **A matrix whose lines are all `nil` proves nothing**;
 check the reference output for uniformly-empty lines before believing a clean run.
+
+#### The subprocess sweep: `luaL_pushfail` is `nil`, not `false`
+
+`io.popen`, `io.tmpfile` and `setvbuf` were the thinnest part of the `io` library —
+one or two cases each. Four scripts (read/write pipes, mode validation, `tmpfile`,
+every `setvbuf` mode) widened that, and the very first run bit:
+
+```
+e3    true  nil     exit  3     <- reference
+e3    true  false   exit  3     <- ours
+```
+
+`luaL_execresult` pushes `luaL_pushfail` when the child exited non-zero, and in
+5.4 that macro is **literally `lua_pushnil`**
+(`lauxlib.h: #define luaL_pushfail(L) lua_pushnil(L)`) — it has been since 5.4
+split "fail" from `false`. This was invisible for the whole project because
+`os.execute` has its own copy of the logic and got it right; only `io.popen`'s
+teardown goes through the shared `execResult`, so `popen` was the only door that
+could show it. **Two implementations of the same helper means the bug hides in
+the one nobody tested.**
+
+Three things here are measured as uncomparable, and each was measured rather than
+assumed away:
+
+* **A child's stdout / stderr has to be redirected inside the command.** The
+  inherited descriptors do not end up in this implementation's capture buffer (a
+  Java child inherits the JVM's real stderr), so the two sides cannot line up.
+  Hence `cat > /dev/null` and `2>/dev/null`, not `cat`.
+* **Closing an undrained pipe is a race.** The reference gets `nil, "signal", 13`
+  (`echo` died of SIGPIPE); we get `true, "exit", 0`. Which one you get depends on
+  whether the child finished writing first — it is not stable run to run and must
+  not be compared.
+* **`setvbuf` with a negative or huge size is libc-defined.** C hands the size to
+  libc as a `size_t` and whether the buffer can be allocated is libc's call: on
+  the same machine `2^31` fails while `2^40` succeeds, and `"no"` with `-1`
+  succeeds while `"line"` with `-1` fails. Not modelable on the Java side.
 
 ### What is still missing
 

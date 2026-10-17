@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 838 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 842 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1812,6 +1812,36 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
 「收值不收 thunk」的同名 helper 上，于是 156 行里 72 行静默变成 `tag nil`，
 而用例依然是绿的。**一整片都是 `nil` 的矩阵什么也没证明** —— 相信「铺下来干净」
 之前，先看一眼参考输出里有没有整片相同值的行。
+
+#### 子进程那一片：`luaL_pushfail` 是 `nil` 不是 `false`
+
+`io.popen`、`io.tmpfile`、`setvbuf` 是 io 库里最薄的一块 —— 各只有一两个用例。
+四个脚本（管道读写、模式校验、tmpfile、`setvbuf` 各模式）铺开之后，第一跑就咬到：
+
+```
+e3    true  nil     exit  3     <- 参考实现
+e3    true  false   exit  3     <- 我们
+```
+
+子进程非零退出时 `luaL_execresult` 压的是 `luaL_pushfail`，而 5.4 里这个宏
+<b>就是 `lua_pushnil`</b>（`lauxlib.h: #define luaL_pushfail(L) lua_pushnil(L)`）
+—— 从 5.4 把「fail」与 `false` 拆开起就是这样。整个项目里它一直看不出来，是因为
+`os.execute` 自己另有一份逻辑、那份本来是对的；只有 `io.popen` 的收尾走共用的
+`execResult`，于是 popen 是唯一能暴露它的门口。**同一个 helper 有两份实现，
+bug 就藏在没人测的那一份里。**
+
+这里有三样东西是实测定为「不比」的，每一条都是量过的，不是托辞：
+
+* **子进程的输出/错误必须在命令里重定向掉。** 继承来的描述符不进本实现的捕获
+  缓冲（Java 的子进程继承的是 JVM 真那个 stderr），两边对不齐。所以写的是
+  `cat > /dev/null` 与 `2>/dev/null`，不是 `cat` 与裸命令。
+* **不排空管道就 `close` 是竞态。** 参考实现拿到 `nil, "signal", 13`
+  （`echo` 被 SIGPIPE 杀掉），我们给 `true, "exit", 0`。取决于子进程有没有先
+  写完，逐次运行不稳定，不能进比对。
+* **`setvbuf` 负的 / 极大的 size 是 libc 自己定的。** C 把 size 当 `size_t`
+  交给 libc 的 `setvbuf`，能不能分配出来由 libc 决定：同一台机器上 `2^31`
+  失败而 `2^40` 成功，`"no"` 配 `-1` 成功而 `"line"` 配 `-1` 失败。
+  Java 侧没法合理建模。
 
 ### 还没补上的
 
