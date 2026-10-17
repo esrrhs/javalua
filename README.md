@@ -208,7 +208,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
 for each is listed under *Phase 10* below. 859 tests green, JaCoCo line coverage
-0.95 against a 0.94 gate. (The upstream-suite gate needs `LUA54_TESTS` or
+0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
 

@@ -121,109 +121,11 @@ public final class ExpDesc {
 
     /* ---------- 便捷构造 ---------- */
 
-    public static ExpDesc ofNil() {
-        ExpDesc e = new ExpDesc();
-        e.k = VNIL;
-        return e;
-    }
-
-    public static ExpDesc ofBool(boolean b) {
-        ExpDesc e = new ExpDesc();
-        e.k = b ? VTRUE : VFALSE;
-        return e;
-    }
-
+    /** 目前唯一被用到的一个：{@code Codegen} 给一元运算配一个假的第二个操作数 */
     public static ExpDesc ofInt(long v) {
         ExpDesc e = new ExpDesc();
         e.k = VKINT;
         e.ival = v;
         return e;
-    }
-
-    public static ExpDesc ofFloat(double v) {
-        ExpDesc e = new ExpDesc();
-        e.k = VKFLT;
-        e.nval = v;
-        return e;
-    }
-
-    public static ExpDesc ofString(LuaString s) {
-        ExpDesc e = new ExpDesc();
-        e.k = VKSTR;
-        e.strval = s;
-        return e;
-    }
-
-    /** 值已在寄存器 {@code reg} */
-    public static ExpDesc ofNonReloc(int reg) {
-        ExpDesc e = new ExpDesc();
-        e.k = VNONRELOC;
-        e.info = reg;
-        return e;
-    }
-
-    /** 局部变量 */
-    public static ExpDesc ofLocal(int ridx, int vidx) {
-        ExpDesc e = new ExpDesc();
-        e.k = VLOCAL;
-        e.varRidx = ridx;
-        e.varVidx = vidx;
-        return e;
-    }
-
-    /** upvalue */
-    public static ExpDesc ofUpval(int idx) {
-        ExpDesc e = new ExpDesc();
-        e.k = VUPVAL;
-        e.info = idx;
-        return e;
-    }
-
-    @Override
-    public String toString() {
-        switch (k) {
-        case VVOID:
-            return "VVOID";
-        case VNIL:
-            return "VNIL";
-        case VTRUE:
-            return "VTRUE";
-        case VFALSE:
-            return "VFALSE";
-        case VK:
-            return "VK(" + info + ")";
-        case VKFLT:
-            return "VKFLT(" + nval + ")";
-        case VKINT:
-            return "VKINT(" + ival + ")";
-        case VKSTR:
-            return "VKSTR(" + strval.toJavaString() + ")";
-        case VNONRELOC:
-            return "VNONRELOC(r" + info + ")";
-        case VLOCAL:
-            return "VLOCAL(r" + varRidx + ")";
-        case VUPVAL:
-            return "VUPVAL(" + info + ")";
-        case VCONST:
-            return "VCONST(" + info + ")";
-        case VINDEXED:
-            return "VINDEXED(r" + indT + "[r" + indIdx + "])";
-        case VINDEXUP:
-            return "VINDEXUP(up" + indT + "[k" + indIdx + "])";
-        case VINDEXI:
-            return "VINDEXI(r" + indT + "[" + indIdx + "])";
-        case VINDEXSTR:
-            return "VINDEXSTR(r" + indT + "[k" + indIdx + "])";
-        case VJMP:
-            return "VJMP(" + info + ")";
-        case VRELOC:
-            return "VRELOC(" + info + ")";
-        case VCALL:
-            return "VCALL(" + info + ")";
-        case VVARARG:
-            return "VVARARG(" + info + ")";
-        default:
-            return "?kind " + k;
-        }
     }
 }
