@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 815 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 817 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1391,6 +1391,30 @@ C 里 `lua_type` 对越界下标返回 `LUA_TNONE`、取值拿到的是 `nil`；
 
 三个函数不在这张表里：`os.time` / `os.date` 第一个参数为 `nil` 时读的是时钟，
 `math.randomseed(nil)` 拿时钟播种，`io.lines` 无参会去读 stdin。
+
+#### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
+
+**协程（99 行）**：`yield` 到底能跨哪些边界、`close` 的语义、错误怎么传播、
+四个状态怎么转、嵌套 `resume`。实测分界（两边一致）：
+
+| 能 `yield` | `pcall` / `xpcall`、数值与泛型 `for`（含自定义迭代器）、`gmatch`、
+`__index` / `__newindex` / `__add` / `__lt` / `__concat` / `__len` /
+`__call` / `__close` |
+|---|---|
+| 不能 | `table.sort` 的比较函数、`string.gsub` 的替换函数、`print` 里的
+`__tostring` —— 报 `attempt to yield across a C-call boundary` |
+
+另外几处一并盯住了：`__eq` 里 `yield` 之后协程是 **dead**（不是 suspended）；
+自己 `close` 自己报 `cannot close a running coroutine`；`<close>` 变量按
+**声明的逆序**关闭，且 `__close` 里抛错会替换掉原错误。
+
+**数值 `for` 与强制转换（551 行）**：`forprep`/`forloop` 的四个分支
+（整数升/降、浮点升/降）各铺一遍，含 `maxinteger` 边界、字符串当起止、
+步长 0、浮点步长；外加 `//` / `%` / 位运算 / 字符串转换的角落。三点值得记住：
+`for i = 0, 1, 0.5` 的首值是**整数** `0`（`for i = 0, 1.0, 0.5` 则全程浮点）；
+位运算**不**做字符串转换（`"10" // 2` 给 5，但 `"10" & 1` 报错）；
+`for i = 2^53, 2^53+2` 与 `for i = 1e300, 1e300` 在浮点精度下是**不推进**的
+死循环 —— 探针里加了 20000 次兜底，两边在同一处跳出来。
 
 ### 还没补上的
 

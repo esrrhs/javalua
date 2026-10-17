@@ -3549,4 +3549,559 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+    /**
+     * 协程语义矩阵：{@code yield} 到底能跨哪些边界、{@code close} 的语义、
+     * 错误怎么传播、四个状态怎么转、嵌套 {@code resume}。
+     * <p>
+     * 这片<b>是干净的</b>，照样固化进来 —— 「yield 能不能跨某某边界」这类规则
+     * 极容易在改动调用路径时被悄悄改掉，而现成的 63 个 {@code CoroutineTest}
+     * 用例并不覆盖「{@code table.sort} 的比较函数里 yield」这种组合。
+     * 实测分界（参考实现与这里一致）：
+     * <table>
+     *   <tr><td>能 yield</td><td>{@code pcall} / {@code xpcall}、数值与泛型 for
+     *       （含自定义迭代器）、{@code gmatch}、
+     *       {@code __index} / {@code __newindex} / {@code __add} /
+     *       {@code __lt} / {@code __concat} / {@code __len} / {@code __call} /
+     *       {@code __close}</td></tr>
+     *   <tr><td>不能</td><td>{@code table.sort} 的比较函数、
+     *       {@code string.gsub} 的替换函数、{@code print} 里的
+     *       {@code __tostring} —— 报
+     *       {@code attempt to yield across a C-call boundary}</td></tr>
+     * </table>
+     * 另外几处一并盯着：{@code __eq} 里 yield 之后协程是 <b>dead</b>（不是
+     * suspended）；自己 {@code close} 自己报
+     * {@code cannot close a running coroutine}；{@code <close>} 变量按
+     * <b>声明的逆序</b>关闭，且 {@code __close} 里抛错会替换掉原错误。
+     */
+    @Test
+    void coroutineSemanticsMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 协程语义矩阵：yield 能跨哪些边界、close 的语义、错误怎么传播、
+                -- 状态机的四个状态、嵌套协程。
+                local function pr(...)
+                  print(...)
+                end
+                -- wrap 抛出的错误对象可能带回溯，这里只打第一行
+                local function first(s)
+                  return (tostring(s):gsub("\\n.*", ""))
+                end
+                
+                -- 1) 基本状态机
+                do
+                  local co = coroutine.create(function(a, b)
+                    pr("C1", a, b, coroutine.status(coroutine.running()))
+                    local x, y = coroutine.yield(a + b)
+                    pr("C2", x, y)
+                    return "done", 42
+                  end)
+                  pr("S1", coroutine.status(co))
+                  pr("R1", coroutine.resume(co, 1, 2))
+                  pr("S2", coroutine.status(co))
+                  pr("R2", coroutine.resume(co, "x", "y"))
+                  pr("S3", coroutine.status(co))
+                  pr("R3", coroutine.resume(co))
+                  pr("S4", coroutine.status(co))
+                end
+                
+                -- 2) 主线程不能 yield；running() 的返回值
+                pr("M1", coroutine.isyieldable())
+                do
+                  local c, main = coroutine.running()
+                  pr("M2", type(c), main) -- 主线程对象的 tostring 带地址，只打类型
+                end
+                pr("M3", pcall(coroutine.yield))
+                pr("M4", pcall(coroutine.yield, 1, 2))
+                
+                -- 3) 死协程 / 运行中的协程
+                do
+                  local co = coroutine.create(function() return 1 end)
+                  coroutine.resume(co)
+                  pr("D1", coroutine.status(co), coroutine.resume(co))
+                  local co2 = coroutine.create(function() return 1 end)
+                  pr("D2", coroutine.resume(co2), coroutine.resume(co2))
+                  local co3
+                  co3 = coroutine.create(function()
+                    pr("D3", coroutine.status(co3))
+                    pr("D4", pcall(coroutine.resume, co3))
+                    pr("D5", coroutine.close(co3))
+                  end)
+                  coroutine.resume(co3)
+                end
+                
+                -- 4) wrap：错误传播与死后调用
+                do
+                  local w = coroutine.wrap(function()
+                    coroutine.yield(1)
+                    error("boom")
+                  end)
+                  pr("W1", w())
+                  pr("W2", pcall(w))
+                  pr("W3", pcall(w))
+                  local w2 = coroutine.wrap(function() end)
+                  pr("W4", pcall(w2))
+                  pr("W5", pcall(w2))
+                  local w3 = coroutine.wrap(function() return 1, 2, 3 end)
+                  pr("W6", w3())
+                  local w7 = coroutine.wrap(function() error({ code = 1 }) end)
+                  -- 错误对象是表，tostring 带地址、两边不可能一致，只打类型
+                  pr("W7", select(1, pcall(w7)), type(select(2, pcall(w7))))
+                  pr("W8", first(select(2, pcall(coroutine.wrap(function() error("plain") end)))))
+                  pr("W9", first(select(2, pcall(coroutine.wrap(function() error(nil) end)))))
+                  pr("W10", first(select(2, pcall(coroutine.wrap(function() error(42) end)))))
+                  pr("W11", first(select(2, pcall(coroutine.wrap(function()
+                    local x = nil
+                    return x.field
+                  end)))))
+                  pr("W12", pcall(coroutine.wrap(function() coroutine.yield(1) end)))
+                end
+                
+                -- 5) yield 能跨哪些边界
+                local function canYield(label, f)
+                  local co = coroutine.create(f)
+                  local ok, err = coroutine.resume(co)
+                  local st = coroutine.status(co)
+                  pr("Y", label, ok, st, ok and "ok" or first(err))
+                end
+                canYield("plain", function() coroutine.yield(1) end)
+                canYield("pcall", function() return pcall(function() return coroutine.yield(1) end) end)
+                canYield("xpcall", function()
+                  return xpcall(function() return coroutine.yield(1) end, function(e) return "H" end)
+                end)
+                canYield("for-numeric", function()
+                  for i = 1, 3 do coroutine.yield(i) end
+                end)
+                canYield("for-generic-pairs", function()
+                  for k, v in pairs({ 1, 2 }) do coroutine.yield(k) end
+                end)
+                canYield("for-generic-ipairs", function()
+                  for _, v in ipairs({ 1, 2 }) do coroutine.yield(v) end
+                end)
+                canYield("for-generic-custom", function()
+                  local function iter(s, c)
+                    if c < 2 then return c + 1, c * 10 end
+                  end
+                  for a, b in iter, nil, 0 do coroutine.yield(a, b) end
+                end)
+                canYield("sort-cmp", function()
+                  table.sort({ 3, 1, 2 }, function(a, b) coroutine.yield(0) return a < b end)
+                end)
+                canYield("gsub-repl", function()
+                  return string.gsub("abc", "%a", function(c) coroutine.yield(0) return c end)
+                end)
+                canYield("gmatch", function()
+                  for w in string.gmatch("a b", "%a") do coroutine.yield(w) end
+                end)
+                canYield("tostring-mm", function()
+                  local t = setmetatable({}, { __tostring = function() coroutine.yield(0) return "T" end })
+                  print(t)
+                  return 1
+                end)
+                canYield("index-mm", function()
+                  local t = setmetatable({}, { __index = function(_, k) coroutine.yield(0) return k end })
+                  return t.x
+                end)
+                canYield("newindex-mm", function()
+                  local t = setmetatable({}, { __newindex = function(_, k, v) coroutine.yield(0) end })
+                  t.x = 1
+                  return 1
+                end)
+                canYield("add-mm", function()
+                  local t = setmetatable({}, { __add = function() coroutine.yield(0) return 1 end })
+                  return t + 1
+                end)
+                canYield("eq-mm", function()
+                  local t = setmetatable({}, { __eq = function() coroutine.yield(0) return true end })
+                  return t == t
+                end)
+                canYield("lt-mm", function()
+                  local t = setmetatable({}, { __lt = function() coroutine.yield(0) return true end })
+                  return t < t
+                end)
+                canYield("concat-mm", function()
+                  local t = setmetatable({}, { __concat = function() coroutine.yield(0) return "C" end })
+                  return t .. "x"
+                end)
+                canYield("len-mm", function()
+                  local t = setmetatable({}, { __len = function() coroutine.yield(0) return 3 end })
+                  return #t
+                end)
+                canYield("call-mm", function()
+                  local t = setmetatable({}, { __call = function() coroutine.yield(0) return "K" end })
+                  return t()
+                end)
+                canYield("close-mm", function()
+                  local t = setmetatable({}, { __close = function() coroutine.yield(0) end })
+                  local x <close> = t
+                  coroutine.yield(1)
+                end)
+                canYield("resume-inside", function()
+                  local inner = coroutine.create(function() coroutine.yield("in") end)
+                  pr("  inner1", coroutine.resume(inner))
+                  pr("  inner2", coroutine.resume(inner))
+                  return "out"
+                end)
+                canYield("wrap-inside", function()
+                  local inner = coroutine.wrap(function() coroutine.yield("iw") return "iw2" end)
+                  pr("  innerw", inner(), inner())
+                  return "outw"
+                end)
+                
+                -- 6) to-be-closed 与 close()
+                do
+                  local log = {}
+                  local co = coroutine.create(function()
+                    local a <close> = setmetatable({}, {
+                      __close = function(_, err)
+                        log[#log + 1] = "close-a:" .. tostring(err)
+                      end,
+                    })
+                    local b <close> = setmetatable({}, {
+                      __close = function(_, err)
+                        log[#log + 1] = "close-b:" .. tostring(err)
+                      end,
+                    })
+                    coroutine.yield()
+                    return "fin"
+                  end)
+                  pr("T1", coroutine.resume(co))
+                  pr("T2", table.concat(log, "|"))
+                  pr("T3", coroutine.resume(co))
+                  pr("T4", table.concat(log, "|"))
+                end
+                do
+                  local log = {}
+                  local co = coroutine.create(function()
+                    local a <close> = setmetatable({}, {
+                      __close = function(_, err) log[#log + 1] = "c:" .. tostring(err) end,
+                    })
+                    coroutine.yield()
+                    error("inside")
+                  end)
+                  pr("T5", coroutine.resume(co))
+                  pr("T6", coroutine.resume(co))
+                  pr("T7", table.concat(log, "|"), coroutine.status(co))
+                end
+                do
+                  local log = {}
+                  local co = coroutine.create(function()
+                    local a <close> = setmetatable({}, {
+                      __close = function(_, err)
+                        log[#log + 1] = "c1"
+                        error("in-close")
+                      end,
+                    })
+                    local b <close> = setmetatable({}, {
+                      __close = function(_, err) log[#log + 1] = "c2:" .. tostring(err) end,
+                    })
+                    coroutine.yield()
+                  end)
+                  pr("T8", coroutine.resume(co))
+                  pr("T9", coroutine.resume(co))
+                  pr("T10", table.concat(log, "|"))
+                end
+                pr("T11", coroutine.close(coroutine.create(function() return 1 end)))
+                do
+                  local co = coroutine.create(function() return 1 end)
+                  pr("T12", coroutine.resume(co), coroutine.close(co))
+                end
+                do
+                  local co = coroutine.create(function() coroutine.yield() end)
+                  pr("T13", coroutine.resume(co), coroutine.close(co), coroutine.status(co))
+                  pr("T14", coroutine.close(co))
+                end
+                do
+                  local co
+                  co = coroutine.create(function() pr("T15", coroutine.close(co)) end)
+                  pr("T16", coroutine.resume(co))
+                end
+                pr("T17", pcall(coroutine.close, 5))
+                pr("T18", pcall(coroutine.close))
+                pr("T19", pcall(coroutine.close, {}))
+                
+                -- 7) 错误对象与层级
+                do
+                  local co = coroutine.create(function() error("e1") end)
+                  pr("E1", coroutine.resume(co))
+                  local co2 = coroutine.create(function() error("e2", 0) end)
+                  pr("E2", coroutine.resume(co2))
+                  local co3 = coroutine.create(function() error("e3", 2) end)
+                  pr("E3", coroutine.resume(co3))
+                  local co4 = coroutine.create(function() error({}) end)
+                  local e4ok, e4v = coroutine.resume(co4)
+                  pr("E4", e4ok, type(e4v)) -- 表当错误对象，地址不可比
+                  local co5 = coroutine.create(function() coroutine.yield() error("e5") end)
+                  pr("E5", coroutine.resume(co5), coroutine.resume(co5))
+                  local co6 = coroutine.create(function()
+                    local ok, e = pcall(function() error("inner") end)
+                    pr("E6", ok, e)
+                    return 1
+                  end)
+                  pr("E7", coroutine.resume(co6))
+                  local co7 = coroutine.create(function()
+                    error(setmetatable({}, { __tostring = function() return "OBJ" end }))
+                  end)
+                  pr("E8", coroutine.resume(co7))
+                  pr("E9", first(select(2, coroutine.resume(co7))))
+                end
+                
+                -- 8) 嵌套：协程里 resume 另一个协程
+                do
+                  local depth = 0
+                  local function mk(n)
+                    return coroutine.create(function()
+                      depth = depth + 1
+                      if n > 0 then
+                        local inner = mk(n - 1)
+                        pr("N", n, coroutine.resume(inner))
+                      end
+                      coroutine.yield("d" .. n)
+                      return n
+                    end)
+                  end
+                  local top = mk(3)
+                  pr("N1", coroutine.resume(top))
+                  pr("N2", coroutine.resume(top))
+                  pr("N3", depth)
+                end
+                
+                -- 9) resume 传参与多返回值
+                do
+                  local co = coroutine.create(function(...)
+                    pr("V1", select("#", ...), ...)
+                    local a, b, c = coroutine.yield(...)
+                    pr("V2", a, b, c)
+                    return ...
+                  end)
+                  pr("V3", coroutine.resume(co, 1, 2, 3))
+                  pr("V4", coroutine.resume(co, "p", "q"))
+                end
+                
+                -- 10) 协程里写全局；协程当错误对象 / 表键 / 算术
+                do
+                  local co = coroutine.create(function()
+                    GVAR = "set-by-co"
+                    pr("G1", GVAR)
+                    return 1
+                  end)
+                  pr("G2", coroutine.resume(co), GVAR)
+                end
+                do
+                  local co = coroutine.create(function() end)
+                  pr("K1", type(co), tostring(co):sub(1, 7))
+                  local t = {}
+                  t[co] = 1
+                  pr("K2", t[co], rawequal(t[co], 1))
+                  pr("K3", pcall(function() return co + 1 end))
+                  pr("K4", pcall(function() return #co end))
+                  pr("K5", pcall(function() return co() end))
+                end
+                
+                print("DONE")
+                """);
+    }
+    /**
+     * 数值 {@code for} 的四个分支（{@code lvm.c: forprep} / {@code forloop}：
+     * 整数升、整数降、浮点升、浮点降，各有各的溢出处理）+ 整数/浮点强制转换 +
+     * {@code //} / {@code %} / 位运算的角落。共 {@code N} 行，干净。
+     * <p>
+     * 留着的三条理由：
+     * <ul>
+     *   <li><b>{@code maxinteger} 边界</b>：{@code for i = maxinteger - 2, maxinteger}
+     *       这类循环，终止条件在整数路径上是要<b>防溢出</b>地比较的，写漏一处
+     *       就是 2^64 次迭代。</li>
+     *   <li><b>循环变量是整数还是浮点</b>：{@code for i = 0, 1, 0.5} 与
+     *       {@code for i = 0, 1.0, 0.5} 打出来的 {@code math.type(i)} 不一样，
+     *       前者首值是整数 {@code 0}、之后变浮点。</li>
+     *   <li><b>位运算不做字符串转换</b>：{@code "10" // 2} 给 5，但
+     *       {@code "10" & 1} 报
+     *       {@code attempt to perform bitwise operation on a string value}。</li>
+     * </ul>
+     * 三条<b>不能测</b>的：{@code for i = 1, inf}、{@code for i = inf, inf}
+     * （{@code i + 1} 还是 {@code inf}，条件恒真）、
+     * {@code for i = maxinteger, mininteger, -1}（2^64 次）。另外
+     * {@code for i = 2^53, 2^53 + 2} 与 {@code for i = 1e300, 1e300} 在浮点精度下
+     * 也是<b>不推进</b>的死循环，探针里加了 20000 次的兜底，两边都在同一处跳出来。
+     */
+    @Test
+    void numericForAndCoercionMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 数值 for 的边界 + 整数/浮点强制转换 + // % 位运算的角落
+                -- 数值 for 在 lvm.c: forprep/forloop，四个分支（整数升、整数降、浮点升、
+                -- 浮点降）各有各的溢出处理，这里是按分支铺的。
+                local function pr(...)
+                  print(...)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                
+                -- 1) 数值 for：跑起来数一遍，并把每个 i 的类型也打出来
+                local function runFor(label, a, b, s)
+                  local n = 0
+                  local first, last, types = nil, nil, {}
+                  local ok, err = pcall(function()
+                    -- 兜底：万一哪个组合是永不停的循环，跑满 100000 次就跳出来，
+                    -- 免得参考实现挂在那儿（这类探针挂一次要手动杀进程）
+                    local guard = 0
+                    local function step(i)
+                      n = n + 1
+                      if n == 1 then first = i end
+                      last = i
+                      types[math.type(i)] = (types[math.type(i)] or 0) + 1
+                      guard = guard + 1
+                      if guard >= 20000 then error("__TOOBIG__") end
+                    end
+                    if s == nil then
+                      for i = a, b do step(i) end
+                    else
+                      for i = a, b, s do step(i) end
+                    end
+                  end)
+                  local ts = {}
+                  for k, v in pairs(types) do ts[#ts + 1] = k .. "=" .. v end
+                  table.sort(ts)
+                  pr("F", label, ok, n, tostring(first), tostring(last), table.concat(ts, ","),
+                     ok and "" or tostring(err))
+                end
+                runFor("1..3", 1, 3)
+                runFor("1..3 nil step", 1, 3, nil)
+                runFor("3..1", 3, 1)
+                runFor("1..1", 1, 1)
+                runFor("1..0", 1, 0)
+                runFor("0..0", 0, 0)
+                runFor("1..3 s1", 1, 3, 1)
+                runFor("1..3 s-1", 1, 3, -1)
+                runFor("3..1 s-1", 3, 1, -1)
+                runFor("1..10 s3", 1, 10, 3)
+                runFor("10..1 s-3", 10, 1, -3)
+                runFor("1.0..3.0", 1.0, 3.0)
+                runFor("1.0..3.0 s0.5", 1.0, 3.0, 0.5)
+                runFor("0..1 s0.5", 0, 1, 0.5)
+                runFor("0..1.0 s0.5", 0, 1.0, 0.5)
+                runFor("1..2 s0.1", 1, 2, 0.1)
+                runFor("1..3 s-0.5", 1, 3, -0.5)
+                runFor("3..1 s-0.5", 3, 1, -0.5)
+                runFor("-1..1 s0", -1, 1, 0)
+                runFor("1..2 snil", 1, 2, nil)
+                runFor("str..str", "1", "3")
+                runFor("str..str s", "1", "3", "1")
+                runFor("1..3 sstr", 1, 3, "1")
+                runFor("1..3 sstr0.5", 1, 3, "0.5")
+                runFor("max-2..max", math.maxinteger - 2, math.maxinteger)
+                runFor("max-2..max s2", math.maxinteger - 2, math.maxinteger, 2)
+                runFor("min..min+2", math.mininteger, math.mininteger + 2)
+                runFor("min..min+2 s2", math.mininteger, math.mininteger + 2, 2)
+                runFor("min..max smax", math.mininteger, math.maxinteger, math.maxinteger)
+                runFor("max-1..max s2", math.maxinteger - 1, math.maxinteger, 2)
+                runFor("1..max smax", 1, math.maxinteger, math.maxinteger)
+                runFor("2^53..2^53+2", 2 ^ 53, 2 ^ 53 + 2)
+                runFor("2^53..2^53+2 f", (2 ^ 53) + 0.0, (2 ^ 53) + 2.0)
+                runFor("1e300..1e300", 1e300, 1e300)
+                runFor("-0.0..0.0", -0.0, 0.0)
+                runFor("nan..nan", 0 / 0, 0 / 0)
+                runFor("1..nan", 1, 0 / 0)
+                -- 下面两条<b>不能</b>测：for i = 1, inf 与 for i = inf, inf 都是永不停的
+                -- 循环（i 加 1 还是 inf，条件恒真），参考实现跑起来就不回来了。
+                -- 同理 for i = maxinteger, mininteger, -1 是 2^64 次迭代。
+                runFor("-inf..inf s-inf", -1 / 0, 1 / 0, 1 / 0)
+                pr("F2", pc(function() for i = 1, 3, "x" do end end))
+                pr("F3", pc(function() for i = {}, 3 do end end))
+                pr("F4", pc(function() for i = 1, {} do end end))
+                pr("F5", pc(function() for i = 1, 3, {} do end end))
+                pr("F6", pc(function() for i = nil, 3 do end end))
+                -- 数值 for 只接受 2 或 3 个表达式，写 1 个或 4 个都是语法错误（解析期就挂，
+                -- 没法在 pcall 里兜），所以这里不测。
+                do
+                  local co = {}
+                  for i = 1, 3 do
+                    co[#co + 1] = i
+                    i = i + 100
+                  end
+                  pr("F8", table.concat(co, ","))
+                end
+                do
+                  local s = 0
+                  for i = 1, 10 do
+                    if i > 3 then break end
+                    s = s + i
+                  end
+                  pr("F9", s)
+                end
+                
+                -- 2) 整数除与取模的角落
+                local N = {
+                  math.maxinteger, math.mininteger, -1, 0, 1, 2, 3, -3, 7, -7,
+                  2 ^ 53, -(2 ^ 53),
+                }
+                for _, a in ipairs(N) do
+                  for _, b in ipairs(N) do
+                    pr("I", a, b, pc(function() return a // b end),
+                       pc(function() return a % b end), pc(function() return a / b end))
+                  end
+                end
+                local FV = { 0.0, -0.0, 1.0, -1.0, 2.5, -2.5, 0.5, 1 / 3, 1 / 0, -1 / 0, 0 / 0,
+                             1e300, -1e300, 2 ^ 53 }
+                for _, a in ipairs(FV) do
+                  for _, b in ipairs(FV) do
+                    pr("D", tostring(a), tostring(b), tostring(a // b), tostring(a % b))
+                  end
+                end
+                
+                -- 3) 位运算：只接受有整数表示的数
+                local BV = { 0, 1, -1, 255, 2 ^ 31, 2 ^ 32, 2 ^ 63, -(2 ^ 63), math.maxinteger,
+                             math.mininteger, 1.0, 2.0, 0.5, 1 / 3, 1 / 0, 0 / 0, "1", "0x10" }
+                for _, a in ipairs(BV) do
+                  pr("B1", tostring(a), pc(function() return ~a end))
+                  pr("B2", tostring(a), pc(function() return a & 255 end))
+                  pr("B3", tostring(a), pc(function() return a | 0 end))
+                  pr("B4", tostring(a), pc(function() return a ~ 0 end))
+                  pr("B5", tostring(a), pc(function() return a << 1 end))
+                  pr("B6", tostring(a), pc(function() return a >> 1 end))
+                  pr("B7", tostring(a), pc(function() return -a end))
+                end
+                pr("B8", 1 << 63, 1 << 64, 1 << 100, -1 << 63, 1 >> 100, -1 >> 100)
+                pr("B9", 255 >> -1, 255 << -1, math.maxinteger << 1, math.mininteger >> 1)
+                pr("B10", pc(function() return 1 << (1 / 0) end))
+                pr("B11", pc(function() return 1 << (0 / 0) end))
+                
+                -- 4) 字符串与数字的强制转换
+                local SV = { "10", " 10 ", "0x10", "1e2", "10.0", ".5", "1.", "inf", "nan",
+                             "-10", "+10", "10x", "", " ", "0X1P4", "  0x10  ", "1e", "0b101" }
+                for _, s in ipairs(SV) do
+                  pr("S", string.format("%q", s), pc(function() return s + 0 end),
+                     pc(function() return s * 2 end), pc(function() return -s end),
+                     math.type(tonumber(s)), tostring(tonumber(s)))
+                end
+                pr("S2", "10" == 10, "10" ~= 10, 10 == 10.0, 0 == -0.0, 1 / 0 == 1 / 0,
+                   (0 / 0) == (0 / 0))
+                pr("S3", pc(function() return "10" < 11 end))
+                -- 位运算<b>不</b>做字符串转换（"10" & 1 报错），而 // 与 % 做
+                pr("S4", "10" // 2, "10" % 3, pc(function() return "10" & 1 end))
+                pr("S5", 10 .. "", 10.0 .. "", 1 / 3 .. "", (0 / 0) .. "")
+                pr("S6", tostring(10), tostring(10.0), tostring(-0.0), tostring(1 / 0),
+                   tostring(-1 / 0), tostring(0 / 0))
+                pr("S7", tostring(1e15), tostring(1e16), tostring(2 ^ 53), tostring(2 ^ 63),
+                   tostring(math.maxinteger), tostring(math.mininteger))
+                pr("S8", 1 == 1.0, math.type(1), math.type(1.0), math.type(2 ^ 63),
+                   math.type(2 ^ 31))
+                pr("S9", pc(function() return "abc" + 1 end))
+                pr("S10", pc(function() return nil + 1 end))
+                pr("S11", pc(function() return true + 1 end))
+                pr("S12", pc(function() return 1 < "a" end))
+                pr("S13", pc(function() return 1 < nil end))
+                pr("S14", pc(function() return {} < {} end))
+                pr("S15", 1 < 2, "a" < "b", "10" < "9", 1 < 1.5, math.maxinteger < 1 / 0,
+                   math.mininteger > -1 / 0)
+                pr("S16", math.maxinteger + 1, math.mininteger - 1, math.maxinteger * 2,
+                   -math.mininteger)
+                pr("S17", math.maxinteger + 1 == math.mininteger, math.tointeger(2 ^ 63),
+                   math.tointeger(2 ^ 63 - 1))
+                pr("S18", 2 ^ 63, math.type(2 ^ 63), (2 ^ 63) + 0.0 == 2 ^ 63)
+                
+                print("DONE")
+                """);
+    }
 }
