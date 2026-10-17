@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 848 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 850 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1464,9 +1464,14 @@ C 靠 `luaD_rawrunprotected` 末尾的 `L->nCcalls = oldnCcalls`（在 `pcall` �
 `errnoOf` 的兜底分支就成了 `EIO`(5)。往 EOF **之后**定位是合法的（返回新位置，
 不报错）—— 修这条时别顺手一起拦了。
 
-两处刻意不测：`fopen` 一个**目录**在 macOS 与 glibc 上都成功、但读的行为不同，
-而 JVM 压根不允许把目录当流打开；`print` 写的是 C 层的 `stdout`，不受
-`io.output` 切换影响 —— 假设它会跟着变的脚本，两边会各自给出一个错的答案。
+一处刻意不测：`print` 写的是 C 层的 `stdout`，不受 `io.output` 切换影响 ——
+假设它会跟着变的脚本，两边会各自给出一个错的答案。
+
+`fopen` 一个**目录**原本也写在这一节里，那是错的：它是一条完整的 POSIX 规则
+（`open(dir, O_RDONLY)` 成功、`O_WRONLY` 给 `EISDIR`、第一次读失败于 `EISDIR`），
+macOS 与 glibc 一样，只是 JVM 不愿意建模。现在建模了，见下文 *目录那个 bug*。
+真正不能比的只有目录上的 `seek("end")`：给的是目录自身的大小（本机 64），
+那是文件系统的事实，不是 Lua 的事实。
 
 #### `os.time` 那半边：`lua_tointegerx` 是带字符串转换的
 
@@ -1632,8 +1637,12 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
 `fopen("")` 给 `ENOENT`，报 `cannot open : No such file or directory`；Java 把
 空路径解析成当前目录、失败在读，给 `Is a directory`，我们于是报成了
 `Input/output error`。空路径是唯一一处，按 C 的判据单独取 `ENOENT`。
-**目录本身不用改、也不该改**：`loadfile("/tmp")` 在 C 里 `fopen` 是**成功**的，
-失败在读，走的是另一条分支 —— `cannot read /tmp: Is a directory`。
+目录原本在同一句里被断言成「不用改、也不该改」—— 而这句是错的，值得留着当教训：
+它是**读 lauxlib.c 读出来的，不是跑参考实现跑出来的**。C 里 `loadfile("/tmp")`
+确实是 `fopen` 成功、失败在读，但本实现报的是
+`cannot open /tmp: Input/output error`（Java 的 `Files.readAllBytes` 在开就抛了），
+也就是<b>另一条分支</b>。量过之后，一句错话变成五个门口的真 bug，
+见下文 *目录那个 bug*。
 
 #### 一片铺下来是干净的：`load` 的读取器契约（54 行）
 
@@ -1944,6 +1953,36 @@ nil / false / true / 数字 / 无返回 / 多值（只取第一个）、模块�
 
 39 行全逐字节一致 —— 也就是说这些分支<b>本来就是对的，只是没人跑过</b>。
 它们的价值在回归：谁改了 `read("n")` 的前缀判断或 wbuf 的阈值，这里立刻红。
+
+#### 目录那个 bug：一条 POSIX 规则，五处全错
+
+读 PackageLib 的未覆盖行、逐条问「Lua 能不能走到」，摸到 `searcher_C` 的兜底
+分支，再摸到「模块名撞上目录」这件事 —— 结果是**一条规则没建模，五个门口全错**：
+
+POSIX 允许 `open(dir, O_RDONLY)` 成功。于是 `fopen(dir,"r")` 成功、
+`fopen(dir,"w")` 给 `EISDIR`、第一次 `fgetc`/`fread` 失败于 `EISDIR`。
+JVM 根本不让打开目录，于是本实现以同一种方式在五处同时错：
+
+| | 参考 | 修之前 |
+| --- | --- | --- |
+| `loadfile(dir)` | `nil, "cannot read <p>: Is a directory"` | `nil, "cannot open <p>: Input/output error"` |
+| `io.open(dir,"r")` | file 句柄 | `nil, "<p>: No such file or directory", 2` |
+| `io.open(dir,"w")` | `nil, "<p>: Is a directory", 21` | `nil, "<p>: No such file or directory", 2` |
+| `package.searchpath` | 找到（返回路径） | `nil, "no file '<p>'"` |
+| `require(name)` | `error loading module … cannot read …` | `module '…' not found` |
+
+修法是同一个念头落在四处：`openInto` 放行只读的目录打开（要写就报 EISDIR）、
+`LuaFile.getc`/`read` 报 21、`seek`/`tell` 按零长文件算（目录 fd **是**可定位的：
+`f:seek("set",5)` 给 5，`f:seek("set",-1)` 仍然是 EINVAL）、
+`PackageLib.readable` 认目录、`loadfile` 与 `searcher_Lua` 改走 `cannot read`
+那条分支。
+
+修完 18 行逐字节一致。怎么发现的，比这个 bug 本身更值得记：
+
+* README 之前写着目录「没问题、不要修」—— 那是<b>读 lauxlib.c 读出来的，不是
+  跑参考实现跑出来的</b>，而且它是错的。先量，再写。
+* 代码注释（`BaseLib`）里那句同样断言了「目录不用改」。
+  **注释跟代码保持一致不是证据。**
 
 ### 还没补上的
 

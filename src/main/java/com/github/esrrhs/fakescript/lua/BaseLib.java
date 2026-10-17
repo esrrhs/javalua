@@ -1059,14 +1059,25 @@ public final class BaseLib {
              * {@code ENOENT}（实测 {@code loadfile("")} 报
              * {@code cannot open : No such file or directory}），而 Java 把空路径
              * 解析成当前目录、读的时候给 {@code Is a directory}。
-             * 目录本身不用改：{@code loadfile("/tmp")} 在 C 里 fopen 是<b>成功</b>的、
-             * 失败在读，走的就是 {@code cannot read ...: Is a directory} 那条分支。
+             * <p>
+             * 目录走的是<b>另一条</b>分支，之前这里是错的：{@code loadfile("/tmp")}
+             * 在 C 里 fopen <b>成功</b>、失败在读，{@code luaL_loadfilex} 的
+             * {@code ferror} 于是为真，报的是
+             * {@code cannot read /tmp: Is a directory} —— 不是
+             * {@code cannot open ...: Input/output error}。实测（参考二进制）：
+             * <pre>
+             * loadfile(dir) -> nil, "cannot read /tmp/fkdir/adir.lua: Is a directory"
+             * </pre>
              */
-            int en = path.isEmpty() ? 2 : LuaAux.errnoOf(
-                    (e instanceof java.io.IOException) ? (java.io.IOException) e : null);
+            boolean isDir = !path.isEmpty() && new java.io.File(path).isDirectory();
+            int en = path.isEmpty() ? 2
+                    : isDir ? 21
+                    : LuaAux.errnoOf((e instanceof java.io.IOException)
+                            ? (java.io.IOException) e : null);
             LuaAux.pushFail(L);
             L.push(LuaValue.ofString(LuaString.latin1(
-                    "cannot open " + path + ": " + LuaAux.strError(en))));
+                    (isDir ? "cannot read " : "cannot open ") + path + ": "
+                            + LuaAux.strError(en))));
             return 2;
         }
         /*

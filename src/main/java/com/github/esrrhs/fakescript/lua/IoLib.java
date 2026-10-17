@@ -147,6 +147,24 @@ public final class IoLib {
         boolean writable;
         boolean append;
 
+        /**
+         * 打开的是<b>目录</b>。
+         * <p>
+         * POSIX 的 {@code fopen(dir, "r")} 是<b>成功</b>的（{@code open(dir, O_RDONLY)}
+         * 允许），失败发生在第一次 {@code fgetc} / {@code fread} 上，errno 是
+         * {@code EISDIR}(21)。实测（参考二进制）：
+         * <pre>
+         * io.open(dir, "r")   -> file 句柄；f:read("l") -> nil, "Is a directory", 21
+         * io.open(dir, "w")   -> nil, "&lt;path&gt;: Is a directory", 21
+         * </pre>
+         * Java 的 {@code RandomAccessFile} 在目录上是开都开不了的，所以这里
+         * 单独记一个标记：打开时放行只读，读写一律报 21。
+         */
+        boolean dir;
+
+        /** 目录被当零长文件看待时的虚拟位置 —— 目录 fd 上的 {@code lseek} 是允许的 */
+        long dirPos;
+
         /** {@code ungetc} 的回退位；{@code -1} 表示空 */
         int pushback = -1;
 
@@ -215,6 +233,11 @@ public final class IoLib {
                 errno = 9; // EBADF
                 return -1;
             }
+            if (dir) {
+                err = true;
+                errno = 21; // EISDIR：目录读不出来，但打开是成功的
+                return -1;
+            }
             flushW(); // C 要求输出与输入之间必须有 fflush 或定位操作
             try {
                 return raf != null ? raf.read() : inStream().read();
@@ -244,6 +267,11 @@ public final class IoLib {
             if (!readable) {
                 err = true;
                 errno = 9; // EBADF
+                return done;
+            }
+            if (dir) {
+                err = true;
+                errno = 21; // EISDIR
                 return done;
             }
             flushW();
@@ -313,6 +341,22 @@ public final class IoLib {
 
         /** {@code l_fseek}：成功返回新位置，-1 表示失败（管道会失败） */
         long seek(long offset, int whence) {
+            if (dir) {
+                /*
+                 * 目录 fd 上的 lseek 是允许的，位置照算；长度按 0 看。
+                 * 真实目录的 SEEK_END 给出的是目录自身的大小（本机 64），
+                 * 那是文件系统定的、不比 —— 见用例 javadoc。
+                 */
+                long base = (whence == 1) ? dirPos : 0; // 仅 SEEK_CUR 从当前位置起算
+                long pos = base + offset;
+                if (pos < 0) {
+                    err = true;
+                    errno = 22; // EINVAL
+                    return -1;
+                }
+                dirPos = pos;
+                return pos;
+            }
             if (raf == null) {
                 err = true;
                 errno = 29; // ESPIPE
@@ -358,6 +402,9 @@ public final class IoLib {
 
         /** {@code l_ftell} */
         long tell() {
+            if (dir) {
+                return dirPos; // 目录 fd 上的 ftell 是允许的
+            }
             if (raf == null) {
                 err = true;
                 errno = 29; // ESPIPE
@@ -587,6 +634,20 @@ public final class IoLib {
         f.readable = (base == 'r') || plus;
         f.writable = (base != 'r') || plus;
         f.append = (base == 'a');
+        /*
+         * 目录：C 的 fopen 在只读模式上是开得开的（open(dir, O_RDONLY) 允许），
+         * 要写才给 EISDIR。Java 这边 RandomAccessFile 两种模式都开不了，
+         * 所以先判目录再分模式 —— 否则写目录报的是 ENOENT 而不是 EISDIR。
+         */
+        if (new java.io.File(fname).isDirectory()) {
+            if (f.writable) {
+                f.err = true;
+                f.errno = 21; // EISDIR
+                return false;
+            }
+            f.dir = true;
+            return true;
+        }
         try {
             f.raf = new RandomAccessFile(fname, f.writable ? "rw" : "r");
             if (base == 'w') {

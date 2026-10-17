@@ -8116,4 +8116,141 @@ class RuntimeTest {
                 print(table.concat(out, "\\n"))
                 """);
     }
+
+    /**
+     * <b>目录当文件用</b>（18 行）—— 从 PackageLib 的未覆盖行里点名打出来的
+     * 其中一条，结果是一处<b>横跨五个门口的真 bug</b>。
+     * <p>
+     * 根因只有一条：POSIX 的 {@code fopen(dir, "r")} 是<b>成功</b>的
+     * （{@code open(dir, O_RDONLY)} 允许），要写的模式才给 {@code EISDIR}，
+     * 而读的失败发生在第一次 {@code fgetc} / {@code fread} 上。Java 的
+     * {@code RandomAccessFile} 在目录上开都开不了，于是本实现在五处同时错：
+     * <pre>
+     * loadfile(dir)        cannot read &lt;p&gt;: Is a directory   |  cannot open &lt;p&gt;: Input/output error
+     * io.open(dir,"r")     file 句柄                          |  nil, "&lt;p&gt;: No such file or directory", 2
+     * io.open(dir,"w")     nil, "&lt;p&gt;: Is a directory", 21     |  nil, "&lt;p&gt;: No such file or directory", 2
+     * package.searchpath   找到（返回路径）                    |  nil, "no file '&lt;p&gt;'"
+     * require              error loading module ... cannot read|  module not found ...
+     * </pre>
+     * 修在四处：{@code IoLib.openInto} 分模式放行只读 / 报 {@code EISDIR}、
+     * {@code LuaFile.getc} 与 {@code read} 报 21、{@code seek}/{@code tell}
+     * 按零长文件算（目录 fd 上的 {@code lseek} 是允许的）、
+     * {@code PackageLib.readable} 认目录、{@code BaseLib.loadfile} 与
+     * {@code PackageLib.searcherLua} 改走 {@code cannot read} 那条分支。
+     * <p>
+     * 一处不比：<b>{@code seek("end", …)} 在目录上给的是目录自身的大小</b>
+     * （本机 64），那是文件系统定的，本实现按零长文件给 0。
+     * <p>
+     * 值得记下的是它是怎么被发现的：不是猜的，是把 JaCoCo HTML 报告里
+     * {@code class="nc"} 的行号抄出来逐条问「Lua 能不能走到」问出来的。
+     */
+    @Test
+    void directoryAsFileMatchesReference() {
+        Diff.assertFullMatches("""
+                -- 目录当文件用：POSIX 的 fopen(dir,"r") 是成功的，读才失败（EISDIR）
+                local out = {}
+                local function d(v)
+                  local t = type(v)
+                  if t == "nil" then return "nil" end
+                  if t == "boolean" then return tostring(v) end
+                  if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+                  if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
+                  return t
+                end
+                local function probe(name, f, ...)
+                  local r = table.pack(pcall(f, ...))
+                  local s = name .. " [" .. r.n .. "]"
+                  for i = 2, r.n do s = s .. " " .. d(r[i]) end
+                  if not r[1] then s = s .. " ERR " .. d(r[2]) end
+                  out[#out + 1] = s
+                end
+
+                local D = "/tmp/fkdir"
+                os.execute("rm -rf " .. D .. " && mkdir -p " .. D .. "/adir.lua " .. D .. "/adir")
+                local DIR = D .. "/adir.lua"
+
+                -- 1. 加载：fopen 成功、读失败 → "cannot read ...: Is a directory"
+                probe("lf_dir", loadfile, DIR)
+                probe("load_dir", load, function() return nil end, "=x", nil, nil)  -- 对照：load 不吃文件
+                probe("req_dir", function()
+                  local old = package.path
+                  package.path = D .. "/?.lua"
+                  local ok, e = pcall(require, "adir")
+                  package.path = old
+                  return ok, e
+                end)
+                probe("sp_dir", package.searchpath, "adir", D .. "/?.lua")
+
+                -- 2. io.open：只读开得开，要写的模式一律 EISDIR(21)
+                for _, m in ipairs({ "r", "r+", "w", "w+", "a", "a+", "rb" }) do
+                  probe("open[" .. m .. "]", function()
+                    local f, e, en = io.open(DIR, m)
+                    if f == nil then return f, e, en end
+                    local r = { io.type(f) }
+                    local ok1, v1, e1 = pcall(function() return f:read("l") end)
+                    r[#r + 1] = tostring(ok1) .. "/" .. tostring(v1) .. "/" .. tostring(e1)
+                    local ok2, v2, e2 = pcall(function() return f:read("a") end)
+                    r[#r + 1] = tostring(ok2) .. "/" .. tostring(v2) .. "/" .. tostring(e2)
+                    local ok3, v3, e3 = pcall(function() return f:read(1) end)
+                    r[#r + 1] = tostring(ok3) .. "/" .. tostring(v3) .. "/" .. tostring(e3)
+                    local ok4, v4, e4 = pcall(function() return f:read(0) end)
+                    r[#r + 1] = tostring(ok4) .. "/" .. tostring(v4) .. "/" .. tostring(e4)
+                    -- 目录 fd 上的 lseek 是允许的；SEEK_END 给的是目录自身的大小（本机 64），
+                    -- 那是文件系统定的，不比
+                    local ok5, v5, e5 = pcall(function() return f:seek("cur", 0) end)
+                    r[#r + 1] = tostring(ok5) .. "/" .. tostring(v5) .. "/" .. tostring(e5)
+                    local ok6, v6, e6 = pcall(function() return f:seek("set", 5) end)
+                    r[#r + 1] = tostring(ok6) .. "/" .. tostring(v6) .. "/" .. tostring(e6)
+                    local ok7, v7, e7 = pcall(function() return f:seek("set", -1) end)
+                    r[#r + 1] = tostring(ok7) .. "/" .. tostring(v7) .. "/" .. tostring(e7)
+                    local ok8, v8 = pcall(function() return f:lines() end)
+                    r[#r + 1] = tostring(ok8) .. "/" .. type(v8)
+                    local ok9, v9 = pcall(function() return (f:write("x") == f) end)
+                    r[#r + 1] = tostring(ok9) .. "/" .. tostring(v9)
+                    local ok10, v10 = pcall(function() return f:flush() end)
+                    r[#r + 1] = tostring(ok10) .. "/" .. tostring(v10)
+                    local ok11, v11 = pcall(function() return f:close() end)
+                    r[#r + 1] = tostring(ok11) .. "/" .. tostring(v11) .. "/" .. tostring(io.type(f))
+                    return table.concat(r, ";")
+                  end)
+                end
+
+                -- 3. 迭代与数字格式
+                probe("lines_iter", function()
+                  local f = io.open(DIR, "r")
+                  local ok, e = pcall(function() for l in f:lines() do end end)
+                  f:close()
+                  return ok, e
+                end)
+                probe("read_n", function()
+                  local f = io.open(DIR, "r")
+                  local ok, v, e = pcall(function() return f:read("n") end)
+                  f:close()
+                  return ok, v, e
+                end)
+                probe("read_L", function()
+                  local f = io.open(DIR, "r")
+                  local ok, v, e = pcall(function() return f:read("L") end)
+                  f:close()
+                  return ok, v, e
+                end)
+                probe("tostring_dir", function()
+                  local f = io.open(DIR, "r")
+                  local s = tostring(f)
+                  f:close()
+                  return s:match("^file %(0x%x+%)$") ~= nil   -- 只比形状：%p 是地址
+                end)
+                probe("setvbuf_dir", function()
+                  local f = io.open(DIR, "r")
+                  local ok, v = pcall(function() return f:setvbuf("no") end)
+                  f:close()
+                  return ok, v
+                end)
+                probe("remove_dir", os.remove, DIR)
+                probe("open_missing_dir", io.open, D .. "/adir/nope.lua", "r")
+
+                os.execute("rm -rf " .. D)
+                print(table.concat(out, "\\n"))
+                """);
+    }
 }

@@ -218,8 +218,18 @@ public final class PackageLib {
         return out;
     }
 
-    /** {@code readable}：能打开读就算数 */
+    /**
+     * {@code readable}：能打开读就算数。
+     * <p>
+     * C 用的是 {@code fopen(filename, "r")}，而它在<b>目录</b>上是成功的 ——
+     * 于是 {@code searchpath} 会把目录当成找到的文件返回，后面的
+     * {@code luaL_loadfilex} 才在读的时候报 {@code cannot read ...: Is a directory}。
+     * Java 的 {@code RandomAccessFile} 开不了目录，所以这里得先认下目录。
+     */
     private static boolean readable(String filename) {
+        if (new java.io.File(filename).isDirectory()) {
+            return true;
+        }
         try (java.io.RandomAccessFile f = new java.io.RandomAccessFile(filename, "r")) {
             return true;
         } catch (IOException e) {
@@ -371,6 +381,19 @@ public final class PackageLib {
             return 1; // 消息已压栈
         }
         try {
+            /*
+             * 与 {@code BaseLib.loadfile} 的目录分支是同一件事的两处：
+             * 模块文件是目录时，C 的 fopen 成功、读才失败，
+             * {@code luaL_loadfilex} 报的是
+             * {@code cannot read <filename>: Is a directory}。
+             * 实测（参考二进制）：
+             * {@code require("adir")} -> "error loading module 'adir' from file
+             * '<p>':\n\tcannot read <p>: Is a directory"。
+             */
+            if (new java.io.File(filename).isDirectory()) {
+                throw new java.io.IOException("cannot read " + filename + ": "
+                        + LuaAux.strError(21));
+            }
             byte[] src = Files.readAllBytes(Paths.get(filename));
             /*
              * luaL_loadfilex 的 chunk 名是 "@" + 文件名。不带这个前缀，

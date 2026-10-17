@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 848 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 850 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1601,11 +1601,17 @@ seek offset"*, which falls through `errnoOf`'s catch-all into `EIO`. Seeking
 **past** EOF is legal and returns the new position — easy to block by accident
 while fixing this.
 
-Two things are deliberately absent. `fopen` on a **directory** succeeds on both
-macOS and glibc but then behaves differently on read, and the JVM will not open a
-directory as a stream at all. And `print` writes to the C-level `stdout`, so it
-is *not* redirected by `io.output` — a script that assumes otherwise produces
-two different wrong answers.
+One thing is deliberately absent: `print` writes to the C-level `stdout`, so it
+is *not* redirected by `io.output` — a script that assumes otherwise produces two
+different wrong answers.
+
+`fopen` on a **directory** used to be listed here as absent too, and that was a
+mistake: it is a single POSIX rule (`open(dir, O_RDONLY)` succeeds, `O_WRONLY`
+gives `EISDIR`, and the first read fails with `EISDIR`), it is the same on macOS
+and glibc, and the JVM simply refused to model it. It is now modelled — see
+*The directory bug* below. The one part that is genuinely not comparable is
+`seek("end")` on a directory, which returns the directory's own size (64 here),
+a filesystem fact rather than a Lua one.
 
 #### The `os.time` sweep: `lua_tointegerx` converts strings
 
@@ -1791,10 +1797,15 @@ It also found one place where C and Java simply disagree about a path:
 `cannot open : No such file or directory`; Java resolves the empty path to the
 current directory and fails while *reading*, giving `Is a directory` — which we
 turned into `Input/output error`. The empty path is the only case where the two
-judge a path differently, so it gets `ENOENT` by C's rule. **Directories
-themselves are fine and must not be "fixed":** `loadfile("/tmp")` succeeds at
-`fopen` in C and fails at *read*, so it takes the other branch —
-`cannot read /tmp: Is a directory`.
+judge a path differently, so it gets `ENOENT` by C's rule.
+
+Directories were claimed here as "fine, must not be fixed" — and that claim was
+wrong, which is the point worth keeping: **it was written from reading the C
+source, not from running the reference.** `loadfile("/tmp")` does succeed at
+`fopen` in C and fail at *read* — but this implementation was reporting
+`cannot open /tmp: Input/output error`, i.e. the *other* branch, because Java's
+`Files.readAllBytes` throws at open. Measuring it (see *The directory bug*) turned
+one wrong sentence into a real bug across five entry points.
 
 #### A sweep that came back clean: `load`'s reader contract
 
@@ -2159,6 +2170,41 @@ The rest were reachable behaviours that had simply never been run — 39 lines:
 All 39 came back byte-identical — those branches were **correct but never
 executed**. Their value is as a regression net: change `read("n")`'s prefix
 handling or the write-buffer threshold and this goes red immediately.
+
+#### The directory bug: one POSIX rule, five wrong answers
+
+Reading `PackageLib`'s uncovered lines and asking "can a Lua script reach this?"
+led to `searcher_C`'s fallback and, from there, to a module name that collides
+with a directory. That turned out to be **one rule mis-modelled in five places**:
+
+POSIX lets `open(dir, O_RDONLY)` succeed. `fopen(dir, "r")` therefore succeeds;
+`fopen(dir, "w")` gives `EISDIR`; and the first `fgetc` / `fread` fails with
+`EISDIR`. The JVM refuses to open a directory at all, so this implementation got
+all five entry points wrong in one consistent way:
+
+| | reference | before |
+| --- | --- | --- |
+| `loadfile(dir)` | `nil, "cannot read <p>: Is a directory"` | `nil, "cannot open <p>: Input/output error"` |
+| `io.open(dir, "r")` | a file handle | `nil, "<p>: No such file or directory", 2` |
+| `io.open(dir, "w")` | `nil, "<p>: Is a directory", 21` | `nil, "<p>: No such file or directory", 2` |
+| `package.searchpath` | finds it (returns the path) | `nil, "no file '<p>'"` |
+| `require(name)` | `error loading module … cannot read …` | `module '…' not found` |
+
+The fix is one idea applied at four sites: `openInto` lets a read-only open of a
+directory through (and reports `EISDIR` for anything writable), `LuaFile.getc` /
+`read` fail with 21, `seek` / `tell` treat it as a zero-length file (a directory
+descriptor *is* seekable — `f:seek("set", 5)` returns 5, and `f:seek("set", -1)`
+is still `EINVAL`), `PackageLib.readable` accepts directories, and `loadfile` /
+`searcher_Lua` take the `cannot read` branch instead of `cannot open`.
+
+18 lines, byte-identical after the fix. Two things about how this was found are
+worth more than the bug:
+
+* The README previously said directories were "fine and must not be fixed" —
+  written from reading `lauxlib.c`, not from running the reference binary. It was
+  wrong. Measure, then write.
+* The same sentence in the *code* comment (`BaseLib`) had asserted the behaviour
+  was already correct. A comment agreeing with the code is not evidence.
 
 ### What is still missing
 

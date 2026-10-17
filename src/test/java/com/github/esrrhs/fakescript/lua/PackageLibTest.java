@@ -45,6 +45,7 @@ class PackageLibTest {
         add(tests, "lua", LUAMOD);
         add(tests, "err", ERRORS);
         add(tests, "deep", DEEP);
+        add(tests, "cfallback", CFALLBACK);
         return tests;
     }
 
@@ -458,6 +459,162 @@ class PackageLibTest {
         end)
 
         package.path = oldpath
+        os.execute("rm -rf " .. D)
+        print(table.concat(out, "\\n"))
+            """ };
+
+
+    /**
+     * C 搜索器那条路（23 行）—— 也是照着未覆盖行点名打的。
+     * <p>
+     * 本实现没有 {@code dlopen}，{@code loadfunc} 一律失败，但<b>「失败成什么样」
+     * 是有形状的</b>：{@code searcher_C} 找到文件 → {@code loadfunc} 失败 →
+     * {@code checkLoad} 装裱出 {@code error loading module 'X' from file 'Y'}；
+     * {@code searcher_Croot} 还会先把模块名切成根名（{@code a.b} → {@code a}）；
+     * {@code package.loadlib} 的三元组第三个值是 {@code "open"}（不是
+     * {@code "absent"} —— 那是 {@code ERRLIB} 才给的）。
+     * 这些分支<b>从来没人走过</b>，因为默认 {@code cpath} 下永远找不到真文件；
+     * 把 {@code package.cpath} 指到一个真存在的文件上就走到了。
+     * <p>
+     * 一处不比：<b>{@code dlopen} 的失败文本是平台自己的</b>（macOS 是
+     * {@code dlopen(...): tried: '...' (slice is not valid mach-o file)}，
+     * 本实现给 {@code dynamic libraries not enabled; check your Lua installation}）。
+     * 两边是同一件事、只是措辞不同，归一成 {@code <NODL>} 再比，其余照比。
+     * <p>
+     * 顺带这一片还咬出了「目录当文件用」那处 bug（{@code m_dir}）：
+     * {@code require} 一个名字撞上目录的模块时，参考报
+     * {@code error loading module ... cannot read ...: Is a directory}，
+     * 我们报 {@code module not found}。修法见
+     * {@code RuntimeTest#directoryAsFileMatchesReference}。
+     */
+    private static final String[] CFALLBACK = {"""
+        -- 照着 PackageLib 未覆盖行点名打：C 搜索器那条路（本实现没有 dlopen，
+        -- 一律失败，但「失败成什么样」是有形状的）、loadlib、searchpath 的模板边界
+        local out = {}
+        local function d(v)
+          local t = type(v)
+          if t == "nil" then return "nil" end
+          if t == "boolean" then return tostring(v) end
+          if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+          if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
+          return t
+        end
+        -- C 搜索器 / loadlib 的失败文本是平台自己的（macOS 是 "dlopen(...): tried: ..."，
+        -- 本实现没有 dlopen，给 "dynamic libraries not enabled..."）。两边都是「没有动态库」
+        -- 这一件事，只是措辞不同 —— 归一成 <NODL> 再比，其余部分照比。
+        local function nodl(v)
+          if type(v) ~= "string" then return v end
+          if v:find("dlopen", 1, true) or v:find("dynamic libraries not enabled", 1, true) then
+            return "<NODL>"
+          end
+          return v
+        end
+        local function d0(v)
+          return d(nodl(v))
+        end
+        local function probe(name, f, ...)
+          local r = table.pack(pcall(f, ...))
+          local s = name .. " [" .. r.n .. "]"
+          for i = 2, r.n do s = s .. " " .. d0(r[i]) end
+          if not r[1] then s = s .. " ERR " .. d0(r[2]) end
+          out[#out + 1] = s
+        end
+
+        local D = "/tmp/fkreq2"
+        os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
+        local function put(p, body)
+          local f = assert(io.open(p, "w")); f:write(body or "x"); f:close()
+        end
+        -- 这些文件真的存在：C 搜索器于是能「找到」它们，才有后面的 loadfunc
+        put(D .. "/basic.so")
+        put(D .. "/a.so")
+        put(D .. "/bad.lua", "syntax error here\\n")
+
+        -- 1. cpath 指到真实存在的文件上：searcher_C 找得到 → loadfunc → 无 dlopen → 失败
+        probe("c_hit", function()
+          local old = package.cpath
+          package.cpath = D .. "/?.so"
+          local ok, e = pcall(require, "basic")
+          package.cpath = old
+          return ok, e
+        end)
+        probe("c_hit_dotted", function()
+          local old = package.cpath
+          package.cpath = D .. "/?.so"
+          local ok, e = pcall(require, "a.b")     -- searcher_Croot：先切出根名 "a"
+          package.cpath = old
+          return ok, e
+        end)
+        probe("c_searcher_direct", function()
+          local old = package.cpath
+          package.cpath = D .. "/?.so"
+          local r = table.pack(pcall(package.searchers[3], "basic"))
+          package.cpath = old
+          local s = ""
+          for i = 2, r.n do s = s .. " " .. d0(r[i]) end
+          return "n=" .. r.n .. s
+        end)
+        probe("c_searcher4_direct", function()
+          local old = package.cpath
+          package.cpath = D .. "/?.so"
+          local r = table.pack(pcall(package.searchers[4], "a.b"))
+          package.cpath = old
+          local s = ""
+          for i = 2, r.n do s = s .. " " .. d0(r[i]) end
+          return "n=" .. r.n .. s
+        end)
+        probe("c_searcher4_root", function()
+          local old = package.cpath
+          package.cpath = D .. "/?.so"
+          local r = table.pack(pcall(package.searchers[4], "a"))  -- 没有点号 → 直接返回 0
+          package.cpath = old
+          return "n=" .. r.n
+        end)
+
+        -- 2. package.loadlib：永远失败，但三元组有形状（第三个是 "absent"）
+        probe("ll_basic", package.loadlib, "/tmp/nope.so", "luaopen_x")
+        probe("ll_exists", package.loadlib, D .. "/basic.so", "luaopen_basic")
+        probe("ll_noargs", package.loadlib)
+        probe("ll_onearg", package.loadlib, "/tmp/nope.so")
+        probe("ll_nil", package.loadlib, nil, "x")
+        probe("ll_num", package.loadlib, 42, "x")
+        probe("ll_empty", package.loadlib, "", "")
+
+        -- 3. searchpath 的模板边界：以分隔符结尾、只有分隔符、连续分隔符
+        local P = D .. "/hit.lua"
+        put(P)
+        probe("sp_trailsep", package.searchpath, "hit", D .. "/?.lua;")
+        probe("sp_onlysep", package.searchpath, "hit", ";")
+        probe("sp_2sep", package.searchpath, "hit", ";;")
+        probe("sp_leadsep", package.searchpath, "hit", ";" .. D .. "/?.lua")
+        probe("sp_midsep", package.searchpath, "hit", ";" .. D .. "/?.lua;")
+        probe("sp_noq", package.searchpath, "hit", D .. "/hit.lua")
+        probe("sp_twoq", package.searchpath, "hit", D .. "/?.lua;" .. D .. "/?.lua")
+
+        -- 4. 模块文件本身加载失败：语法错 / 是目录
+        probe("m_syntax", function()
+          local old = package.path
+          package.path = D .. "/?.lua"
+          local ok, e = pcall(require, "bad")
+          package.path = old
+          return ok, e
+        end)
+        probe("m_dir", function()
+          local old = package.path
+          package.path = D .. "/?.lua"
+          os.execute("mkdir -p " .. D .. "/adir.lua")
+          local ok, e = pcall(require, "adir")
+          package.path = old
+          return ok, e
+        end)
+        probe("m_loadfile", function()
+          local ok, e = pcall(loadfile, D .. "/bad.lua")
+          return ok, e
+        end)
+        probe("m_loadfile_missing", function()
+          return loadfile(D .. "/nope_xyz.lua")
+        end)
+
         os.execute("rm -rf " .. D)
         print(table.concat(out, "\\n"))
             """ };
