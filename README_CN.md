@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 807 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 809 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1151,6 +1151,55 @@ nil 就只在数组部分二分」）成立，答案是 `0`；逆向却先塞 `[
   二分上到 40、尾部截断——也干净）。
 
 把那一个条件回退，第一个测试立刻变红。
+
+#### `debug` / `load` / `require` 矩阵：咬出 `xpcall` 少了参数校验
+
+下一片：`debug.getinfo` 的 14 个字段 × 0–6 层、`getlocal`/`setlocal`、
+upvalue 全家、`traceback`（含协程内）、`sethook` 的 10 种掩码加计数钩子、
+`load` 的源码/读取函数/模式/env/二进制块、`package.path`/`cpath`/`config`/
+`searchers` 与 `require` 的几种怪角、`error` 的 0–4 层、`xpcall`、`assert`，
+以及错误在协程里的传播，289 行。咬出一处：**`xpcall` 把参数校验丢了**。
+
+```c
+static int luaB_xpcall (lua_State *L) {
+  ...
+  luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
+```
+
+C 在调用任何东西<b>之前</b>就先校验消息处理函数必须是函数。这份实现只判了
+「参数够不够两个」，于是 `xpcall(f, 5)` 不报错，照常调 `f`，`f` 抛错后拿
+`5` 当处理函数：
+
+| | 参考实现 | 修之前的本实现 |
+| --- | --- | --- |
+| `xpcall(f, 5)` | `false  bad argument #2 to 'xpcall' (function expected, got number)` | `true  false  error in error handling` |
+| `xpcall()` | `false  bad argument #2 to 'xpcall' (function expected, got no value)` | `false  bad argument #2 to 'xpcall' (value expected)` |
+
+顺带把 `io` 矩阵也铺了：32 种打开模式（含全部非法模式）、`read` 的全部格式与
+0–24 字节计数、数字读法、`seek`、`lines`、关闭后再用、
+`io.input/output/read/write/close`、追加模式的 `seek` 语义、`r+` 交错、
+5000 字节大块、同一文件开两次，167 行，干净。它仍值得留着：只有它碰得到
+**errno 那一层** —— `io.open` 失败要返回 `"路径: No such file or directory"`
+加错误号 `2`，C 那是 `strerror` 给的，我们得自己对齐。
+
+#### 闸门自己又有个洞：回溯把输出静默截断了
+
+`debug` 矩阵第一版是<b>绿</b>的 —— 而 `xpcall` 那个 bug 还在代码里。这是闸门
+失灵，不是代码过关。
+
+`Diff.assertMatches` 的归一化会把第一个 `stack traceback:` 之后的<b>全部内容
+砍掉</b>。对「脚本自己崩了」的情形这是有意的：消息在前、回溯在后，回溯本来
+就没法逐行比。但当回溯是<b>脚本打印出来的</b>（`debug.traceback()` 的返回值），
+它就落在<b>中间</b>，后面脚本打印的东西全被丢掉 —— 这片脚本第 5 段打印了回溯，
+后面还有 180 行。
+
+现在加了门禁：回溯块之后只要出现「不以制表符开头的非空行」（回溯自己的每行
+都以制表符开头），就直接判失败，并提示改用不剥回溯的 `assertFullMatches`。
+既有 13 个用例的输出里带回溯，收紧后的判据（看的是<b>回溯之后有没有内容</b>，
+而不是「有没有回溯」）把它们全放过了 —— 那些用例里回溯确实在最后。
+
+这是第二次发现「闸门瞎了、代码没错」（第一次是捕获输出按 UTF-8 解码）。
+一个悄悄比得比它声称的少的闸门，比没有闸门更糟：它报绿。
 
 ### 还没补上的
 

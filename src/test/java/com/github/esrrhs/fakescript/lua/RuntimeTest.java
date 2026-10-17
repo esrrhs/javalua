@@ -1824,4 +1824,803 @@ class RuntimeTest {
                 end
                 """);
     }
+
+    /**
+     * {@code io} 库矩阵：32 种打开模式（含全部非法模式）、{@code read} 的全部格式
+     * 与 0–24 字节计数、数字读法、写各类值、{@code seek} 的三 whence、
+     * {@code lines}、{@code close} 后再用、{@code io.input/output/read/write/close}、
+     * 追加模式的 {@code seek} 语义、{@code r+} 读写交错、5000 字节大块、
+     * 同一文件开两次，167 行。<b>干净</b>。
+     * <p>
+     * 值得钉住的理由不是它找出了什么，而是它覆盖了<b>errno 文案</b>这一层：
+     * {@code io.open} 失败要返回 {@code "路径: No such file or directory"} 加
+     * 错误号 {@code 2}，那是 C 的 {@code strerror} 给的，我们得自己对齐。
+     * 这部分一旦对不上，没有任何手写用例会说话。
+     * <p>
+     * 脚本里有一处<b>自己坑自己</b>的地方，留着当提醒：{@code io.output(5)}
+     * 会在当前目录建一个名叫 {@code 5} 的文件，而差分两边跑在<b>同一个 cwd</b>，
+     * 于是第二趟的 {@code io.open(5)} 就从「打不开」变成「打开了」——第一版
+     * 跑出两行假分歧，查了半天。凡是脚本有文件系统副作用的，开头结尾都要清。
+     */
+    @Test
+    void ioLibraryMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- io 库矩阵：打开模式 / 读格式 / 写 / seek / lines / close / 错误路径
+                -- 注意：绝对路径与 errno 文案都可能出现，这里一律不打印路径本身。
+                local function ok(tag, ...)
+                  print(tag, ...)
+                end
+
+                local function pc(tag, f, ...)
+                  -- pcall，但把 userdata 和函数都换成稳定的字符串，只留类型名
+                  local r = { pcall(f, ...) }
+                  for i = 2, #r do
+                    local v = r[i]
+                    local t = type(v)
+                    if t == "userdata" then
+                      r[i] = "<file>"
+                    elseif t == "function" then
+                      r[i] = "<fn>"
+                    elseif t == "string" then
+                      r[i] = string.format("%q", v)
+                    end
+                  end
+                  print(tag, table.unpack(r, 1, #r))
+                end
+
+                local name = os.tmpname()
+                local path = name
+
+                -- 1) open：全部模式组合（含无效模式）
+                local MODES = {
+                  "r", "w", "a", "r+", "w+", "a+", "rb", "wb", "ab", "r+b", "w+b", "a+b",
+                  "rb+", "wb+", "ab+", "br", "bw", "rt", "wt", "rw", "wr", "ar", "ra",
+                  "", "x", "rx", "r++", "+", "r+b+", "r b", "R", "W", "A",
+                }
+                for i = 1, #MODES do
+                  local m = MODES[i]
+                  local pok, f, e = pcall(io.open, path, m)
+                  if not pok then
+                    print("O", string.format("%q", m), "err", string.format("%q", tostring(f)))
+                  elseif f == nil then
+                    print("O", string.format("%q", m), "nil", string.format("%q", tostring(e)))
+                  else
+                    print("O", string.format("%q", m), "opened", io.type(f))
+                    f:close()
+                    print("O2", string.format("%q", m), io.type(f))
+                  end
+                end
+
+                -- 2) 参数错误
+                -- G5 的 io.output(5) 会在当前目录建一个名叫 5 的文件；两边跑同一个 cwd，
+                -- 第二趟就会看见它。所以每处用到名字 "5" 的地方前后都要清掉。
+                os.remove("5")
+                pc("E1", io.open)
+                pc("E2", io.open, nil)
+                pc("E3", io.open, 5)
+                pc("E4", io.open, true)
+                pc("E5", io.open, {})
+                pc("E6", io.open, path, 5)
+                pc("E7", io.open, path, nil)
+                pc("E8", io.open, path, "r", 5)
+                pc("E9", io.open, "/nonexistent-dir-xyz/nonexistent-file")
+                pc("E10", io.open, "/nonexistent-dir-xyz/nonexistent-file", "w")
+                pc("E11", io.open, "/nonexistent-dir-xyz/", "r")
+
+                -- 3) 写 + 读：各种 read 格式
+                local function withcontent(body)
+                  local f = assert(io.open(path, "w"))
+                  f:write("line1\\nline2\\nline3")
+                  f:close()
+                  local g = assert(io.open(path, "r"))
+                  local r = { pcall(body, g) }
+                  g:close()
+                  return table.unpack(r, 1, #r)
+                end
+
+                local FMTS = { "l", "L", "a", "n", "line", "*l", "*L", "*a", "*n", "*line" }
+                for i = 1, #FMTS do
+                  pc(string.format("R %q", FMTS[i]), function(g)
+                    local h = assert(io.open(path, "r"))
+                    local a, b, c = h:read(FMTS[i], FMTS[i], FMTS[i])
+                    h:close()
+                    return a, b, c
+                  end)
+                end
+                for n = 0, 24 do
+                  pc(string.format("RN %d", n), function()
+                    local h = assert(io.open(path, "r"))
+                    local v = h:read(n)
+                    h:close()
+                    return v
+                  end)
+                end
+                -- 数字格式：各种前缀
+                for _, s in ipairs({ "42 rest", "0x10", " 3.5", "-7", "1e3", "abc", "", "\\n5",
+                                     "0xZZ", "3", "  12  ", "inf", "nan", ".5", "5.", "0X1p4" }) do
+                  pc(string.format("RD %q", s), function()
+                    local f = assert(io.open(path, "w"))
+                    f:write(s)
+                    f:close()
+                    local h = assert(io.open(path, "r"))
+                    local a, b = h:read("n", "n")
+                    h:close()
+                    return a, b
+                  end)
+                end
+                -- 混合格式串
+                pc("RM1", function()
+                  local h = assert(io.open(path, "r"))
+                  local a, b, c, d = h:read("l", 3, "a", "l")
+                  h:close()
+                  return a, b, c, d
+                end)
+                pc("RM2", function()
+                  local h = assert(io.open(path, "r"))
+                  local a = h:read("a", "a", "l")
+                  h:close()
+                  return a
+                end)
+                pc("RM3", function()
+                  local h = assert(io.open(path, "r"))
+                  local a = h:read(0)
+                  h:close()
+                  return a
+                end)
+                pc("RM4", function()
+                  local h = assert(io.open(path, "r"))
+                  local a = h:read("x")
+                  h:close()
+                  return a
+                end)
+                pc("RM5", function()
+                  local h = assert(io.open(path, "r"))
+                  local a = h:read(5, "x")
+                  h:close()
+                  return a
+                end)
+                pc("RM6", function()
+                  local h = assert(io.open(path, "r"))
+                  local a = h:read()
+                  h:close()
+                  return a
+                end)
+                pc("RM7", function()
+                  local h = assert(io.open(path, "r"))
+                  local a = h:read("a")
+                  local b = h:read("a")
+                  h:close()
+                  return a, b
+                end)
+
+                -- 4) write：类型与返回值
+                pc("W1", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write("a", 1, 2.5, "b")
+                  h:close()
+                  return r
+                end)
+                pc("W2", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write()
+                  h:close()
+                  return r
+                end)
+                pc("W3", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write(nil)
+                  h:close()
+                  return r
+                end)
+                pc("W4", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write(true)
+                  h:close()
+                  return r
+                end)
+                pc("W5", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write({})
+                  h:close()
+                  return r
+                end)
+                pc("W6", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write(7)
+                  h:close()
+                  local g = assert(io.open(path, "r"))
+                  local s = g:read("a")
+                  g:close()
+                  return r, s
+                end)
+                pc("W7", function()
+                  local h = assert(io.open(path, "w"))
+                  local r = h:write(1.0)
+                  h:close()
+                  local g = assert(io.open(path, "r"))
+                  local s = g:read("a")
+                  g:close()
+                  return r, s
+                end)
+                pc("W8", function()
+                  local h = assert(io.open(path, "r"))
+                  local r = h:write("x")
+                  h:close()
+                  return r
+                end)
+
+                -- 5) seek
+                pc("S1", function()
+                  local h = assert(io.open(path, "w"))
+                  h:write("0123456789")
+                  h:close()
+                  local g = assert(io.open(path, "r"))
+                  local a = g:seek()
+                  local b = g:seek("set")
+                  local c = g:seek("cur")
+                  local d = g:seek("end")
+                  local e2 = g:seek("set", 3)
+                  local f2 = g:read(2)
+                  local g2 = g:seek("cur", -1)
+                  local h2 = g:read(2)
+                  local i2 = g:seek("set", 100)
+                  local j2 = g:read("l")
+                  local k2 = g:seek("set", -1)
+                  g:close()
+                  return a, b, c, d, e2, f2, g2, h2, i2, j2, k2
+                end)
+                pc("S2", function()
+                  local g = assert(io.open(path, "r"))
+                  local a = g:seek("bad")
+                  g:close()
+                  return a
+                end)
+                pc("S3", function()
+                  local g = assert(io.open(path, "r"))
+                  local a = g:seek("set", "x")
+                  g:close()
+                  return a
+                end)
+                pc("S4", function()
+                  local g = assert(io.open(path, "r"))
+                  local a = g:seek(nil, 1)
+                  g:close()
+                  return a
+                end)
+                pc("S5", function()
+                  local g = assert(io.open(path, "r"))
+                  local a = g:seek(1)
+                  g:close()
+                  return a
+                end)
+
+                -- 6) lines
+                pc("L1", function()
+                  local n = 0
+                  for l in io.lines(path) do n = n + 1 end
+                  return n
+                end)
+                pc("L2", function()
+                  local h = assert(io.open(path, "w"))
+                  h:write("a\\nb\\nc\\n")
+                  h:close()
+                  local t = {}
+                  for l in io.lines(path, "l") do t[#t + 1] = l end
+                  return #t, t[1], t[2], t[3]
+                end)
+                pc("L3", function()
+                  local f = assert(io.open(path, "r"))
+                  local t = {}
+                  for l in f:lines() do t[#t + 1] = l end
+                  f:close()
+                  return #t
+                end)
+                pc("L4", function()
+                  local f = assert(io.open(path, "r"))
+                  local n = 0
+                  for l in f:lines("l", "l") do n = n + 1 end
+                  f:close()
+                  return n
+                end)
+                pc("L5", io.lines, "/nonexistent-dir-xyz/nope")
+
+                -- 7) close / type / 关闭后再用
+                pc("C1", function()
+                  local f = assert(io.open(path, "r"))
+                  local a = io.type(f)
+                  local b = f:close()
+                  local c = io.type(f)
+                  local d = f:close()
+                  return a, b, c, d
+                end)
+                pc("C2", function()
+                  local f = assert(io.open(path, "r"))
+                  f:close()
+                  return f:read("l")
+                end)
+                pc("C3", function()
+                  local f = assert(io.open(path, "r"))
+                  f:close()
+                  return f:write("x")
+                end)
+                pc("C4", function()
+                  local f = assert(io.open(path, "r"))
+                  f:close()
+                  return f:seek()
+                end)
+                pc("C5", io.type, 5)
+                pc("C6", io.type, "x")
+                pc("C7", io.type, nil)
+                pc("C8", io.type, {})
+
+                -- 8) io.read / io.write / io.input / io.output
+                pc("G1", function()
+                  local old = io.output()
+                  local w = io.output(path)
+                  io.write("abc")
+                  io.output(old)
+                  io.output(w)
+                  io.close(w)
+                  local h = assert(io.open(path, "r"))
+                  local s = h:read("a")
+                  h:close()
+                  return s
+                end)
+                pc("G2", function()
+                  local old = io.input()
+                  local f = assert(io.open(path, "w"))
+                  f:write("z\\n")
+                  f:close()
+                  local r = io.input(path)
+                  local s = io.read()
+                  io.input(old)
+                  io.close(r)
+                  return s
+                end)
+                pc("G3", io.input, 5)
+                pc("G4", io.input, "/nonexistent-dir-xyz/nope")
+                pc("G5", io.output, 5)
+                os.remove("5")
+                io.output(io.stdout)
+                pc("G6", io.close, 5)
+                pc("G7", io.close, {})
+
+                -- 9) 标准句柄
+                print("H1", io.type(io.stdout), io.type(io.stdin), io.type(io.stderr))
+
+                -- 10) 二进制与 \\0 / \\r\\n
+                pc("B1", function()
+                  local f = assert(io.open(path, "wb"))
+                  f:write("a\\0b\\r\\nc\\n")
+                  f:close()
+                  local g = assert(io.open(path, "rb"))
+                  local s = g:read("a")
+                  g:close()
+                  return #s, (string.gsub(s, ".", function(c)
+                    return string.format("[%d]", string.byte(c))
+                  end))
+                end)
+                pc("B2", function()
+                  local f = assert(io.open(path, "wb"))
+                  f:write("a\\0b\\r\\nc\\n")
+                  f:close()
+                  local g = assert(io.open(path, "r"))
+                  local a, b, c = g:read("l", "l", "l")
+                  g:close()
+                  return a, b, c
+                end)
+
+                -- 11) flush / setvbuf / 长行
+                pc("V1", function()
+                  local f = assert(io.open(path, "w"))
+                  local a = f:flush()
+                  local b = f:setvbuf("no")
+                  local c = f:setvbuf("full", 1024)
+                  local d = f:setvbuf("line")
+                  local e2 = f:setvbuf("bad")
+                  f:close()
+                  return a, b, c, d, e2
+                end)
+
+                -- 12) 追加模式的 seek 语义 / r+ 读写交错 / 大块 / 越界
+                pc("A1", function()
+                  local f = assert(io.open(path, "w"))
+                  f:write("12345")
+                  f:close()
+                  local g = assert(io.open(path, "a"))
+                  g:seek("set", 0)
+                  g:write("X")
+                  g:close()
+                  local h = assert(io.open(path, "r"))
+                  local s = h:read("a")
+                  h:close()
+                  return s
+                end)
+                pc("A2", function()
+                  local f = assert(io.open(path, "w"))
+                  f:write("abcdef")
+                  f:close()
+                  local g = assert(io.open(path, "r+"))
+                  local a = g:read(2)
+                  g:seek("set", 0)
+                  g:write("Z")
+                  g:seek("set", 0)
+                  local b = g:read("a")
+                  g:close()
+                  return a, b
+                end)
+                pc("A3", function()
+                  local big = string.rep("x", 5000)
+                  local f = assert(io.open(path, "w"))
+                  f:write(big)
+                  f:close()
+                  local g = assert(io.open(path, "r"))
+                  local a = g:read(4096)
+                  local b = g:read(4096)
+                  local c = g:read(1)
+                  g:close()
+                  return #a, #b, c
+                end)
+                pc("A4", function()
+                  local f = assert(io.open(path, "w"))
+                  local a = f:read("l")
+                  f:close()
+                  return a
+                end)
+                pc("A5", function()
+                  local f = assert(io.open(path, "w"))
+                  f:write("1 2 3\\n4\\n")
+                  f:close()
+                  local t = {}
+                  for a, b in io.lines(path, "n", "n") do t[#t + 1] = tostring(a) .. "/" .. tostring(b) end
+                  return #t, table.concat(t, ",")
+                end)
+                pc("A6", function()
+                  local f = assert(io.open(path, "w"))
+                  f:write("a\\nb\\n")
+                  f:close()
+                  local t = {}
+                  for l in io.lines(path, 1) do t[#t + 1] = l end
+                  return #t, table.concat(t, "")
+                end)
+                pc("A7", function()
+                  local f = assert(io.open(path, "w"))
+                  f:write("a\\n\\nb\\n")
+                  f:close()
+                  local t = {}
+                  for l in io.lines(path, "L") do t[#t + 1] = string.format("%q", l) end
+                  return #t, table.concat(t, ",")
+                end)
+                pc("A8", function()
+                  -- 同一文件开两次
+                  local f = assert(io.open(path, "w"))
+                  f:write("abc")
+                  f:flush()
+                  local g = assert(io.open(path, "r"))
+                  local s = g:read("a")
+                  g:close()
+                  f:write("def")
+                  f:close()
+                  return s
+                end)
+                pc("A9", function()
+                  local f = assert(io.open(path, "w"))
+                  f:write("x")
+                  f:close()
+                  local g = assert(io.open(path, "r"))
+                  g:close()
+                  g:close()
+                  return "ok"
+                end)
+
+                os.remove(path)
+                os.remove("5")
+                print("DONE")
+                """);
+    }
+
+    /**
+     * {@code debug} 库 + {@code load} + {@code require} + 错误与栈回溯矩阵，
+     * 289 行。它咬出过一处真分歧：
+     * <p>
+     * <b>{@code xpcall} 没校验第二个参数是不是函数。</b> C 第一件事就是
+     * {@code luaL_checktype(L, 2, LUA_TFUNCTION)}，而且发生在调用被调函数
+     * <b>之前</b>。我们原先只判「参数够不够两个」，于是
+     * {@code xpcall(f, 5)} 不报错，照常调 {@code f}；{@code f} 抛错后拿 5 当
+     * 消息处理函数，结果是 {@code true, false, "error in error handling"}，
+     * 而参考实现是
+     * {@code false  bad argument #2 to 'xpcall' (function expected, got number)}。
+     * 参数不足时同理：该报 {@code function expected, got no value}，
+     * 不是含糊的 {@code value expected}。
+     * <p>
+     * 覆盖的面：{@code getinfo} 的 14 个字段 × 0–6 层、{@code getlocal/setlocal}
+     * （含 vararg 与负下标）、upvalue 全家（含 {@code upvalueid}/
+     * {@code upvaluejoin}）、{@code traceback}（含协程内）、{@code sethook}
+     * 的 10 种掩码与计数钩子、{@code load} 的源码/读取函数/模式/env/二进制块、
+     * {@code package.path}/{@code cpath}/{@code config}/{@code searchers} 与
+     * {@code require} 的循环/抛错/返回 {@code false} 与 {@code nil}、
+     * {@code error} 的 0–4 层与各种错误对象、{@code xpcall}/{@code assert}，
+     * 以及错误在协程里的传播。
+     * <p>
+     * 两个坑写在脚本注释里，别再踩：
+     * <ul>
+     *   <li>{@code load(function() return 5 end)} <b>会挂死</b>：数字也算
+     *       「字符串」，读取函数永不返回 {@code nil}，chunk 无限增长。
+     *       参考实现实测挂了 4 分钟才被杀掉。要限次。</li>
+     *   <li>函数/表的<b>地址</b>不能进输出，一律换成类型名。</li>
+     * </ul>
+     */
+    @Test
+    void debugLoadAndRequireMatrixMatchesReference() {
+        Diff.assertFullMatches("""
+                -- debug 库 / load / require / 错误与栈回溯 矩阵
+                -- 函数、表、userdata 一律换成类型名，地址不参与比对。
+                local function norm(v)
+                  local t = type(v)
+                  if t == "function" then return "<fn>" end
+                  if t == "table" then return "<table>" end
+                  if t == "userdata" then return "<ud>" end
+                  if t == "thread" then return "<thread>" end
+                  if t == "string" then return string.format("%q", v) end
+                  return tostring(v)
+                end
+                local function pc(tag, f, ...)
+                  local r = { pcall(f, ...) }
+                  local out = { (r[1] and "true" or "false") }
+                  for i = 2, #r do out[#out + 1] = norm(r[i]) end
+                  print(tag, table.unpack(out, 1, #out))
+                end
+
+                -- 1) debug.getinfo：层级 × what
+                local FIELDS = { "source", "short_src", "linedefined", "lastlinedefined",
+                                 "what", "currentline", "nups", "nparams", "isvararg",
+                                 "name", "namewhat", "istailcall", "activelines", "func" }
+                for _, k in ipairs(FIELDS) do
+                  for lvl = 0, 6 do
+                    local ok, info = pcall(debug.getinfo, lvl, k)
+                    if ok and info then
+                      print("GI", k, lvl, norm(info[k]))
+                    else
+                      print("GI", k, lvl, ok and "nil" or tostring(info))
+                    end
+                  end
+                end
+                -- 全部字段一起取
+                for lvl = 0, 4 do
+                  local ok, info = pcall(debug.getinfo, lvl)
+                  if ok and info then
+                    local keys = {}
+                    for k in pairs(info) do keys[#keys + 1] = k end
+                    table.sort(keys)
+                    local parts = {}
+                    for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. norm(info[k]) end
+                    print("GA", lvl, table.concat(parts, ","))
+                  else
+                    print("GA", lvl, ok and "nil" or tostring(info))
+                  end
+                end
+                -- 传函数
+                local function target() end
+                local ok, info = pcall(debug.getinfo, target)
+                print("GF", ok, ok and (info.what .. "/" .. info.nparams .. "/" .. tostring(info.isvararg)
+                      .. "/" .. tostring(info.source) .. "/" .. tostring(info.linedefined)) or tostring(info))
+                pc("GF2", debug.getinfo, print)
+                print("GF3", pcall(debug.getinfo, 5))
+                print("GF4", pcall(debug.getinfo, "x"))
+                print("GF5", pcall(debug.getinfo, {}, "S"))
+                print("GF6", pcall(debug.getinfo, 1, 5))
+                print("GF7", pcall(debug.getinfo))
+
+                -- 2) debug.getlocal / setlocal
+                local function loc()
+                  local a, b, c = 1, 2, 3
+                  local t = {}
+                  for i = 1, 5 do
+                    local n, v = debug.getlocal(1, i)
+                    t[#t + 1] = tostring(n) .. "=" .. norm(v)
+                  end
+                  print("GL", table.concat(t, ","))
+                  debug.setlocal(1, 2, 99)
+                  print("GL2", a, b, c)
+                  print("GL3", debug.getlocal(1, 2))
+                  print("GL4", pcall(debug.setlocal, 1, 99, 1))
+                  print("GL5", pcall(debug.getlocal, 99, 1))
+                  print("GL6", pcall(debug.getlocal, 1, -1))
+                  print("GL7", pcall(debug.getlocal))
+                  print("GL8", pcall(debug.getlocal, 1))
+                end
+                loc()
+                local function vararg(...)
+                  print("GV", debug.getlocal(1, 1), debug.getlocal(1, -1))
+                end
+                vararg(7, 8, 9)
+
+                -- 3) upvalue
+                local up1, up2 = "u1", "u2"
+                local function useup()
+                  return up1 .. up2
+                end
+                print("U1", debug.getupvalue(useup, 1))
+                print("U2", debug.getupvalue(useup, 2))
+                print("U3", debug.getupvalue(useup, 3))
+                print("U4", debug.getupvalue(useup, 0))
+                print("U5", debug.getupvalue(useup, -1))
+                print("U6", pcall(debug.getupvalue, 5, 1))
+                print("U7", pcall(debug.getupvalue, print, 1))
+                print("U8", debug.setupvalue(useup, 1, "X"))
+                print("U9", useup())
+                print("U10", pcall(debug.setupvalue, useup, 99, "Y"))
+                print("U11", pcall(debug.upvalueid, useup, 1) ~= nil)
+                print("U12", pcall(debug.upvalueid, 5, 1))
+                print("U13", pcall(debug.upvaluejoin, useup, 1, useup, 2))
+                print("U14", useup())
+
+                -- 4) metatable / registry / uservalue
+                local mt = { __index = {} }
+                local t = setmetatable({}, mt)
+                print("M1", debug.getmetatable(t) == mt)
+                print("M2", debug.setmetatable(t, nil) == t)
+                print("M3", debug.getmetatable(t))
+                print("M4", pcall(debug.getmetatable, 5))
+                print("M5", pcall(debug.setmetatable, 5, {}))
+                print("M6", type(debug.getregistry()) == "table")
+                print("M7", pcall(debug.getuservalue, 5))
+                print("M8", pcall(debug.setuservalue, 5, {}))
+                print("M9", pcall(debug.setuservalue, {}, {}))
+
+                -- 5) traceback
+                local function scrub(s) return (s:gsub(":%d+:", ":N:")) end
+                print("T1", scrub(debug.traceback()))
+                print("T2", scrub(debug.traceback("msg")))
+                print("T3", scrub(debug.traceback("msg", 2)))
+                print("T4", scrub(debug.traceback("msg", 0)))
+                print("T5", pcall(debug.traceback, 5))
+                print("T6", scrub(debug.traceback(nil, 1)))
+                local co = coroutine.create(function() print("TC", scrub(debug.traceback())) end)
+                coroutine.resume(co)
+
+                -- 6) sethook / gethook
+                local events = {}
+                local function hook(what, line)
+                  events[#events + 1] = tostring(what) .. (line and ("@" .. line) or "")
+                end
+                local function work()
+                  local x = 0
+                  for i = 1, 6 do x = x + i end
+                  return x
+                end
+                for _, mask in ipairs({ "l", "c", "r", "cr", "cl", "rl", "crl", "", "x", "lcr" }) do
+                  events = {}
+                  debug.sethook(hook, mask)
+                  local ok2 = pcall(work)
+                  debug.sethook()
+                  print("HK", string.format("%q", mask), ok2, #events > 0 and events[1] or "-",
+                        #events > 1 and events[2] or "-")
+                end
+                events = {}
+                debug.sethook(hook, "", 3)
+                pcall(work)
+                debug.sethook()
+                print("HKC", #events > 0 and events[1] or "-")
+                print("HK2", debug.gethook())
+                debug.sethook(hook, "l")
+                print("HK3", debug.gethook() ~= nil, select("#", debug.gethook()))
+                debug.sethook()
+                print("HK4", debug.gethook())
+                print("HK5", pcall(debug.sethook, 5, "l"))
+                print("HK6", pcall(debug.sethook, hook, 5))
+                print("HK7", pcall(debug.sethook, hook, "l", "x"))
+                print("HK8", pcall(debug.sethook, hook, "l", -1))
+                print("HK9", pcall(debug.sethook))
+
+                -- 7) load：源码 / 读取函数 / 模式 / env / 二进制
+                local SRC = { "return 1", "return", "x =", "return 1 +", "", "  ", "--c",
+                              "return ...", "local x", "return 'a'" }
+                for i = 1, #SRC do
+                  pc(string.format("LD %q", SRC[i]), load, SRC[i])
+                end
+                pc("LD2", load, "return 1", "=name")
+                pc("LD3", load, "return 1", "@file")
+                pc("LD4", load, "return 1", "name")
+                pc("LD5", load, "return 1", nil, "b")
+                pc("LD6", load, "return 1", nil, "t")
+                pc("LD7", load, "return 1", nil, "bt")
+                pc("LD8", load, "return 1", nil, "z")
+                pc("LD9", load, "return 1", nil, "x")
+                pc("LD10", load, "return 1", nil, 5)
+                local env = { print = print }
+                local f = load("return X", "=e", "t", env)
+                print("LD11", type(f))
+                env.X = 42
+                print("LD12", f and f())
+                pc("LD13", load, "return X", "=e", "t", 5)
+                local bin = string.dump(load("return 7"))
+                pc("LD14", load, bin)
+                pc("LD15", load, bin, "=b", "b")
+                pc("LD16", load, bin, "=b", "t")
+                pc("LD17", load, "\\27Lua junk")
+                pc("LD18", load, "\\27")
+                local pieces = { "return ", "1 +", " 2" }
+                local idx = 0
+                local f2 = load(function()
+                  idx = idx + 1
+                  return pieces[idx]
+                end)
+                print("LD19", type(f2), f2 and f2())
+                local n3 = 0
+                pc("LD20", load, function() n3 = n3 + 1; error("boom") end)
+                pc("LD21", load, 5)
+                -- 读取函数返回数字也算「字符串」，会一直喂下去；必须自己限次，否则 chunk
+                -- 无限增长，参考实现直接卡死（实测挂了 4 分钟）。
+                local n22 = 0
+                print("LD22", pcall(load, function()
+                  n22 = n22 + 1
+                  if n22 > 2 then return nil end
+                  return 5
+                end))
+                pc("LD23", load, function() return true end)
+                pc("LD24", load, function() return {} end)
+
+                -- 8) require / package
+                print("P1", package.path)
+                print("P2", package.cpath)
+                print("P3", type(package.loaded), package.loaded.string ~= nil,
+                      package.loaded.math ~= nil, package.loaded["nonexistent-mod"])
+                print("P4", type(package.preload), type(package.searchers), #package.searchers)
+                print("P5", package.config)
+                print("P6", pcall(require, "nonexistent-mod-xyz"))
+                print("P7", pcall(require))
+                print("P8", pcall(require, 5))
+                print("P9", pcall(require, true))
+                package.preload["mymod"] = function(name) return { loaded = name } end
+                local m = require("mymod")
+                print("P10", type(m), m and m.loaded)
+                print("P11", package.loaded["mymod"] == m, require("mymod") == m)
+                package.loaded["mymod"] = nil
+                print("P12", package.loaded["mymod"])
+                package.preload["cyc"] = function() return require("cyc") end
+                print("P13", pcall(require, "cyc"))
+                package.preload["bad"] = function() error("mod boom") end
+                print("P14", pcall(require, "bad"))
+                print("P15", package.loaded["bad"])
+                package.preload["f"] = function() return false end
+                package.preload["n"] = function() return nil end
+                print("P16", require("f"), package.loaded["f"])
+                print("P17", require("n"), package.loaded["n"])
+
+                -- 9) error / pcall / xpcall / assert
+                for lvl = 0, 4 do
+                  print("ER", lvl, select(2, pcall(function() error("e", lvl) end)))
+                end
+                pc("ER2", function() error({}) end)
+                print("ER3", pcall(function() error(nil) end))
+                print("ER4", pcall(function() error() end))
+                print("ER5", pcall(function() error(setmetatable({}, { __tostring = function() return "TS" end })) end))
+                print("ER6", pcall(function() error("x", "y") end))
+                print("ER7", pcall(function() error("x", 1.5) end))
+                print("XP1", xpcall(function() return 1 end, print, "a"))
+                print("XP2", xpcall(function() error("E") end, function(mm) return "H:" .. mm end))
+                print("XP3", pcall(xpcall, function() error("E") end, 5))
+                print("XP4", xpcall(error, function(mm) return "H:" .. tostring(mm) end, "E"))
+                print("XP5", pcall(xpcall))
+                print("AS1", pcall(assert, false))
+                print("AS2", pcall(assert, nil, "custom"))
+                print("AS3", pcall(assert, false, 5))
+                print("AS4", pcall(assert))
+                print("AS5", assert(1, 2, 3))
+
+                -- 10) 错误在协程里的传播
+                local co2 = coroutine.create(function() error("inside") end)
+                print("CE1", coroutine.resume(co2))
+                print("CE2", coroutine.status(co2))
+                local co3 = coroutine.wrap(function() error("wrapped") end)
+                print("CE3", pcall(co3))
+                local co4 = coroutine.create(function() coroutine.yield(1) error("after yield") end)
+                print("CE4", coroutine.resume(co4))
+                print("CE5", coroutine.resume(co4))
+                print("CE6", coroutine.status(co4))
+
+                print("DONE")
+                """);
+    }
 }
