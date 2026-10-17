@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 845 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 846 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -597,7 +597,7 @@ functions to 14 significant digits (1 ulp is ~2.2e-16 relative). Everything
 that *can* agree does agree: `sqrt`, `abs`, `floor`, `ceil`, `frexp`, `ldexp`
 and the `log` branches above are bit-exact.
 
-#### Two divergences in `io` that are accepted, not fixed
+#### Four divergences in `io` that are accepted, not fixed
 
 * **`file (%p)`.** `f_tostring` prints a pointer, so `print(io.stdout)` can
   never match byte for byte. `IoLib` emits a same-shaped hex value and the
@@ -607,6 +607,15 @@ and the `log` branches above are bit-exact.
   which is not. `io.stdout:seek()` agrees (`nil, "Illegal seek", 29` on a
   pipe); `io.stdin:seek()` is not compared, because the difference is in where
   the stream comes from, not in what `io` does.
+* **Writing to an update stream straight after reading it.** Where the bytes
+  land is C's read-ahead buffer, and ISO C leaves it undefined. Measured: 13 on
+  a 12-byte file, 4097 on a 6002-byte one, 5001 after `read(5000)`. We write at
+  the logical position. On the well-defined path (with an intervening `seek`)
+  the two agree. See *The `io.open` mode matrix* below.
+* **The position reported after writing to an append file.** The reference gives
+  `base + n` while the data sits in the buffer and `EOF + n` once it is flushed
+  (the boundary is 4096); we always give `EOF + n`, which is the POSIX answer.
+  The bytes written are identical either way. See the same section.
 
 #### Two divergences in `package` that are accepted, not fixed
 
@@ -2063,6 +2072,40 @@ the only way to know is to break something and watch it go red.
 209 lines, byte-identical, first run. Which is also the suspicious outcome — see
 the note above about matrices whose lines are uniformly `nil`. Here 205 of 209
 lines carry real values, so the matrix is not vacuous.
+
+#### The `io.open` mode matrix, and three things stdio decides
+
+`l_checkmode` accepts `[rwa]%+?b*` — and the tail is `strspn(mode, "b") == strlen(mode)`,
+not "at most one `b`". So `"rbb"` is valid while `"rb+"` is not, and `"r b"`, `"br"`,
+`"R"`, `"r\t"` all fail. 34 mode strings × (read / seek / write / position / close /
+resulting file content) — 79 lines.
+
+It found three divergences. All three are **stdio's** call, not Lua's, and all three
+were measured before being set aside:
+
+1. **On an update stream, writing straight after reading** — with no intervening
+   positioning call, which ISO C leaves undefined — lands wherever C's read-ahead
+   buffer left the physical offset. Measured: a 12-byte file writes at 13 (EOF); a
+   6002-byte file writes at 4097 (`BUFSIZ` + 1); but `read(5000)` writes at exactly
+   5001, because a large read bypasses the buffer. The matrix now puts an explicit
+   `seek` before every write, which sidesteps the UB path — and on the well-defined
+   path (`read → seek → write`) the two agree byte for byte.
+2. **Where the position lands after writing to an append file.** `seek("set", 0)`
+   then write one byte: the reference reports **1** (`base + n`), we report 13
+   (`EOF + n` — ours is the POSIX answer). Measuring further showed it is buffer-
+   defined too: `n ≤ 4095` gives `base + n`, `n ≥ 4096` gives `EOF + n`. The matrix
+   flushes before reading the position, which collapses it onto the one POSIX-
+   defined answer so the two sides are comparable. **The bytes written are identical
+   either way** — only what `seek("cur", 0)` reports differs.
+3. **`seek` on a standard stream** depends on whether the real descriptor is
+   seekable: 0 when redirected to a file or `/dev/null`, `"Illegal seek"` on a pipe
+   or a tty. This implementation has no access to that descriptor, so it is not
+   compared.
+
+Two of the three are the same shape as the `setvbuf` sizes: C hands the decision to
+libc and there is nothing sensible to model. The difference is that here the
+*observable* is not just an errno but a file offset — which is why they are written
+down rather than merely excluded.
 
 ### What is still missing
 
