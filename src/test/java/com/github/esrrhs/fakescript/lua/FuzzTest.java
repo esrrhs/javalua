@@ -1,6 +1,8 @@
 package com.github.esrrhs.fakescript.lua;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.util.ArrayList;
@@ -49,6 +51,15 @@ class FuzzTest {
     /** 协程模式的种子偏移：与常规模式的种子错开，落盘文件名不会撞车 */
     private static final int CO_SEED_BASE = 100000;
 
+    /** 预编译回环的种子偏移，同理 */
+    private static final int CHUNK_SEED_BASE = 200000;
+
+    /**
+     * 预编译回环的种子数。比常规模式少：每颗种子多一次 {@code string.dump}、
+     * 一次 {@code load} 与一次 undump，两边加起来要跑的东西翻一倍。
+     */
+    private static final int CHUNK_SEEDS = Integer.getInteger("fuzz.chunkSeeds", 400);
+
     @BeforeAll
     static void requireReference() {
         assumeTrue(ReferenceLua.available(),
@@ -60,6 +71,7 @@ class FuzzTest {
         for (int seed = 0; seed < SEEDS; seed++) {
             String src = new Gen(new Random(seed), false).program();
             String want = Diff.ref(src);
+            assertCompiles(seed, src, want);
             String got = Diff.mine(src);
             if (!want.equals(got)) {
                 // 落到磁盘上：断言信息里的源码被转义过，直接抄出来跑不通
@@ -69,6 +81,43 @@ class FuzzTest {
             }
         }
     }
+
+    /**
+     * 生成的程序必须在参考实现上<b>编得过</b>。
+     * <p>
+     * 见过一次才知道这道护栏有多必要：生成器曾经把表构造写成年
+     * {@code {'key0' = v}}（字符串键不能裸着当键），又在非变长函数里生成
+     * {@code ...}——200 颗种子里 178 个编不过。而编不过的程序在两边是
+     * <b>同一条编译错误</b>，比对照样「一致」，于是这道闸门在几千颗种子上
+     * 静默地什么也没测。
+     * <p>
+     * 判据是「参考实现的输出里有编译期错误的形状」（{@code file:line: ... near
+     * ...}）。运行期错误（{@code attempt to ...}、{@code bad argument}）不在此列——
+     * 那些是<b>期望之中</b>的，两边报同样的错也是一致性的一部分。
+     */
+    private static void assertCompiles(int seed, String src, String want) {
+        java.util.regex.Matcher m = SYNTAX_ERROR.matcher(want);
+        if (m.find()) {
+            String path = dump(seed, src, want, "(生成器产出了编译不过的程序)");
+            fail("生成的程序在参考实现上编译不过，这条种子等于没测。seed=" + seed
+                    + "，程序已落到 " + path + "\n" + m.group() + "\n" + src);
+        }
+    }
+
+    /**
+     * 编译期错误的形状：{@code 源名:行号: ... near 'tok'}。
+     * <p>
+     * 判据用「结尾是 {@code near '...'} / {@code near <eof>}」而不是「含
+     * {@code expected}」：<b>运行期</b>错误里有大量 {@code expected}
+     * （{@code bad argument #1 to 'upper' (string expected, got nil)}），
+     * 只要含 {@code expected} 就判失败会误伤一片。而 llex / lparser 那批语法
+     * 错误的措辞一律以 {@code near} 收尾——{@code unexpected symbol near}、
+     * {@code '}' expected near}、{@code cannot use '...' outside a vararg
+     * function near}、{@code malformed number near}、{@code unfinished string
+     * near}，全都逃不掉。
+     */
+    private static final java.util.regex.Pattern SYNTAX_ERROR =
+            java.util.regex.Pattern.compile("(?m)^\\S+:\\d+: .*\\bnear (?:'[^']*'|<eof>)\\s*$");
 
     /**
      * 同一套生成器，但主 chunk 跑在协程里，并随机撒 {@code coroutine.yield}。
@@ -86,11 +135,64 @@ class FuzzTest {
         for (int seed = 0; seed < CO_SEEDS; seed++) {
             String src = new Gen(new Random(seed + CO_SEED_BASE), true).program();
             String want = Diff.ref(src);
+            assertCompiles(seed + CO_SEED_BASE, src, want);
             String got = Diff.mine(src);
             if (!want.equals(got)) {
                 String path = dump(seed + CO_SEED_BASE, src, want, got);
                 assertEquals(want, got,
                         "seed=" + (seed + CO_SEED_BASE) + "，程序已落到 " + path + "\n" + src);
+            }
+        }
+    }
+
+    /**
+     * 同一批程序，但先 {@code string.dump} 成二进制 chunk 再 {@code load} 回来跑。
+     * <p>
+     * 常规 fuzz 走的一直是<b>文本</b>路径：源码进词法器，编译成 {@code Proto}
+     * 就直接执行。{@code ldump.c} / {@code lundump.c} 那一对只在
+     * {@code DumpTest} 那几十条手工用例里被碰过——阶段 11 挖出来的
+     * 「{@code require} 加载不了预编译 chunk」正好就在这个盲区里。
+     * <p>
+     * 把随机程序也过一遍 dump / undump，等于让几千个<b>随机的</b> {@code Proto}
+     * 去压序列化：常量表的顺序与变长编码、行号表、局部变量与 upvalue 的调试
+     * 信息、{@code maxstacksize}、嵌套 proto 的父子关系——这些字段手写用例
+     * 顾得过来的组合极其有限。
+     * <p>
+     * 程序体包进一个函数再 dump，是为了让它的 upvalue 只剩 {@code _ENV}：
+     * 顶层变量在函数里就是局部变量，不会变成 upvalue。
+     */
+    @Test
+    void generatedChunksSurviveDumpAndUndump() {
+        for (int seed = 0; seed < CHUNK_SEEDS; seed++) {
+            String body = new Gen(new Random(seed), false).program();
+            /*
+             * 必须是变长函数：生成器会在主 chunk 里写 <code>...</code>，
+             * 而主 chunk 本身就是变长的——包进普通函数会报
+             * 「cannot use '...' outside a vararg function」。
+             */
+            String src = "local __main = function(...)\n"
+                    + Gen.indent(body.stripTrailing()) + "\n"
+                    + "end\n"
+                    + "local __chunk = string.dump(__main)\n"
+                    + "local __loaded = load(__chunk)\n"
+                    /*
+                     * 哨兵。缺了它，「string.dump 一直失败、load 一直返回 nil」
+                     * 会变成两边一致的输出——用例看着全绿，其实一条 dump/undump
+                     * 都没跑。断言的是<b>参考实现</b>的输出里有这两个 true：
+                     * 只要参考实现能 dump 能 load，本实现做不到就会对不上。
+                     */
+                    + "print('dumped', type(__chunk)=='string' and #__chunk>0,"
+                    + " 'loaded', __loaded ~= nil)\n"
+                    + "if __loaded then __loaded() end\n";
+            String want = Diff.ref(src);
+            assertTrue(want.contains("dumped\ttrue\tloaded\ttrue"),
+                    "预编译回环没真的跑起来，用例等于没测：\n" + want + "\n" + src);
+            assertCompiles(seed + CHUNK_SEED_BASE, src, want);
+            String got = Diff.mine(src);
+            if (!want.equals(got)) {
+                String path = dump(seed + CHUNK_SEED_BASE, src, want, got);
+                assertEquals(want, got,
+                        "seed=" + seed + "（预编译回环），程序已落到 " + path + "\n" + src);
             }
         }
     }
@@ -131,6 +233,16 @@ class FuzzTest {
         /** 协程模式：撒 {@code coroutine.yield}，并把主 chunk 塞进协程里跑 */
         private final boolean co;
 
+        /**
+         * 正在生成的那个函数是不是变长的。
+         * <p>
+         * 只有变长函数里才写得进 {@code ...}。早先 {@code expression} 无条件
+         * 生成 {@code (select('#', ...))}，而函数只有 40% 的概率声明 {@code ...}，
+         * 于是大批程序编不过——报「cannot use '...' outside a vararg function」。
+         * 主 chunk 是变长的，所以初值是 {@code true}。
+         */
+        private boolean vararg = true;
+
         Gen(Random r, boolean co) {
             this.r = r;
             this.co = co;
@@ -154,9 +266,14 @@ class FuzzTest {
             // 再写主 chunk
             StringBuilder main = new StringBuilder();
             int n = 3 + pick(6);
+            if (co) {
+                // 协程体是 function()，不是变长函数
+                vararg = false;
+            }
             for (int i = 0; i < n; i++) {
                 main.append(blockStatement(0)).append('\n');
             }
+            vararg = true;
             if (co) {
                 sb.append("local co = coroutine.create(function()\n")
                         .append(indent(main.toString().stripTrailing())).append('\n');
@@ -204,12 +321,15 @@ class FuzzTest {
                 sb.append(p);
                 params.add(p);
             }
-            if (chance(40)) {
+            boolean va = chance(40);
+            if (va) {
                 if (nparams > 0) {
                     sb.append(", ");
                 }
                 sb.append("...");
             }
+            boolean savedVararg = vararg;
+            vararg = va; // 函数体里能不能写 ... 由这一次决定
             sb.append(")\n");
             vars.clear();
             vars.addAll(params);
@@ -241,6 +361,7 @@ class FuzzTest {
                 sb.append('\n');
             }
             sb.append("end\n");
+            vararg = savedVararg;
             vars.clear();
             vars.addAll(savedVars);
             vars.add(name);
@@ -304,7 +425,7 @@ class FuzzTest {
             return sb.toString();
         }
 
-        private static String indent(String s) {
+        static String indent(String s) {
             StringBuilder sb = new StringBuilder();
             for (String line : s.split("\n")) {
                 sb.append("  ").append(line).append('\n');
@@ -441,8 +562,8 @@ class FuzzTest {
                 return tableLiteral(d + 1);
             case 4:
                 return funcs.isEmpty() ? atom() : call(d + 1);
-            case 5: { // 变长参数个数（主 chunk 与函数里都能用）
-                return "(select('#', ...))";
+            case 5: { // 变长参数个数（只有变长函数里能写）
+                return vararg ? "(select('#', ...))" : atom();
             }
             case 6: { // 取长度
                 return "(#" + atom() + ")";
@@ -583,9 +704,15 @@ class FuzzTest {
                     sb.append(", ");
                 }
                 if (chance(50)) {
-                    // 数字键必须写成 [n] = v；n = v 是语法错误
-                    String k = keyExpr();
-                    sb.append(k.startsWith("'") ? k : ("[" + k + "]")).append(" = ");
+                    /*
+                     * 一律写成 [k] = v。
+                     *
+                     * 早先只对数字键加方括号，字符串键直接写成 'key0' = v——
+                     * 那是语法错误（只有<b>名字</b>才能裸着当键）。这个一处
+                     * 就让近半数的生成程序编不过，而编不过的程序在两边都是
+                     * 同一条编译错误，比对「一致」却什么也没测到。
+                     */
+                    sb.append('[').append(keyExpr()).append("] = ");
                 }
                 sb.append(d > 1 ? atom() : expression(d + 1));
             }
