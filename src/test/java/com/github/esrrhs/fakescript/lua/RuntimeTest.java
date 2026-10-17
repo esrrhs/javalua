@@ -7186,6 +7186,12 @@ class RuntimeTest {
      * <p>
      * 不比对值，只比对「名字 + 类型」：值里有地址（{@code function: 0x...}），
      * 归一化抹掉之后什么也不剩，比了等于没比，还会让用例变成空用例。
+     * <p>
+     * 文件句柄那一格是后来补的：第一版只查 {@code io} 表，于是<b>七个文件方法
+     * 整片漏掉</b>（{@code close} / {@code flush} / {@code lines} / {@code read} /
+     * {@code seek} / {@code setvbuf} / {@code write}）—— 它们住在
+     * {@code getmetatable(io.stdout).__index} 里，不在 {@code io} 表上。
+     * 符号审计必须顺着 {@code __index} 往下挖才有用。
      */
     @Test
     void globalSymbolsMatchReference() {
@@ -7215,11 +7221,28 @@ class RuntimeTest {
 
                 -- 字符串元表：("x"):upper() 与 "10" + 1 都走它
                 out[#out + 1] = "== string metatable"
-                local mt = getmetatable("")
-                if mt == nil then
+                local smt = getmetatable("")
+                if smt == nil then
                   out[#out + 1] = "NONE"
                 else
-                  dump(mt, out)
+                  dump(smt, out)
+                end
+
+                -- 文件句柄的元表，以及元表里的 __index —— <b>文件方法住在那里</b>，
+                -- 不在 io 表里（close/flush/lines/read/seek/setvbuf/write 七个）。
+                -- 只查 io 表的键会整片漏掉它们。
+                out[#out + 1] = "== file metatable"
+                local fmt = getmetatable(io.stdout)
+                if fmt == nil then
+                  out[#out + 1] = "NONE"
+                else
+                  dump(fmt, out)
+                  out[#out + 1] = "== file methods"
+                  if type(fmt.__index) == "table" then
+                    dump(fmt.__index, out)
+                  else
+                    out[#out + 1] = "NO __index " .. type(fmt.__index)
+                  end
                 end
 
                 -- 每个库都该在 package.loaded 里占一格

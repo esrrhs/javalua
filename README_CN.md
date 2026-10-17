@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 830 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 834 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1709,6 +1709,33 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
 
 最后那两条就是前面几节里的 NUL 规则与字节规则，在一个函数里同时出现——这正是
 要按**契约**铺、而不是按例子铺的理由。
+
+#### 符号闸门自己也有个洞：文件方法住在 `__index` 里
+
+闸门第一版只查 `io` 表，于是**七个文件方法整片漏看** —— `close` / `flush` /
+`lines` / `read` / `seek` / `setvbuf` / `write`。它们住在
+`getmetatable(io.stdout).__index` 里（旁边还有 `__gc` / `__close` /
+`__name = FILE*` / `__tostring`），不在 `io` 表上。符号审计必须顺着
+`__index` 往下挖才有用，现在挖了。
+
+顺着这七个方法一探，咬出一处真分歧：**`fwrite(s, 1, 0, f)` 返回 0，正好等于
+`l`，所以写 0 个字节一定成功** —— 往**只读**文件 `f:write("")` 返回的是文件
+自己，而不是 `nil, "Bad file descriptor", 9`。我们的 `write` 是先判
+`!writable` 再看长度。
+
+只有一格能把它逼出来，这正是要铺格子而不是挑例子的理由：
+
+| | 可写文件 | 只读文件 |
+| --- | --- | --- |
+| `f:write("")` | 文件（两边同） | **文件** / ~~`nil, msg, 9`~~ |
+| `f:write("a")` | 文件（两边同） | `nil, msg, 9`（两边同） |
+
+读那一侧是不对称的、本来就是对的，**而且得保持不对称**：`f:read(0)` 走的不是
+`read_chars` 而是 `test_eof`（`getc` 再 `ungetc`），所以在只写流上照样失败；
+而 `read` 是先 `done >= len` 再判 `readable`。
+
+一并实测且一致：只读流上 `flush` / `setvbuf` / `seek` 都成功；
+`io.stdout:close()` 给 `nil, "cannot close standard file"`。
 
 ### 还没补上的
 
