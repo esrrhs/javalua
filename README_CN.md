@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 869 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
+全量 871 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2458,6 +2458,54 @@ JaCoCo 知道这个分支两个方向都走过，行号表也证明 1315 行有�
 `time.txt`）、`attrib.lua` / `files.lua` / `big.lua`（要 `libs/` 里那几个 C
 模块，以及 `all.lua` 建的全局环境——参考实现自己单跑也是失败）、`heavy.lua`
 （要跑好几分钟）、`bwcoercion.lua`（单跑没有输出）。
+
+### 库函数 × 错误参数网格
+
+`bad argument #1 to 'string.rep' (string expected, got boolean)` 是真实项目里天天
+见到的消息，产生它的分支全在 `lauxlib.c`。这张网格的函数表是<b>运行时枚举</b>出来
+的（`_G` 加九个库表），不是手写清单——手写清单漏掉的函数不会被任何用例发现，而
+「静默」正是 `warn` 整个函数没实现那段时间 828 个用例全绿的原因。108 个函数 ×
+{0,1,2} 个实参 × 10 种值 = **2396 行**，逐字节一致。
+
+钉住的三处判定：
+
+* **缺参报 `no value`，不是 `nil`。** `luaL_typename` 对越界下标给 `no value`。
+  破坏它红 **212** 行。
+* **`lua_type` 对越界下标是 `LUA_TNONE`** 不是 `LUA_TNIL`，于是「nil 也算合法」
+  的参数不会因为缺参而静默通过：`setmetatable({})` 必须报
+  `nil or table expected, got no value`。网格里只有 1 行照到它——比之前的 0 行强。
+* **方法形式调用要把参数编号减一**（`luaL_argerror` 里的 `arg--`），减完是 0 就
+  改报 `calling 'x' on bad self (...)`。直接调用永远走不到这两条，所以另加一组
+  <b>字面</b>生成的 `(""):f(v)` / `(1):f(v)`（377 行）——`OP_SELF` 只能由语法上的
+  方法调用产生，运行时拼不出来。敏感度 75 / 22。
+
+两处归一化是刻意的：`math.atan` 与 `math.atan2` 是同一个 C 函数，`findfield`
+反查到哪个取决于字符串哈希的 seed（每次启动都变）；地址一律换成 `PTR`。黑名单里
+的函数是因<b>副作用</b>排除，不是因为难测：`print` / `io.write` 往 stdout 写、
+`os.date` / `os.time` / `os.clock` 读时钟、`math.random` 随机、
+`io.read` / `io.lines` 读 stdin、`debug.sethook` 装了钩子不卸、
+`debug.setmetatable` 改的是全局类型元表、`collectgarbage` 的 `step` / `count`
+是记录在案的有意偏离。
+
+### `debug.debug`：唯一一个会读 stdin 的函数
+
+`ldblib.c: db_debug` 是个循环，铺这片网格之前它三条规矩<b>全错</b>：
+
+* <b>每次读之前</b>先往 stderr 打 `"lua_debug> "`（没有换行）。原来整句都漏了，
+  于是参考实现的输出里凭空多出 11 个字节；
+* <b>是循环</b>，一直读到 EOF 或某一行正好是 `"cont\n"`，中间每行都当 chunk 执行，
+  chunk 名是 `=(debug command)`。原来的 Java 版只读一行就返回；
+* 命令失败时把 `luaL_tolstring(L, -1)` 打到 stderr，然后<b>继续</b>下一轮。
+
+验这些需要 stdin，而差分驱动原本没有：它把参考实现的 stdin 定向到 `/dev/null`、
+`LuaState#in` 默认是空流，于是只能验到「打一个提示符就 EOF」这一种形状。新增的
+`Diff.assertMatchesWithStdin` 给两边喂同样的字节，把循环体、出错分支、`cont`、
+末尾没有换行的行、以及 `fgets` 那个 250 字节缓冲的切分（超长一行被切成多段，
+每段各自当 chunk 跑）全部带进 CI。六个形状现在逐字节一致。
+
+顺带记一条<b>流顺序</b>：C 的 `print` 走 `lua_writeline`，它<b>每次都
+`fflush(stdout)`</b>，所以 stdout 与 stderr 在合并捕获时严格按程序顺序交错，
+不是「stdout 攒到最后」。
 
 ### `varinfo` 矩阵：错误消息里的名字是反推出来的，不是记下来的
 

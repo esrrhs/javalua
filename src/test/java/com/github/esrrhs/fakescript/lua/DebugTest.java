@@ -348,6 +348,44 @@ final class DebugTest {
                 + "print(pcall(function() return debug.traceback(setmetatable({}, {})) end))\n");
     }
 
+    /* ==================== debug.debug：那个读 stdin 的循环 ==================== */
+
+    /**
+     * {@code ldblib.c: db_debug} 的三条硬规矩，少一条逐字节比对就红。
+     * <p>
+     * ①<b>每次读之前先往 stderr 打 {@code "lua_debug> "}</b>（无换行）。漏了它，
+     * 参考实现的输出里就凭空多十一字节。②<b>是循环不是读一行就返回</b>：一直读到
+     * EOF 或某一行正好是 {@code "cont\n"}，中间每行都当 chunk 执行、出错也继续。
+     * ③命令的 chunk 名是 {@code =(debug command)}，报错里显示成
+     * {@code (debug command):1:}。
+     * <p>
+     * 顺带记一条<b>流顺序</b>上的事：C 的 {@code print} 走
+     * {@code lua_writeline}，它<b>每次都 fflush(stdout)</b>，所以 stdout 与
+     * stderr 在合并捕获时是严格按程序顺序交错的 —— 不是「stdout 攒到最后」。
+     * 本实现的 {@code L.out} 与 {@code L.err} 指到同一条缓冲上，顺序天然一致。
+     * <p>
+     * 这条用例必须走 {@code Diff.assertMatchesWithStdin}：只喂
+     * {@code /dev/null} 的话循环体、出错分支、{@code cont} 三条路一条也走不到。
+     */
+    @Test
+    void interactiveDebuggerMatchesReference() {
+        // 空 stdin：打一个提示符，第一次 fgets 就 EOF，直接返回
+        Diff.assertMatchesWithStdin("debug.debug()\nprint(\"after\")\n", "");
+        // 只一行 cont：打一个提示符就退出
+        Diff.assertMatchesWithStdin("debug.debug()\nprint(\"after\")\n", "cont\n");
+        // 完整循环：执行 / 语法错 / 再执行 / cont 退出
+        Diff.assertMatchesWithStdin("debug.debug()\nprint(\"after\")\n",
+                "print(\"one\")\n1+\nprint(\"two\")\ncont\n");
+        // 末尾没有换行也照样执行，然后 EOF 退出
+        Diff.assertMatchesWithStdin("debug.debug()\nprint(\"after\")\n", "print(\"nl\")");
+        // 运行期错误同样打到 stderr 并继续
+        Diff.assertMatchesWithStdin("debug.debug()\nprint(\"after\")\n",
+                "error(\"boom\")\nprint(\"ok\")\ncont\n");
+        // fgets 的 250 字节缓冲：超长一行会被切成多段，每段各自当 chunk 跑
+        Diff.assertMatchesWithStdin("debug.debug()\nprint(\"after\")\n",
+                "print(\"\" .. string.rep(\"x\", 300))\ncont\n");
+    }
+
     /* ==================== 钩子 ==================== */
 
     /**

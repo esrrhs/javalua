@@ -1316,32 +1316,91 @@ public final class DebugLib {
         return 1;
     }
 
+    /** {@code ldblib.c: db_debug} 里 {@code fgets} 的缓冲区大小 */
+    private static final int DB_BUFSIZ = 250;
+
+    /** {@code "lua_debug> "}：注意末尾那个空格，且<b>没有</b>换行 */
+    private static final byte[] DB_PROMPT = "lua_debug> ".getBytes(StandardCharsets.UTF_8);
+
     /**
      * {@code db_debug}：交互调试器。
      * <p>
-     * 从 stdin 一行一行读，读到 {@code cont} 或 EOF 就退出。测试里 stdin 是空流，
-     * 所以第一次读就返回空，等价于直接退出——这也是参考实现的行为。
+     * 三处必须与 C 一字不差，否则逐字节比对立刻红：
+     * <ul>
+     *   <li><b>每次读之前先往 stderr 打 {@code "lua_debug> "}</b>
+     *       （{@code lua_writestringerror}，无换行、无缓冲）。原来漏了这一句，
+     *       于是参考实现的输出里凭空多一个 {@code lua_debug> }；</li>
+     *   <li><b>是循环，不是读一行就返回</b>：C 一直读到 EOF 或某一行正好是
+     *       {@code "cont\n"}，中间每行都当 chunk 执行。原来只跑第一行；</li>
+     *   <li><b>命令出错时把消息打到 stderr</b> 并<b>继续</b>下一轮，不是抛出去。
+     *       C 是 {@code lua_writestringerror("%s\n", luaL_tolstring(L, -1))}。</li>
+     * </ul>
+     * <p>
+     * 命令的 chunk 名是 {@code =(debug command)}，且每次执行完
+     * {@code lua_settop(L, 0)}——本实现的 {@link LuaState#setTop} 与 C 一样是
+     * 相对当前帧的，所以直接写 0。
+     * <p>
+     * 差分用例里 stdin 是 {@code /dev/null}（见 {@code ReferenceLua#runBytes}），
+     * 所以第一轮就 EOF：表现为「只打一个提示符然后返回」。
      */
     private static int debugFn(LuaState L) {
-        try {
-            java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
-            for (;;) {
-                int c = L.in.read();
-                if (c < 0 || c == '\n') {
-                    break;
-                }
-                line.write(c);
-            }
-            String s = new String(line.toByteArray(), StandardCharsets.UTF_8);
-            if (s.equals("cont")) {
+        byte[] buf = new byte[DB_BUFSIZ];
+        for (;;) {
+            writeErr(L, DB_PROMPT);
+            int n = fgets(L.in, buf);
+            if (n < 0 || isCont(buf, n)) {
                 return 0;
             }
-            if (!s.isEmpty()) {
-                L.runProtected(LuaString.utf8(s).bytes, "=(debug command)");
+            byte[] src = java.util.Arrays.copyOf(buf, n);
+            LuaValue err;
+            try {
+                err = L.runProtected(src, "=(debug command)");
+            } catch (LuaError e) {
+                // luaL_loadbuffer 那一步就失败：消息同样要打出来
+                err = e.value;
+            }
+            if (err != null) {
+                writeErr(L, LuaAux.toLString(L, err).bytes);
+                writeErr(L, new byte[] { '\n' });
+            }
+            L.setTop(0);
+        }
+    }
+
+    /**
+     * C 的 {@code fgets}：最多读 {@code buf.length - 1} 个字节，遇到 {@code '\n'}
+     * <b>连同换行一起</b>收进来；EOF 时一个字节都没读到才返回 -1。
+     *
+     * @return 读到的字节数，或 -1 表示 EOF
+     */
+    private static int fgets(java.io.InputStream in, byte[] buf) {
+        int n = 0;
+        try {
+            while (n + 1 < buf.length) {
+                int c = in.read();
+                if (c < 0) {
+                    break;
+                }
+                buf[n++] = (byte) c;
+                if (c == '\n') {
+                    break;
+                }
             }
         } catch (java.io.IOException e) {
-            return 0;
+            // C 的 fgets 出错也返回 NULL；n == 0 即等价
         }
-        return 0;
+        return (n == 0) ? -1 : n;
+    }
+
+    /** {@code strcmp(buffer, "cont\n") == 0} */
+    private static boolean isCont(byte[] buf, int n) {
+        return n == 5 && buf[0] == 'c' && buf[1] == 'o' && buf[2] == 'n'
+                && buf[3] == 't' && buf[4] == '\n';
+    }
+
+    /** {@code lua_writestringerror}：写字节 + 立刻 flush（C 的 stderr 无缓冲） */
+    private static void writeErr(LuaState L, byte[] b) {
+        L.err.write(b, 0, b.length);
+        L.err.flush();
     }
 }
