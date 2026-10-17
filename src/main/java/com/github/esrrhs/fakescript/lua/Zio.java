@@ -42,9 +42,6 @@ public final class Zio {
 
     private int p;
 
-    /** 单字节回退位；{@code -1} 表示空 */
-    private int pushback = -1;
-
     public Zio(byte[] data) {
         this.src = null;
         this.buf = data;
@@ -59,11 +56,6 @@ public final class Zio {
 
     /** {@code zgetc}：取下一个字节（0..255），读完返回 {@link #EOZ} */
     public int getc() {
-        if (pushback >= 0) {
-            int c = pushback;
-            pushback = -1;
-            return c;
-        }
         for (;;) {
             if (buf != null && p < buf.length) {
                 return buf[p++] & 0xFF;
@@ -79,15 +71,5 @@ public final class Zio {
             buf = n;
             p = 0;
         }
-    }
-
-    /**
-     * 回退一个字节。
-     * <p>
-     * 只支持一位，够用：唯一的用途是「看一眼第一个字节判断是不是二进制 chunk，
-     * 再把它放回去」。回退 {@link #EOZ} 是空操作。
-     */
-    public void ungetc(int c) {
-        pushback = c;
     }
 }

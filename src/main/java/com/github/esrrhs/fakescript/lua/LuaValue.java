@@ -125,13 +125,6 @@ public final class LuaValue {
         return v;
     }
 
-    /** 带元表的 userdata（{@code lua_newuserdatauv} + {@code luaL_setmetatable}） */
-    public static LuaValue ofUserdata(Object o, LuaTable mt) {
-        LuaValue v = new LuaValue();
-        v.setObject(Lua.VUSERDATA, new LuaUserdata(o, mt));
-        return v;
-    }
-
     /** C 闭包（变体 {@link Lua#VCCL}） */
     public static LuaValue ofCClosure(CClosure c) {
         LuaValue v = new LuaValue();
