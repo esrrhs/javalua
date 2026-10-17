@@ -4700,4 +4700,347 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+
+    /**
+     * {@code package} / {@code require} / {@code load} 矩阵 —— 参考实现与
+     * 本实现逐字节比对。
+     * <p>
+     * 铺它的起因是三处<b>只有对着参考实现才看得见</b>的分歧：
+     * <ul>
+     *   <li>{@code package.loadlib} 的第三个返回值。判据是失败发生在哪一步：
+     *       {@code ERRLIB}（库打不开）给 {@code "open"}，{@code ERRFUNC}
+     *       （库里没这个符号）给 {@code "absent"}。之前照着「没有 dlopen
+     *       的兜底分支」写死成 {@code "absent"}，而那个分支下
+     *       {@code lookforfunc} 恒返回 {@code ERRLIB}，照样该给
+     *       {@code "open"}；</li>
+     *   <li>{@code require} 循环依赖的报错<b>不是</b>裸的
+     *       {@code C stack overflow}，而是被 {@code checkload} 包成
+     *       {@code error loading module '_pk_b' from file './_pk_b.lua':\n\t
+     *       C stack overflow}。原因见 {@code Parser#enterLevel}：解析器的
+     *       {@code enterlevel} 与 {@code luaD_call} <b>共用</b> {@code nCcalls}，
+     *       于是第 200 层是在某次 {@code luaL_loadfile} 的解析中途炸的，
+     *       错误被 {@code luaD_protectedparser} 兜住，才轮到
+     *       {@code checkload} 去包；</li>
+     *   <li>{@code package.loadlib} 的失败消息由平台 libc 决定（macOS 是
+     *       {@code dlopen(...)}，glibc 是 {@code cannot open shared object
+     *       file...}），本实现根本不加载动态库——三边文本都不一样，只能比
+     *       「是不是字符串」。</li>
+     * </ul>
+     */
+    @Test
+    void packageRequireAndLoadMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- package / require / load 矩阵。
+                -- 注意文件系统副作用：两边跑在<b>同一个 cwd</b>，所以用到的临时文件一律
+                -- 「开头先删、用完再删」，保证两次运行都从干净状态开始。
+                local function pr(...)
+                  print(...)
+                end
+                local function pc(f, ...)
+                  local r = { pcall(f, ...) }
+                  local t = {}
+                  for i = 2, #r do t[#t + 1] = tostring(r[i]) end
+                  return r[1], table.concat(t, "\\t")
+                end
+                local function s(v)
+                  local tt = type(v)
+                  if tt == "table" or tt == "function" or tt == "thread" or tt == "userdata" then
+                    return tt
+                  end
+                  return tostring(v)
+                end
+                -- 动态库失败消息由平台 libc 决定（macOS 是 dlopen(...)，glibc 是
+                -- "cannot open shared object file..."），本实现根本不加载动态库，
+                -- 三边的文本都不一样。这里只比「是不是字符串」，内容归一成一个占位。
+                local function dl(v)
+                  if type(v) ~= "string" then return v end
+                  if v:find("^dlopen%(") or v:find("cannot open shared object")
+                      or v:find("dynamic libraries not enabled")
+                      or v:find("no such file") or v:find("No such file or directory") then
+                    return "<DLERR>"
+                  end
+                  return v
+                end
+                -- 临时模块一律写到 target/rt 下：两边的工作目录都是仓库根，直接写根目录
+                -- 会在用例失败时留下一堆 _pk_*.lua。
+                local D = "target/rt/"
+                local function rm(p)
+                  return os.remove(D .. p)
+                end
+                local function mkfile(path, content)
+                  local f, err = io.open(D .. path, "w")
+                  if not f then return false, err end
+                  f:write(content)
+                  f:close()
+                  return true
+                end
+
+                -- 1) package 的静态结构
+                pr("A1", string.format("%q", package.config))
+                pr("A2", type(package.path), type(package.cpath))
+                pr("A3", (package.path:find("?", 1, true) ~= nil), (package.cpath:find("?", 1, true) ~= nil))
+                pr("A4", (package.path:find(";", 1, true) ~= nil))
+                do
+                  local names = {}
+                  for k in pairs(package.loaded) do
+                    names[#names + 1] = tostring(k)
+                  end
+                  table.sort(names)
+                  pr("A5", table.concat(names, ","))
+                end
+                pr("A6", type(package.preload), type(package.searchers), #package.searchers)
+                for i = 1, #package.searchers do
+                  pr("A7", i, type(package.searchers[i]))
+                end
+                pr("A8", type(package.loadlib), pcall(package.loadlib))
+                pr("A9", select(3, package.loadlib("no_such_lib_xyz", "luaopen_x")))
+                pr("A10", s(dl(select(2, package.loadlib("no_such_lib_xyz", "luaopen_x")))))
+                pr("A11", (function()
+                  local r = { pcall(package.loadlib, 5, "x") }
+                  local t = { tostring(r[1]) }
+                  for i = 2, #r do t[#t + 1] = s(dl(r[i])) end
+                  return table.concat(t, "\\t")
+                end)())
+                pr("A12", select(1, pcall(package.loadlib, "x")))
+
+                -- 2) searchpath
+                pr("B1", package.searchpath("nope_xyz", "./?.lua"))
+                pr("B2", package.searchpath("nope_xyz", "./?.lua;./?/init.lua"))
+                pr("B3", package.searchpath("nope_xyz", ""))
+                pr("B4", pc(package.searchpath, "a", "./?.lua", 5))
+                pr("B5", pc(package.searchpath, 5, "./?.lua"))
+                pr("B6", pc(package.searchpath))
+                pr("B7", package.searchpath("", "./?.lua"))
+                do
+                  local ok = mkfile("_pk_sp.lua", "return 1\\n")
+                  pr("B8", ok, package.searchpath("_pk_sp", "./target/rt/?.lua"))
+                  pr("B9", package.searchpath("_pk_sp", "./target/rt/?.lua;./target/rt/?.xyz"))
+                  rm("_pk_sp.lua")
+                  pr("B10", package.searchpath("_pk_sp", "./target/rt/?.lua"))
+                end
+                do
+                  -- sep / rep：把名字里的点换成目录分隔符
+                  local ok = mkfile("_pk_sp2.lua", "return 2\\n")
+                  pr("B11", ok, package.searchpath("a.b", "./target/rt/?.lua", ".", "_"))
+                  pr("B12", package.searchpath("_pk.sp2", "./target/rt/?.lua", ".", "_"))
+                  rm("_pk_sp2.lua")
+                end
+
+                -- 3) require：从磁盘加载 + 返回值的各种形态
+                local OLDPATH = package.path
+                package.path = "./target/rt/?.lua"
+                local function withModule(name, body, fn)
+                  rm(name .. ".lua")
+                  mkfile(name .. ".lua", body)
+                  package.loaded[name] = nil
+                  local r = { pcall(fn) }
+                  rm(name .. ".lua")
+                  package.loaded[name] = nil
+                  return table.unpack(r)
+                end
+                pr("C1", withModule("_pk_m1", "return {v = 42}\\n", function()
+                  local m = require("_pk_m1")
+                  return type(m), m.v, package.loaded["_pk_m1"] == m
+                end))
+                pr("C2", withModule("_pk_m2", "return nil\\n", function()
+                  local m = require("_pk_m2")
+                  return type(m), tostring(m), tostring(package.loaded["_pk_m2"])
+                end))
+                pr("C3", withModule("_pk_m3", "return false\\n", function()
+                  local m = require("_pk_m3")
+                  return type(m), tostring(m), tostring(package.loaded["_pk_m3"])
+                end))
+                pr("C4", withModule("_pk_m4", "return true\\n", function()
+                  local m = require("_pk_m4")
+                  return type(m), tostring(m), tostring(package.loaded["_pk_m4"])
+                end))
+                pr("C5", withModule("_pk_m5", "local x = 1\\n", function()
+                  local m = require("_pk_m5")
+                  return type(m), tostring(m), tostring(package.loaded["_pk_m5"])
+                end))
+                pr("C6", withModule("_pk_m6", "return 7\\n", function()
+                  local m = require("_pk_m6")
+                  return type(m), tostring(m), tostring(package.loaded["_pk_m6"])
+                end))
+                -- 同一模块取两次：第二次走缓存，文件改了也不重新加载
+                rm("_pk_m7.lua")
+                mkfile("_pk_m7.lua", "return {v = 1}\\n")
+                package.loaded["_pk_m7"] = nil
+                do
+                  local a = require("_pk_m7")
+                  mkfile("_pk_m7.lua", "return {v = 2}\\n")
+                  local b = require("_pk_m7")
+                  pr("C7", a.v, b.v, a == b)
+                  package.loaded["_pk_m7"] = nil
+                  local c = require("_pk_m7")
+                  pr("C8", c.v, c == a)
+                end
+                rm("_pk_m7.lua")
+                package.loaded["_pk_m7"] = nil
+                -- 模块里抛错：loaded 不被设置
+                pr("C9", withModule("_pk_m8", "error('mod-boom')\\n", function()
+                  return pc(require, "_pk_m8"), tostring(package.loaded["_pk_m8"])
+                end))
+                -- 循环依赖
+                rm("_pk_a.lua")
+                rm("_pk_b.lua")
+                mkfile("_pk_a.lua", "return require('_pk_b')\\n")
+                mkfile("_pk_b.lua", "return require('_pk_a')\\n")
+                package.loaded["_pk_a"] = nil
+                package.loaded["_pk_b"] = nil
+                pr("C10", pc(require, "_pk_a"))
+                rm("_pk_a.lua")
+                rm("_pk_b.lua")
+                package.loaded["_pk_a"] = nil
+                package.loaded["_pk_b"] = nil
+                -- 找不到的模块
+                pr("C11", pc(require, "no_such_module_xyz"))
+                pr("C12", pc(require))
+                pr("C13", pc(require, 5))
+                pr("C14", pc(require, true))
+                pr("C15", pc(require, ""))
+                pr("C16", pc(require, {}))
+                -- preload 优先于磁盘
+                rm("_pk_p.lua")
+                mkfile("_pk_p.lua", "return 'from-disk'\\n")
+                package.loaded["_pk_p"] = nil
+                package.preload["_pk_p"] = function(n)
+                  return "from-preload"
+                end
+                pr("C17", require("_pk_p"), package.loaded["_pk_p"])
+                package.preload["_pk_p"] = nil
+                package.loaded["_pk_p"] = nil
+                pr("C18", require("_pk_p"))
+                rm("_pk_p.lua")
+                package.loaded["_pk_p"] = nil
+                -- preload 返回 nil / 不返回
+                package.preload["_pk_p2"] = function(n) end
+                pr("C19", require("_pk_p2"), tostring(package.loaded["_pk_p2"]))
+                package.preload["_pk_p2"] = nil
+                package.loaded["_pk_p2"] = nil
+                -- 模块名带斜杠
+                rm("_pk_d.lua")
+                mkfile("_pk_d.lua", "return 'd'\\n")
+                package.loaded["_pk_d"] = nil
+                pr("C20", pc(require, "_pk_d/x"))
+                pr("C21", require("_pk_d"))
+                rm("_pk_d.lua")
+                package.loaded["_pk_d"] = nil
+                package.path = OLDPATH
+
+                -- 4) load：mode / env / chunkname / reader
+                pr("D1", s(load("return 1")))
+                pr("D2", select(1, load("return 1")) ~= nil)
+                pr("D3", pc(function() return load("return 1")() end))
+                pr("D4", pc(load, "return 1 +"))
+                pr("D5", select(2, load("return 1 +")))
+                pr("D6", select(2, load("@@@")))
+                -- mode
+                pr("E1", s(load("return 1", "=c", "t")))
+                pr("E2", s(load("return 1", "=c", "b")))
+                pr("E3", s(load("return 1", "=c", "bt")))
+                pr("E4", pc(load, "return 1", "=c", "z"))
+                pr("E5", pc(load, "return 1", "=c", ""))
+                pr("E6", pc(load, "return 1", "=c", 5))
+                do
+                  local ok, f = pcall(load, "return 1", "=c", "t", 5)
+                  pr("E7", ok, s(f))
+                end
+                -- 二进制块：mode "b" 接受 dump 出来的，"t" 不接受
+                do
+                  local f = load("return 1")
+                  local bin = string.dump(f)
+                  pr("E8", s(load(bin, "=b", "b")), s(load(bin, "=b", "t")))
+                  pr("E9", s(load(bin, "=b", "bt")))
+                  pr("E10", pc(load, bin, "=b", "z"))
+                end
+                -- 文本块带 # 注释头（bin 模式允许开头有注释行）
+                pr("E11", s(load("#comment\\nreturn 1", "=c", "b")))
+                -- env
+                do
+                  local env = { X = 5, print = print }
+                  local f = load("return X", "=c", "t", env)
+                  pr("F1", f ~= nil, f ~= nil and f())
+                  local g = load("X = 9 return X", "=c", "t", env)
+                  pr("F2", g(), env.X)
+                  local h = load("return _ENV", "=c", "t", env)
+                  pr("F3", h() == env)
+                  local i2 = load("return print", "=c", "t", env)
+                  pr("F4", i2() == print)
+                  pr("F5", s(load("return 1", "=c", "t", nil)))
+                  pr("F6", s(load("return 1", "=c", "t", 1.0)))
+                end
+                -- chunkname 影响报错位置
+                pr("G1", pc(function() return load("error('x')", "@myfile.lua")() end))
+                pr("G2", pc(function() return load("error('x')", "=myname")() end))
+                pr("G3", pc(function() return load("error('x')")() end))
+                pr("G4", pc(function() return load("error('x')", "plain")() end))
+                pr("G5", pc(function() return load("error('x')", 5)() end))
+                pr("G6", pc(function() return load("return 1", 5)() end))
+                -- reader 函数
+                do
+                  local parts = { "return ", "1 + ", "2" }
+                  local i = 0
+                  local f = load(function()
+                    i = i + 1
+                    return parts[i]
+                  end)
+                  pr("H1", s(f), f ~= nil and f())
+                end
+                do
+                  -- 一次给整段，然后给 nil 结束
+                  local n = 0
+                  local f = load(function()
+                    n = n + 1
+                    if n == 1 then return "return 3" end
+                    return nil
+                  end)
+                  pr("H2", s(f), f ~= nil and f(), n)
+                end
+                do
+                  -- 返回空串也表示结束
+                  local n = 0
+                  local f = load(function()
+                    n = n + 1
+                    if n == 1 then return "return 4" end
+                    return ""
+                  end)
+                  pr("H3", s(f), f ~= nil and f())
+                end
+                do
+                  -- 注意：<b>返回数字会挂死</b>（数字也算「字符串」，读取函数永不结束），
+                  -- 所以这里只让它返回两次就停
+                  local n = 0
+                  local f = load(function()
+                    n = n + 1
+                    if n <= 2 then return 5 end
+                    return nil
+                  end)
+                  pr("H4", s(f), tostring(f))
+                end
+                pr("H5", pc(load, 5))
+                pr("H6", pc(load, nil))
+                pr("H7", pc(load, true))
+                -- dofile / loadstring
+                pr("I1", pc(dofile, "no_such_file_xyz.lua"))
+                pr("I2", pc(dofile))
+                pr("I3", pc(dofile, 5))
+                rm("_pk_df.lua")
+                mkfile("_pk_df.lua", "return 11\\n")
+                pr("I4", pc(dofile, "./target/rt/_pk_df.lua"))
+                rm("_pk_df.lua")
+                pr("I5", loadstring == nil)
+                pr("I6", loadstring == nil and "gone" or "present")
+                -- load 出来的函数的环境与 upvalue
+                do
+                  local f = load("local a = 1 return function() return a end")
+                  local g = f()
+                  pr("J1", g())
+                  pr("J2", type(load("return ...")))
+                  local h = load("return ...")
+                  pr("J3", h(1, 2, 3))
+                end
+                print("DONE")
+                """);
+    }
 }

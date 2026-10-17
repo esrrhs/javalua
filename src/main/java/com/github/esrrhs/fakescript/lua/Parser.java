@@ -14,9 +14,11 @@ import java.util.Locale;
  * <ul>
  *   <li>{@code BlockCnt} 在 C 里是栈上分配、靠 {@code fs->bl} 串成链；Java 只能
  *       堆分配，于是每进一个块 {@code new} 一个。链的结构和遍历顺序不变；</li>
- *   <li>C 的 {@code enterlevel/leavelevel} 靠 {@code nCcalls} 防 C 栈溢出。Java
- *       没有可靠的栈余量探测，这里自己数递归深度，超了就报
- *       {@code C stack overflow}；</li>
+   *   <li>C 的 {@code enterlevel/leavelevel} 靠 {@code nCcalls} 防 C 栈溢出，
+   *       <b>与 {@code luaD_call} 共用同一个计数器</b>——所以「调用深度」和
+   *       「表达式嵌套深度」是互相挤占的。给得出 {@link LuaState} 时这里就
+   *       直接用它的 {@code nCcalls}；只有测试那种无状态的调用才退回自带的
+   *       局部计数器；</li>
  *   <li>{@code TString*} 的指针相等（{@code eqstr}）换成 {@code LuaString} 的
  *       同一性 + 内容比较。所有名字都经同一个 {@link StringPool} 驻留，
  *       同一性判断在实际运行中恒成立；写 {@code eqstr} 是为了不依赖这一点；</li>
@@ -45,13 +47,23 @@ public final class Parser {
 
     /** 当前函数的编译状态 */
     private FuncState fs;
-    /** 递归深度（{@code nCcalls}） */
+    /**
+     * 递归深度。给得出 {@link #L} 时不用它——深度记在 {@code L.nCcalls} 里，
+     * 与调用深度共用一份；只有 {@link #L} 为 {@code null}（测试直调）时才
+     * 退回这个局部计数器。
+     */
     private int depth;
+    /**
+     * 所属状态。{@code null} 表示这次解析不挂在某个 {@code lua_State} 上
+     * （测试里比对字节码就是这么调的）。
+     */
+    private final LuaState L;
 
-    private Parser(Lexer ls, DynData dyd, LuaString source) {
+    private Parser(Lexer ls, DynData dyd, LuaString source, LuaState L) {
         this.ls = ls;
         this.dyd = dyd;
         this.source = source;
+        this.L = L;
         this.envn = ls.newString(LuaString.latin1(ENV_NAME).bytes, 0, ENV_NAME.length());
         this.breakName = ls.newString(LuaString.latin1("break").bytes, 0, 5);
     }
@@ -82,10 +94,26 @@ public final class Parser {
      * 首字节由调用方（{@code f_parser} 形态）读过了，原样交给词法器，不要重读。
      */
     public static Proto parse(Zio z, byte[] chunkName, StringPool strings, int firstChar) {
+        return parse(z, chunkName, strings, firstChar, null);
+    }
+
+    /**
+     * 带 {@link LuaState} 的入口：{@code enterlevel} 要用它的 {@code nCcalls}。
+     * <p>
+     * 这一层不是可有可无的花样：C 里解析器的深度和调用深度是<b>同一个
+     * 计数器</b>，于是 {@code require} 循环依赖时，第 200 层不是在
+     * {@code lua_call} 上炸，而是在某次 {@code luaL_loadfile} 的解析中途炸——
+     * 错误被 {@code luaD_protectedparser} 兜住，{@code loadfile} 返回
+     * 非 {@code LUA_OK}，最后由 {@code checkload} 包成
+     * {@code error loading module 'x' from file 'y':\n\tC stack overflow}。
+     * 各数各的就会拿到裸的 {@code C stack overflow}。
+     */
+    public static Proto parse(Zio z, byte[] chunkName, StringPool strings, int firstChar,
+            LuaState L) {
         LuaString src = (chunkName == null) ? LuaString.latin1("?") : LuaString.of(chunkName);
         Lexer ls = new Lexer(z, chunkName, strings, firstChar);
         DynData dyd = new DynData();
-        Parser p = new Parser(ls, dyd, src);
+        Parser p = new Parser(ls, dyd, src, L);
         Proto f = new Proto();
         f.source = src;
         FuncState funcstate = new FuncState(f, null, ls, dyd);
@@ -273,15 +301,21 @@ public final class Parser {
         codeString(e, strCheckName());
     }
 
-    /** {@code enterlevel} / {@code leavelevel} */
+    /** {@code enterlevel} / {@code leavelevel}（{@code luaE_incCstack}） */
     private void enterLevel() {
-        if (++depth >= MAXDEPTH) {
+        if (L != null) {
+            L.incCstack();
+        } else if (++depth >= MAXDEPTH) {
             throw new LuaError(LuaValue.ofString(LuaString.latin1("C stack overflow")));
         }
     }
 
     private void leaveLevel() {
-        depth--;
+        if (L != null) {
+            L.decCstack();
+        } else {
+            depth--;
+        }
     }
 
     /* ============================================================ */

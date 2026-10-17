@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 819 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 820 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1518,6 +1518,56 @@ range check comes **last**:
 Three functions are deliberately absent: `os.time` and `os.date` read the clock
 when their first argument is `nil`, `math.randomseed(nil)` seeds from the clock,
 and `io.lines` with no argument reads stdin.
+
+#### The `package` / `require` / `load` sweep: two bugs, and one counter that has to be shared
+
+**311 lines.** `package`'s static structure, `searchpath`, every shape of
+`require` (module returning `nil` / `false` / `true` / nothing, caching, a module
+that raises, circular dependency, `preload` winning over disk, names with
+slashes), and `load`'s `mode` / `env` / `chunkname` / reader functions.
+
+**`package.loadlib`'s third return value says *where* it failed, not *that* it
+failed.** `ERRLIB` (the library could not be opened) gives `"open"`, `ERRFUNC`
+(the symbol is not in it) gives `"absent"`:
+
+```c
+    lua_pushliteral(L, (stat == ERRLIB) ?  "open" : "absent");
+```
+
+We had it hard-coded to `"absent"`, copying the fallback branch for builds
+without `dlopen` — but in that branch `lookforfunc` always returns `ERRLIB`, so
+`"open"` is what it should have been all along. Code that uses the third value
+to decide whether to keep looking picks the wrong branch.
+
+**A circular `require` does not report a bare `C stack overflow`.** It reports:
+
+```
+error loading module '_pk_b' from file './_pk_b.lua':
+	C stack overflow
+```
+
+because the parser and `luaD_call` **share one counter**: `#define enterlevel(ls)
+luaE_incCstack(ls->L)`. So the 200th level is not reached at a `lua_call` — it is
+reached in the middle of some `luaL_loadfile`, the error is caught by
+`luaD_protectedparser`, `loadfile` returns a non-`OK` status, and `checkload`
+wraps it. Counting call depth and expression depth separately gives the naked
+message instead. The sweep pins the exact shape, module name included.
+
+Fixing that exposed the counter's other half: **the rollback**. `luaD_call`
+increments `nCcalls` *before* the `try`-equivalent, so when `luaE_checkcstack`
+raises, the increment is outside the `finally`; C gets it back from
+`luaD_rawrunprotected`'s `L->nCcalls = oldnCcalls` at the `pcall` boundary, and
+Java has no `longjmp` to fall back on. Without the rollback every C-stack
+overflow leaks one level forever — measured with a `pcall`-recursion probe, the
+quota walks 197 → 196 → 195 → 194 → 193, and upstream `errors.lua` starts
+reporting `error in error handling` where the reference prints `OK`. Same for the
+parser: the restore has to sit on `lua_load`, not on the binary/text dispatch
+below it, or a failed `load` leaks two levels each time.
+
+**And one that cannot be compared:** `package.loadlib`'s failure *message* comes
+from the platform `libc` (`dlopen(...)` on macOS, `cannot open shared object
+file...` on glibc), and this implementation does not load dynamic libraries at
+all — three different strings, so the sweep compares only that it is a string.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 

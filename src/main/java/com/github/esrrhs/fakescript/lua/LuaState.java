@@ -1300,6 +1300,25 @@ public final class LuaState {
     }
 
     /**
+     * {@code lstate.c: luaE_incCstack}。
+     * <p>
+     * 调用方是<b>语法分析器的 {@code enterlevel}</b>（{@code #define enterlevel(ls)
+     * luaE_incCstack(ls->L)}）。它与 {@link #call} 共用 {@code nCcalls}，所以
+     * 调用深度会吃掉表达式嵌套深度的配额——这正是参考实现的行为。
+     */
+    public void incCstack() {
+        nCcalls++;
+        if (nCcalls >= MAXCCALLS) {
+            checkCStack();
+        }
+    }
+
+    /** {@code leavelevel}：{@code L->nCcalls--} */
+    public void decCstack() {
+        nCcalls--;
+    }
+
+    /**
      * {@code lua_callk}：<b>带续体</b>的调用。
      * <p>
      * 续体只在「给了 {@code k} 且当前可 yield」时才登记，否则走
@@ -1386,6 +1405,20 @@ public final class LuaState {
          * 未捕获的错误，参考实现给的是完整回溯，不是那句话。
          */
         boolean oldAllowHook = allowHook;
+        /*
+         * {@code luaD_rawrunprotected} 最后那句 {@code L->nCcalls = oldnCcalls}
+         * ——<b>无论成功失败都要回滚</b>。
+         * <p>
+         * 少了这一句会漏：{@code luaD_call} 是「先 {@code nCcalls++}，再判
+         * {@code luaE_checkcstack}」，判不过就直接抛，自增那一步落在
+         * {@code try} <b>外面</b>，{@code finally} 管不到。C 那边靠 longjmp 回到
+         * 这里的恢复点兜住，Java 没有 longjmp，只能自己记。
+         * <p>
+         * 实测：脚本里每来一次 C 栈溢出就永久少一层配额，
+         * {@code pcall} 递归探针从 197 一路掉到 193，上游 {@code errors.lua}
+         * 的「error in error handling」段因此提前触发。
+         */
+        int oldNCcalls = nCcalls;
         try {
             call(funcIdx, nresults);
             return null;
@@ -1416,6 +1449,21 @@ public final class LuaState {
                     v = applyErrMsg(v, handler);
                 }
             }
+            /*
+             * 回滚点就在这里，不能早也不能晚：
+             * <ul>
+             *   <li><b>不能早</b>：消息处理函数是 C 版在<b>抛出点</b>
+             *       （{@code luaG_errormsg}）调的，那会儿 {@code nCcalls} 还
+             *       带着溢出时的高位（201…219 那段「给错误处理留的余量」正是
+             *       为它准备的）。提前回滚，{@code debug.traceback} 就跑在
+             *       一个比参考实现更浅的位置上；</li>
+             *   <li><b>不能晚</b>：{@code __close} 是回滚<b>之后</b>才跑的
+             *       （{@code luaD_closeprotected} 在 rawrunprotected 之外），
+             *       带着高位跑会让收尾时的调用白白撞上
+             *       {@code C stack overflow}。</li>
+             * </ul>
+             */
+            nCcalls = oldNCcalls;
             // 到这一步才算走到 C 版 luaD_pcall 的恢复点：__close 是带钩子的
             allowHook = oldAllowHook;
             /*
@@ -2056,11 +2104,26 @@ public final class LuaState {
      */
     public LClosure load(Zio z, byte[] chunkName, int firstChar) {
         this.chunkName = chunkName;
-        Proto p = Parser.parse(z, chunkName, strings, firstChar);
-        LClosure cl = new LClosure(p, 1);
-        cl.initUpvals();
-        cl.upvals[0] = UpVal.closed(LuaValue.ofTable(globals));
-        return cl;
+        /*
+         * luaD_protectedparser 那层保护：<b>出错时 nCcalls 要整体回滚</b>
+         * （C 是 luaD_rawrunprotected 里的 {@code L->nCcalls = oldnCcalls}）。
+         * <p>
+         * 它必须落在<b>这一层</b>而不是 loadDispatch：解析器的 enterlevel 借的
+         * 是 nCcalls，语法错误在 leavelevel 之前就抛出来，不平衡的层数会永久
+         * 留在计数器上。实测：{@code load("x = =")} 失败一次漏两层，上游
+         * {@code errors.lua} 里几十次失败解析之后，深度配额从 197 掉到 95，
+         * 于是「error in error handling」那段提前触发，整个文件假红。
+         */
+        int saved = nCcalls;
+        try {
+            Proto p = Parser.parse(z, chunkName, strings, firstChar, this);
+            LClosure cl = new LClosure(p, 1);
+            cl.initUpvals();
+            cl.upvals[0] = UpVal.closed(LuaValue.ofTable(globals));
+            return cl;
+        } finally {
+            nCcalls = saved;
+        }
     }
 
     /** 二进制 chunk：走 {@code luaU_undump} 而不是词法／语法分析 */
