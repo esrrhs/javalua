@@ -74,8 +74,12 @@ public final class PackageLib {
     private static final String DLMSG =
             "dynamic libraries not enabled; check your Lua installation";
 
-    /** {@code LIB_FAIL}：兜底分支是 {@code "absent"}，启用 dlopen 时才是 {@code "open"} */
-    private static final String LIB_FAIL = "absent";
+    /**
+     * {@code LIB_FAIL}：{@code lookforfunc} 返回 {@code ERRLIB}（库打不开）时的
+     * 第三个返回值。启用 dlopen 的构建里是 {@code "open"}；本实现没有动态库，
+     * 失败一律发生在「打开」这一步，所以也必须是 {@code "open"}。
+     */
+    private static final String LIB_FAIL = "open";
 
     private static final int ERRLIB = 1;
     private static final int ERRFUNC = 2;
@@ -314,7 +318,17 @@ public final class PackageLib {
         LuaValue msg = new LuaValue(L.stack[--L.top]);
         LuaAux.pushFail(L);
         L.push(msg);
-        L.push(LuaValue.ofString(LuaString.latin1(LIB_FAIL)));
+        /*
+         * 第三个返回值的判据是 <b>失败发生在哪一步</b>：{@code ERRLIB} 是
+         * 「库打不开」（{@code lsys_load} 失败），给 {@code "open"}；
+         * {@code ERRFUNC} 是「库里没这个符号」，给 {@code "absent"}。
+         * 之前写死 {@code "absent"}，是因为兜底分支（没有 dlopen 的构建）
+         * 里 {@code LIB_FAIL} 恰好是 {@code "absent"}——但那个分支下
+         * {@code lookforfunc} 恒返回 {@code ERRLIB}，于是照样该给
+         * {@code "open"}。靠第三个值区分「缺库 / 缺符号」的代码（不少
+         * 模块用它决定要不要继续找）会因此走错分支。
+         */
+        L.push(LuaValue.ofString(LuaString.latin1(stat == ERRLIB ? LIB_FAIL : "absent")));
         return 3;
     }
 

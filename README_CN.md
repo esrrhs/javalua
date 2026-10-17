@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 819 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 820 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1391,6 +1391,51 @@ C 里 `lua_type` 对越界下标返回 `LUA_TNONE`、取值拿到的是 `nil`；
 
 三个函数不在这张表里：`os.time` / `os.date` 第一个参数为 `nil` 时读的是时钟，
 `math.randomseed(nil)` 拿时钟播种，`io.lines` 无参会去读 stdin。
+
+#### `package` / `require` / `load` 矩阵：两处 bug，外加一个必须共用的计数器
+
+**311 行**：`package` 的静态结构、`searchpath`、`require` 的各种形态（模块返回
+`nil` / `false` / `true` / 什么都不返回、缓存语义、模块里抛错、循环依赖、
+`preload` 压过磁盘、模块名带斜杠），以及 `load` 的 `mode` / `env` /
+`chunkname` / 读函数。
+
+**其一，`package.loadlib` 的第三个返回值说的是「在哪一步失败」，不是「失败」。**
+`ERRLIB`（库打不开）给 `"open"`，`ERRFUNC`（库里没这个符号）给 `"absent"`：
+
+```c
+    lua_pushliteral(L, (stat == ERRLIB) ?  "open" : "absent");
+```
+
+我们照着「没有 dlopen 的兜底分支」写死成 `"absent"` —— 可那个分支下
+`lookforfunc` 恒返回 `ERRLIB`，照样该给 `"open"`。用第三个值决定「还找不找」
+的代码会因此走错分支。
+
+**其二，循环依赖报的不是裸的 `C stack overflow`。** 参考实现给的是：
+
+```
+error loading module '_pk_b' from file './_pk_b.lua':
+	C stack overflow
+```
+
+因为<b>语法分析器与 `luaD_call` 共用同一个计数器</b>：
+`#define enterlevel(ls) luaE_incCstack(ls->L)`。第 200 层不是在 `lua_call` 上
+撞到的，而是在某次 `luaL_loadfile` 的解析中途撞到的 —— 错误被
+`luaD_protectedparser` 兜住，`loadfile` 返回非 `LUA_OK`，最后由 `checkload`
+包上那层前缀。调用深度与表达式嵌套深度各数各的，就只能拿到裸消息。
+连模块名都钉在用例里了。
+
+修它顺带咬出计数器的另一半 —— **回滚**。`luaD_call` 的自增写在
+`try` 等价物<b>之前</b>，`luaE_checkcstack` 抛错时 `finally` 管不到那一下；
+C 靠 `luaD_rawrunprotected` 末尾的 `L->nCcalls = oldnCcalls`（在 `pcall` 边界）
+把账补回来，Java 没有 longjmp 可退。不补的话每次 C 栈溢出永久漏一层：
+用 `pcall` 递归探针量出来是 197 → 196 → 195 → 194 → 193，上游 `errors.lua`
+于是开始报 `error in error handling`，而参考实现那里是 `OK`。解析器那头同理，
+回滚点必须挂在 `lua_load` 上，挂低了（挂在二进制 / 文本分派处）一次失败的
+`load` 就漏两层。
+
+**还有一处根本没法比**：`package.loadlib` 的失败**消息**来自平台 libc
+（macOS 是 `dlopen(...)`，glibc 是 `cannot open shared object file...`），
+本实现压根不加载动态库 —— 三边三种文本，只能比「它是不是字符串」。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 
