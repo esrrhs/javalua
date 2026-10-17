@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 821 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 822 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1597,6 +1597,35 @@ macOS and glibc but then behaves differently on read, and the JVM will not open 
 directory as a stream at all. And `print` writes to the C-level `stdout`, so it
 is *not* redirected by `io.output` — a script that assumes otherwise produces
 two different wrong answers.
+
+#### The `os.time` sweep: `lua_tointegerx` converts strings
+
+The 854-line sweep covered every `os.date` conversion specifier. This one covers
+the half it did not: `os.time` with tables (leap-year carry, month/day/hour out
+of range, defaults, ignored extra fields), `difftime`, `getenv`, `remove` /
+`rename`, `tmpname`, `execute`'s exit codes, `setlocale`.
+
+**The fields of a date table are read with `lua_tointegerx`, which converts
+strings.**
+
+```c
+  lua_Integer res = lua_tointegerx(L, -1, &isnum);   /* cvt2num: strings too */
+```
+
+So `os.time{year = "2000", month = 1, day = 1}` *is* the year 2000; we reported
+`field 'year' is not an integer`. Library arguments go through the coercing
+`luaL_check*` family, while the VM's arithmetic instructions deliberately do not
+coerce — two different rules, easy to write as one.
+
+The sweep also pins down that `month` and `day` are **mandatory** (`field 'month'
+missing in date table`; `year` defaults and `hour` defaults to 12), that a field
+too large for the `int` range reports `field 'x' is out-of-bound`, and that extra
+fields (`yday`, `wday`, …) are ignored.
+
+Two things are deliberately absent: extreme years such as `year = -100`, because
+`mktime`'s representable range is `libc`-specific (macOS reports *"time result
+cannot be represented in this installation"*), and removing a **directory**,
+because `ENOTEMPTY` is 66 on macOS and 39 on glibc.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 
