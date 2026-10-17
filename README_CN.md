@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 820 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 821 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1436,6 +1436,30 @@ C 靠 `luaD_rawrunprotected` 末尾的 `L->nCcalls = oldnCcalls`（在 `pcall` �
 **还有一处根本没法比**：`package.loadlib` 的失败**消息**来自平台 libc
 （macOS 是 `dlopen(...)`，glibc 是 `cannot open shared object file...`），
 本实现压根不加载动态库 —— 三边三种文本，只能比「它是不是字符串」。
+
+#### `io` 库深矩阵：`fseek` 欠你一个 `EINVAL`
+
+`io` 原本是十个标准库里最薄的一片（167 行），这一片补上 **124 行输出**：
+`open` 的十六种合法模式与九种非法模式（非法模式是**抛错**不是返 `nil`+消息，
+`l_checkmode` 的判据是 `[rwa]%+?b?`）、`read` 的全部格式、`write` 写整数与
+浮点的形态差异、`seek` 三个起点与越界、`lines`、`setvbuf`、关两次、
+`io.output` / `io.input` 切换，以及含 `\0` 与非法 UTF-8 的二进制安全。
+
+咬出一处：**负的目标位置是 `EINVAL`，不是笼统的 IO 错**。
+
+```
+参考实现： nil	Invalid argument	22        -- seek("set", -1)
+修之前：   nil	Input/output error	5
+```
+
+`fseek` 对三种起点（`SET` / `CUR` / `END`）算出来的负偏移**一律**给 `EINVAL`，
+而 Java 的 `RandomAccessFile.seek` 抛的是 "Negative seek offset"，掉进
+`errnoOf` 的兜底分支就成了 `EIO`(5)。往 EOF **之后**定位是合法的（返回新位置，
+不报错）—— 修这条时别顺手一起拦了。
+
+两处刻意不测：`fopen` 一个**目录**在 macOS 与 glibc 上都成功、但读的行为不同，
+而 JVM 压根不允许把目录当流打开；`print` 写的是 C 层的 `stdout`，不受
+`io.output` 切换影响 —— 假设它会跟着变的脚本，两边会各自给出一个错的答案。
 
 #### 两片铺下来是干净的：协程语义、数值 `for` 与强制转换
 

@@ -314,7 +314,22 @@ public final class IoLib {
                     base = raf.length();
                     break;
                 }
-                raf.seek(base + offset);
+                /*
+                 * 负的<b>目标位置</b>是 {@code EINVAL}(22)，不是随便一个 IO 错。
+                 * C 的 {@code fseek} 在 {@code SEEK_SET} / {@code CUR} / {@code END}
+                 * 三种起点上都是这个判据——实测参考实现三种都给
+                 * {@code nil, "Invalid argument", 22}，而 Java 的
+                 * {@code RandomAccessFile.seek} 抛的是 "Negative seek offset"，
+                 * 落到 {@code errnoOf} 的兜底分支上就成了 {@code EIO}(5)。
+                 * 往 EOF <b>之后</b>定位是允许的（返回新位置，不报错），别一起拦了。
+                 */
+                long pos = base + offset;
+                if (pos < 0) {
+                    err = true;
+                    errno = 22; // EINVAL
+                    return -1;
+                }
+                raf.seek(pos);
                 return raf.getFilePointer();
             } catch (IOException e) {
                 err = true;
