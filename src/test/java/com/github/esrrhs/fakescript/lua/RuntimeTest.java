@@ -7579,4 +7579,541 @@ class RuntimeTest {
                 print(table.concat(out, "\\n"))
                 """);
     }
+
+    /**
+     * 成功路径矩阵：string 与 math 两个库：每个函数喂一组<b>正常的</b>实参，比的是返回值<b>本身</b>（不是类型）。
+     * <p>
+     * 前面那两片（{@link #libraryArityMatchesReference} 与
+     * {@link #libraryWrongArgMatchesReference}）铺的是「函数<b>在不在</b>」与
+     * 「喂错参数怎么报错」，这一片铺的是第三件事：<b>喂对参数时返回值对不对</b>。
+     * 三件事覆盖的代码路径几乎不重叠 —— 报错走的是 {@code luaL_check*} /
+     * {@code luaL_opt*} 的检查分支，成功走的是后面的计算本体，只铺前两片的话
+     * 一个算错的 {@code string.rep} 会一直绿。
+     * <p>
+     * 返回值用 {@code d()} 描述：数字带 {@code math.type} 子类型、字符串带长度、
+     * 表递归展开两层并按键排序（避开 {@code pairs} 顺序与地址）。少数几处
+     * <b>只比类型</b>：{@code os.time} / {@code os.clock} /
+     * {@code collectgarbage("count")} 的值本来就随实现变，表的 {@code tostring}
+     * 是地址（已由 {@code Diff} 的 {@code 0xADDR} 归一化接住）。
+     * <p>
+     * 敏感性是量过的，不是假设的：把 {@code string.upper} 改坏一格
+     * （{@code 'a'..'z'} → {@code 'B'..'Z'}），这一片立刻红在
+     * {@code s.upper [2] q(3)[Abc]} —— 见 README「成功路径矩阵」一节。
+     */
+    @Test
+    void stringMathSuccessMatchesReference() {
+        Diff.assertFullMatches("""
+                -- 成功路径矩阵：每个库函数喂一组「正常实参」，比返回值本身
+                local out = {}
+                local function d(v, depth)
+                  depth = depth or 0
+                  local t = type(v)
+                  if t == "nil" then return "nil" end
+                  if t == "boolean" then return tostring(v) end
+                  if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+                  if t == "string" then return string.format("q(%d)[%s]", #v, v) end
+                  if t == "function" then return "function" end
+                  if t == "thread" then return "thread:" .. tostring(coroutine.status(v)) end
+                  if t == "table" then
+                    if depth >= 2 then return "table..." end
+                    local keys, ks = {}, {}
+                    for k in pairs(v) do keys[#keys + 1] = k end
+                    table.sort(keys, function(a, b)
+                      local ta, tb = type(a), type(b)
+                      if ta ~= tb then return ta < tb end
+                      if ta == "number" or ta == "string" then return a < b end
+                      return false
+                    end)
+                    for _, k in ipairs(keys) do
+                      ks[#ks + 1] = (type(k) == "table" and "table" or d(k, 9))
+                                    .. "=" .. d(v[k], depth + 1)
+                    end
+                    return "{" .. table.concat(ks, ",") .. "}"
+                  end
+                  return t
+                end
+                local function probe(name, f, ...)
+                  local r = table.pack(pcall(f, ...))
+                  local s = name .. " [" .. r.n .. "]"
+                  for i = 2, r.n do s = s .. " " .. d(r[i]) end
+                  if not r[1] then s = s .. " ERR " .. tostring(r[2]) end
+                  out[#out + 1] = s
+                end
+                local function say(s) out[#out + 1] = s end
+
+                -- string
+                probe("s.byte", string.byte, "ABC", 2)
+                probe("s.byte0", string.byte, "ABC", 2, 3)
+                probe("s.char", string.char, 65, 66, 67)
+                probe("s.find", string.find, "hello world", "o w")
+                probe("s.findinit", string.find, "hello", "l", 4)
+                probe("s.findplain", string.find, "a.c", ".", 1, true)
+                probe("s.findcap", string.find, "hello", "(l)(l)")
+                probe("s.format_d", string.format, "%d", 42)
+                probe("s.format_5d", string.format, "%5.2f", 3.14159)
+                probe("s.format_s", string.format, "%s-%s", "a", "b")
+                probe("s.format_q", string.format, "%q", 'a"b\\n')
+                probe("s.format_x", string.format, "%x %X", 255, 255)
+                probe("s.format_pct", string.format, "100%%")
+                probe("s.format_c", string.format, "%c", 65)
+                probe("s.format_e", string.format, "%.3e", 1234.5)
+                probe("s.format_g", string.format, "%g", 0.0001)
+                probe("s.format_a", string.format, "%a", 1.0)
+                probe("s.format_i", string.format, "%i", -7)
+                probe("s.gmatch", function()
+                  local r = {}
+                  for w in ("a,b,c"):gmatch("%a") do r[#r + 1] = w end
+                  return table.concat(r, "|")
+                end)
+                probe("s.gsub", string.gsub, "hello world", "o", "0")
+                probe("s.gsubn", string.gsub, "hello", "l", "L", 1)
+                probe("s.gsubfn", string.gsub, "a1b2", "%d", function(x) return x .. x end)
+                probe("s.gsubtbl", string.gsub, "abc", "%a", { a = "X" })
+                probe("s.len", string.len, "abc")
+                probe("s.len0", string.len, "")
+                probe("s.lower", string.lower, "AbC")
+                probe("s.upper", string.upper, "AbC")
+                probe("s.rep", string.rep, "ab", 3)
+                probe("s.rep0", string.rep, "ab", 0)
+                probe("s.repsep", string.rep, "ab", 2, "-")
+                probe("s.reverse", string.reverse, "abc")
+                probe("s.sub", string.sub, "hello", 2, 4)
+                probe("s.subneg", string.sub, "hello", -3)
+                probe("s.subnoend", string.sub, "hello", 2)
+                probe("s.pack", function() return (string.pack("i4i2", 7, 8):gsub(".", function(c) return string.format("%02x", string.byte(c)) end)) end)
+                probe("s.packsize", string.packsize, "i4i2")
+                probe("s.unpack", string.unpack, "i4i2", string.pack("i4i2", 7, 8))
+
+                -- math
+                probe("m.abs_i", math.abs, -3)
+                probe("m.abs_f", math.abs, -3.5)
+                probe("m.ceil", math.ceil, 3.2)
+                probe("m.ceilneg", math.ceil, -3.2)
+                probe("m.floor", math.floor, 3.7)
+                probe("m.fmod", math.fmod, 7, 3)
+                probe("m.fmodf", math.fmod, 7.5, 2)
+                probe("m.max", math.max, 1, 5, 3)
+                probe("m.maxf", math.max, 1.5, 2)
+                probe("m.min", math.min, 1, 5, 3)
+                probe("m.modf", math.modf, 3.75)
+                probe("m.sqrt", math.sqrt, 16)
+                probe("m.sqrt2", math.sqrt, 2)
+                probe("m.toint", math.tointeger, 3.0)
+                probe("m.tointf", math.tointeger, 3.5)
+                probe("m.type", math.type, 3.0)
+                probe("m.ult", math.ult, 1, 2)
+                probe("m.exp", math.exp, 1)
+                probe("m.log", math.log, 8, 2)
+                probe("m.log10", math.log, 100, 10)
+                probe("m.sin", math.sin, 0)
+                probe("m.cos", math.cos, 0)
+                probe("m.tan", math.tan, 1)
+                probe("m.asin", math.asin, 0.5)
+                probe("m.acos", math.acos, 0.5)
+                probe("m.atan1", math.atan, 1)
+                probe("m.atan2", math.atan, 1, 2)
+                math.randomseed(42)
+                probe("m.random", math.random)
+                probe("m.random_n", math.random, 100)
+                probe("m.random_r", math.random, 10, 20)
+
+                print(table.concat(out, "\\n"))
+                """);
+    }
+
+    /**
+     * 成功路径矩阵：table / utf8 / os / coroutine。
+     * <p>
+     * 前面那两片（{@link #libraryArityMatchesReference} 与
+     * {@link #libraryWrongArgMatchesReference}）铺的是「函数<b>在不在</b>」与
+     * 「喂错参数怎么报错」，这一片铺的是第三件事：<b>喂对参数时返回值对不对</b>。
+     * 三件事覆盖的代码路径几乎不重叠 —— 报错走的是 {@code luaL_check*} /
+     * {@code luaL_opt*} 的检查分支，成功走的是后面的计算本体，只铺前两片的话
+     * 一个算错的 {@code string.rep} 会一直绿。
+     * <p>
+     * 返回值用 {@code d()} 描述：数字带 {@code math.type} 子类型、字符串带长度、
+     * 表递归展开两层并按键排序（避开 {@code pairs} 顺序与地址）。少数几处
+     * <b>只比类型</b>：{@code os.time} / {@code os.clock} /
+     * {@code collectgarbage("count")} 的值本来就随实现变，表的 {@code tostring}
+     * 是地址（已由 {@code Diff} 的 {@code 0xADDR} 归一化接住）。
+     * <p>
+     * 敏感性是量过的，不是假设的：把 {@code string.upper} 改坏一格
+     * （{@code 'a'..'z'} → {@code 'B'..'Z'}），这一片立刻红在
+     * {@code s.upper [2] q(3)[Abc]} —— 见 README「成功路径矩阵」一节。
+     */
+    @Test
+    void tableOsCoroutineSuccessMatchesReference() {
+        Diff.assertFullMatches("""
+                -- 成功路径矩阵第二片：table / utf8 / os / coroutine / io / debug / 全局
+                local out = {}
+                local function d(v, depth)
+                  depth = depth or 0
+                  local t = type(v)
+                  if t == "nil" then return "nil" end
+                  if t == "boolean" then return tostring(v) end
+                  if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+                  if t == "string" then return string.format("q(%d)[%s]", #v, v) end
+                  if t == "function" then return "function" end
+                  if t == "thread" then return "thread:" .. tostring(coroutine.status(v)) end
+                  if t == "table" then
+                    if depth >= 2 then return "table..." end
+                    local keys, ks = {}, {}
+                    for k in pairs(v) do keys[#keys + 1] = k end
+                    table.sort(keys, function(a, b)
+                      local ta, tb = type(a), type(b)
+                      if ta ~= tb then return ta < tb end
+                      if ta == "number" or ta == "string" then return a < b end
+                      return false
+                    end)
+                    for _, k in ipairs(keys) do
+                      ks[#ks + 1] = (type(k) == "table" and "table" or d(k, 9))
+                                    .. "=" .. d(v[k], depth + 1)
+                    end
+                    return "{" .. table.concat(ks, ",") .. "}"
+                  end
+                  return t
+                end
+                local function probe(name, f, ...)
+                  local r = table.pack(pcall(f, ...))
+                  local s = name .. " [" .. r.n .. "]"
+                  for i = 2, r.n do s = s .. " " .. d(r[i]) end
+                  if not r[1] then s = s .. " ERR " .. tostring(r[2]) end
+                  out[#out + 1] = s
+                end
+                local function say(s) out[#out + 1] = s end
+
+                -- table
+                local t = { 10, 20, 30 }
+                probe("t.concat", table.concat, t)
+                probe("t.concatsep", table.concat, t, "-")
+                probe("t.conatrange", table.concat, t, ",", 2, 3)
+                probe("t.insert", function() local a = { 1, 2 }; table.insert(a, 3); return a end)
+                probe("t.insertpos", function() local a = { 1, 3 }; table.insert(a, 2, 2); return a end)
+                probe("t.move", function() local a = { 1, 2, 3, 4 }; return table.move(a, 2, 3, 1) end)
+                probe("t.movedst", function() local a = { 1, 2 }; local b = { 9, 9, 9 }; return table.move(a, 1, 2, 2, b) end)
+                probe("t.pack", table.pack, 1, nil, 3)
+                probe("t.remove", function() local a = { 1, 2, 3 }; return table.remove(a, 2) end)
+                probe("t.removelast", function() local a = { 1, 2 }; return table.remove(a) end)
+                probe("t.sort", function() local a = { 3, 1, 2 }; table.sort(a); return a end)
+                probe("t.sortcmp", function() local a = { 3, 1, 2 }; table.sort(a, function(x, y) return x > y end); return a end)
+                probe("t.unpack", table.unpack, { 1, 2, 3 })
+                probe("t.unpackr", table.unpack, { 1, 2, 3 }, 2, 3)
+
+                -- utf8
+                probe("u.char", utf8.char, 0x41, 0x4E2D)
+                probe("u.codepoint", utf8.codepoint, "中", 1)
+                probe("u.codepoint2", utf8.codepoint, "中文", 1, 2)
+                probe("u.len", utf8.len, "中文a")
+                probe("u.lenrange", utf8.len, "中文", 2)
+                probe("u.offset", utf8.offset, "中文", 2)
+                probe("u.offsetneg", utf8.offset, "中文", -1)
+                probe("u.offsetn", utf8.offset, "中文", 1, 2)
+                say("u.pattern " .. utf8.charpattern)
+
+                -- os
+                probe("o.date_s", os.date, "!%Y-%m-%d %H:%M:%S", 0)
+                probe("o.date_t", function() local x = os.date("!*t", 0); x.isdst = nil; return x end)
+                probe("o.date_now", function() return type(os.date("!%Y")) end)
+                probe("o.difftime", os.difftime, 100, 50)
+                probe("o.time_tbl", os.time, { year = 2000, month = 1, day = 1, hour = 12 })
+                probe("o.time_now", function() return math.type(os.time()) end)
+                probe("o.getenv", function() return type(os.getenv("HOME")) end)
+                probe("o.getenv_miss", os.getenv, "NO_SUCH_ENV_VAR_XYZ_9")
+                probe("o.setlocale", function() return type(os.setlocale()) end)
+                probe("o.setlocale_c", function() return type(os.setlocale("C")) end)
+                probe("o.remove", function()
+                  local p = "/tmp/fkok_rm.txt"
+                  local f = io.open(p, "w"); f:write("x"); f:close()
+                  return os.remove(p), io.open(p) == nil or "still"
+                end)
+                probe("o.rename", function()
+                  local a, b = "/tmp/fkok_a.txt", "/tmp/fkok_b.txt"
+                  os.remove(a); os.remove(b)
+                  local f = io.open(a, "w"); f:write("y"); f:close()
+                  os.rename(a, b)
+                  local g = io.open(b)
+                  local r = g and g:read("a") or "none"
+                  if g then g:close() end
+                  os.remove(a); os.remove(b)
+                  return r
+                end)
+                probe("o.remove_missing", os.remove, "/tmp/fkok_no_such_file_xyz")
+
+                -- coroutine
+                probe("c.create", function() return type(coroutine.create(function() end)) end)
+                probe("c.resume", function() local co = coroutine.create(function(a, b) return a + b end); return coroutine.resume(co, 1, 2) end)
+                probe("c.status", function() local co = coroutine.create(function() end); return coroutine.status(co), (coroutine.resume(co)), coroutine.status(co) end)
+                probe("c.wrap", function() local f = coroutine.wrap(function() coroutine.yield(1); return 2 end); return f(), f() end)
+                probe("c.close", function() local co = coroutine.create(function() coroutine.yield() end); coroutine.resume(co); return coroutine.close(co) end)
+                probe("c.isyieldable", function() return coroutine.isyieldable(), (coroutine.wrap(function() return coroutine.isyieldable() end))() end)
+                probe("c.running", function() local a, b = coroutine.running(); return type(a), b end)
+                probe("c.wraperr", function() local f = coroutine.wrap(function() error("boom") end); return f() end)
+
+                print(table.concat(out, "\\n"))
+                """);
+    }
+
+    /**
+     * 成功路径矩阵：io / debug / 全局函数。
+     * <p>
+     * 前面那两片（{@link #libraryArityMatchesReference} 与
+     * {@link #libraryWrongArgMatchesReference}）铺的是「函数<b>在不在</b>」与
+     * 「喂错参数怎么报错」，这一片铺的是第三件事：<b>喂对参数时返回值对不对</b>。
+     * 三件事覆盖的代码路径几乎不重叠 —— 报错走的是 {@code luaL_check*} /
+     * {@code luaL_opt*} 的检查分支，成功走的是后面的计算本体，只铺前两片的话
+     * 一个算错的 {@code string.rep} 会一直绿。
+     * <p>
+     * 返回值用 {@code d()} 描述：数字带 {@code math.type} 子类型、字符串带长度、
+     * 表递归展开两层并按键排序（避开 {@code pairs} 顺序与地址）。少数几处
+     * <b>只比类型</b>：{@code os.time} / {@code os.clock} /
+     * {@code collectgarbage("count")} 的值本来就随实现变，表的 {@code tostring}
+     * 是地址（已由 {@code Diff} 的 {@code 0xADDR} 归一化接住）。
+     * <p>
+     * 敏感性是量过的，不是假设的：把 {@code string.upper} 改坏一格
+     * （{@code 'a'..'z'} → {@code 'B'..'Z'}），这一片立刻红在
+     * {@code s.upper [2] q(3)[Abc]} —— 见 README「成功路径矩阵」一节。
+     */
+    @Test
+    void ioDebugGlobalsSuccessMatchesReference() {
+        Diff.assertFullMatches("""
+                -- 成功路径矩阵第三片：io / debug / 全局函数
+                local out = {}
+                local function d(v, depth)
+                  depth = depth or 0
+                  local t = type(v)
+                  if t == "nil" then return "nil" end
+                  if t == "boolean" then return tostring(v) end
+                  if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+                  if t == "string" then return string.format("q(%d)[%s]", #v, v) end
+                  if t == "function" then return "function" end
+                  if t == "thread" then return "thread:" .. tostring(coroutine.status(v)) end
+                  if t == "table" then
+                    if depth >= 2 then return "table..." end
+                    local keys, ks = {}, {}
+                    for k in pairs(v) do keys[#keys + 1] = k end
+                    table.sort(keys, function(a, b)
+                      local ta, tb = type(a), type(b)
+                      if ta ~= tb then return ta < tb end
+                      if ta == "number" or ta == "string" then return a < b end
+                      return false
+                    end)
+                    for _, k in ipairs(keys) do
+                      ks[#ks + 1] = (type(k) == "table" and "table" or d(k, 9))
+                                    .. "=" .. d(v[k], depth + 1)
+                    end
+                    return "{" .. table.concat(ks, ",") .. "}"
+                  end
+                  return t
+                end
+                local function probe(name, f, ...)
+                  local r = table.pack(pcall(f, ...))
+                  local s = name .. " [" .. r.n .. "]"
+                  for i = 2, r.n do s = s .. " " .. d(r[i]) end
+                  if not r[1] then s = s .. " ERR " .. tostring(r[2]) end
+                  out[#out + 1] = s
+                end
+                local function say(s) out[#out + 1] = s end
+
+                local P = "/tmp/fkok3.txt"
+
+                -- io
+                probe("i.open_r_missing", io.open, "/tmp/fkok_no_such_xyz", "r")
+                probe("i.open_badmode", io.open, P, "q")
+                probe("i.write_read", function()
+                  local f = assert(io.open(P, "w"))
+                  local w = f:write("line1\\nline2\\n")
+                  f:close()
+                  local g = assert(io.open(P, "r"))
+                  return w, g:read("l"), g:read("l"), g:read("l"), g:close()
+                end)
+                probe("i.read_a", function()
+                  local g = assert(io.open(P, "r"))
+                  local a = g:read("a")
+                  g:close()
+                  return a
+                end)
+                probe("i.read_L", function()
+                  local g = assert(io.open(P, "r"))
+                  local a = g:read("L")
+                  g:close()
+                  return a
+                end)
+                probe("i.read_n", function()
+                  local f = assert(io.open(P, "w")); f:write("  42 3.5e1 -7"); f:close()
+                  local g = assert(io.open(P, "r"))
+                  local a, b, c, e = g:read("n", "n", "n", "n")
+                  g:close()
+                  return a, b, c, e
+                end)
+                probe("i.read_num", function()
+                  local f = assert(io.open(P, "w")); f:write("abcdef"); f:close()
+                  local g = assert(io.open(P, "r"))
+                  local a = g:read(3)
+                  local b = g:read(0)
+                  local c = g:read(10)
+                  g:close()
+                  return a, b, c
+                end)
+                probe("i.read_multi", function()
+                  local f = assert(io.open(P, "w")); f:write("a\\nb\\n"); f:close()
+                  local g = assert(io.open(P, "r"))
+                  local a, b = g:read("l", "l")
+                  g:close()
+                  return a, b
+                end)
+                probe("i.seek", function()
+                  local g = assert(io.open(P, "r"))
+                  local a = g:seek("set", 2)
+                  local b = g:seek("cur", 0)
+                  local c = g:seek("end", 0)
+                  g:close()
+                  return a, b, c
+                end)
+                probe("i.lines", function()
+                  local f = assert(io.open(P, "w")); f:write("x\\ny\\n"); f:close()
+                  local r = {}
+                  for l in io.lines(P) do r[#r + 1] = l end
+                  return table.concat(r, ",")
+                end)
+                probe("i.lines_fmt", function()
+                  local f = assert(io.open(P, "w")); f:write("ab"); f:close()
+                  local r = {}
+                  for l in io.lines(P, "l") do r[#r + 1] = l end
+                  return table.concat(r, ",")
+                end)
+                probe("i.type", function()
+                  local g = assert(io.open(P, "r"))
+                  local a = io.type(g)
+                  g:close()
+                  return a, io.type(g), io.type(io.stdout), io.type(42)
+                end)
+                probe("i.append", function()
+                  local f = assert(io.open(P, "w")); f:write("A"); f:close()
+                  local h = assert(io.open(P, "a")); h:write("B"); h:close()
+                  local g = assert(io.open(P, "r")); local a = g:read("a"); g:close()
+                  return a
+                end)
+                probe("i.flush_out", function()
+                  local f = assert(io.open(P, "w"))
+                  local a = f:flush()
+                  f:close()
+                  return a
+                end)
+                probe("i.output_input", function()
+                  local f = assert(io.open(P, "w"))
+                  local a = io.output(f)
+                  io.write("z")
+                  io.output(io.stdout)
+                  f:close()
+                  local g = assert(io.open(P, "r")); local b = g:read("a"); g:close()
+                  return a == f, b
+                end)
+                probe("i.write_num", function()
+                  local f = assert(io.open(P, "w"))
+                  f:write(1, 2.5, "x")
+                  f:close()
+                  local g = assert(io.open(P, "r")); local a = g:read("a"); g:close()
+                  return a
+                end)
+                probe("i.close_again", function()
+                  local g = assert(io.open(P, "r"))
+                  g:close()
+                  return g:close()
+                end)
+                probe("i.popen_read", function()
+                  local f = io.popen("echo hi")
+                  local a = f:read("l")
+                  return a, f:close()
+                end)
+                -- 非零退出码是 nil 不是 false（luaL_pushfail 在 5.4 里就是 lua_pushnil）
+                probe("i.popen_exit0", function() return io.popen("exit 0"):close() end)
+                probe("i.popen_exit3", function() return io.popen("exit 3"):close() end)
+                probe("i.popen_exit7", function() return io.popen("exit 7"):close() end)
+                probe("i.popen_write", function()
+                  local f = io.popen("cat > /dev/null", "w")
+                  local a = (f:write("abc") == f)
+                  return a, f:close()
+                end)
+                os.remove(P)
+
+                -- debug
+                local function named(a, b) return a + b end
+                probe("d.getinfo_n", function() local i = debug.getinfo(named, "n"); return i.name, i.namewhat end)
+                probe("d.getinfo_S", function() local i = debug.getinfo(named, "S"); return i.what, i.source == nil, type(i.short_src), i.linedefined, i.lastlinedefined end)
+                probe("d.getinfo_u", function() local up = 1; local f = function() return up end; local i = debug.getinfo(f, "u"); return i.nups, i.nparams end)
+                probe("d.getinfo_l", function() local i = debug.getinfo(1, "l"); return type(i.currentline) end)
+                probe("d.getlocal", function() local x = 7; return debug.getlocal(1, 1) end)
+                probe("d.getlocal_name", function() local zz = 1; local n, v = debug.getlocal(1, 1); return type(n), type(v) end)
+                probe("d.setlocal", function() local q = 1; debug.setlocal(1, 1, 9); return q end)
+                probe("d.getupvalue", function() local up = 5; local f = function() return up end; return debug.getupvalue(f, 1) end)
+                probe("d.setupvalue", function() local up = 5; local f = function() return up end; debug.setupvalue(f, 1, 6); return f() end)
+                probe("d.getupvalue_bad", function() local f = function() end; return debug.getupvalue(f, 1) end)
+                probe("d.traceback", function() local s = debug.traceback("MSG"); return type(s), s:sub(1, 3) end)
+                probe("d.traceback_lvl", function() return type(debug.traceback("M", 1)) end)
+                probe("d.getmetatable", debug.getmetatable, {})
+                probe("d.setmetatable", function() local t = {}; return debug.setmetatable(t, { __index = { a = 1 } }) == t, t.a end)
+                probe("d.getregistry", function() return type(debug.getregistry()) end)
+                probe("d.uservalue", function()
+                  local a = debug.getuservalue(io.stdout)
+                  local b = debug.setuservalue(io.stdout, 1)
+                  return a, b
+                end)
+                probe("d.sethook_count", function()
+                  local n = 0
+                  debug.sethook(function() n = n + 1 end, "", 10)
+                  local s = 0
+                  for i = 1, 100 do s = s + i end
+                  debug.sethook()
+                  return n > 0, s
+                end)
+                probe("d.gethook", function()
+                  debug.sethook(function() end, "c")
+                  local f = debug.gethook()
+                  debug.sethook()
+                  return type(f), type(debug.gethook())
+                end)
+
+                -- 全局
+                probe("g.assert", assert, 1, "msg")
+                probe("g.assert_multi", function() return assert(1, 2, 3) end)
+                probe("g.error0", function() return error("E", 0) end)
+                probe("g.error2", function() return error("E", 2) end)
+                probe("g.errortbl", function() return error({ code = 1 }) end)
+                probe("g.getmetatable", getmetatable, "")
+                probe("g.setmetatable", function() local t = setmetatable({}, { __len = function() return 5 end }); return #t end)
+                probe("g.ipairs", function() local s = 0; for i, v in ipairs({ 10, 20 }) do s = s + i * v end; return s end)
+                probe("g.pairs", function() local n = 0; for k in pairs({ a = 1, b = 2 }) do n = n + 1 end; return n end)
+                probe("g.next", next, { a = 1 })
+                probe("g.rawequal", rawequal, {}, {})
+                probe("g.rawget", rawget, { a = 1 }, "a")
+                probe("g.rawlen", rawlen, { 1, 2, 3 })
+                probe("g.rawlen_str", rawlen, "abc")
+                probe("g.rawset", function() local t = {}; rawset(t, "k", "v"); return t.k end)
+                probe("g.select_hash", select, "#", 1, 2, 3)
+                probe("g.select_i", select, 2, "a", "b", "c")
+                probe("g.select_neg", select, -1, "a", "b")
+                probe("g.tonumber", tonumber, "10", 2)
+                probe("g.tonumber_bad", tonumber, "zz")
+                probe("g.tonumber_hex", tonumber, "0xff")
+                probe("g.tostring", tostring, 1.5)
+                probe("g.type", type, {})
+                probe("g.load", function() return load("return 1+1")() end)
+                probe("g.load_name", function() local f, e = load("x=", "=CHUNK"); return f, e end)
+                probe("g.load_reader", function()
+                  local i = 0
+                  local parts = { "return ", "7" }
+                  return load(function() i = i + 1; return parts[i] end)()
+                end)
+                probe("g.load_binary", function() return type(load(string.dump(function() return 1 end))) end)
+                probe("g.xpcall", xpcall, function() error("x") end, function(e) return "H:" .. e end)
+                probe("g.xpcall_ok", xpcall, function() return 1, 2 end, print)
+                probe("g.pcall_nested", function() return pcall(pcall, error, "in") end)
+                probe("g.collect_count", function() return type(collectgarbage("count")) end)
+                probe("g.collect_step", function() return type(collectgarbage("step")) end)
+                probe("g.require_math", function() return require("math") == math, type(require("string")) end)
+                probe("g.require_missing", function() return require("no_such_module_xyz_1") end)
+
+                print(table.concat(out, "\\n"))
+                """);
+    }
 }
