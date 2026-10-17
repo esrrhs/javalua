@@ -10064,4 +10064,190 @@ show("14_unreachable", pcall(function()
 end))
         """);
     }
+
+    /**
+     * 类型元表矩阵：{@code debug.setmetatable} / {@code debug.getmetatable}
+     * 对<b>每种类型</b>怎么分派。
+     * <p>
+     * {@code lapi.c: lua_setmetatable} 按类型分派到三处：表 → 自己的字段、
+     * userdata → 自己的字段、其余 → {@code global_State} 的 {@code mt[]}
+     * （<b>整个类型共享一张</b>）。三条路都要量，而且要用<b>八种类型</b>逐个量：
+     * 之前 {@code LuaTm.setMetatable} 的 userdata 分支一直是 {@code nc}，
+     * 因为脚本里根本碰不到——{@code setmetatable} 的第一个参数必须是表
+     * （{@code luaL_checktype(L, 1, LUA_TTABLE)}），userdata 只能走
+     * {@code debug.setmetatable}，而套件里从来没人那么写过。48 行。
+     * <p>
+     * 逐字节一致，没有真分歧。敏感性量过：把 userdata 那个分支删掉一句，6 行变红。
+     * <p>
+     * 顺带把两条容易被写错的东西钉住：
+     * <ul>
+     *   <li><b>只有表与完整 userdata 认 {@code __name}</b>。给数字 / nil /
+     *       布尔 / 函数 / 线程 / 字符串设了带 {@code __name} 的类型元表，报错里
+     *       依然是 {@code number} / {@code nil} / {@code boolean} 等原名；
+     *       只有 userdata 变成 {@code attempt to index a M_ud value}。</li>
+     *   <li><b>字符串的类型元表就是 string 库那张</b>，换掉它 {@code ("x"):upper()}
+     *       立刻失效。所以第 9 段必须在<b>脚本最前面</b>把原表存下来再还原——
+     *       第 3 段一上来就给每种类型都设了一张空元表，那时再存就已经晚了。</li>
+     * </ul>
+     */
+    @Test
+    void typeMetatableDispatchMatchesReference() {
+        Diff.assertMatches("""
+-- 类型元表矩阵：debug.setmetatable / debug.getmetatable 对每种类型怎么分派。
+-- lapi.c: lua_setmetatable 按类型分派到三处：表 -> 自己的字段、userdata -> 自己的
+-- 字段、其余 -> global_State 的 mt[]（整个类型共享一张）。这三条路都要量。
+-- __name 是唯一能在报错里看见类型元表的窗口，所以每条都顺带看一眼报错名。
+
+local function show(...)
+    local a = { ... }
+    for i = 1, select("#", ...) do
+        a[i] = tostring(a[i])
+    end
+    print(table.concat(a, "  "))
+end
+
+-- 字符串的类型元表（就是 string 库那张）必须<b>在最前面</b>存好：第 3 段会给
+-- 每种类型都设一张带 __name 的空元表，那时它已经被顶掉了，再存就存了个空的。
+local savedStrMt = debug.getmetatable("")
+
+-- 每个类型取一个代表值。名字里带 NUL 的、地址类的都不打。
+local f = io.open("/dev/null", "r")
+local th = coroutine.create(function() end)
+local vals = {
+    { "nil", nil },
+    { "bool", true },
+    { "num", 42 },
+    { "str", "s" },
+    { "tbl", {} },
+    { "fn", print },
+    { "ud", f },
+    { "thr", th },
+}
+
+-- ==================== 1. 初始 getmetatable ====================
+for _, v in ipairs(vals) do
+    local mt = debug.getmetatable(v[2])
+    show("1_" .. v[1], type(mt), mt ~= nil and (rawget(mt, "__name") or "-") or "-")
+end
+
+-- ==================== 2. setmetatable 的参数校验 ====================
+show("2a", pcall(debug.setmetatable))
+show("2b", pcall(debug.setmetatable, 1))
+show("2c", pcall(debug.setmetatable, 1, 5))
+show("2d", pcall(debug.setmetatable, 1, "x"))
+show("2e", pcall(debug.setmetatable, 1, nil))
+show("2f", pcall(debug.setmetatable, nil, nil))
+
+-- ==================== 3. 给每个类型设元表，再看 getmetatable ====================
+for _, v in ipairs(vals) do
+    local ok, res = pcall(debug.setmetatable, v[2], { __name = "M_" .. v[1] })
+    local mt = debug.getmetatable(v[2])
+    show("3_" .. v[1], ok, type(res), type(mt), mt ~= nil and tostring(rawget(mt, "__name")) or "-")
+end
+
+-- ==================== 4. __name 能不能改报错里的类型名 ====================
+-- 注意：只有「表与完整 userdata 认 __name」（lobject.c: luaT_objtypename 的判据），
+-- 其余类型连类型元表都不看。这里逐类型实测。
+local function probe(name, v, body)
+    local ok, err = pcall(body)
+    show("4_" .. name, ok, err)
+end
+probe("num", 42, function()
+    local x = 42
+    return x.y
+end)
+probe("nil", nil, function()
+    local x
+    return x.y
+end)
+probe("bool", true, function()
+    return (true).y
+end)
+probe("fn", print, function()
+    return (print).y
+end)
+probe("thr", th, function()
+    return th.y
+end)
+probe("ud", f, function()
+    return f.y
+end)
+probe("str", "s", function()
+    return ("s").y
+end)
+
+-- ==================== 5. 类型元表真的被共享 ====================
+do
+    debug.setmetatable(1, { __name = "SHARED" })
+    local a = debug.getmetatable(1)
+    local b = debug.getmetatable(2)
+    local c = debug.getmetatable(3.5)
+    show("5_shared", a == b, tostring(rawget(a, "__name")), tostring(b ~= nil and rawget(b, "__name") or "-"),
+        tostring(c ~= nil and rawget(c, "__name") or "-"))
+    debug.setmetatable(1, nil)
+    show("5_cleared", debug.getmetatable(1))
+end
+
+-- ==================== 6. 整数与浮点是同一个类型 ====================
+do
+    debug.setmetatable(1, { __name = "NUMX" })
+    show("6a", debug.getmetatable(1) == debug.getmetatable(1.0))
+    debug.setmetatable(1, nil)
+end
+
+-- ==================== 7. userdata 的元表是「对象自己的」 ====================
+do
+    local g = io.open("/dev/null", "r")
+    debug.setmetatable(f, { __name = "F1" })
+    debug.setmetatable(g, { __name = "F2" })
+    show("7a", tostring(rawget(debug.getmetatable(f), "__name")),
+        tostring(rawget(debug.getmetatable(g), "__name")))
+    -- io.type 还认不认（认的是注册表里 FILEHANDLE* 那张，不是对象自己的）
+    show("7b", io.type(f), io.type(g))
+    -- 换成完全空的元表：__index 没了，方法也就没了
+    debug.setmetatable(f, {})
+    show("7c", io.type(f), pcall(function() return f.close end))
+    -- 还原
+    debug.setmetatable(f, nil)
+    -- 元表清掉之后 :close 也没了（__index 跟着没了），所以这里不能再关；
+    -- 句柄指向 /dev/null，漏掉无妨。实测参考实现在这里报
+    -- "attempt to index a userdata value (local 'f')" 并终止脚本。
+    show("7d", io.type(f), type(debug.getmetatable(f)))
+end
+
+-- ==================== 8. 表的元表不受 debug.setmetatable 影响分派 ============
+do
+    local t = {}
+    show("8a", debug.getmetatable(t))
+    debug.setmetatable(t, { __name = "TT" })
+    show("8b", tostring(rawget(debug.getmetatable(t), "__name")))
+    show("8c", setmetatable(t, { __name = "TT2" }) == t)
+    show("8d", tostring(rawget(debug.getmetatable(t), "__name")))
+    debug.setmetatable(t, nil)
+    show("8e", debug.getmetatable(t))
+end
+
+-- ==================== 9. 字符串类型元表（会顶掉 string 库，放最后）============
+do
+    local saved = savedStrMt
+    show("9a", type(saved), tostring(saved ~= nil and rawget(saved, "__index") ~= nil))
+    debug.setmetatable("", { __name = "STRX" })
+    show("9b", pcall(function() return ("x").y end))
+    show("9c", pcall(function() return ("x"):upper() end))
+    -- 还原，后面的代码才不会炸
+    debug.setmetatable("", saved)
+    show("9d", ("x"):upper())
+end
+
+-- ==================== 10. 协程的元表 ====================
+do
+    local co = coroutine.create(function() end)
+    debug.setmetatable(co, { __name = "COX" })
+    show("10a", tostring(rawget(debug.getmetatable(co), "__name")))
+    show("10b", pcall(function() return co.y end))
+    debug.setmetatable(co, {})
+    show("10c", tostring(rawget(debug.getmetatable(co), "__name")))
+end
+        """);
+    }
 }
