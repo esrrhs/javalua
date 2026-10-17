@@ -840,6 +840,37 @@ error loading module 'mod' from file '/tmp/mod.lua':
   `mode` 参数、`binary string` 源名规则，以及被截断与被篡改的 chunk——那些必须
   是加载期错误而不是崩）。
 
+#### 附：fuzz 语料有 89% 是死的
+
+生成器一直在产出**编译不过**的程序：
+
+* 表构造写成 `{'key0' = v}`。只有**名字**能裸着当键，字符串键必须写成
+  `[k] = v`——数字键分支加了方括号，字符串键分支没有；
+* `expression` 无条件生成 `(select('#', ...))`，而函数只有 40% 的概率声明
+  `...`。非变长函数里写它就是
+  `cannot use '...' outside a vararg function`。
+
+拿参考的 `luac` 量了一下：**200 颗种子里 178 个编不过**。编不过的程序在两边是
+**同一条编译错误**，比对照样「一致」——这道最硬的闸门在几万颗种子上静默地什么
+也没测。修完（键一律加方括号；生成器跟踪「当前函数在生成的是不是变长」）复测：
+0 / 400。
+
+`FuzzTest.assertCompiles` 让这个状态不可能再出现：参考实现的输出只要是编译期
+错误的形状，那颗种子直接判失败。判据是「消息以 `near 'tok'` 收尾」而不是
+「含 `expected`」——运行期错误里到处是 `expected`
+（`bad argument #1 to 'upper' (string expected, got nil)`），而那些是**期望之中**
+的。
+
+#### 顺带把字节码那条路也 fuzz 上
+
+常规 fuzz 走的一直是文本路径，`Dump` / `Undump` 只被几十条手写用例碰过——
+「require 加载不了预编译 chunk」恰好就在这个盲区里。
+`generatedChunksSurviveDumpAndUndump` 补上：把生成的程序体包进变长函数，
+`string.dump` 出来再 `load` 回来跑。于是几千个**随机的** `Proto` 被推过序列化：
+常量表顺序与变长编码、行号表、局部变量与 upvalue 的调试名、`maxstacksize`、
+嵌套 proto。另有一条哨兵输出（`dumped true loaded true`）被断言，
+`string.dump` 静默失败没法再伪装成一致。
+
 ### 还没补上的
 
 语言与十个标准库本身没有缺项，上游套件里能逐字节比的那些也都比过了。剩下的是

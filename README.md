@@ -968,6 +968,42 @@ The fix is at the `lua_load` layer, not a patch on `require`:
   the `mode` argument, the `binary string` chunk-name rule, and truncated or
   tampered chunks, which must be load-time errors rather than crashes).
 
+#### And the fuzz corpus was 89% dead
+
+The generator had been emitting programs that do not compile:
+
+* table constructors wrote `{'key0' = v}`. Only a *name* can be a bare key, so a
+  string key needs `[k] = v` — the numeric case was bracketed, the string case was
+  not;
+* `expression` emitted `(select('#', ...))` unconditionally, while a function
+  declares `...` only 40% of the time. Outside a vararg function that is
+  `cannot use '...' outside a vararg function`.
+
+Measured with the reference `luac`: **178 of 200 seeds failed to compile.** A
+program that does not compile produces the *same* error on both sides, so the
+comparison "passes" while proving nothing — the strongest gate had been quietly
+vacuous over tens of thousands of seeds. Fixed (keys are always bracketed; the
+generator tracks whether the function being built is vararg), and re-measured:
+0 / 400.
+
+`FuzzTest.assertCompiles` now makes that state unrepresentable: it fails the seed
+whose reference output has the shape of a compile error. The discriminator is
+"the message ends in `near 'tok'`" rather than "contains `expected`", because
+runtime errors are full of `expected` (`bad argument #1 to 'upper' (string
+expected, got nil)`) and those are *supposed* to happen.
+
+#### Fuzzing the bytecode path too
+
+Ordinary fuzzing only ever takes the text path — `Dump` and `Undump` were touched
+by a few dozen hand-written cases, which is exactly the blind spot the
+`require`-a-precompiled-chunk bug lived in. `generatedChunksSurviveDumpAndUndump`
+closes it: the generated body is wrapped in a vararg function, `string.dump`ed,
+`load`ed back and run. That pushes thousands of *random* `Proto`s through
+serialization — constant-table order and varint encoding, line info, local and
+upvalue debug names, `maxstacksize`, nested protos. A sentinel print
+(`dumped true loaded true`) is asserted on, so a silent `string.dump` failure
+cannot masquerade as agreement.
+
 ### What is still missing
 
 Nothing in the language or the ten standard libraries, and every upstream file
