@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 811 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 814 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1231,6 +1231,129 @@ C 在调用任何东西<b>之前</b>就先校验消息处理函数必须是函�
 （那片探针还有个陷阱：`local function f() return f() end` 是<b>尾调用</b>，
 不占栈，会变成死循环而不是溢出 —— 参考实现实测挂满 5 分钟才被杀。
 所以探针里一律写成 `return 1 + f()` 这种非尾形式。）
+
+#### 三片扫下来是干净的
+
+不是每片都能咬出东西。`math` 全函数 × 30 个边界值（含 ±inf、nan、-0.0、
+`maxinteger`、`mininteger`、`2^53`、`2^63`、`1/3`）、`modf` 的两个返回值、
+`log` 的底、每个函数六类参数错误、播种后的随机序列，加上 `os` 里输出确定的
+那部分，共 **1423 行**，干净。照样留在套件里，理由三条：
+
+* **浮点的最后一比特**：`math.sin` 这些走的是 `libm`，`Math.sin` 与之未必
+  逐比特一致。默认 `tostring` 只打 14 位有效数字，正好把它盖住 —— 这片证的
+  是「确实盖得住」，而不是「从来没看过」。
+* **`math.random` 的序列**：xoshiro256** 把它定死了，播种后必须逐个对上。
+* **`errno` / `strerror` 那一层**，在 `os.remove` / `os.rename` 上再碰一次。
+
+其中有三处<b>根本没法测</b>：`os.clock`（耗时）、无参 `math.randomseed`
+（拿时钟播种）、无参 `os.time`（当前时间）。
+
+#### `string` 库矩阵：咬出两条，外加一处参考实现自己都对不上的
+
+`string` 库<b>非模式匹配</b>的那一半 —— `sub` / `byte` / `char` / `rep` /
+`upper` / `lower` / `len` / `reverse` / `format` / `tonumber(base)` /
+`tostring`（模式匹配的 pattern 语义另有 24819 行那片单独覆盖）——
+铺开 **3921 行**，咬出两条：
+
+**其一，`__name` 走的是 C 字符串语义。**
+
+```c
+        int tt = luaL_getmetafield(L, idx, "__name");
+        const char *kind = (tt == LUA_TSTRING) ? lua_tostring(L, -1) : ...;
+        lua_pushfstring(L, "%s: %p", kind, lua_topointer(L, idx));
+```
+
+`lua_tostring` 交出来的是 `const char *`，`"%s"` 又按 C 字符串处理，于是名字
+在第一个 `\0` 处被悄悄砍断：`__name = "A\0B"`，参考实现只打印 `A`，我们把整个
+`"A\0B"` 都打了出去。Lua 字符串不以 NUL 结尾、C 字符串以 NUL 结尾，这一局是
+后者赢。修法是 `LuaString.toCString()`，专供「C 版当 `const char *` 用」的那些
+地方。
+
+**其二，`%p` 不补前导零。** 地址写成了 `0x%016x`，参考实现是 `0x7ab30002c0`
+这种不补零的样子（macOS 与 glibc 都不补）。
+
+**再有一处是两边根本不能比的**：`"+"` / 空格标志作用在 NaN 上时，macOS 的 libc
+不打符号（`nan`），glibc 打（`+nan`）。CI 的 conformance job 在 ubuntu 上跑、
+本机在 macOS 上跑，于是**参考实现自己**两次跑出来就不一样。脚本里先把 NaN 的
+符号抹掉再比，实现这边保持与 glibc 一致。
+
+#### 顺带发现：参考实现有一处是<b>不确定</b>的
+
+`math` 矩阵第一次跑红了，报的是 `math.atan` 的报错名对不上。查下去才发现
+`atan` 与 `atan2` 在 `lmathlib.c` 里是<b>同一个</b> `math_atan`：
+
+```c
+  {"atan",  math_atan},
+  ...
+#if defined(LUA_COMPAT_MATHLIB)
+  {"atan2", math_atan},
+```
+
+报错里的函数名由 `lauxlib.c: findfield` 遍历 `package.loaded` 时**先撞见谁**
+决定，而那个顺序由字符串哈希决定，哈希又被 `luai_makeseed`（按时间）播种：
+
+```
+$ for i in 1 2 3; do lua -e 'print(pcall(math.atan))'; done
+false  bad argument #1 to 'math.atan2' (number expected, got no value)
+false  bad argument #1 to 'math.atan2' (number expected, got no value)
+false  bad argument #1 to 'math.atan'  (number expected, got no value)
+```
+
+八次里六次 `atan2`、两次 `atan`。**参考实现不确定，我们确定**（哈希不按时间
+播种），这是有意保留的偏离。把 `math` / `string` / `table` / `os` / `io` /
+`coroutine` / `debug` 七个库<b>所有</b>函数的零参报错名各跑八遍扫过，
+`atan` 是唯一会变的一个；脚本里统一成 `atan` 再比。
+
+#### 元方法与「参数缺失」矩阵：同一个根因咬出七处
+
+元方法语义 × 变量来源推断 × 参数缺失，**2025 行**。前两片是干净的：
+19 个二元操作符 × 9 类值、`-` / `#` / `~` / `not`，以及
+`global` / `local` / `upvalue` / `field` / `method` / `constant` / 变长参数
+这七种上下文里同一句报错带的不同后缀 —— 那部分本来就对。
+
+咬出的全在第三片：六十来个库函数各用「不传 / `nil` / 数字 / 字符串 / 表 /
+布尔」调一遍。根子就一个 —— **缺的参数读到的是残值**。
+
+```java
+public LuaValue arg(int i) {
+    return stack[ci.func + 1 + i];   // 越界？读到的是上一帧留下的东西
+}
+```
+
+C 里 `lua_type` 对越界下标返回 `LUA_TNONE`、取值拿到的是 `nil`；我们的栈是
+**复用的数组**，越界读出来的是上一帧留下的东西。于是：
+
+| | 参考实现 | 修之前 |
+| --- | --- | --- |
+| `pcall(setmetatable)` | `(table expected, got no value)` | `got function` / `got nil`（看那一刻槽里是什么） |
+| `assert()` | `false  bad argument #1 to 'assert' (value expected)` | `true`（残值为真 → 返回 0 个值） |
+| `ipairs()` | `(value expected)` | `true  function 0 0` |
+
+**同一个用例这次绿、下次红**——这类最难查。改成越界返回 `nil` 之后才谈得上
+「缺参」到底是什么语义，接着就是七处：
+
+1. **缺参报 `no value`，不是 `nil`**：`rawlen` / `rawequal` / `rawget` /
+   `rawset` / `setmetatable` / 五个 `coroutine.*`，全军覆没。C 的
+   `luaL_typename` 对越界下标给 `no value`。
+2. **`rawequal` 漏了两遍 `luaL_checkany`**：`rawequal(1)` 本该报
+   `bad argument #2 ... (value expected)`，我们返回 `true true`。
+3. **`pairs` / `ipairs` 不要求是表**：C 只做 `luaL_checkany`，
+   `pairs(5)` 照样返回三个值，真正炸是在迭代时 `next(5)` 报
+   `(table expected, got number)`。我们多加了「必须是表」，把它变成报错。
+4. **`select` 的 `#` 只比第一个字节**：C 是
+   `*lua_tostring(L, 1) == '#'`，所以 `select("#abc", 1)` 也是「数个数」，
+   返回 1；判断整串等于 `"#"` 就漏了。另外缺参报的是
+   `number expected, got no value`，不是 `value expected`。
+5. **`rawget` 没有「键不能是 nil」那条**：`rawget({}, nil)` 是 `true nil`
+   （nil 键落到 `ltable.c` 的 dummynode）。报「table index is nil」的是
+   `rawset`，那条来自 `luaH_newkey`。
+6. **`setmetatable` 的第二个参数**走 `luaL_argexpected`，必须带
+   `got <实际类型>`；而且缺参是 `TNONE`，不属于 {nil, table}，所以
+   `setmetatable({})` 要报错 —— 我们把它当合法放过去了。
+7. **`next` 的第二个参数不给就补一个**，不是报错（C 的 `lua_settop(L, 2)`）。
+
+（顺带：`__index` 链、`__eq` / `__lt` 的回退、`__metatable` 保护、元方法自身
+报错、把带 `__call` 的表当元方法用 —— 那些一行不差。）
 
 ### 还没补上的
 

@@ -148,20 +148,16 @@ public final class BaseLib {
         return 0;
     }
 
-    /** {@code luaB_type} */
+    /** {@code luaB_type}：{@code luaL_argcheck(t != LUA_TNONE, 1, "value expected")} */
     private static int type(LuaState L) {
-        if (L.argCount() == 0) {
-            throw L.libError("bad argument #1 to 'type' (value expected)");
-        }
+        LuaAux.argCheck(L, !L.isNoneArg(1), 1, "value expected");
         L.push(LuaValue.ofString(LuaString.latin1(L.arg(0).typeName())));
         return 1;
     }
 
     /** {@code luaB_tostring} */
     private static int tostring(LuaState L) {
-        if (L.argCount() == 0) {
-            throw L.libError("bad argument #1 to 'tostring' (value expected)");
-        }
+        LuaAux.checkAny(L, 1);
         L.push(LuaValue.ofString(toLString(L, L.arg(0))));
         return 1;
     }
@@ -209,13 +205,23 @@ public final class BaseLib {
         case Lua.TNIL:
             return LuaString.latin1("nil");
         default: {
-            String kind = v.typeName();
+            LuaString kind = LuaString.latin1(v.typeName());
             LuaValue name = metamethodByName(L, v, "__name");
             if (name != null && name.isString()) {
-                kind = name.asString().toJavaString();
+                /*
+                 * __name 走的是 C 字符串语义：lauxlib.c: luaL_tolstring 取到 __name
+                 * 后用 lua_tostring 转成 const char*，再拿 "%s" 拼进 "名字: 0x地址"，
+                 * 于是名字在第一个 \0 处被砍断。__name = "A\0B" 只打印出 "A"。
+                 */
+                kind = name.asString().toCString();
             }
-            String ptr = String.format("0x%016x", System.identityHashCode(v.o));
-            return LuaString.latin1(kind + ": " + ptr);
+            /*
+             * 地址用 C 的 "%p" 格式：0x 加十六进制、<b>不补前导零</b>
+             * （macOS 打出 0x7ab30002c0，glibc 打出 0x55d3...）。补成 16 位
+             * 只是看着整齐，跟参考实现对不上。
+             */
+            String ptr = "0x" + Integer.toHexString(System.identityHashCode(v.o));
+            return kind.concat(LuaString.latin1(": " + ptr));
         }
         }
     }
@@ -328,17 +334,22 @@ public final class BaseLib {
         return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
     }
 
-    /** {@code luaB_rawget} */
+    /**
+     * {@code luaB_rawget}。
+     * <p>
+     * C 只做 {@code luaL_checktype(1, TABLE)} 与 {@code luaL_checkany(2)}
+     * <b>两条</b>校验，<b>没有</b>「键不能是 nil」那条 —— {@code rawget({}, nil)}
+     * 是 {@code true nil}（nil 键走 {@code luaH_get} 落到 dummynode）。报
+     * 「table index is nil」的是 {@code rawset}，那条来自
+     * {@code ltable.c: luaH_newkey}。
+     * <p>
+     * 曾经这里既漏了 {@code checkAny(2)}，又自作主张加了 nil 键校验。
+     */
     private static int rawget(LuaState L) {
+        LuaAux.checkType(L, 1, Lua.TTABLE);
+        LuaAux.checkAny(L, 2);
         LuaValue t = L.arg(0);
         LuaValue k = L.arg(1);
-        if (!t.isTable()) {
-            throw L.libError("bad argument #1 to 'rawget' (table expected, got " + t.typeName()
-                    + ")");
-        }
-        if (k.isNil()) {
-            throw L.libError("table index is nil");
-        }
         LuaValue v = t.asTable().get(k);
         L.push((v == null) ? LuaValue.ofNil() : v);
         return 1;
@@ -346,47 +357,57 @@ public final class BaseLib {
 
     /** {@code luaB_rawset} */
     private static int rawset(LuaState L) {
+        LuaAux.checkType(L, 1, Lua.TTABLE);
+        LuaAux.checkAny(L, 2);
+        LuaAux.checkAny(L, 3);
         LuaValue t = L.arg(0);
-        LuaValue k = L.arg(1);
-        LuaValue v = L.arg(2);
-        if (!t.isTable()) {
-            throw L.libError("bad argument #1 to 'rawset' (table expected, got " + t.typeName()
-                    + ")");
-        }
-        t.asTable().set(k, v);
+        t.asTable().set(L.arg(1), L.arg(2));
         L.push(t);
         return 1;
     }
 
-    /** {@code luaB_rawequal} */
+    /**
+     * {@code luaB_rawequal}。
+     * <p>
+     * {@code luaL_checkany} 要做<b>两遍</b>（第 1、第 2 参数各一遍）：
+     * {@code rawequal(1)} 报 {@code bad argument #2 ... (value expected)}。
+     * 曾经一遍也没做，于是 {@code pcall(rawequal, 1)} 直接返回 {@code true true}。
+     */
     private static int rawequal(LuaState L) {
+        LuaAux.checkAny(L, 1);
+        LuaAux.checkAny(L, 2);
         L.push(LuaValue.ofBoolean(LuaValue.rawEqual(L.arg(0), L.arg(1))));
         return 1;
     }
 
-    /** {@code luaB_rawlen} */
+    /**
+     * {@code luaB_rawlen}：走 {@code luaL_argexpected}，条件是「类型是表或字符串」。
+     * <p>
+     * 缺参时 {@code lua_type} 是 {@code LUA_TNONE}，既不是表也不是字符串，
+     * 所以报 {@code got no value} —— 用 {@link LuaState#argTypeName} 取类型名，
+     * 它把越界翻译成 {@code no value}。
+     */
     private static int rawlen(LuaState L) {
+        int t = L.argBaseType(1);
+        LuaAux.argExpected(L, t == Lua.TTABLE || t == Lua.TSTRING, 1, "table or string");
         LuaValue v = L.arg(0);
         if (v.isTable()) {
             L.push(LuaValue.ofInteger(v.asTable().length()));
             return 1;
         }
-        if (v.isString()) {
-            L.push(LuaValue.ofInteger(v.asString().length()));
-            return 1;
-        }
-        throw L.libError("bad argument #1 to 'rawlen' (table or string expected, got "
-                + v.typeName() + ")");
+        L.push(LuaValue.ofInteger(v.asString().length()));
+        return 1;
     }
 
     /** {@code luaB_next} */
     private static int next(LuaState L) {
+        /*
+         * C 是 {@code luaL_checktype(1, TABLE)} 然后 {@code lua_settop(L, 2)}
+         * —— 第二个参数不给就<b>补一个</b>（补出来的是 nil），不是报错。
+         */
+        LuaAux.checkType(L, 1, Lua.TTABLE);
         LuaValue t = L.arg(0);
-        LuaValue k = L.argCount() > 1 ? L.arg(1) : LuaValue.ofNil();
-        if (!t.isTable()) {
-            throw L.libError("bad argument #1 to 'next' (table expected, got " + t.typeName()
-                    + ")");
-        }
+        LuaValue k = L.arg(1);
         LuaValue[] kv;
         try {
             kv = t.asTable().next(k);
@@ -410,11 +431,17 @@ public final class BaseLib {
      */
     private static final LuaKFunction PAIRS_CONT = (L, status, ctx) -> 3;
 
-    /** {@code luaB_pairs}（含 {@code __pairs} 元方法） */
+    /**
+     * {@code luaB_pairs}（含 {@code __pairs} 元方法）。
+     * <p>
+     * C 只做 {@code luaL_checkany(L, 1)}——<b>不</b>要求是表。没有
+     * {@code __pairs} 时照样返回 {@code (next, 值, nil)}，于是
+     * {@code pairs(5)} 是三个返回值而不是报错；真正炸是在迭代时
+     * {@code next(5)} 报 {@code bad argument #1 to 'next' (table expected, got number)}。
+     * 曾经这里多加了「必须是表」的校验，把 {@code pairs(5)} 变成报错。
+     */
     private static int pairs(LuaState L) {
-        if (L.argCount() == 0) {
-            throw L.libError("bad argument #1 to 'pairs' (value expected)");
-        }
+        LuaAux.checkAny(L, 1);
         LuaValue t = L.arg(0);
         LuaValue pf = metamethodByName(L, t, "__pairs");
         if (pf != null) {
@@ -432,21 +459,15 @@ public final class BaseLib {
             L.callK(func, 3, 0, PAIRS_CONT);
             return 3;
         }
-        if (!t.isTable()) {
-            throw L.libError("bad argument #1 to 'pairs' (table expected, got " + t.typeName()
-                    + ")");
-        }
         L.pushFunction(BaseLib::next);
         L.push(t);
         L.pushNil();
         return 3;
     }
 
-    /** {@code luaB_ipairs} */
+    /** {@code luaB_ipairs}：与 {@code pairs} 一样只 {@code luaL_checkany} */
     private static int ipairs(LuaState L) {
-        if (L.argCount() == 0) {
-            throw L.libError("bad argument #1 to 'ipairs' (value expected)");
-        }
+        LuaAux.checkAny(L, 1);
         L.pushFunction(BaseLib::ipairsAux);
         L.push(L.arg(0));
         L.push(LuaValue.ofInteger(0));
@@ -473,14 +494,25 @@ public final class BaseLib {
         return L.stack[vIdx].isNil() ? 1 : 2;
     }
 
-    /** {@code luaB_select} */
+    /**
+     * {@code luaB_select}。
+     * <p>
+     * 两处容易写错，都是实测出来的：
+     * <ul>
+     *   <li><b>{@code #} 只比第一个字节</b>：C 是
+     *       {@code *lua_tostring(L, 1) == '#'}，所以 {@code select("#abc", 1)}
+     *       也是「数个数」，返回 1 —— 判断整串等于 {@code "#"} 就漏了。</li>
+     *   <li><b>缺参报的是 {@code number expected, got no value}</b>：没有
+     *       「至少一个参数」那条检查，缺参直接落进
+     *       {@code luaL_checkinteger(L, 1)}。曾经先判 {@code n == 0} 报
+     *       {@code value expected}，跟参考实现对不上。</li>
+     * </ul>
+     */
     private static int select(LuaState L) {
         int n = L.argCount();
-        if (n == 0) {
-            throw L.libError("bad argument #1 to 'select' (value expected)");
-        }
         LuaValue first = L.arg(0);
-        if (first.isString() && first.asString().toJavaString().equals("#")) {
+        if (first.isString() && first.asString().length() > 0
+                && first.asString().byteAt(0) == '#') {
             L.push(LuaValue.ofInteger(n - 1));
             return 1;
         }
@@ -490,9 +522,7 @@ public final class BaseLib {
         } else if (i > n) {
             i = n;
         }
-        if (i < 1) {
-            throw L.libError("bad argument #1 to 'select' (index out of range)");
-        }
+        LuaAux.argCheck(L, i >= 1, 1, "index out of range");
         int start = L.ci.func + 1 + (int) i; // 绝对下标：跳过前 i 个参数
         int count = n - (int) i;
         for (int j = 0; j < count; j++) {
@@ -535,18 +565,23 @@ public final class BaseLib {
         throw L.errorAt(L.stack[L.top - 1], 0);
     }
 
-    /** {@code luaB_assert} */
+    /**
+     * {@code luaB_assert}。
+     * <p>
+     * 校验的位置照抄 C：{@code luaL_checkany} 在<b>条件为假</b>那一支里，
+     * 不在函数开头。{@code assert()} 走的是「条件假 → 报 value expected」。
+     * 曾经写成「一个参数也没有就报」，措辞对、位置不对 —— 而真正咬人的是
+     * {@code L.arg(0)} 会读到残值：残值为真时 {@code assert()} 直接返回 0 个值。
+     */
     private static int assertFn(LuaState L) {
         int n = L.argCount();
-        if (n == 0) {
-            throw L.libError("bad argument #1 to 'assert' (value expected)");
-        }
         if (L.arg(0).toBoolean()) {
             for (int i = 0; i < n; i++) {
                 L.push(L.arg(i));
             }
             return n;
         }
+        LuaAux.checkAny(L, 1);
         LuaValue msg = (n > 1) ? L.arg(1)
                 : LuaValue.ofString(LuaString.latin1("assertion failed!"));
         throw L.errorAt(msg, 1);
@@ -554,9 +589,7 @@ public final class BaseLib {
 
     /** {@code luaB_pcall} */
     private static int pcall(LuaState L) {
-        if (L.argCount() == 0) {
-            throw L.libError("bad argument #1 to 'pcall' (value expected)");
-        }
+        LuaAux.checkAny(L, 1);
         return doPcall(L, false);
     }
 
@@ -670,15 +703,18 @@ public final class BaseLib {
 
     /** {@code luaB_setmetatable} */
     private static int setmetatable(LuaState L) {
+        LuaAux.checkType(L, 1, Lua.TTABLE);
+        /*
+         * 第二个参数走 {@code luaL_argexpected}，措辞是
+         * 「nil or table expected, got <b>实际类型</b>」——那个 {@code got} 不能省，
+         * 省了就成了裸的「nil or table expected」。
+         * 条件是 {@code lua_type(2)} 属于 {nil, table}：<b>缺参是 TNONE</b>，
+         * 不属于，所以 {@code setmetatable({})} 报错，报的是 {@code got no value}。
+         */
+        int t2 = L.argBaseType(2);
+        LuaAux.argExpected(L, t2 == Lua.TNIL || t2 == Lua.TTABLE, 2, "nil or table");
         LuaValue t = L.arg(0);
         LuaValue mt = L.arg(1);
-        if (!t.isTable()) {
-            throw L.libError("bad argument #1 to 'setmetatable' (table expected, got "
-                    + t.typeName() + ")");
-        }
-        if (!(mt.isNil() || mt.isTable())) {
-            throw L.libError("bad argument #2 to 'setmetatable' (nil or table expected)");
-        }
         if (metamethodByName(L, t, "__metatable") != null) {
             throw L.libError("cannot change a protected metatable");
         }
@@ -691,9 +727,7 @@ public final class BaseLib {
 
     /** {@code luaB_getmetatable} */
     private static int getmetatable(LuaState L) {
-        if (L.argCount() == 0) {
-            throw L.libError("bad argument #1 to 'getmetatable' (value expected)");
-        }
+        LuaAux.checkAny(L, 1);
         LuaValue v = L.arg(0);
         LuaValue protect = metamethodByName(L, v, "__metatable");
         if (protect != null) {

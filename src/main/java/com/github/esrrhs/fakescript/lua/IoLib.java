@@ -447,8 +447,9 @@ public final class IoLib {
         if (p.closef == null) {
             L.push(LuaValue.ofString(LuaString.latin1("file (closed)")));
         } else {
+            // "%p" 不补前导零，与 BaseLib.tostring 的地址形状保持一致
             L.push(LuaValue.ofString(LuaString.latin1(
-                    String.format("file (0x%016x)", System.identityHashCode(p)))));
+                    "file (0x" + Integer.toHexString(System.identityHashCode(p)) + ")")));
         }
         return 1;
     }

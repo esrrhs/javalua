@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 811 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 814 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1413,6 +1413,76 @@ match, and `RuntimeTest.stackOverflowDepthAndLineMatchReference` now sweeps them
 call**, consumes no stack, and loops forever instead of overflowing — the
 reference binary had to be killed after five minutes. The probe uses
 `return 1 + f()`.)
+
+#### And three sweeps that came back clean
+
+Not every sweep finds something. `math` (every function × 30 boundary values
+including ±inf, nan, −0.0, `maxinteger`, `mininteger`, `2^53`, `2^63`, `1/3`; both
+return values of `modf`; `log`'s base; six kinds of argument error per function;
+the seeded random sequence) plus the deterministic parts of `os`, **1423 lines**,
+is clean. It stays in the suite for three reasons:
+
+* **The last bit of floating point.** `math.sin` and friends go through `libm`;
+  `Math.sin` need not agree bit for bit. Default `tostring` prints 14 significant
+  digits, which happens to hide it — the sweep proves it is hidden, rather than
+  never having been looked at.
+* **`math.random`'s sequence** — xoshiro256\*\* pins it exactly, so a seeded run
+  must match number for number.
+* **The `errno` / `strerror` layer** again, on `os.remove` / `os.rename`.
+
+Three things there cannot be tested at all: `os.clock` (elapsed time), a
+`math.randomseed` with no argument (seeds from the clock), and `os.time` with no
+argument (current time).
+
+One catch while landing it: `math.atan` and `math.atan2` are **the same**
+`math_atan` in `lmathlib.c`, so which name shows up in the error message is
+decided by whichever key `lauxlib.c: findfield` runs into first while walking
+`package.loaded` — and that order comes from the string hash, which is seeded by
+`luai_makeseed` (time-based). The reference binary is **nondeterministic** here:
+
+```
+$ for i in 1 2 3; do lua -e 'print(pcall(math.atan))'; done
+false  bad argument #1 to 'math.atan2' (number expected, got no value)
+false  bad argument #1 to 'math.atan2' (number expected, got no value)
+false  bad argument #1 to 'math.atan'  (number expected, got no value)
+```
+
+Six `atan2` and two `atan` out of eight runs. We are deterministic (the hash is
+not seeded) and that is a deliberate deviation. Sweeping the zero-argument error
+name of **every** function in `math`, `string`, `table`, `os`, `io`, `coroutine`
+and `debug`, eight runs each, `atan` is the only one that moves; the script now
+normalises it before comparing.
+
+#### The `string` sweep: two bugs, and one thing the reference disagrees with itself about
+
+The non-pattern-matching half of the `string` library — `sub`, `byte`, `char`,
+`rep`, `upper`, `lower`, `len`, `reverse`, `format`, `tonumber(base)`, `tostring`
+(pattern semantics are covered separately by the 24819-line sweep) — **3921
+lines**, and it found two:
+
+**`__name` follows C string rules.**
+
+```c
+        int tt = luaL_getmetafield(L, idx, "__name");
+        const char *kind = (tt == LUA_TSTRING) ? lua_tostring(L, -1) : ...;
+        lua_pushfstring(L, "%s: %p", kind, lua_topointer(L, idx));
+```
+
+`lua_tostring` hands back a `const char *` and `"%s"` treats it as a C string, so
+the name is cut at the first `\0`: with `__name = "A\0B"` the reference prints
+just `A`, while we printed the whole `"A\0B"`. Lua strings are not
+NUL-terminated, C strings are, and here C wins. Fixed with
+`LuaString.toCString()`, for the places where the C code uses a value as a
+`const char *`.
+
+**`%p` does not zero-pad.** The address was formatted `0x%016x`; the reference
+prints `0x7ab30002c0`, with no leading zeros (neither macOS nor glibc pads).
+
+**And one thing that cannot be compared at all:** with the `+` or space flag on a
+NaN, macOS libc prints no sign (`nan`) while glibc prints one (`+nan`). CI's
+conformance job runs on ubuntu, this machine runs macOS, so the **reference
+itself** differs between the two. The script strips NaN's sign before comparing;
+the implementation stays glibc-compatible.
 
 ### What is still missing
 

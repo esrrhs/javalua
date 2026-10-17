@@ -920,7 +920,16 @@ public final class LuaState {
 
     /** 第 i 个参数（0 起） */
     public LuaValue arg(int i) {
-        return stack[ci.func + 1 + i];
+        int idx = ci.func + 1 + i;
+        /*
+         * 越界必须给 nil，不能把栈槽里的<b>残值</b>交出去。
+         * C 里 lua_type 对越界下标返回 LUA_TNONE，取值拿到的是 nilvalue；
+         * 而我们的栈是复用的数组，越界读出来的是<b>上一帧留下的东西</b>——
+         * 实测 pcall(setmetatable) 有时报 "got function"、有时 "got nil"，
+         * 取决于那一刻槽里恰好是什么。这类 bug 的难处在于它<b>随机</b>：
+         * 同一个用例这次绿下次红。
+         */
+        return (idx >= top) ? LuaValue.ofNil() : stack[idx];
     }
 
     /** {@code lua_settop}（正数下标版：1 = 第一个参数，0 = 清空） */
@@ -2318,6 +2327,18 @@ public final class LuaState {
     /** {@code luaL_typename}：越界是 {@code no value} */
     String argTypeName(int arg) {
         return isNoneArg(arg) ? "no value" : stack[ci.func + arg].typeName();
+    }
+
+    /**
+     * {@code lua_type}（1 起参数下标）：越界是 {@link Lua#TNONE} 而不是 nil。
+     * <p>
+     * 专供 {@code luaL_argexpected} 那类「条件是若干类型之一」的判断：
+     * 缺参必须落进<b>不满足</b>那一支，否则 {@code setmetatable({})} 会因为
+     * 「nil 也算合法」而静默通过 —— 参考实现报
+     * {@code bad argument #2 to 'setmetatable' (nil or table expected, got no value)}。
+     */
+    int argBaseType(int arg) {
+        return isNoneArg(arg) ? Lua.TNONE : stack[ci.func + arg].baseType();
     }
 
     /**
