@@ -1,9 +1,14 @@
 package com.github.esrrhs.fakescript.lua;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -330,4 +335,58 @@ class StringLibTest {
             print(string.format("%s %s", "a"))
             """,
     };
+
+    /**
+     * 次正规浮点的 {@code %q} —— <b>刻意不进差分表</b>。
+     * <p>
+     * {@code lstrlib.c: quotefloat} 用的是 C 的 {@code %a}：
+     * <pre>
+     * int nb = lua_number2strx(L, buff, MAX_ITEM, "%a", n);
+     * </pre>
+     * C99 对 {@code %a} 只规定「小数点左边恰好一位十六进制数字」，并且
+     * 「这个数字只在数<b>次正规</b>时为 0，其它情况取值由实现定义」——
+     * 次正规怎么写属于 <i>unspecified</i>。实测两个 libc 正好相反：
+     * <ul>
+     *   <li><b>glibc</b>（CI 的 ubuntu）：忠实于机器编码，
+     *       {@code 5e-324} → {@code 0x0.0000000000001p-1022}；</li>
+     *   <li><b>Apple libc / musl</b>：先规格化，
+     *       {@code 5e-324} → {@code 0x1p-1074}。</li>
+     * </ul>
+     * 这里选 glibc：<b>CI 跑在 ubuntu 上</b>，那里的一致性闸门才是主闸门。
+     * 拿 macOS 上的参考实现来比会红，但那是 libc 的分歧不是本实现的分歧——
+     * 所以这条用普通断言钉住，不进差分表，免得有人照着 macOS 的参考实现
+     * 「修」成规格化写法，把 Linux 上本来是对的行为改错。
+     * <p>
+     * {@code Double.toHexString} 对次正规给出的正是 glibc 那种写法，
+     * 所以实现上不需要额外做什么。
+     */
+    @Test
+    void subnormalQuoteFollowsGlibc() {
+        LuaState L = new LuaState();
+        LuaLibs.openAll(L);
+        // 次正规：glibc 保留机器编码，不规格化
+        assertEquals("0x0.0000000000001p-1022", quote(L, 5e-324));
+        assertEquals("0x0.0000000000003p-1022", quote(L, 3 * 5e-324));
+        assertEquals("0x0.8p-1022", quote(L, Math.pow(2, -1023)));
+        assertEquals("-0x0.0000000000001p-1022", quote(L, -5e-324));
+        // 正规：两个 libc 一致，都是规格化写法
+        assertEquals("0x1p-1022", quote(L, Math.pow(2, -1022)));
+        assertEquals("0x1p+0", quote(L, 1.0));
+        assertEquals("0x1p+1", quote(L, 2.0));
+        assertEquals("-0x0p+0", quote(L, -0.0));
+        L.close();
+    }
+
+    /** 跑 {@code return string.format('%q', x)}；{@code x} 用十六进制字面量传，保证精确 */
+    private static String quote(LuaState L, double x) {
+        // Lua 5.4 认十六进制浮点字面量，用它传值不会在十进制往返里掉精度
+        String src = "return string.format('%q', " + Double.toHexString(x) + ")";
+        int base = L.top;
+        L.pushClosure(L.load(src.getBytes(StandardCharsets.ISO_8859_1), "=q"));
+        LuaValue err = L.pcall(base, 1);
+        assertNull(err, "quote script failed: " + src);
+        String r = L.stack[base].asString().toJavaString();
+        L.top = base;
+        return r;
+    }
 }
