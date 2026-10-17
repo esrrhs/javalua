@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 836 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 837 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1940,6 +1940,33 @@ Four things have to be excluded or normalised, each learned the hard way:
 
 Values are never printed, only `type()`: `os.time()`, `os.date()` and
 `math.random()` differ on every run otherwise.
+
+#### The hook grid: masks × count × thread
+
+The existing hook tests were one mask per test; this one is the **full grid** —
+eight masks, three counts, four bodies, plus per-thread installation — because
+several semantics only show up in a cell:
+
+* `makemask` uses `strchr` and knows only `c` / `r` / `l`: `"x"` and `"CC"` are
+  **empty** masks (and it is case-sensitive). Reading only `"crl"` never reveals
+  this.
+* **`lua_sethook` turns the hook off entirely when `mask == 0`** — so
+  `debug.sethook(f, "")` installs *nothing* and `debug.gethook()` returns `nil`,
+  rather than a live hook that never fires. Likewise `debug.sethook(f, "x")`.
+* `count` joins `LUA_MASKCOUNT` only when `> 0`: `0` and `-1` produce no count
+  events, while `""` with count `1` is *count-only*.
+* hooks are **per thread**: a line hook on the main thread never fires inside a
+  coroutine, and `debug.sethook(co, …)` is that coroutine's alone.
+* `gethook`'s mask string **excludes** count (`unmakemask` emits only `c` / `r` /
+  `l`); count is the third return value.
+
+Two shape constraints matter as much as the assertions. Events are collected and
+printed at the very end — with hooks on, every `print` produces its own
+`call` / `return` pair and drowns the result. And the hook body spans several
+lines and calls a function: if `allowhook` re-entry protection were broken, this
+would be infinite recursion rather than a comparison failure.
+
+It came back clean.
 
 ### What is still missing
 

@@ -609,6 +609,135 @@ final class DebugTest {
     }
 
     /**
+     * 钩子的<b>掩码 × count × 线程</b>格子。
+     * <p>
+     * 已有的 {@link #hookCallReturn} / {@link #hookLine} / {@link #hookCount} /
+     * {@link #hookTailCall} 是<b>一个掩码一片</b>，这片是八个掩码的<b>全组合</b>
+     * 配上 count 与协程 —— 因为好几个语义只有在格子里才看得出来：
+     * <ul>
+     *   <li>{@code makemask} 用 {@code strchr} 扫，<b>只认 c / r / l</b>：
+     *       {@code "x"} 是空掩码（一个事件都没有），{@code "CC"} 也是空的
+     *       （大小写敏感）。单看 {@code "crl"} 永远不会发现。</li>
+     *   <li>{@code count} 只有 {@code > 0} 才并进 {@code LUA_MASKCOUNT}：
+     *       传 0 与传 -1 都<b>没有</b> count 事件，而掩码 {@code ""} + count 1
+     *       是<b>只有</b> count 事件。</li>
+     *   <li>钩子是<b>按线程</b>装的：给主线程装的行钩子，协程里一行都不触发；
+     *       反过来 {@code debug.sethook(co, ...)} 只管那个协程。</li>
+     *   <li>{@code gethook} 的掩码<b>不含</b> count（{@code unmakemask} 只输出
+     *       c / r / l），count 是第三个返回值单独给的。</li>
+     * </ul>
+     * <p>
+     * 形状上有一样必须照做：事件<b>收集起来最后统一打印</b>。钩子开着的时候每一个
+     * {@code print} 都会自己产生一对 call / return 事件，混进结果里就什么也看不出了。
+     * 钩子体本身跨好几行、还调函数 —— 重入（{@code allowhook}）失效的话这里就是
+     * 无限递归，用例会直接炸而不是比对失败。
+     */
+    @Test
+    void hookMaskMatrix() {
+        Diff.assertFullMatches("""
+                local out = {}
+                local function say(s) out[#out + 1] = s end
+
+                local function collect(tag, mask, count, body)
+                  local ev = {}
+                  local on = true
+                  local function h(what, line)
+                    if not on then return end
+                    -- 钩子体跨多行且调函数：重入的话这里就是无限递归
+                    local t = what
+                    if what == "line" then t = "l" .. tostring(line) end
+                    ev[#ev + 1] = t
+                  end
+                  debug.sethook(h, mask, count or 0)
+                  local ok, err = pcall(body)
+                  on = false
+                  debug.sethook()
+                  say(tag .. " ok=" .. tostring(ok) .. " err=" .. tostring(err)
+                      .. " [" .. table.concat(ev, " ") .. "]")
+                end
+
+                local function b_empty() end
+                local function b_two() local x = 1 x = x + 1 return x end
+                local function b_call() local r = b_empty() return r end
+                local function b_tail() return b_two() end
+                local function b_err() error("BOOM") end
+                local function b_loop() local s = 0 for i = 1, 3 do s = s + i end return s end
+                local function b_pc() return pcall(function() return 1 end) end
+
+                -- 1) 八个掩码
+                collect("m0", "", 0, b_two)
+                collect("mc", "c", 0, b_two)
+                collect("mr", "r", 0, b_two)
+                collect("ml", "l", 0, b_two)
+                collect("mcr", "cr", 0, b_two)
+                collect("mcl", "cl", 0, b_two)
+                collect("mrl", "rl", 0, b_two)
+                collect("mcrl", "crl", 0, b_two)
+                -- 2) 未知字母与大写：makemask 只认 c / r / l
+                collect("mx", "x", 0, b_two)
+                collect("mcrlx", "crlx", 0, b_two)
+                collect("mCC", "CC", 0, b_two)
+                -- 3) 尾调用 vs 普通调用
+                collect("t1", "crl", 0, b_tail)
+                collect("t2", "c", 0, b_tail)
+                collect("t3", "crl", 0, b_call)
+                -- 4) 出错与 pcall
+                collect("e1", "crl", 0, b_err)
+                collect("e2", "crl", 0, b_pc)
+                -- 5) count：0 与负数都不并进 LUA_MASKCOUNT
+                collect("n1", "", 1, b_loop)
+                collect("n2", "l", 2, b_loop)
+                collect("n3", "", 0, b_loop)
+                collect("n4", "", -1, b_loop)
+                collect("n5", "crl", 3, b_loop)
+                -- 6) gethook：掩码里<b>不含</b> count
+                say("g1 " .. tostring(debug.gethook()))
+                local h1 = function() end
+                debug.sethook(h1, "cl", 7)
+                local a, b, c = debug.gethook()
+                say("g2 " .. tostring(a == h1) .. " '" .. tostring(b) .. "' " .. tostring(c))
+                debug.sethook(h1, "", 0)
+                a, b, c = debug.gethook()
+                say("g3 " .. tostring(a == h1) .. " '" .. tostring(b) .. "' " .. tostring(c))
+                debug.sethook()
+                say("g4 " .. tostring(debug.gethook()))
+                -- 7) 报错顺序：mask（第 2 参）在 function（第 1 参）之前查
+                say("s1 " .. tostring(pcall(debug.sethook, 42, "l")))
+                say("s2 " .. tostring(pcall(debug.sethook, print)))
+                say("s3 " .. tostring(pcall(debug.sethook, print, "l", "x")))
+                say("s4 " .. tostring(pcall(debug.sethook, print, {})))
+                say("s5 " .. tostring(pcall(debug.sethook, print, 42)))
+                -- 8) 钩子按线程装：主线程的行钩子管不到协程里
+                local co = coroutine.create(function()
+                  local s = 0
+                  for i = 1, 3 do s = s + i coroutine.yield(s) end
+                  return s
+                end)
+                local coev = {}
+                local on2 = true
+                local function ch(what, line)
+                  if not on2 then return end
+                  coev[#coev + 1] = (what == "line") and ("l" .. tostring(line)) or what
+                end
+                debug.sethook(ch, "l", 0)
+                say("c1 " .. tostring(coroutine.resume(co)))
+                say("c2 [" .. table.concat(coev, " ") .. "]")
+                on2 = false
+                debug.sethook()
+                -- 反过来：装到协程上，只管那个协程
+                local co2 = coroutine.create(function() return 1 end)
+                debug.sethook(co2, ch, "cl", 0)
+                say("c4 " .. tostring(debug.gethook(co2) ~= nil))
+                on2 = true
+                say("c5 " .. tostring(coroutine.resume(co2)))
+                say("c6 [" .. table.concat(coev, " ") .. "]")
+                on2 = false
+                debug.sethook(co2)
+                print(table.concat(out, "\\n"))
+                """);
+    }
+
+    /**
      * {@code sethook} 的参数检查顺序。
      * <p>
      * 掩码（第 2 个参数）先于类型（第 1 个参数）检查，所以
