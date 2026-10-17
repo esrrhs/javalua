@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 864 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 865 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2739,6 +2739,33 @@ Two things stay out of the matrix on purpose: **`!%z`** (macOS's `strftime`
 reports the *local* offset even under `gmtime`, glibc reports `+0000`; this
 implementation follows POSIX and can only agree with one of them) and
 **`os.date` / `os.time` with no argument** (wall clock).
+
+#### The `name` / `namewhat` grid: a function's name is reconstructed, not stored
+
+A function's `name` is not a property of the function — it is **reconstructed from
+the call site** (`funcnamefromcall` → `funcnamefromcode` → `getobjname`), by
+looking at whether the caller's instruction was `OP_GETFIELD`, `OP_GETTABUP`,
+`OP_GETUPVAL`, `OP_MOVE` or `OP_SELF` and then digging the name out of the
+constant table or a register. So the same function has a different `name` and
+`namewhat` at every syntactic position, which is exactly what a grid is for: 77
+lines over nine `namewhat` values — `global`, `local`, `field`, `method`,
+`upvalue`, `metamethod`, `for iterator`, `""`, and `nil`.
+
+Shapes that would not survive being guessed:
+
+* **`t[1]()` is named `"integer index"`, not `"?"`.** Integer keys are their own
+  branch in `getobjname`; only float and boolean keys fall through to `"?"`.
+* **`"?"` still reports `namewhat = "field"`** — the name may be unrecoverable
+  while the *calling convention* is not. The two are independent.
+* **`metamethod` names are the event name minus the `__`** (`index`, `newindex`,
+  `add`, `len`, `close`, …), while `__call` goes through a normal call and
+  reports `name="a1", namewhat="local"`.
+* When nothing is recoverable, `name` is `nil` but `namewhat` is the **empty
+  string**, not `nil`.
+
+First run byte-identical (bar the script path), so sensitivity was measured:
+`"integer index"` → `"?"` turns 5 lines red, and changing the case of
+`namewhat`'s `"field"` turns 1 red.
 
 ### `__gc` is deliberately not chased further
 

@@ -753,4 +753,271 @@ final class DebugTest {
                 + "print(pcall(debug.sethook, print, \"crl\", \"z\"))\n"
                 + "print(pcall(debug.gethook, 1))\n");
     }
+
+    /**
+     * {@code debug.getinfo} 的 <b>name / namewhat</b> 网格（77 行）。
+     * <p>
+     * {@code name} 不是存在函数里的，而是<b>从调用点反推</b>出来的
+     * （{@code funcnamefromcall} → {@code funcnamefromcode} → {@code getobjname}）：
+     * 看调用者那条指令是 {@code OP_GETFIELD} / {@code OP_GETTABUP} /
+     * {@code OP_GETUPVAL} / {@code OP_MOVE} / {@code OP_SELF} 里的哪一种，
+     * 再从常量表或寄存器里把名字抠出来。所以同一个函数在不同语法位置上被调用，
+     * {@code name} 与 {@code namewhat} 都不同 —— 只能铺成矩阵逐个比对。
+     * <p>
+     * 网格覆盖九种 {@code namewhat}：{@code global} / {@code local} /
+     * {@code field} / {@code method} / {@code upvalue} / {@code metamethod} /
+     * {@code for iterator} / {@code ""}（推不出来）/ 以及取不到时的 {@code nil}。
+     * 几个不看参考实现想不到的形状：
+     * <ul>
+     *   <li><b>{@code t[1]()}</b> 的名字是 {@code "integer index"}，
+     *       <b>不是</b> {@code "?"}。整数键在 {@code getobjname} 里是单独一支；
+     *       只有浮点键与布尔键才落到 {@code "?"}。</li>
+     *   <li><b>{@code "?"} 的 {@code namewhat} 仍然是 {@code "field"}</b> ——
+     *       名字推不出来，调用方式推得出来，两者不挂钩。</li>
+     *   <li><b>metamethod</b> 那一路的 {@code name} 是<b>去掉 {@code __}</b> 的
+     *       元方法名（{@code index} / {@code newindex} / {@code add} / {@code len} /
+     *       {@code close} …），而 {@code __call} 走的是普通调用，给的是
+     *       {@code name="a1", namewhat="local"}。</li>
+     *   <li><b>{@code __call}</b> 那一路给 {@code name="t", namewhat="local"}，
+     *       不是 {@code "method"}。</li>
+     *   <li>取不到名字时 {@code name} 是 {@code nil} 而 {@code namewhat} 是
+     *       <b>空串</b>，不是 {@code nil}。</li>
+     * </ul>
+     * 这一片第一跑就逐字节一致（除脚本路径），所以敏感性是量过的：把
+     * {@code "integer index"} 改成 {@code "?"} 红 5 行；把 {@code namewhat} 的
+     * {@code "field"} 改大小写红 1 行。
+     */
+    @Test
+    void functionNameShapes() {
+        Diff.assertMatches("""
+        
+        -- debug.getinfo 的 name / namewhat 网格：让同一个函数在各种语法位置上被调用
+        local function p()
+            local i = debug.getinfo(1, "n")
+            print(tostring(i.name), "[" .. tostring(i.namewhat) .. "]")
+        end
+        local function q()
+            local i = debug.getinfo(1, "nS")
+            print(tostring(i.name), "[" .. tostring(i.namewhat) .. "]",
+                  i.what, i.short_src, i.linedefined, i.lastlinedefined)
+        end
+        
+        -- 全局
+        g = p
+        g()
+        -- 局部
+        local l = p
+        l()
+        do local l2 = p l2() end
+        -- 表字段（字符串键）
+        local t = {}
+        t.x = p
+        t.x()
+        t["y z"] = p
+        t["y z"]()
+        -- 表字段（非字符串键）：C 里 getobjname 给 "?"
+        t[1] = p
+        t[1]()
+        t[1.5] = p
+        t[1.5]()
+        t[true] = p
+        t[true]()
+        -- 方法
+        local obj = {}
+        function obj:m() return p() end
+        obj:m()
+        local mt = { __index = { mm = p } }
+        setmetatable(obj, mt)
+        obj:mm()
+        -- upvalue
+        do
+            local up = p
+            local function inner() return up() end
+            inner()
+        end
+        -- 直接调用、作为参数、返回值
+        p()
+        local function callit(f) return f() end
+        callit(p)
+        local function retit() return p end
+        retit()()
+        -- 尾调用
+        local function tail() return p() end
+        tail()
+        -- 主 chunk / getinfo 的其它层
+        do
+            local i = debug.getinfo(1, "n")
+            print(tostring(i.name), "[" .. tostring(i.namewhat) .. "]")
+        end
+        print(tostring(debug.getinfo(p).name), "[" .. tostring(debug.getinfo(p).namewhat) .. "]")
+        print(tostring(debug.getinfo(print).name), "[" .. tostring(debug.getinfo(print).namewhat) .. "]")
+        print(debug.getinfo(p).what)
+        print(debug.getinfo(p).source, debug.getinfo(p).short_src)
+        print(debug.getinfo(p).nups, debug.getinfo(p).nparams, debug.getinfo(p).isvararg)
+        print(debug.getinfo(1).currentline)
+        
+        -- 匿名函数的名字
+        local anon = function() end
+        print(tostring(debug.getinfo(anon).name), "[" .. tostring(debug.getinfo(anon).namewhat) .. "]")
+        local mt2 = {}
+        mt2.__call = function(self) return debug.getinfo(1, "n") end
+        setmetatable(t, mt2)
+        local r = t()
+        print(tostring(r.name), "[" .. tostring(r.namewhat) .. "]")
+        
+        -- getlocal / getupvalue 的名字
+        local function upfn()
+            local a, b, c = 1, 2, 3
+            return function()
+                local names = {}
+                for i = 1, 3 do
+                    local n = debug.getupvalue(debug.getinfo(1, "f").func, i)
+                    names[#names + 1] = tostring(n)
+                end
+                print(table.concat(names, ","))
+                local ln = {}
+                for i = 1, 3 do
+                    ln[#ln + 1] = tostring(debug.getlocal(1, i))
+                end
+                print(table.concat(ln, ","))
+            end
+        end
+        upfn()()
+        
+        -- 协程里的名字
+        local co = coroutine.create(function()
+            local i = debug.getinfo(1, "n")
+            print(tostring(i.name), "[" .. tostring(i.namewhat) .. "]")
+            coroutine.yield()
+        end)
+        coroutine.resume(co)
+        
+        -- namewhat 在 C 函数上
+        print(tostring(debug.getinfo(2, "n").name), "[" .. tostring(debug.getinfo(2, "n").namewhat) .. "]")
+        
+        -- 全局表上的字段/方法：走 OP_GETTABUP + 常量键，也就是 kName 那条路
+        G = {}
+        G.f = p
+        G.f()
+        G["g h"] = p
+        G["g h"]()
+        G[1] = p
+        G[1]()
+        G[1.5] = p
+        G[1.5]()
+        G[true] = p
+        G[true]()
+        G[0] = p
+        G[0]()
+        G[-3] = p
+        G[-3]()
+        G[2^53] = p
+        G[2^53]()
+        function G:m() return p() end
+        G:m()
+        -- upvalue 上的表：OP_GETTABUP 但基址是 upvalue 不是 _ENV
+        do
+            local u = {}
+            u.f = p
+            u.m = function(self) return p() end
+            local function inner()
+                u.f()
+                u:m()
+                u[1]()
+                u[1.5]()
+            end
+            u[1] = p
+            u[1.5] = p
+            inner()
+        end
+        -- 通过 metamethod 与迭代器调用
+        local mm = setmetatable({}, { __index = function() return p end })
+        mm.anything()
+        local co2 = coroutine.wrap(p)
+        co2()
+        for kv in p do break end
+        print(pcall(p))
+        print(select(1, p()))
+        -- 函数在 C 边界上：debug.getinfo 取 C 函数与 Lua 函数的名
+        print(tostring(debug.getinfo(math.max, "n").name),
+              "[" .. tostring(debug.getinfo(math.max, "n").namewhat) .. "]")
+        print(debug.getinfo(math.max).what, debug.getinfo(math.max).nups)
+        print(pcall(debug.getupvalue, math.max, 1))
+        print(pcall(debug.getlocal, math.max, 1))
+        -- upvalue / local 名字的边界
+        local function f2(x, y, ...)
+            local z = 1
+            return function()
+                local a = {}
+                for i = 1, 4 do
+                    local ok, n = pcall(debug.getupvalue, debug.getinfo(1, "f").func, i)
+                    a[#a + 1] = ok and tostring(n) or "ERR"
+                end
+                print(table.concat(a, ","))
+                local b = {}
+                for i = 1, 4 do
+                    local ok, n = pcall(debug.getlocal, 1, i)
+                    b[#b + 1] = ok and tostring(n) or "ERR"
+                end
+                print(table.concat(b, ","))
+            end
+        end
+        f2(1, 2, 3)()
+        -- 越界的 upvalue 下标：返回空（tostring 会报 value expected），所以用 pcall 兜
+        print(pcall(debug.getupvalue, p, 0))
+        print(pcall(debug.getupvalue, p, 99))
+        print(pcall(debug.getupvalue, p, -1))
+        print(pcall(debug.getlocal, 1, 0))
+        print(pcall(debug.getlocal, 1, 99))
+        print(pcall(debug.getlocal, 99, 1))
+        print(pcall(debug.getupvalue, print, 1))
+        
+        
+        -- namewhat 的另外三种：for iterator / hook / metamethod
+        local function pm()
+            local i = debug.getinfo(1, "n")
+            print(tostring(i.name), "[" .. tostring(i.namewhat) .. "]")
+            return 1
+        end
+        -- metamethod：name 是去掉 "__" 的元方法名
+        local mmt = {
+            __index = pm, __newindex = pm, __add = pm, __concat = pm, __len = pm,
+            __eq = pm, __lt = pm, __le = pm, __unm = pm, __bnot = pm, __call = pm,
+        }
+        local a1 = setmetatable({}, mmt)
+        local a2 = setmetatable({}, mmt)
+        local ok1 = a1.x
+        a1.x = 1
+        local ok3 = a1 + 1
+        local ok4 = a1 .. "z"
+        local ok5 = #a1
+        local ok6 = (a1 == a2)
+        local ok7 = (a1 < a2)
+        local ok8 = (a1 <= a2)
+        local ok9 = -a1
+        local ok10 = ~a1
+        a1()
+        -- 全局表访问触发 __index：走 OP_GETTABUP 那条路
+        GM = setmetatable({}, mmt)
+        local ok11 = GM.x
+        -- __close
+        do
+            local cv <close> = setmetatable({}, { __close = pm })
+        end
+        -- for iterator
+        for k in pm do break end
+        -- hook：在钩子内部调用的函数
+        do
+            local once = false
+            debug.sethook(function()
+                if not once then once = true pm() end
+            end, "c")
+            local function zz() return 1 end
+            zz()
+            debug.sethook()
+        end
+        
+        print("done")
+                """);
+    }
 }

@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 864 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
+全量 865 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2418,6 +2418,29 @@ JaCoCo 知道这个分支两个方向都走过，行号表也证明 1315 行有�
 两条有意不进矩阵：**`!%z`**（macOS 的 strftime 即使在 gmtime 下报的也是**本地**
 偏移，glibc 报 `+0000`；本实现按 POSIX 给 `+0000`，只能跟其中一边对上）与
 **无参的 `os.date` / `os.time`**（墙上时钟）。
+
+#### `name` / `namewhat` 网格：函数的名字是反推出来的，不是存下来的
+
+函数的 `name` 不是函数自身的属性，而是**从调用点反推**出来的
+（`funcnamefromcall` → `funcnamefromcode` → `getobjname`）：看调用者那条指令是
+`OP_GETFIELD` / `OP_GETTABUP` / `OP_GETUPVAL` / `OP_MOVE` / `OP_SELF` 里的哪一种，
+再从常量表或寄存器里把名字抠出来。所以同一个函数在每个语法位置上 `name` 与
+`namewhat` 都不同 —— 这正是该铺矩阵的东西：77 行覆盖九种 `namewhat`
+（`global` / `local` / `field` / `method` / `upvalue` / `metamethod` /
+`for iterator` / `""` / `nil`）。
+
+几个猜不出来的形状：
+
+* **`t[1]()` 的名字是 `"integer index"`，不是 `"?`。** 整数键在 `getobjname` 里
+  是单独一支；只有浮点键与布尔键才落到 `"?"`。
+* **`"?"` 的 `namewhat` 仍然是 `"field"`** —— 名字推不出来，调用方式推得出来，
+  两者互不挂钩。
+* **metamethod 那一路的 `name` 是事件名去掉 `__`**（`index` / `newindex` / `add` /
+  `len` / `close` …），而 `__call` 走普通调用，给 `name="a1", namewhat="local"`。
+* 什么都不剩时，`name` 是 `nil` 而 `namewhat` 是**空串**，不是 `nil`。
+
+第一跑逐字节一致（除脚本路径），所以敏感性量过：`"integer index"` 改成 `"?"` 红 5 行；
+`namewhat` 的 `"field"` 改大小写红 1 行。
 
 ### `__gc` 不再往深里做（有意停止）
 
