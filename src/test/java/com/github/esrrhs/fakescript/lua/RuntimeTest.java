@@ -1294,4 +1294,534 @@ class RuntimeTest {
                       math.tointeger(nil), math.tointeger(2 ^ 63))
                 """);
     }
+
+    /**
+     * {@code table} 库矩阵：{@code insert/remove/move/concat/unpack/pack/sort}
+     * 的位置 × 表大小 × 偏移 × 值类型，含同表重叠 {@code move} 与跨表
+     * {@code move}，6277 行。它咬出过一处真分歧：
+     * <p>
+     * <b>{@code tmove} 的正反向分支漏了一个条件。</b> C 是
+     * {@code t > e || t <= f || (tt != 1 && !lua_compare(1, tt, OPEQ))}，
+     * 我们只写了前两项。第三项的含义是：<b>源和目标是两张不同的表时一律正向
+     * 拷贝</b>，与 {@code t}、{@code f} 的相对位置无关。漏掉它，本该正向的
+     * 情形会走成逆向。
+     * <p>
+     * 难缠的地方在于<b>内容完全一致，只有 {@code #t} 不一样</b>：
+     * {@code table.move({1}, -2, 1, -1, {1})} 之后目标表同样只剩
+     * {@code [2]=1}，参考实现 {@code #t == 0}，我们给 {@code 2}。原因是插入
+     * <b>次序</b>反了 —— 正向先把 {@code [1]} 挖空，{@code alimit} 仍是 1；
+     * 逆向却先塞 {@code [2]}，把 {@code alimit} 顶到 2，
+     * {@code luaH_getn} 的第一条分支（「{@code array[alimit-1]} 为 nil 就只在
+     * 数组部分二分」）随之不再成立。所以「写入序列相同、走 {@code rawset} 就对、
+     * 走 {@code table.move} 就错」—— 差别只在内部布局。
+     * <p>
+     * 反过来也说明一件事：<b>光比对表内容是不够的</b>，得连 {@code #t}
+     * 一起比，否则这类「布局」分歧永远不会被发现。
+     */
+    @Test
+    void tableLibraryMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- table 库矩阵：insert / remove / move / concat / unpack / pack / sort 的边界
+                local function dump(tag, t)
+                  local parts = {}
+                  for i = -2, 8 do
+                    parts[#parts + 1] = tostring(i) .. "=" .. tostring(rawget(t, i))
+                  end
+                  print(tag, "#" .. tostring(#t), table.concat(parts, ","))
+                end
+
+                local function fresh(n)
+                  local t = {}
+                  for i = 1, n do t[i] = i end
+                  return t
+                end
+
+                -- 1) insert：位置取值 × 表大小
+                for n = 0, 4 do
+                  for pos = -6, 8 do
+                    local t = fresh(n)
+                    print("I", n, pos, pcall(table.insert, t, pos, 99))
+                    dump("I-dump", t)
+                    local t2 = fresh(n)
+                    print("I2", n, pos, pcall(table.insert, t2, pos, 99, 98))
+                    dump("I2-dump", t2)
+                  end
+                end
+
+                -- 2) insert：参数与非数组表
+                print("IA", pcall(table.insert, {}, 1))
+                print("IB", pcall(table.insert, {}, 1, 2, 3, 4))
+                print("IC", pcall(table.insert))
+                print("ID", pcall(table.insert, 5, 1))
+                print("IE", pcall(table.insert, "x", 1))
+                print("IF", pcall(table.insert, {}, "x", 1))
+                print("IG", pcall(table.insert, {}, 1.5, 1))
+                print("IH", pcall(table.insert, {}, 1.0, 1))
+                print("II", pcall(table.insert, {}, 2, 1))
+                print("IJ", pcall(table.insert, { 1, 2, 3 }, 4, 9))
+                local big = {}
+                for i = 1, 100 do big[i] = i end
+                print("IK", pcall(table.insert, big, 101, 1))
+                print("IL", pcall(table.insert, big, 102, 1))
+                print("IM", pcall(table.insert, big, 0, 1))
+                print("IN", pcall(table.insert, big, -101, 1))
+                print("IO", pcall(table.insert, big, math.maxinteger, 1))
+                print("IP", pcall(table.insert, big, math.mininteger, 1))
+
+                -- 3) remove：位置取值 × 表大小
+                for n = 0, 4 do
+                  for pos = -6, 8 do
+                    local t = fresh(n)
+                    local ok, v = pcall(table.remove, t, pos)
+                    print("R", n, pos, ok, tostring(v))
+                    dump("R-dump", t)
+                  end
+                end
+                print("RA", pcall(table.remove, {}))
+                print("RB", pcall(table.remove, 5))
+                print("RC", pcall(table.remove, {}, 1, 2))
+                print("RD", pcall(table.remove, {}, "x"))
+                print("RE", pcall(table.remove, {}, 1.5))
+                print("RF", pcall(table.remove, big))
+                print("RG", pcall(table.remove, big, 1))
+                print("RH", pcall(table.remove, big, 101))
+                print("RI", pcall(table.remove, big, 0))
+
+                -- 4) move：同源重叠 / 跨表 / 各种越界
+                -- table.move 返回的是目标表，地址每次都不一样，只留状态与错误文本
+                local function mv(a1, f, e, t)
+                  local ok, err = pcall(table.move, a1, f, e, t)
+                  return ok and "ok" or ("err:" .. tostring(err))
+                end
+                for n = 0, 3 do
+                  for f = -2, 5 do
+                    for e = f - 1, 5 do
+                      for t = -2, 5 do
+                        local a = fresh(n)
+                        print("MV", n, f, e, t, mv(a, f, e, t))
+                        dump("MV-dump", a)
+                      end
+                    end
+                  end
+                end
+                for n = 0, 3 do
+                  for f = -2, 5 do
+                    for e = f - 1, 5 do
+                      for t = -2, 5 do
+                        local a, b = fresh(n), fresh(n)
+                        local mok, merr = pcall(table.move, a, f, e, t, b)
+                        print("MV2", n, f, e, t, mok and "ok" or ("err:" .. tostring(merr)))
+                        dump("MV2-dump", b)
+                      end
+                    end
+                  end
+                end
+                local ma, mb = pcall(table.move, {}, 1, 2, 3)
+                print("MVA", ma, type(mb))
+                print("MVB", pcall(table.move, {}, 1, 2))
+                print("MVC", pcall(table.move, {}, 1))
+                print("MVD", pcall(table.move, {}))
+                print("MVE", pcall(table.move, 5, 1, 2, 3, {}))
+                print("MVF", pcall(table.move, {}, "x", 2, 3, {}))
+                print("MVG", pcall(table.move, {}, 1, "x", 3, {}))
+                print("MVH", pcall(table.move, {}, 1, 2, "x", {}))
+                print("MVI", pcall(table.move, {}, 1.5, 2, 3, {}))
+                print("MVJ", pcall(table.move, {}, 1, 2, 3, 1, 2))
+                local ka, kb = pcall(table.move, {}, 1, 2, 3, {}, 5)
+                print("MVK", ka, type(kb))
+                print("MVL", pcall(table.move, {}, 1, 1.5, 3, {}))
+
+                -- 5) concat：值类型 × 空洞 × 分隔符 × 区间
+                local VALS = { nil, true, 1, 1.5, "s", {}, print }
+                local SEPS = { nil, "", ",", "xy" }
+                for i = 1, #VALS do
+                  local t = { VALS[i] }
+                  for s = 1, #SEPS do
+                    print("C", i, s, pcall(table.concat, t, SEPS[s]))
+                  end
+                  print("C2", i, pcall(table.concat, t, ",", 1, 1))
+                  print("C3", i, pcall(table.concat, t, ",", 2, 1))
+                  print("C4", i, pcall(table.concat, t, ",", 0, 1))
+                  print("C5", i, pcall(table.concat, t, ",", -1, 1))
+                end
+                print("CA", table.concat({ 1, 2, 3 }))
+                print("CB", table.concat({ 1, 2, 3 }, "-"))
+                print("CC", table.concat({ 1, 2, 3 }, "-", 2))
+                print("CD", table.concat({ 1, 2, 3 }, "-", 2, 3))
+                print("CE", table.concat({}, "-"))
+                print("CF", pcall(table.concat, { 1, nil, 3 }))
+                print("CG", pcall(table.concat, 5))
+                print("CH", pcall(table.concat, {}, 5))
+                print("CI", pcall(table.concat, { 1, 2 }, ",", "x"))
+                print("CJ", pcall(table.concat, { 1, 2 }, ",", 1, "y"))
+                print("CK", pcall(table.concat))
+                print("CL", pcall(table.concat, { 1, 2 }, ",", 1, 3))
+                print("CM", pcall(table.concat, { 1, 2 }, ",", 1, 100))
+
+                -- 6) unpack：区间与上限
+                for i = -4, 4 do
+                  for j = i - 1, 4 do
+                    print("U", i, j, pcall(table.unpack, { 1, 2, 3 }, i, j))
+                  end
+                end
+                print("UA", pcall(table.unpack, {}))
+                print("UB", pcall(table.unpack, 5))
+                print("UC", pcall(table.unpack, { 1, 2 }, "x"))
+                print("UD", pcall(table.unpack, { 1, 2 }, 1, "y"))
+                print("UE", pcall(table.unpack, { 1, 2 }, 1.5))
+                print("UF", pcall(table.unpack, { 1, 2 }, 1, 2, 3))
+                print("UG", pcall(table.unpack, {}, 1, 0))
+                print("UH", pcall(table.unpack, {}, 2, 1))
+                print("UI", pcall(table.unpack, {}, -1, 0))
+                local many = {}
+                for i = 1, 2000 do many[i] = i end
+                print("UJ", pcall(function() return #table.pack(table.unpack(many)) end))
+                print("UK", pcall(function() return table.unpack(many, 1, 1000000) end))
+                print("UL", pcall(function() return table.unpack(many, -1000000, -1) end))
+
+                -- 7) pack
+                local pa, pb = pcall(table.pack)
+                print("P", pa, type(pb), pb == nil and "nil" or pb.n)
+                local p2a, p2b = pcall(table.pack, nil)
+                print("P2", p2a, type(p2b), p2b == nil and "nil" or p2b.n)
+                local p3a, p3b = pcall(table.pack, nil, nil)
+                print("P3", p3a, type(p3b), p3b == nil and "nil" or p3b.n)
+                local pk = table.pack(1, nil, 3, nil)
+                print("P4", pk.n, pk[1], pk[2], pk[3], pk[4], #pk)
+                print("P5", table.pack("a", "b").n)
+
+                -- 8) sort：比较函数异常 / 非法次序 / 相等元素 / 非数组
+                local function cmpOk(a, b) return a < b end
+                print("SA", pcall(table.sort, { 3, 1, 2 }, cmpOk))
+                local s1 = { 3, 1, 2 }
+                table.sort(s1)
+                print("SB", s1[1], s1[2], s1[3])
+                local s2 = { 3, 1, 2 }
+                table.sort(s2, function(a, b) return a > b end)
+                print("SC", s2[1], s2[2], s2[3])
+                print("SD", pcall(table.sort, { 1, 2 }, function(a, b) return true end))
+                print("SE", pcall(table.sort, { 1, 2, 3 }, function(a, b) return true end))
+                print("SF", pcall(table.sort, { 1, 2 }, function(a, b) error("boom") end))
+                print("SG", pcall(table.sort, { 1, 2 }, function(a, b) return nil end))
+                print("SH", pcall(table.sort, { 1, 2 }, 5))
+                print("SI", pcall(table.sort, { 1, 2 }, "x"))
+                print("SJ", pcall(table.sort, 5))
+                print("SK", pcall(table.sort, {}))
+                print("SL", pcall(table.sort, { 1 }, function(a, b) return a < b end))
+                print("SM", pcall(table.sort, { 1, 2 }, function(a, b) return a < b end, 1))
+                local s3 = { 5, 5, 5 }
+                table.sort(s3)
+                print("SN", s3[1], s3[2], s3[3])
+                print("SO", pcall(table.sort, { 1, 2, 3 }, function(a, b) return a <= b end))
+                local s4 = { "b", "a" }
+                table.sort(s4)
+                print("SP", s4[1], s4[2])
+                print("SQ", pcall(table.sort, { 1, "a" }, cmpOk))
+                print("SR", pcall(table.sort, { 0 / 0, 1 }, cmpOk))
+                """);
+    }
+
+    /**
+     * {@code string} 库矩阵：模式匹配（各类 {@code %} 类、集合、锚点、捕获、
+     * {@code %b}、{@code %f}、贪婪/非贪婪）× 主题串（含空串、制表、换行、
+     * 多字节 UTF-8）× {@code init} 越界 × 三种替换形态（串/表/函数），24819 行。
+     * <p>
+     * 这一片是<b>干净</b>的：铺开前心里没底，铺开后一处分歧都没有。照第 25 条
+     * 经验（已经一致的也钉住），照样固化成常驻测试 —— 哪天有人动
+     * {@code lstrlib.c} 的对应分支，这里会替他说话。
+     */
+    @Test
+    void patternMatchingMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- string 库矩阵：模式匹配 × 主题 × init × 替换形态，外加下标类函数
+                local TAB = string.char(9)
+                local NL = string.char(10)
+                local E9 = string.char(0xC3, 0xA9)   -- 单个 UTF-8 字符，占两个字节
+
+                local PATTERNS = {
+                  "", "a", "abc", "a*", "a+", "a-", "a?", ".", ".*", ".+", ".-",
+                  "%a", "%a+", "%a*", "%d", "%d+", "%s", "%s+", "%w", "%w+", "%p", "%c", "%x+",
+                  "%u", "%l", "%A", "%D", "%S", "%W",
+                  "[abc]", "[^abc]", "[a-c]", "[a-c]+", "[%a]", "[%a%d]", "[^%d]+",
+                  "(%a)", "(%a)(%d)", "(%a+)", "()%a", "()%a+", "((%a)(%d))",
+                  "^a", "^a+", "a$", "^ab$", "^", "$", "^$",
+                  "%bxy", "%b()", "%f[%a]%a+", "%f[%w]",
+                  "a*b", "a-b", "a+b", "a?b", "[a-c]*d", "%a%s*%d", "(%w+)%s*=%s*(%w+)",
+                }
+
+                local SUBJECTS = {
+                  "", "a", "abc", "aaa", "a1b2c3", "  x  ", "hello world", "x,y,z",
+                  "aXbXc", "123", "abc123", E9 .. "ab", "()", "x(y)z", "a=b", "k = v",
+                  "AaBb", "   ", TAB .. NL, "xy",
+                }
+
+                -- 1) find：模式 × 主题 × init × plain
+                for p = 1, #PATTERNS do
+                  for s = 1, #SUBJECTS do
+                    for _, init in ipairs({ nil, 1, 2, -1, -3, 0, 100, -100 }) do
+                      for _, plain in ipairs({ nil, false, true }) do
+                        local ok, a, b, c, d = pcall(string.find, SUBJECTS[s], PATTERNS[p],
+                                                     init, plain)
+                        print("F", p, s, tostring(init), tostring(plain), ok,
+                              tostring(a), tostring(b), tostring(c), tostring(d))
+                      end
+                    end
+                  end
+                end
+
+                -- 2) match：模式 × 主题 × init
+                for p = 1, #PATTERNS do
+                  for s = 1, #SUBJECTS do
+                    for _, init in ipairs({ nil, 1, 3, -2, 0, 100 }) do
+                      local ok, a, b, c = pcall(string.match, SUBJECTS[s], PATTERNS[p], init)
+                      print("M", p, s, tostring(init), ok, tostring(a), tostring(b), tostring(c))
+                    end
+                  end
+                end
+
+                -- 3) gmatch：模式 × 主题，收集全部（含位置捕获）
+                for p = 1, #PATTERNS do
+                  for s = 1, #SUBJECTS do
+                    local ok, it = pcall(string.gmatch, SUBJECTS[s], PATTERNS[p])
+                    if not ok then
+                      print("G", p, s, "err", tostring(it))
+                    else
+                      local n, acc = 0, {}
+                      local gok, a, b, c = pcall(it)
+                      while gok and a ~= nil and n < 40 do
+                        n = n + 1
+                        acc[#acc + 1] = tostring(a) .. "," .. tostring(b) .. "," .. tostring(c)
+                        gok, a, b, c = pcall(it)
+                      end
+                      print("G", p, s, "ok", n, table.concat(acc, "|"), tostring(gok))
+                    end
+                  end
+                end
+
+                -- 4) gsub：模式 × 替换形态 × 主题 × n
+                local REPLS_S = { "", "x", "%0", "%1", "%2", "%1%1", "%0%1", "%%", "%9",
+                                  "a%1b", "%", "%x", "%z" }
+                for p = 1, #PATTERNS do
+                  for r = 1, #REPLS_S do
+                    for s = 1, #SUBJECTS do
+                      local ok, a, b = pcall(string.gsub, SUBJECTS[s], PATTERNS[p], REPLS_S[r])
+                      print("S", p, r, s, ok, tostring(a), tostring(b))
+                    end
+                  end
+                end
+
+                -- 5) gsub 的替换是表 / 函数 / 数字 / 布尔
+                local function repfn(k) return "[" .. tostring(k) .. "]" end
+                for p = 1, #PATTERNS do
+                  for s = 1, #SUBJECTS do
+                    print("T", p, s, pcall(string.gsub, SUBJECTS[s], PATTERNS[p],
+                                           { a = "A", b = "B", ["1"] = "ONE" }))
+                    print("U", p, s, pcall(string.gsub, SUBJECTS[s], PATTERNS[p], repfn))
+                    print("V", p, s, pcall(string.gsub, SUBJECTS[s], PATTERNS[p], 5))
+                    print("W", p, s, pcall(string.gsub, SUBJECTS[s], PATTERNS[p], true))
+                    print("X", p, s, pcall(string.gsub, SUBJECTS[s], PATTERNS[p], nil))
+                  end
+                end
+
+                -- 6) gsub 的 n 上限（含 0 与负）
+                for _, n in ipairs({ 0, 1, 2, 3, -1, 1.0, 1.5, "2" }) do
+                  print("N", tostring(n), pcall(string.gsub, "aaaa", "a", "b", n))
+                end
+                print("N2", pcall(string.gsub, "aaaa", "a", "b", "x"))
+                print("N3", pcall(string.gsub, "aaaa", "a", "b", {}))
+
+                -- 7) 下标类：sub / byte / len / rep / reverse / upper / lower
+                local SS = { "", "a", "abc", "hello", E9 .. "ab" }
+                for s = 1, #SS do
+                  local str = SS[s]
+                  for i = -6, 6 do
+                    print("sub", s, i, pcall(string.sub, str, i))
+                    for j = -6, 6 do
+                      print("sub2", s, i, j, pcall(string.sub, str, i, j))
+                    end
+                    print("byte", s, i, pcall(string.byte, str, i))
+                    print("byte2", s, i, i + 2, pcall(string.byte, str, i, i + 2))
+                  end
+                  print("len", s, #str, pcall(string.len, str))
+                  print("rev", s, pcall(string.reverse, str))
+                  print("up", s, pcall(string.upper, str))
+                  print("low", s, pcall(string.lower, str))
+                  print("rep", s, pcall(string.rep, str, 0))
+                  print("rep2", s, pcall(string.rep, str, 3))
+                  print("rep3", s, pcall(string.rep, str, 3, "-"))
+                  print("rep4", s, pcall(string.rep, str, 3, ""))
+                  print("rep5", s, pcall(string.rep, str, -1))
+                  print("rep6", s, pcall(string.rep, str, 2, "xy"))
+                end
+
+                -- 8) 参数类型错误
+                for _, fn in ipairs({ string.find, string.match, string.gmatch, string.gsub,
+                                      string.sub, string.byte, string.rep, string.reverse,
+                                      string.upper, string.lower, string.len }) do
+                  print("E1", pcall(fn))
+                  print("E2", pcall(fn, nil))
+                  print("E3", pcall(fn, 5))
+                  print("E4", pcall(fn, true))
+                  print("E5", pcall(fn, {}))
+                end
+                print("E6", pcall(string.find, "abc", 5))
+                print("E7", pcall(string.find, "abc", "a", "x"))
+                print("E8", pcall(string.gsub, "abc", "a", "b", "c"))
+                print("E9", pcall(string.char, -1))
+                print("E10", pcall(string.char, 256))
+                print("E11", pcall(string.char, 1.5))
+                print("E12", pcall(string.char, "x"))
+                print("E13", pcall(string.char))
+                print("E14", pcall(string.rep, "a", 1e10))
+                print("E15", pcall(string.sub, "abc", 1, 1, 1))
+                """);
+    }
+
+    /**
+     * {@code #t} 单独铺开扫，3736 行。<b>起因就是上面那处 {@code tmove} 分歧</b>：
+     * 它表现出来的样子是「表内容一模一样，只有 {@code #t} 不一样」。既然
+     * {@code luaH_getn} 的答案取决于内部布局、布局又取决于插入历史，那就把
+     * 「同一份内容、不同构造路径」这件事本身当成扫描维度：
+     * <ul>
+     *   <li>{@code A}：{@code 1..n} 的<b>全部子集</b> × 三种插入次序（正序、
+     *       逆序、先奇后偶）—— 内容相同，只有次序不同；</li>
+     *   <li>{@code B}：先填满再按子集挖空，走 rehash 的收缩路径；</li>
+     *   <li>{@code C}：挖空后往边界外补，看 {@code alimit} 会不会被顶回去；</li>
+     *   <li>{@code D}：{@code table.move} 造布局，跨表（一律正向）与同表
+     *       （可能逆向）分开跑 —— 就是出事的那条路径；</li>
+     *   <li>{@code E}：{@code insert/remove} 交替把长度来回推；</li>
+     *   <li>{@code F}：负键、0 键混进来，只撑哈希不撑数组；</li>
+     *   <li>{@code G}/{@code H}：大到 40 的二分收敛点、尾部连续挖空。</li>
+     * </ul>
+     * 这一片<b>干净</b>，但仍固化：{@code luaH_getn} 的每一条分支都有可能被
+     * 后来的改动碰歪，而这类歪斜<b>只有把 {@code #t} 和内容一起比才看得见</b>。
+     */
+    @Test
+    void tableLengthAcrossInsertionHistoriesMatchesReference() {
+        Diff.assertMatches("""
+                -- 长度矩阵：#t 只跟「边界」有关，但边界由内部布局决定，布局由插入历史决定。
+                -- 所以同一份内容用不同次序/不同函数构造，#t 可以不同 —— 这片就是扫这个。
+                local function dump(tag, t)
+                  local p = {}
+                  for i = -3, 14 do p[#p + 1] = tostring(i) .. "=" .. tostring(rawget(t, i)) end
+                  print(tag, "#" .. tostring(#t), table.concat(p, ","))
+                end
+
+                local ORDERS = {
+                  { "fwd", function(n) local o = {} for i = 1, n do o[i] = i end return o end },
+                  { "rev", function(n) local o = {} for i = 1, n do o[i] = n - i + 1 end return o end },
+                  { "oe", function(n)
+                      local o = {}
+                      for i = 1, n, 2 do o[#o + 1] = i end
+                      for i = 2, n, 2 do o[#o + 1] = i end
+                      return o
+                    end },
+                }
+
+                -- A) 子集 × 插入顺序：内容相同、次序不同，看 #t 是否跟着变
+                for n = 0, 8 do
+                  for mask = 0, 2 ^ n - 1 do
+                    for oi = 1, #ORDERS do
+                      local name, mk = ORDERS[oi][1], ORDERS[oi][2]
+                      local t, order = {}, mk(n)
+                      for k = 1, #order do
+                        if mask & (1 << (order[k] - 1)) ~= 0 then t[order[k]] = order[k] end
+                      end
+                      dump(string.format("A n=%d m=%d %s", n, mask, name), t)
+                    end
+                  end
+                end
+
+                -- B) 先填满再挖空：rehash 的收缩路径
+                for n = 0, 8 do
+                  for mask = 0, 2 ^ n - 1 do
+                    local t = {}
+                    for i = 1, n do t[i] = i end
+                    for i = 1, n do
+                      if mask & (1 << (i - 1)) ~= 0 then t[i] = nil end
+                    end
+                    dump(string.format("B n=%d m=%d", n, mask), t)
+                  end
+                end
+
+                -- C) 挖空后再往边界外补
+                for n = 0, 6 do
+                  for hole = 1, n do
+                    local t = {}
+                    for i = 1, n do t[i] = i end
+                    t[hole] = nil
+                    t[n + 1] = 99
+                    dump(string.format("C n=%d h=%d", n, hole), t)
+                    local t2 = {}
+                    for i = 1, n do t2[i] = i end
+                    t2[hole] = nil
+                    t2[n + 1] = 99
+                    t2[n + 2] = 98
+                    dump(string.format("C2 n=%d h=%d", n, hole), t2)
+                  end
+                end
+
+                -- D) table.move 造出的布局：跨表（一律正向）与同表（可能逆向）
+                for n = 0, 4 do
+                  for f = -2, 4 do
+                    for t = -2, 4 do
+                      local a, b = {}, {}
+                      for i = 1, n do a[i] = i; b[i] = i end
+                      table.move(a, f, n, t, b)
+                      dump(string.format("D n=%d f=%d t=%d", n, f, t), b)
+                      local c = {}
+                      for i = 1, n do c[i] = i end
+                      table.move(c, f, n, t)
+                      dump(string.format("D2 n=%d f=%d t=%d", n, f, t), c)
+                    end
+                  end
+                end
+
+                -- E) insert / remove 交替，把长度来回推
+                for n = 0, 4 do
+                  local t = {}
+                  for i = 1, n do t[i] = i end
+                  for k = 1, 6 do
+                    table.insert(t, 90 + k)
+                    dump(string.format("E n=%d k=%d ins", n, k), t)
+                    table.remove(t)
+                    dump(string.format("E n=%d k=%d rem", n, k), t)
+                  end
+                end
+
+                -- F) 负键 / 0 键混进来：它们进哈希，不影响数组边界，但会撑大哈希部分
+                for n = 0, 4 do
+                  for extra = -3, 1 do
+                    local t = {}
+                    for i = 1, n do t[i] = i end
+                    t[extra] = 7
+                    dump(string.format("F n=%d e=%d", n, extra), t)
+                    local t2 = {}
+                    for i = 1, n do t2[i] = i end
+                    t2[extra] = nil
+                    dump(string.format("F2 n=%d e=%d", n, extra), t2)
+                  end
+                end
+
+                -- G) 大表边界：二分收敛的地方
+                for n = 1, 40 do
+                  for hole = 1, n do
+                    local u = {}
+                    for i = 1, n do u[i] = i end
+                    u[hole] = nil
+                    print("G", n, hole, #u)
+                  end
+                end
+
+                -- H) 尾部连续挖空：alimit 与真实边界分离
+                for n = 1, 20 do
+                  for cut = 0, n do
+                    local t = {}
+                    for i = 1, n do t[i] = i end
+                    for i = cut + 1, n do t[i] = nil end
+                    print("H", n, cut, #t)
+                  end
+                end
+                """);
+    }
 }

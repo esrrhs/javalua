@@ -207,8 +207,10 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 804 tests green, JaCoCo line coverage
-0.90 against a 0.89 gate.
+for each is listed under *Phase 10* below. 807 tests green, JaCoCo line coverage
+0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
+`target/lua54-tests`; without a test directory that whole class **skips itself**,
+so a green run on a machine without it is 25 tests weaker than it looks.)
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
 language implementation has been removed from `master`; see *Migration* below.
@@ -1264,6 +1266,61 @@ This port matches **glibc**, because the gate that matters — CI — runs on
 assertion *outside* the differential table, so that nobody "fixes" it by matching
 a macOS reference binary and breaks Linux. (`Double.toHexString` already produces
 the glibc form, so there is nothing to implement.)
+
+#### One more, from sweeping the `table` library: `tmove` dropped a condition
+
+The `table` sweep — `insert` / `remove` / `move` / `concat` / `unpack` / `pack` /
+`sort` × positions × sizes × offsets × value types, including same-table
+overlapping `move` and cross-table `move`, **6277 lines** — produced 268 diff
+lines, and every one of them had an unsettling shape: **the table's contents were
+identical, only `#t` differed.**
+
+```text
+< MV2-dump  #0  -2=nil,-1=nil,0=nil,1=nil,2=1,3=nil,4=nil,...
+> MV2-dump  #2  -2=nil,-1=nil,0=nil,1=nil,2=1,3=nil,4=nil,...
+```
+
+The cause is a missing clause. C decides the copy direction like this:
+
+```c
+if (t > e || t <= f || (tt != 1 && !lua_compare(L, 1, tt, LUA_OPEQ))) {
+  for (i = 0; i < n; i++) { ... }        /* forward */
+} else {
+  for (i = n - 1; i >= 0; i--) { ... }   /* backward */
+}
+```
+
+This port had only the first two clauses. The third one is not about positions at
+all: **when the source and destination are different tables, the copy is always
+forward**, regardless of how `t` and `f` relate. Dropping it sends cases that
+should go forward down the backward path.
+
+Order does not change what ends up in the table — but it changes the *layout*,
+which is what `#t` reads. `table.move({1}, -2, 1, -1, {1})` leaves the destination
+with only `[2] = 1` either way; going forward clears `[1]` first and leaves
+`alimit` at 1, so `luaH_getn`'s first case ("`array[alimit-1]` is nil ⇒ binary
+search inside the array part only") fires and the answer is `0`. Going backward
+sets `[2]` first, pushing `alimit` to 2, that case no longer applies, and the
+answer becomes `2`. Hence the confusing symptom: the same sequence of writes
+agrees when driven through `rawset` and disagrees when driven through
+`table.move`, because only the internal layout differs.
+
+Two lessons went into the tests:
+
+* **Comparing table contents is not enough — `#t` has to be compared too**, or
+  layout bugs are invisible.
+* The sweep is now three permanent tests:
+  `RuntimeTest.tableLibraryMatrixMatchesReference` (6277 lines, the one that
+  found it), `RuntimeTest.patternMatchingMatrixMatchesReference` (24819 lines of
+  pattern matching × subject × `init` × replacement form — **clean**, pinned so
+  that "already agrees" keeps agreeing), and
+  `RuntimeTest.tableLengthAcrossInsertionHistoriesMatchesReference` (3736 lines
+  that make *insertion history* itself the sweep dimension: every subset of
+  `1..n` × three insertion orders, fill-then-punch, `move`-built layout,
+  `insert`/`remove` alternation, negative/zero keys, bisection up to 40,
+  tail truncation — also clean).
+
+Reverting the one clause turns the first of them red.
 
 ### What is still missing
 

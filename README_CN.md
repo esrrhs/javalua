@@ -184,7 +184,9 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 804 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 807 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+`LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
+所以那种机器上「绿」其实比看起来少 25 个用例。）
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -1102,6 +1104,53 @@ C99 只规定小数点左边恰好一位十六进制数字，并且「这个数�
 `StringLibTest.subnormalQuoteFollowsGlibc` 用普通断言在差分表<b>之外</b>钉住它，
 免得有人照 macOS 上的参考实现「修」一把反而把 Linux 上本来对的行为改错。
 （`Double.toHexString` 给出的正是 glibc 那种写法，所以不需额外实现。）
+
+#### 把 `table` 库铺开扫：咬出 `tmove` 少了一个条件
+
+`table` 矩阵 —— `insert`/`remove`/`move`/`concat`/`unpack`/`pack`/`sort` 的
+位置 × 表大小 × 偏移 × 值类型，含同表重叠 `move` 与跨表 `move`，**6277 行** ——
+跑出 268 行分歧，而且每一行都是同一个让人心里发毛的形状：**表内容完全一样，
+只有 `#t` 不一样**。
+
+```text
+< MV2-dump  #0  -2=nil,-1=nil,0=nil,1=nil,2=1,3=nil,4=nil,...
+> MV2-dump  #2  -2=nil,-1=nil,0=nil,1=nil,2=1,3=nil,4=nil,...
+```
+
+根因是漏了一个条件。C 判拷贝方向是这样写的：
+
+```c
+if (t > e || t <= f || (tt != 1 && !lua_compare(L, 1, tt, LUA_OPEQ))) {
+  for (i = 0; i < n; i++) { ... }        /* 正向 */
+} else {
+  for (i = n - 1; i >= 0; i--) { ... }   /* 逆向 */
+}
+```
+
+这份实现只写了前两项。第三项跟位置<b>毫无关系</b>：**源和目标是两张不同的表时
+一律正向**，与 `t`、`f` 谁大谁小无关。漏掉它，本该正向的情形会走成逆向。
+
+次序不改变表里最终有什么，但改变<b>布局</b>，而 `#t` 读的就是布局。
+`table.move({1}, -2, 1, -1, {1})` 之后目标表同样只剩 `[2]=1`：正向先把 `[1]`
+挖空，`alimit` 仍是 1，于是 `luaH_getn` 的第一条分支（「`array[alimit-1]` 为
+nil 就只在数组部分二分」）成立，答案是 `0`；逆向却先塞 `[2]`，把 `alimit` 顶到
+2，那条分支不再成立，答案变成 `2`。于是就有了那个绕人的现象：同样的写入序列，
+走 `rawset` 一致、走 `table.move` 不一致——差的只是内部布局。
+
+两条经验落进了测试：
+
+* **光比表内容不够，必须连 `#t` 一起比**，否则布局类的错永远看不见。
+* 这一片现在是三个常驻测试：
+  `RuntimeTest.tableLibraryMatrixMatchesReference`（6277 行，就是它咬出来的）、
+  `RuntimeTest.patternMatchingMatrixMatchesReference`（模式匹配 × 主题 ×
+  `init` × 替换形态，24819 行，**干净**，照样钉住，照第 25 条经验：已经一致的
+  也得有人替它说话）、
+  `RuntimeTest.tableLengthAcrossInsertionHistoriesMatchesReference`
+  （3736 行，把<b>插入历史</b>本身当成扫描维度：`1..n` 的全部子集 × 三种插入
+  次序、先填满再挖空、`move` 造出的布局、`insert`/`remove` 交替、负键与 0 键、
+  二分上到 40、尾部截断——也干净）。
+
+把那一个条件回退，第一个测试立刻变红。
 
 ### 还没补上的
 

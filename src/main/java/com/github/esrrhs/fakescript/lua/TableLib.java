@@ -209,7 +209,22 @@ public final class TableLib {
             }
             LuaValue src = L.arg1(1);
             LuaValue dst = L.arg1(tt);
-            boolean forward = t > e || t <= f;
+            /*
+             * C 版第三个条件 {@code tt != 1 && !lua_compare(1, tt, OPEQ)} 别省：
+             * <b>源和目标是两张不同的表时一律正向拷贝</b>，跟 {@code t}、{@code f}
+             * 的相对位置无关。省掉它，本该正向的情形会走成逆向。
+             * <p>
+             * 内容完全相同，但插入次序反了，表内部的数组/哈希布局就不同，
+             * 于是 {@code #t} 跟着变——实测
+             * {@code table.move({1}, -2, 1, -1, {1})} 之后目标表只有 {@code [2]=1}，
+             * 参考实现 {@code #t == 0}（正向先挖空 {@code [1]}），
+             * 逆向先塞 {@code [2]} 会把 alimit 顶到 2，得到 {@code #t == 2}。
+             * <p>
+             * 比较走 {@code lua_compare} 而不是引用比较，所以两张 {@code __eq}
+             * 相等的表仍按同表处理。
+             */
+            boolean forward = t > e || t <= f
+                    || (tt != 1 && !Vm.equalObj(L, src, dst));
             if (forward) {
                 for (long i = 0; i < n; i++) {
                     setI(L, dst, t + i, getI(L, src, f + i));
