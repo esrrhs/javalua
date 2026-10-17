@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 834 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 836 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1911,6 +1911,35 @@ so it *does* fail on a write-only stream, and `read` short-circuits on
 
 Also measured and matching: `flush`, `setvbuf` and `seek` all succeed on a
 read-only stream; `io.stdout:close()` gives `nil, "cannot close standard file"`.
+
+#### Two sweeps over *every* library function at once
+
+The `f:write("")` bug was a **return-arity** bug, and it was found by hand. So
+there are now two mechanical sweeps that apply one uniform input to all ~130
+library functions and compare success/failure, the *type* of every return value,
+and the error text:
+
+* **zero arguments** (~120 lines) — the "missing argument" path;
+* **one wrong-typed argument** (`{}`, `nil`, `1`; 359 lines) — the "type error"
+  path, which is a *different* C function in `lauxlib.c` (`luaL_check*` versus
+  `luaL_opt*` treat absence differently).
+
+The zero-argument sweep found nothing new. The wrong-argument sweep came back
+clean too. They are kept because they pin ~370 call shapes at once: change any
+error text, any result count, or drop one argument check and they go red, in
+corners no hand-written matrix visits.
+
+Four things have to be excluded or normalised, each learned the hard way:
+
+| | why |
+| --- | --- |
+| `os.exit` | really kills the process |
+| `io.*`, `dofile`, `loadfile` | touch the default streams or read stdin, which is not the same on both sides |
+| `debug.debug()` | enters the interactive prompt (`lua_debug>`) and reads commands |
+| `math.atan` / `math.atan2` | **the same C function** (`{"atan", math_atan}` and `{"atan2", math_atan}`), so which name `findfield` reports depends on `lua_next` order — and the string-hash seed is randomised per process. Six reference runs: three `atan`, three `atan2`. The reference disagrees *with itself*; the name is normalised before comparing. |
+
+Values are never printed, only `type()`: `os.time()`, `os.date()` and
+`math.random()` differ on every run otherwise.
 
 ### What is still missing
 

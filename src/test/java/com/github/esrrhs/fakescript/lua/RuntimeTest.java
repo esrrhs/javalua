@@ -7177,6 +7177,144 @@ class RuntimeTest {
     }
 
     /**
+     * 库函数的<b>返回元数</b>矩阵：把每个库函数<b>零参</b>调一遍，比对
+     * 「成功还是失败 + 每个返回值的类型 + 出错时的消息」。
+     * <p>
+     * 挑零参不是偷懒：零参是<b>唯一一个能对所有 ~130 个库函数统一施加</b>的输入，
+     * 于是「返回几个值」这件事可以被一次性铺开。而返回元数恰恰是最容易写错的
+     * 一类 —— {@code f:write("")} 那次就是红在这里（参考给 1 个值、我们给 3 个），
+     * 而且只有「只读文件 × 空串」那一格能逼出来。
+     * <p>
+     * 三条必须遵守的排除/归一化，每一条都是踩过的：
+     * <ul>
+     *   <li><b>{@code os.exit}</b> 会真的杀掉进程（参考实现那边的进程）。</li>
+     *   <li><b>{@code io.*}、{@code dofile}、{@code loadfile}</b> 会动默认流或读
+     *       stdin —— 参考实现的 stdin 与我们的不一样。</li>
+     *   <li><b>{@code debug.debug()}</b> 会进交互式提示符（{@code lua_debug>}），
+     *       从 stdin 读命令。</li>
+     *   <li><b>{@code math.atan} 与 {@code math.atan2} 是同一个 C 函数</b>
+     *       （{@code lmathlib.c} 里 {@code {"atan", math_atan}} 与
+     *       {@code {"atan2", math_atan}}），报错里报哪个名字取决于
+     *       {@code findfield} 用 {@code lua_next} 先撞见谁，而字符串哈希种子是
+     *       <b>每次进程随机</b>的。实测参考实现连跑六次：三次 {@code atan}、
+     *       三次 {@code atan2}。它自己都不确定，所以统一成 {@code atan} 再比。</li>
+     * </ul>
+     * <p>
+     * 只打印<b>类型</b>不打印值：{@code os.time()} / {@code os.date()} /
+     * {@code math.random()} 的值每次都不同，打了就是一条永远红的用例。
+     */
+    @Test
+    void libraryArityMatchesReference() {
+        Diff.assertFullMatches("""
+                local out = {}
+                local function probe(name, f)
+                  local r = table.pack(pcall(f))
+                  local s = name
+                  for i = 1, r.n do s = s .. " " .. type(r[i]) end
+                  if not r[1] then
+                    s = s .. " | " .. tostring(r[2]):gsub("'math%.atan2'", "'math.atan'")
+                  end
+                  out[#out + 1] = s
+                end
+
+                local function sweep(libname, t, skip)
+                  local names = {}
+                  for k in pairs(t) do
+                    if type(t[k]) == "function" and not (skip and skip[k]) then
+                      names[#names + 1] = k
+                    end
+                  end
+                  table.sort(names)
+                  for _, k in ipairs(names) do probe(libname .. "." .. k, t[k]) end
+                end
+
+                sweep("string", string)
+                sweep("table", table)
+                sweep("math", math)
+                sweep("utf8", utf8)
+                sweep("coroutine", coroutine)
+                -- debug.debug 会进交互式提示符并读 stdin
+                sweep("debug", debug, { debug = true })
+                -- os.exit 会杀进程；os.clock 的值不可比
+                sweep("os", os, { exit = true, clock = true })
+
+                for _, g in ipairs({ "assert", "collectgarbage", "error",
+                    "getmetatable", "ipairs", "load", "next", "pairs", "pcall",
+                    "print", "rawequal", "rawget", "rawlen", "rawset", "require",
+                    "select", "setmetatable", "tonumber", "tostring", "type",
+                    "warn", "xpcall" }) do
+                  probe(g, _G[g])
+                end
+
+                print(table.concat(out, "\\n"))
+                """);
+    }
+
+    /**
+     * 与 {@link #libraryArityMatchesReference} 同一思路的另一半：每个库函数各喂
+     * 一个<b>错类型</b>的实参（{@code {}} / {@code nil} / {@code 1}），比对
+     * 「成功还是失败 + 返回值的类型 + 出错时的消息」。
+     * <p>
+     * 零参那条铺的是「参数缺失」这条路，这条铺的是「类型不对」那条路 ——
+     * 两者在 {@code lauxlib.c} 里是<b>两个不同的函数</b>
+     * （{@code luaL_check*} 与 {@code luaL_opt*} 对「缺失」的处理不一样），
+     * 只铺一条会漏掉另一条的报错文本。
+     * <p>
+     * 这一片<b>铺下来是干净的</b>（359 行 × 3 类参数，逐字节一致）。留着的理由是
+     * 它把 ~370 个调用形状一次性钉住：以后改任何一个库的报错文本、返回值个数，
+     * 或者少一个参数校验，这里立刻红 —— 而这类改动在手写矩阵里往往是没人碰的角落。
+     */
+    @Test
+    void libraryWrongArgMatchesReference() {
+        Diff.assertFullMatches("""
+                local out = {}
+                local function probe(name, f, ...)
+                  local r = table.pack(pcall(f, ...))
+                  local s = name
+                  for i = 1, r.n do s = s .. " " .. type(r[i]) end
+                  if not r[1] then
+                    s = s .. " | " .. tostring(r[2]):gsub("'math%.atan2'", "'math.atan'")
+                  end
+                  out[#out + 1] = s
+                end
+
+                local function sweep(lib, t, skip, tag, arg)
+                  local names = {}
+                  for k in pairs(t) do
+                    if type(t[k]) == "function" and not (skip and skip[k]) then
+                      names[#names + 1] = k
+                    end
+                  end
+                  table.sort(names)
+                  for _, k in ipairs(names) do
+                    probe(lib .. "." .. k .. "/" .. tag, t[k], arg)
+                  end
+                end
+
+                local G = { "assert", "collectgarbage", "error", "getmetatable",
+                    "ipairs", "load", "next", "pairs", "pcall", "print",
+                    "rawequal", "rawget", "rawlen", "rawset", "require",
+                    "select", "setmetatable", "tonumber", "tostring", "type",
+                    "warn", "xpcall" }
+
+                local ARGS = { { {}, "table" }, { nil, "nil" }, { 1, "num" } }
+                for _, p in ipairs(ARGS) do
+                  local a, tag = p[1], p[2]
+                  sweep("string", string, nil, tag, a)
+                  sweep("table", table, nil, tag, a)
+                  sweep("math", math, nil, tag, a)
+                  sweep("utf8", utf8, nil, tag, a)
+                  sweep("coroutine", coroutine, nil, tag, a)
+                  sweep("debug", debug, { debug = true }, tag, a)
+                  sweep("os", os, { exit = true, clock = true }, tag, a)
+                  for _, g in ipairs(G) do probe(g .. "/" .. tag, _G[g], a) end
+                end
+
+                print(table.concat(out, "\\n"))
+                """);
+    }
+
+    /**
      * 全局符号审计：本实现与参考实现暴露的<b>符号集</b>必须一模一样。
      * <p>
      * 存在的理由就是 {@code warn} 那次教训 —— 一整个函数没实现，828 个用例
