@@ -380,14 +380,34 @@ public final class TableLib {
         }
     }
 
+    /**
+     * {@code choosePivot}。
+     * <p>
+     * <b>{@code IdxT} 是 {@code unsigned int}</b>，这一点必须照搬：C 的
+     * {@code rnd % (r4 * 2)} 是无符号取模，结果恒在 {@code [0, r4*2)}。
+     * Java 的 {@code int} 有符号，而 {@link #randomizePivot()} 给出的是
+     * C 里 {@code unsigned int} 的那 32 个比特——有一半概率落成负数，
+     * 此时 {@code rnd % m} 也是负的，{@code p} 会掉到 {@code lo} 以下，
+     * 极端情形 {@code p <= 0}：{@code a[p]} 是 nil，于是
+     * {@code sort_comp(nil, number)} 抛出
+     * 「attempt to compare nil with number」。上游 {@code sort.lua} 用未播种的
+     * {@code math.random()} 造 5 万个元素，这个缺陷就表现成<b>偶发</b>失败。
+     */
     private static int choosePivot(int lo, int up, int rnd) {
         int r4 = (up - lo) / 4;
-        int p = rnd % (r4 * 2) + (lo + r4);
+        int p = Integer.remainderUnsigned(rnd, r4 * 2) + (lo + r4);
         return p;
     }
 
-    /** {@code auxsort}：递归用显式栈展开（C 版也把尾递归改成了循环） */
-    private static void auxSort(LuaState L, LuaValue t, int lo, int up, int[] rnd) {
+    /**
+     * {@code auxsort}：递归用显式栈展开（C 版也把尾递归改成了循环）。
+     * <p>
+     * {@code rnd} 是<b>按值</b>传的：C 里它是 {@code auxsort} 的形参，
+     * 递归调用里的重新赋值不会漏回外层帧。早先这里用 {@code int[]} 共享，
+     * 深层递归换掉的随机种子会一路影响外层剩下的分区——虽然只影响枢轴
+     * 选择、不改变排序结果，但和参考实现不是同一个算法了。
+     */
+    private static void auxSort(LuaState L, LuaValue t, int lo, int up, int rnd) {
         while (lo < up) {
             int p;
             int n;
@@ -397,10 +417,10 @@ public final class TableLib {
             if (up - lo == 1) {
                 return;
             }
-            if (up - lo < RANLIMIT || rnd[0] == 0) {
+            if (up - lo < RANLIMIT || rnd == 0) {
                 p = (lo + up) / 2;
             } else {
-                p = choosePivot(lo, up, rnd[0]);
+                p = choosePivot(lo, up, rnd);
             }
             if (sortComp(L, getI(L, t, p), getI(L, t, lo))) {
                 swap(L, t, p, lo);
@@ -422,7 +442,7 @@ public final class TableLib {
                 up = p - 1;
             }
             if ((up - lo) / 128 > n) {
-                rnd[0] = randomizePivot();
+                rnd = randomizePivot();
             }
         }
     }
@@ -452,7 +472,7 @@ public final class TableLib {
                 L.stack[k].setNil(); // lua_settop 补出来的槽是 nil，不是上一帧的残值
             }
             L.top = L.ci.func + 3;
-            auxSort(L, L.arg1(1), 1, (int) n, new int[] { 0 });
+            auxSort(L, L.arg1(1), 1, (int) n, 0);
         }
         return 0;
     }
