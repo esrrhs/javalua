@@ -10509,4 +10509,132 @@ os.remove("pk_found.txt")
 os.remove("pk_c.so")
         """);
     }
+
+    /**
+     * {@code io} 的边角矩阵：{@code read(0)}、大块写、管道上定位、目录、
+     * {@code io.lines()} 无参。与参考实现逐行比对。
+     * <p>
+     * 挑的都是 {@code IoLib.LuaFile} 里覆盖率最薄的那几条（整类 0.801），
+     * 而且每一条都对应一条 stdio 的规则，不是随手挑的：
+     * <ul>
+     *   <li><b>{@code f:read(0)}</b>：{@code fread} 要 0 个字节返回 0，算读到了
+     *       —— 非 EOF 处给空串，EOF 处给 {@code nil}。写那边同理（空串往只读
+     *       文件里写是成功的），两边是同一条规则的两半。</li>
+     *   <li><b>大块写绕开缓冲</b>：写缓冲是 8192，超过它的整块直接落盘。所以
+     *       10000 / 8192 / 8191 三种长度要各写一次，再读回来验位置。</li>
+     *   <li><b>管道上的 {@code seek}</b> 是 {@code ESPIPE}(29)，不是随便一个
+     *       IO 错。{@code io.popen} 出来的文件走这一条。</li>
+     *   <li><b>目录</b>：{@code fopen} 成功、读失败（{@code EISDIR} 21）、
+     *       {@code seek} 又是另一套（位置照算，负位置才是 {@code EINVAL} 22）。</li>
+     *   <li><b>{@code io.lines()} 无参</b>取的是注册表里的默认输入；把它关掉之后
+     *       再要，报的是 {@code attempt to use a closed file} 而不是
+     *       {@code no input file} —— 注册表里那一项还在，只是已经关了。</li>
+     * </ul>
+     * <b>不要在这个矩阵里对 {@code io.stdout} / {@code io.stderr} 做 {@code seek}。</b>
+     * 输出被重定向成<b>文件</b>时那条 {@code seek("set", 0)} 是<b>成功</b>的，
+     * 于是写指针回到 0，后面每一行都从头覆盖 —— 参考实现的输出会变成一坨
+     * 乱序的残片，而它看起来像是「实现有 bug」。重定向到<b>管道</b>时才是
+     * {@code ESPIPE}。这条依赖的是运行环境，不是 Lua 语义。
+     */
+    @Test
+    void ioFileCornerCasesMatchReference() {
+        Diff.assertMatches("""
+-- io 的边角：read(0) / 大块写 / 管道上定位 / 目录 / io.lines 无参
+-- 注意：不要对 io.stdout / io.stderr 做 seek —— 输出被重定向成文件时那条
+-- seek 会成功并把写指针归零，把已经打印的内容整片覆盖掉（实测踩过）。
+local function p(tag, f, ...)
+    local ok, a, b, c = pcall(f, ...)
+    if not ok then
+        print(string.format("%s ERR %s", tag, tostring(a)))
+    else
+        local t = { tostring(a), tostring(b), tostring(c) }
+        print(string.format("%s %s | %s | %s", tag, t[1], t[2], t[3]))
+    end
+end
+
+-- A. read(0)：C 的 fread 要 0 个字节，返回 0
+local f = io.open("io_t.txt", "w")
+f:write("hello\\nworld\\n")
+f:close()
+local g = io.open("io_t.txt", "r")
+p("A01", g.read, g, 0)
+print("A02 [" .. tostring(g:read(0)) .. "]")
+print("A03 [" .. tostring(g:read(3)) .. "]")
+p("A04", g.read, g, 0)          -- 非 EOF 处再读 0
+print("A05 [" .. tostring(g:read("a")) .. "]")
+p("A06", g.read, g, 0)          -- EOF 处读 0
+p("A07", g.read, g, 1)          -- EOF 处读 1
+p("A08", g.read, g, "l")
+p("A09", g.read, g, "n")
+g:close()
+
+-- B. 大块写：超过写缓冲（8192）就绕开缓冲直接落盘
+local w = io.open("io_big.txt", "w")
+p("B01", w.write, w, string.rep("x", 10000))
+p("B02", w.write, w, string.rep("y", 8192))
+p("B03", w.write, w, string.rep("z", 8191))
+p("B04", w.write, w, "", "tail")
+p("B05", w.write, w, "")
+w:close()
+local rb = io.open("io_big.txt", "rb")
+local all = rb:read("a")
+print("B06 " .. #all .. " " .. tostring(all:sub(1, 1)) .. tostring(all:sub(10000, 10000))
+    .. tostring(all:sub(10001, 10001)) .. tostring(all:sub(18192, 18192))
+    .. tostring(all:sub(18193, 18193)) .. tostring(all:sub(26387, 26387)))
+rb:close()
+
+-- C. 管道：seek / tell 走 ESPIPE(29)
+local pp = io.popen("echo hi")
+print("C01 [" .. tostring(pp:read("a")) .. "]")
+p("C02", pp.seek, pp, "set", 0)
+p("C03", pp.seek, pp, "cur")
+p("C04", pp.close, pp)
+local pp2 = io.popen("nosuchcmd_xyz 2>/dev/null; exit 3")
+print("C05 [" .. tostring(pp2:read("a")) .. "]")
+p("C06", pp2.close, pp2)
+
+-- D. 目录：打开成功、读失败、seek 走另外一套
+local d, e1, e2 = io.open("/usr", "r")
+print("D01 " .. type(d) .. " | " .. tostring(e1) .. " | " .. tostring(e2))
+if d then
+    p("D02", d.read, d, 1)
+    p("D03", d.read, d, "a")
+    p("D04", d.read, d, 0)
+    p("D05", d.read, d, "l")
+    p("D06", d.seek, d, "set", 0)
+    p("D07", d.seek, d, "cur", 0)
+    p("D08", d.seek, d, "set", -1)
+    p("D09", d.write, d, "x")
+    p("D10", d.flush, d)
+    p("D11", d.close, d)
+end
+
+-- E. io.lines() 无参：用的是注册表里的默认输入
+io.input("io_t.txt")
+print("E01 " .. tostring(type(io.lines())))
+local n = 0
+for _ in io.lines() do
+    n = n + 1
+end
+print("E02 " .. n)
+local inp = io.input()
+print("E03 " .. tostring(io.close(inp)))
+local function q(tag, f, ...)
+    local ok, a = pcall(f, ...)
+    print(string.format("%s %s | %s", tag, tostring(ok), tostring(a)))
+end
+q("E04", io.lines)
+q("E05", function() for _ in io.lines() do end end)
+q("E06", io.lines, nil)
+q("E07", io.input, inp)
+q("E10", io.read, "l")
+q("E11", io.input, "nosuch_file_xyz")
+-- 标准文件不许关
+p("E08", io.close, io.stdin)
+p("E09", io.close, io.stdout)
+
+os.remove("io_t.txt")
+os.remove("io_big.txt")
+        """);
+    }
 }

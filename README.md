@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 859 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 860 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2558,6 +2558,39 @@ Two things the matrix deliberately does **not** compare:
 the same 117 missed instructions afterwards. Those lines were already being
 *executed*; they were never *compared*. Coverage cannot see the difference, and
 "coverage went up" is not the test for whether a gap has been closed.
+
+### The `io` corner matrix: `f:read(0)`, big writes, `ESPIPE`, directories
+
+`IoLib.LuaFile` was the thinnest class left (0.80), and every line in it is a
+stdio rule rather than Lua semantics. This matrix covers `read(0)`, writes that
+bypass the 8192-byte write buffer, `seek` on a pipe, reading a directory, and
+`io.lines()` with no argument. 43 lines, byte for byte identical, and sensitive —
+changing the directory `errno` from `EISDIR` (21) to `EIO` (5) turns 3 lines red.
+
+What each group pins down:
+
+* **`f:read(0)` returns `""` before EOF and `nil` at EOF.** `fread` asked for zero
+  bytes returns zero, which counts as "read something" — so the empty string is a
+  real result, not an error. The mirror case (writing `""` to a read-only file
+  succeeds) was already pinned earlier; these are the two halves of one rule.
+* **Writes larger than the 8192-byte buffer skip the buffer entirely**, so
+  10000 / 8192 / 8191 bytes are each written once and read back to check the
+  positions.
+* **`seek` on a pipe is `ESPIPE` (29)**, not a generic I/O error. Only
+  `io.popen` files are used for this — see the warning below.
+* **Directories: `fopen` succeeds, reading fails with `EISDIR` (21), and `seek`
+  follows yet another rule** — the position is computed normally and only a
+  negative target position is `EINVAL` (22).
+* **`io.lines()` with no argument reads the registry's default input.** Close it
+  and the error is `attempt to use a closed file`, *not* `no input file`: the
+  registry entry is still there, it is merely closed.
+
+**Never `seek` `io.stdout` / `io.stderr` in a differential probe.** When stdout is
+redirected to a *file*, that `seek("set", 0)` **succeeds**, the write pointer goes
+back to 0, and every later line overwrites the output from the start — the
+reference's output becomes a shuffled fragment of itself and looks exactly like a
+bug in the implementation. It only reports `ESPIPE` when stdout is a *pipe*. That
+depends on how the harness captures output, not on Lua.
 
 ### `__gc` is deliberately not chased further
 
