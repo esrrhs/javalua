@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 815 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 817 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1518,6 +1518,31 @@ range check comes **last**:
 Three functions are deliberately absent: `os.time` and `os.date` read the clock
 when their first argument is `nil`, `math.randomseed(nil)` seeds from the clock,
 and `io.lines` with no argument reads stdin.
+
+#### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
+
+**Coroutines (99 lines):** which boundaries `yield` may cross, the semantics of
+`close`, how errors propagate, the four states, and nested `resume`. The split,
+measured and matching:
+
+| may `yield` | `pcall` / `xpcall`, numeric and generic `for` (custom iterators too), `gmatch`, `__index` / `__newindex` / `__add` / `__lt` / `__concat` / `__len` / `__call` / `__close` |
+| --- | --- |
+| may not | a `table.sort` comparator, a `string.gsub` replacement function, `__tostring` inside `print` — `attempt to yield across a C-call boundary` |
+
+It also pins down that a coroutine is **dead** (not suspended) after yielding
+inside `__eq`, that closing yourself reports `cannot close a running coroutine`,
+that `<close>` variables are closed in **reverse order of declaration**, and that
+an error raised inside `__close` replaces the original error.
+
+**Numeric `for` and coercion (551 lines):** all four `forprep` / `forloop`
+branches (integer up/down, float up/down), including `maxinteger` bounds,
+strings as limits, a zero step, and float steps; plus `//`, `%`, bitwise
+operations and string coercion. Three things worth remembering: in
+`for i = 0, 1, 0.5` the first value is an **integer** `0` (with `1.0` as the
+limit it is float throughout); bitwise operators do **not** coerce strings
+(`"10" // 2` is 5 but `"10" & 1` errors); and `for i = 2^53, 2^53+2` /
+`for i = 1e300, 1e300` never advance under float precision — the probe has a
+20000-iteration guard so both sides bail out at the same place.
 
 ### What is still missing
 
