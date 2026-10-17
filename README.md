@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 826 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 827 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1768,6 +1768,24 @@ The two `debug` ones are the subtlest: `debug.getinfo(f, "S\0ln")` must **not**
 report `invalid option` (C stops scanning at the NUL, so it never sees `l` and
 `n` at all), and `debug.sethook(f, "l\0c")` installs only the line hook while
 `"c\0l"` installs only the call hook — the counts come out inverted.
+
+#### …and a second NUL round: `load` / `loadfile` / `io.output`
+
+Auditing every remaining `.toJavaString()` in `src/main` turned up three more
+doorways — `load`'s *mode* (`checkmode` compares `const char *`), `loadfile`'s
+filename, and the filename handed to `io.output` / `io.input`. So
+`load(src, name, "t\0b")` has mode `"t"`, and `load(src, name, "b\0t")` tries to
+undump a text chunk and reports `attempt to load a text chunk (mode is 'b')`.
+
+It also found one place where C and Java simply disagree about a path:
+**`loadfile("")`.** C's `fopen("")` fails with `ENOENT`, giving
+`cannot open : No such file or directory`; Java resolves the empty path to the
+current directory and fails while *reading*, giving `Is a directory` — which we
+turned into `Input/output error`. The empty path is the only case where the two
+judge a path differently, so it gets `ENOENT` by C's rule. **Directories
+themselves are fine and must not be "fixed":** `loadfile("/tmp")` succeeds at
+`fopen` in C and fails at *read*, so it takes the other branch —
+`cannot read /tmp: Is a directory`.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 
