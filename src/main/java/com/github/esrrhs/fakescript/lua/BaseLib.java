@@ -560,11 +560,20 @@ public final class BaseLib {
         return doPcall(L, false);
     }
 
-    /** {@code luaB_xpcall} */
+    /**
+     * {@code luaB_xpcall}。
+     * <p>
+     * 第一件事是 {@code luaL_checktype(L, 2, LUA_TFUNCTION)} —— <b>消息处理函数
+     * 必须是函数</b>，而且这条检查在调用被调函数<b>之前</b>就发生。曾经写成
+     * 「只判参数够不够两个」，于是 {@code xpcall(f, 5)} 不报错，而是照常调用
+     * {@code f}：{@code f} 抛错后拿 5 当处理函数，得到
+     * {@code true, false, "error in error handling"}；参考实现给的是
+     * {@code false  bad argument #2 to 'xpcall' (function expected, got number)}。
+     * 参数不足时同理：报 {@code function expected, got no value}，
+     * 而不是含糊的 {@code value expected}。
+     */
     private static int xpcall(LuaState L) {
-        if (L.argCount() < 2) {
-            throw L.libError("bad argument #2 to 'xpcall' (value expected)");
-        }
+        LuaAux.checkType(L, 2, Lua.TFUNCTION);
         return doPcall(L, true);
     }
 

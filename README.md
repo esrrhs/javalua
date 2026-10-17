@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 807 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 809 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1321,6 +1321,63 @@ Two lessons went into the tests:
   tail truncation — also clean).
 
 Reverting the one clause turns the first of them red.
+
+#### One more, from sweeping `debug` / `load` / `require`: `xpcall` skipped its check
+
+The next sweep — `debug.getinfo` (14 fields × levels 0–6), `getlocal`/`setlocal`,
+the upvalue family, `traceback` (including inside a coroutine), `sethook` with 10
+masks plus the count hook, `load` (source / reader function / mode / env / binary
+chunk), `package.path` / `cpath` / `config` / `searchers` and `require`'s odd
+corners, `error` at levels 0–4, `xpcall`, `assert`, and error propagation through
+coroutines, 289 lines — found **`xpcall` had lost its argument check**:
+
+```c
+static int luaB_xpcall (lua_State *L) {
+  ...
+  luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
+```
+
+C checks that the message handler is a function *before* calling anything. This
+port only checked that two arguments were present, so `xpcall(f, 5)` did not
+raise — it called `f`, and when `f` errored it tried to use `5` as the handler:
+
+| | reference | this port, before |
+| --- | --- | --- |
+| `xpcall(f, 5)` | `false  bad argument #2 to 'xpcall' (function expected, got number)` | `true  false  error in error handling` |
+| `xpcall()` | `false  bad argument #2 to 'xpcall' (function expected, got no value)` | `false  bad argument #2 to 'xpcall' (value expected)` |
+
+The `io` sweep also went in — 32 open modes (including every invalid one), every
+`read` format and byte counts 0–24, numeric reads, `seek`, `lines`, using a
+closed file, `io.input`/`output`/`read`/`write`/`close`, append-mode `seek`
+semantics, `r+` interleaving, a 5000-byte block, and the same file opened twice,
+167 lines. It was clean, and it is worth having anyway: it is the only thing that
+exercises the **errno layer** — a failed `io.open` must return
+`"path: No such file or directory"` plus errno `2`, which C gets from `strerror`
+and we have to match on our own.
+
+#### A second hole in the gate: tracebacks silently truncated the output
+
+The `debug` matrix was green on the first attempt — with the `xpcall` bug still in
+the code. That was the gate failing, not the code passing.
+
+`Diff.assertMatches` normalizes by cutting everything from the first
+`stack traceback:` onwards. That is deliberate: when a *script crashes*, the
+message comes first and the traceback last, and our `ldebug.c` cannot be expected
+to match it line for line. But when the traceback is **printed by the script** —
+`debug.traceback()`'s return value — it lands in the *middle*, and everything the
+script printed afterwards was thrown away. This script prints a traceback in its
+fifth section and has 180 lines after it.
+
+The guard now rejects that case: if anything other than traceback lines (each
+starts with a tab) follows the traceback, `assertMatches` fails and says to use
+`assertFullMatches`, which does not strip. Thirteen existing tests turned out to
+have tracebacks in their output; the refined check — content *after* the
+traceback, not merely its presence — leaves all of them alone, because in those
+the traceback really is last.
+
+This is the second time the gate has been found blind rather than the code wrong
+(the first was UTF-8 decoding of captured output). A gate that quietly compares
+less than it claims is worse than no gate: it reports green.
 
 ### What is still missing
 

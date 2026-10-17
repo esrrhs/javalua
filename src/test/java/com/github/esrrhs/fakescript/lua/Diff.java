@@ -58,10 +58,65 @@ final class Diff {
      */
     static void assertMatches(String src) {
         requireReference();
-        String r = ref(src);
-        assertEquals(true, !r.isEmpty(),
+        String raw = refRaw(src);
+        assertEquals(true, !raw.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
-        assertEquals(r, mine(src), "script:\n" + src);
+        /*
+         * 挡掉「回溯把后半段吃掉」。
+         * <p>
+         * 归一化会从第一个 {@code stack traceback:} 处把后面<b>全部砍掉</b>。
+         * 对「脚本先打印若干行再崩」这类用例，砍的正是错误信息本身，是有意的；
+         * 但对<b>回溯属于预期输出</b>的用例（{@code debug.traceback} 的返回值、
+         * 未捕获错误被 {@code msghandler} 装裱后的消息），砍掉的是<b>脚本后半段
+         * 的全部输出</b> —— 于是后面几十行分歧一条也发现不了，而用例照样是绿的。
+         * <p>
+         * 实测：{@code debug} 库矩阵第一版走的就是 {@code assertMatches}，
+         * 脚本第 5 段打印了 {@code debug.traceback()}，后面 180 行（含咬出
+         * {@code xpcall} 那处真分歧的行）全被砍掉，回退实现居然全绿。
+         * 改成 {@code assertFullMatches} 才红。这种「静默少测」比假红危险得多，
+         * 所以这里<b>直接判失败</b>而不是默默砍。
+         */
+        assertEquals(true, !hasContentAfterTraceback(raw),
+                "输出里回溯<b>后面还有脚本输出</b>：assertMatches 会从回溯处把后面全砍掉，"
+                        + "那一段分歧一条也发现不了。回溯属于预期输出时请改用 "
+                        + "assertFullMatches。script:\n" + src);
+        assertEquals(normalize(raw, true), mine(src), "script:\n" + src);
+    }
+
+    /**
+     * 回溯<b>之后</b>是否还有不属于回溯的输出。
+     * <p>
+     * 判据是「回溯块后面出现了不以制表符开头的非空行」。回溯自己的每一行都以
+     * 制表符开头（{@code luaL_traceback} 的格式），所以：
+     * <ul>
+     *   <li><b>脚本自己崩了</b>（未捕获错误经 {@code msghandler}）：回溯在最后，
+     *       后面什么都没有 —— 这正是 {@code assertMatches} 存在的理由，
+     *       砍掉它是对的，放过；</li>
+     *   <li><b>回溯是脚本打印出来的</b>（{@code debug.traceback()} 的返回值）：
+     *       回溯在<b>中间</b>，后面还有脚本自己的输出 —— 那一段会被静默丢掉，
+     *       必须挡住。</li>
+     * </ul>
+     */
+    private static boolean hasContentAfterTraceback(String s) {
+        int tb = s.indexOf("stack traceback:");
+        if (tb < 0) {
+            return false;
+        }
+        boolean started = false;
+        for (String line : s.substring(tb).split("\n", -1)) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (!started) {
+                started = true; // "stack traceback:" 那一行本身
+                continue;
+            }
+            if (line.charAt(0) == '\t') {
+                continue; // 回溯自己的一行
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
