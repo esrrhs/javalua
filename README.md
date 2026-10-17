@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 858 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 859 tests green, JaCoCo line coverage
 0.95 against a 0.94 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2515,6 +2515,49 @@ Two things it pins down:
   `("x"):upper()` stops working, so the probe has to save and restore it — and
   it must save it *before* the section that installs an empty metatable on every
   type, or it saves the wrong table and the script dies halfway through.
+
+### The `package` matrix: the module name is a `const char *`
+
+`PackageLib` was the thinnest class by coverage (0.89), so this is a matrix over
+what `loadlib.c` actually does with a path: 18 template shapes (`""`, `";"`,
+`"a;"`, `";;a;;"`, …) crossed with `?` substitution, `sep` / `dirsep` corner
+cases, embedded NULs, argument checking, all four searchers called directly, and
+`loadlib`. 156 lines, byte for byte identical, and sensitive — dropping the
+`const char *` truncation turns 3 lines red.
+
+It found one real divergence and one wrong constant:
+
+* **`searcher_C` and `searcher_Croot` did not cut the module name at the first
+  NUL.** In C the name is `const char *name = luaL_checkstring(L, 1)`, so
+  `package.searchers[3]("a\0b")` searches for `a` — this implementation searched
+  for the whole string. Only reachable by calling a searcher directly (`require`
+  truncates first), which is why no earlier probe caught it.
+* **`loadlib`'s third return value has *two* constants, not one.** `ERRLIB`
+  (library will not open) gives `LIB_FAIL`, which is `"open"` on a dlopen
+  build and `"absent"` on the fallback build; `ERRFUNC` (library opened, symbol
+  missing) gives a hard-coded `"init"` — the fallback branch redefines only the
+  former. Verified against the reference with a real `.dylib`:
+  `package.loadlib(real, "luaopen_nosuch")` → `nil, <dlsym error>, "init"`.
+  This implementation's `lookForFunc` always returns `ERRLIB`, so the branch is
+  unreachable here, but the constant is now the one C uses.
+
+Two things the matrix deliberately does **not** compare:
+
+* **`dlerror()` text.** It embeds an address; `dlsym(0x…, luaopen_x): symbol not
+  found` differs on every run, so the C-searcher section compares only the part
+  of the message before `\n\t`.
+* **`LUA_PATH` handling.** The `;;` → "insert the default path here" expansion is
+  real and easy to get wrong (only the *first* `;;` is replaced, and no extra
+  separators are added around the default). It cannot be driven from this harness —
+  the reference binary's environment is not controllable from JUnit — so it was
+  measured separately with `env LUA_PATH=…` over nine shapes
+  (`a;;b`, `;;`, `a;;`, `;;b`, `a;;b;;c`, `;;;`, `noMark`, empty, and
+  `LUA_PATH_5_4` taking priority): identical every time.
+
+**The matrix did not move coverage at all** — `PackageLib` is still 0.891 with
+the same 117 missed instructions afterwards. Those lines were already being
+*executed*; they were never *compared*. Coverage cannot see the difference, and
+"coverage went up" is not the test for whether a gap has been closed.
 
 ### `__gc` is deliberately not chased further
 

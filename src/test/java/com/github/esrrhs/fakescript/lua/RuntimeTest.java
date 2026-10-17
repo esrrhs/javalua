@@ -10250,4 +10250,263 @@ do
 end
         """);
     }
+
+    /**
+     * {@code package} 库的路径搜索／搜索器／{@code loadlib} 矩阵，与参考实现逐行比对。
+     * <p>
+     * 覆盖的是 {@code loadlib.c} 里一段<b>先前从来没跟参考实现比过</b>的逻辑：
+     * {@code searchpath} 怎么切模板、{@code require} 怎么把四个搜索器的消息
+     * 拼成一条、{@code loadlib} 的第三个返回值怎么定。
+     * <p>
+     * 注意它<b>没有抬覆盖率</b>（跑完 {@code PackageLib} 仍是 0.891、miss 仍是
+     * 117）：这些行本来就被别的用例走到了，只是<b>走完没有比对</b>。覆盖率
+     * 报告看不出这件事——它是这个矩阵存在的理由，也是「覆盖率涨了才算补上了」
+     * 这个直觉的反例。{@code PackageLib} 剩下的 18 行里，8 行是
+     * {@code setpath}（{@code LUA_PATH} 里的 {@code ";;"}），只能靠环境变量喂，
+     * 塞不进这套差分驱动，已另用 {@code env} 逐个量过（九种形状逐字节一致）；
+     * 其余 10 行要真 {@code dlopen}，本实现没有。
+     * <p>
+     * 三条容易被踩的：
+     * <ul>
+     *   <li><b>模板的切分看不见，但消息看得见。</b>错误消息是拿<b>未切分</b>的
+     *       整条 {@code path} 拼的（{@code pusherrornotfound}），不是拿切出来的
+     *       模板表拼的——所以末尾分号多出的那一项空模板在消息里照样出现，
+     *       而它 {@code readable("")} 必为假，两边都找得到。</li>
+     *   <li><b>四个参数全是 {@code const char*}</b>，在第一个 {@code NUL} 处砍断。
+     *       {@code searcher_C} / {@code searcher_Croot} 原先漏了这一步，实测
+     *       （参考二进制）四处对不上。</li>
+     *   <li><b>{@code loadlib} 的第三个返回值有两个常量，不是一个。</b>库打不开是
+     *       {@code LIB_FAIL}（启用 dlopen 的构建里是 {@code "open"}），库能打开
+     *       而符号找不到是写死的 {@code "init"}——兜底分支只重定义了前者。</li>
+     * </ul>
+     * 比对里<b>不含</b> {@code dlerror()} 的文本：它带地址，逐字节比不了。
+     * K 节因此只比 {@code "\n\t"} 之前那一截。
+     */
+    @Test
+    void packageSearchPathAndSearchersMatchReference() {
+        Diff.assertMatches("""
+-- package 库的路径搜索 / 搜索器 / loadlib 矩阵
+-- 靠 "no file 'x'\\n\\tno file 'y'" 这条错误消息把切出来的模板逐个暴露出来
+local Z = string.char(0)   -- 不用字面量 NUL，免得在 Java 文本块里被当成转义
+
+local function sp(name, path, sep, dirsep)
+    local ok, r, e = pcall(package.searchpath, name, path, sep, dirsep)
+    if not ok then
+        return "ERR " .. tostring(r)
+    end
+    if r then
+        return "FOUND " .. tostring(r)
+    end
+    -- e 是 "no file 'a'\\n\\tno file 'b'"，压成一行好看
+    return (tostring(e):gsub("\\n\\t", " | "))
+end
+
+-- A. 纯模板切分：name 用不含 '?' 也不存在的 N
+local paths = {
+    "", ";", ";;", ";;;", ";;;;",
+    "a", "a;", ";a", ";a;", "a;b", "a;b;", "a;;b", "a;;",
+    ";;b", "a;;b;;c", "a;;b;c", "a;b;;c", ";;a;;",
+}
+for i, p in ipairs(paths) do
+    print(string.format("A%02d [%s] -> %s", i, p, sp("N", p)))
+end
+
+-- B. '?' 替换
+local qs = { "?", "?;?", "?-?", "a?b", "?", "x/?/y" }
+for i, p in ipairs(qs) do
+    print(string.format("B%02d [%s] -> %s", i, p, sp("N", p)))
+end
+
+-- C. name 里带 '?'：是被当成字面量填进模板
+print("C01 " .. sp("a?b", "?"))
+print("C02 " .. sp("a?b", "?-?"))
+
+-- D. sep / dirsep
+print("D01 " .. sp("a.b", "?", ".", "/"))
+print("D02 " .. sp("a.b", "?", "", "/"))     -- sep 空：不替换
+print("D03 " .. sp("a.b", "?", ".", ""))     -- dirsep 空：'.' 被删掉
+print("D04 " .. sp("a.b", "?", ".b", "-"))   -- sep 多字符：整段替换
+print("D05 " .. sp("a.b", "?", "b", "Z"))    -- sep 命中 name 尾部
+print("D06 " .. sp("a.b", "?", "z", "Z"))    -- sep 没命中：不动
+print("D07 " .. sp("a.b", "?", "..", "+"))   -- sep 比 name 长
+print("D08 " .. sp("a..b", "?", ".", "-"))   -- 两个都换
+
+-- E. NUL：四个参数全都是 const char*，在第一个 NUL 处砍断
+print("E01 " .. sp("a" .. Z .. "b", "?"))
+print("E02 " .. sp("a" .. Z .. "b", "?-?"))
+print("E03 " .. sp("N", "a" .. Z .. "b;c"))
+print("E04 " .. sp("N", "?", "." .. Z .. "x", "-"))
+
+-- F. searchpath 参数检查
+local function r2(tag, f, ...)
+    local ok, a, b = pcall(f, ...)
+    if ok then
+        print(string.format("%s OK %s | %s", tag, tostring(a), tostring(b)))
+    else
+        print(string.format("%s ERR %s", tag, tostring(a)))
+    end
+end
+r2("F01", package.searchpath)                      -- 缺 1
+r2("F02", package.searchpath, "N")                 -- 缺 2
+r2("F03", package.searchpath, 42, "?")             -- 数字当 name
+r2("F04", package.searchpath, "N", 42)             -- 数字当 path
+r2("F05", package.searchpath, true, "?")           -- boolean name
+r2("F06", package.searchpath, "N", true)           -- boolean path
+r2("F07", package.searchpath, "N", "?", 42)        -- 数字 sep
+r2("F08", package.searchpath, "N", "?", ".", 42)   -- 数字 dirsep
+r2("F09", package.searchpath, "N", nil)            -- nil path
+r2("F10", package.searchpath, nil, "?")            -- nil name
+
+-- G. 找到的情况：真存在的文件
+local f = io.open("pk_found.txt", "w")
+f:write("x")
+f:close()
+print("G01 " .. sp("pk_found", "?.txt"))
+print("G02 " .. sp("pk_found", "nope;?.txt"))
+print("G03 " .. sp("pk_found", "nope;?.txt;more"))
+print("G04 " .. sp("pk_found", "?.txt;?.txt"))
+-- 目录也算"能打开"：C 的 fopen 在目录上是成功的，读的时候才失败
+-- 用绝对路径，免得两边 cwd 不一致变成假红
+print("G05 " .. sp("usr", "/?"))
+print("G06 " .. sp("etc", "/?"))
+print("G07 " .. sp("nosuchdirxyz", "/?"))
+
+-- H. require 的消息拼装：四个搜索器都失败
+local SAVE_SEARCHERS = package.searchers           -- J、K 两节要用真搜索器
+package.path = "P1/?.lua;P2/?.lua"
+package.cpath = "C1/?.so;C2/?.so"
+r2("H01", require, "nomod")
+r2("H02", require, "nomod.sub")
+r2("H03", require, "nomod" .. Z .. "zzz")          -- NUL 在 require 那一层就砍断
+r2("H04", require, 42)                             -- 数字模块名
+package.searchers = { function(n) return 42 end }  -- 返回数字也算消息
+r2("H05", require, "nomod")
+package.searchers = { function(n) return true end } -- 不是字符串：整条丢掉
+r2("H06", require, "nomod")
+package.searchers = { function(n) return nil end }
+r2("H07", require, "nomod")
+package.searchers = { function(n) return "boom" end }
+r2("H08", require, "nomod")
+package.searchers = {}
+r2("H09", require, "nomod")
+package.searchers = 42
+r2("H10", require, "nomod")
+package.searchers = { 42 }
+r2("H11", require, "nomod")
+-- 搜索器返回 (f, data)：data 会原样传给 loader
+package.searchers = {
+    function(n) return function(m, d) return "got:" .. m .. ":" .. tostring(d) end, "DATA" end
+}
+r2("H12", require, "m1")
+-- 返回值 nil 也算"已加载"，true 会被塞进 package.loaded
+package.searchers = { function(n) return function() return nil end end }
+r2("H13", require, "m2")
+print("H14 " .. tostring(package.loaded.m2))
+-- 加载两次：第二次直接取缓存，搜索器不该再被调用
+package.searchers = { function(n) return function() return "fresh" end end }
+r2("H15", require, "m3")
+package.searchers = { function(n) error("should not be called", 0) end }
+r2("H16", require, "m3")
+-- package.loaded 里预先塞值：false 不算已加载（判的是 toboolean）
+package.loaded["m4"] = "PRESET"
+r2("H17", require, "m4")
+package.loaded["m5"] = false
+r2("H18", require, "m5")
+
+-- I. package.loadlib：第二个返回值的文本是 dlerror() 的，平台相关，
+--    所以只比"返回值个数"和第三个值（判据是失败发生在哪一步）
+local function ll(tag, ...)
+    local ok, a, b, c = pcall(package.loadlib, ...)
+    if not ok then
+        print(string.format("%s ERR %s", tag, tostring(a)))
+    else
+        print(string.format("%s OK [%s] [%s]", tag, tostring(a), tostring(c)))
+    end
+end
+ll("I01", "/nope/x.so", "luaopen_y")
+ll("I02", "x.so", "luaopen_y")
+ll("I03", "/nope/x.so", "*")
+ll("I04", 42, "luaopen_y")
+ll("I05", "/nope/x.so", 42)
+ll("I06", true, "x")
+ll("I07", "/nope/x.so", true)
+ll("I08", {}, "x")
+ll("I09", "/nope/x.so", {})
+ll("I10")
+ll("I11", "/nope/x.so")
+ll("I12", nil, "x")
+print("I13 " .. tostring(select('#', package.loadlib("/nope/x.so", "luaopen_y"))))
+print("I14 " .. tostring(select(3, package.loadlib("/nope/x.so", "luaopen_y"))))
+print("I15 " .. tostring(select(3, package.loadlib("/nope/x.so", "*"))))
+print("I16 " .. tostring(select(1, package.loadlib("/nope/x.so", "luaopen_y"))))
+
+-- J. 直接调四个搜索器
+local jn = 0
+local function se(...)
+    jn = jn + 1
+    local args = { ... }
+    local i = table.remove(args, 1)
+    local ok, a, b = pcall(package.searchers[i], table.unpack(args))
+    local nm = tostring(args[1]):gsub("%z", "<Z>")
+    if not ok then
+        print(string.format("J%02d s%d [%s] ERR %s", jn, i, nm, tostring(a)))
+    else
+        print(string.format("J%02d s%d [%s] OK [%s] [%s]", jn, i, nm,
+            tostring(a), tostring(b):gsub("%z", "<Z>")))
+    end
+end
+package.searchers = SAVE_SEARCHERS
+package.path = "zz/?.lua"
+package.cpath = "C/?.so"
+for _, n in ipairs({ "x", "a.b", "a-b", 42,
+                     "a" .. Z .. "b", "a" .. Z .. "b.c", "a.b" .. Z .. "c" }) do
+    for i = 1, 4 do
+        se(i, n)
+    end
+end
+se(1)                       -- 缺参数
+se(2, true)                 -- boolean
+se(3, true)
+se(4, true)
+se(3, "x", "extra")         -- 多余参数
+package.cpath = true        -- cpath 不是字符串
+se(3, "x")
+package.cpath = 42          -- 数字算字符串
+se(3, "x")
+package.cpath = {}
+se(3, "x")
+package.cpath = nil
+se(3, "x")
+package.cpath = "C/?.so"
+package.path = true
+se(2, "x")
+package.path = 42
+se(2, "x")
+
+-- K. C 搜索器真找到文件（文本文件，不是 dylib）："\\n\\t" 之后是 dlerror 的文本，
+--    平台相关，只比前面那一截
+package.searchers = SAVE_SEARCHERS
+package.path = "zz/?.lua"
+package.cpath = "?.so"
+local cf = io.open("pk_c.so", "w")
+cf:write("not a dylib\\n")
+cf:close()
+local function req(tag, n)
+    local ok, r = pcall(require, n)
+    if ok then
+        print(string.format("%s OK %s", tag, tostring(r)))
+    else
+        local head = tostring(r):match("^(.-)\\n\\t")
+        print(string.format("%s ERR %s", tag, head or tostring(r)))
+    end
+end
+req("K01", "pk_c")
+req("K02", "pk_c.sub")
+req("K03", "pk_c-sub")
+req("K04", "pk_nosuch")
+
+os.remove("pk_found.txt")
+os.remove("pk_c.so")
+        """);
+    }
 }
