@@ -751,7 +751,13 @@ public final class LuaState {
      * 已经在 {@code stackErr} 里还要涨，就抛 {@link #errErr}。
      */
     void checkStack(int n) {
-        int need = top + n;
+        /*
+         * 用 {@code long} 算：{@code top + n} 用 {@code int} 会溢出。
+         * {@code table.unpack(t, 1, 2^31-1)} 这种 {@code n} 一下子就把和
+         * 顶成负数，「超过 MAXSTACK」这个判断反而失效，于是栈一路 push 到
+         * {@code OutOfMemoryError}——上游 {@code sort.lua} 第一节正撞这里。
+         */
+        long need = (long) top + n;
         if (need > (stackErr ? ERRORSTACKSIZE : MAXSTACK)) {
             if (stackErr) {
                 throw errErr();
@@ -760,7 +766,7 @@ public final class LuaState {
             ensureSlots(ERRORSTACKSIZE);
             throw runError("stack overflow");
         }
-        ensureSlots(need);
+        ensureSlots((int) need);
     }
 
     /**
@@ -775,13 +781,15 @@ public final class LuaState {
      * 「{@code table.unpack({}, 1, lim)}」的用例正是对着它们断言的。
      */
     boolean checkStackOk(int n) {
-        if (top + n > (stackErr ? ERRORSTACKSIZE : MAXSTACK)) {
+        /* 同上：{@code top + n} 溢出会让这个判断整个失效 */
+        long need = (long) top + n;
+        if (need > (stackErr ? ERRORSTACKSIZE : MAXSTACK)) {
             return false;
         }
-        ensureSlots(top + n);
+        ensureSlots((int) need);
         /* 与 C 版一致：顺带把当前帧的 top 抬上去，后面的压栈才落在帧内 */
-        if (ci.top < top + n) {
-            ci.top = top + n;
+        if (ci.top < need) {
+            ci.top = (int) need;
         }
         return true;
     }

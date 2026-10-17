@@ -150,7 +150,24 @@ final class Numeral {
             }
             return (e == s.length()) ? out[0] : null;
         }
-        String t = s.trim();
+        /*
+         * 不能用 {@code String.trim()}：Java 的 {@code trim} 去掉的是
+         * 「小于等于 U+0020 的字符」，<b>连 {@code \0} 一起去掉</b>，而 C 版
+         * {@code l_str2d} 只认 {@code SPACECHARS}（" \f\n\r\t\v"）。
+         * 于是 {@code tonumber('1\0')} 会被这里算成 1.0——参考实现给的是
+         * {@code nil}（上游 {@code math.lua} 有一整条断言对着它）。
+         * 这里手工按 {@code SPACECHARS} 掐头去尾，剩下的子串里若还有别的
+         * 字符（包括 {@code \0}），正则就匹配不上。
+         */
+        int sp = 0;
+        while (sp < s.length() && LCType.isSpace(s.charAt(sp))) {
+            sp++;
+        }
+        int se = s.length();
+        while (se > sp && LCType.isSpace(s.charAt(se - 1))) {
+            se--;
+        }
+        String t = s.substring(sp, se);
         if (!DECIMAL.matcher(t).matches()) {
             return null;
         }

@@ -258,8 +258,7 @@ public final class BaseLib {
             throw L.libError("bad argument #1 to 'tonumber' (string expected, got "
                     + v.typeName() + ")");
         }
-        String s = new String(v.asString().bytes, StandardCharsets.ISO_8859_1).trim();
-        Long parsed = parseBase(s, (int) base);
+        Long parsed = parseBase(v.asString().bytes, (int) base);
         if (parsed == null) {
             L.pushNil();
         } else {
@@ -268,25 +267,65 @@ public final class BaseLib {
         return 1;
     }
 
-    private static Long parseBase(String s, int base) {
-        boolean neg = false;
+    /**
+     * {@code lbaselib.c: b_str2int}。
+     * <p>
+     * 必须在<b>字节</b>上做，而且必须<b>回到长度上判「吃完了没有」</b>——这两点
+     * 缺一个就会把 {@code tonumber('1\0', 2)} 算成 1。
+     * <p>
+     * C 版靠的是「{@code s} 走到哪里」与 {@code s + l} 比：数字循环遇到
+     * {@code \0}（不是 {@code isalnum}）就停，后面的空格跳过一步也停，返回的
+     * 指针还站在 {@code \0} 上，与 {@code s + l} 不等，于是
+     * {@code luaB_tonumber} 判失败。早先这里用 {@code String.trim()} 去掉首尾
+     * 空白——而 Java 的 {@code trim} 连 {@code \0} 一起去掉——这个差别直接让
+     * 上游 {@code math.lua} 的 {@code assert(not f(tonumber('1\0', 2)))}
+     * 挂掉。
+     * <p>
+     * 另外数字只看 ASCII：C 版用的是 C locale 的 {@code isalnum}，不是
+     * {@code lislalnum}（后者把 {@code _} 也算字母），也不是
+     * {@code Character.digit}（后者认全角数字）。
+     *
+     * @return 解析出的整数；不是合法的整数字面量返回 {@code null}
+     */
+    private static Long parseBase(byte[] b, int base) {
+        int len = b.length;
         int p = 0;
-        if (p < s.length() && (s.charAt(p) == '-' || s.charAt(p) == '+')) {
-            neg = s.charAt(p) == '-';
+        while (p < len && LCType.isSpace(b[p] & 0xFF)) {
+            p++; // SPACECHARS
+        }
+        boolean neg = false;
+        if (p < len && b[p] == '-') {
+            p++;
+            neg = true;
+        } else if (p < len && b[p] == '+') {
             p++;
         }
-        if (p >= s.length()) {
-            return null;
+        if (p >= len || !isAsciiAlnum(b[p])) {
+            return null; // 没有数字
         }
-        long a = 0;
-        for (; p < s.length(); p++) {
-            int d = Character.digit(s.charAt(p), base);
-            if (d < 0) {
-                return null;
+        long n = 0;
+        do {
+            int d = (b[p] >= '0' && b[p] <= '9')
+                    ? b[p] - '0'
+                    : ((b[p] >= 'a' && b[p] <= 'z') ? b[p] - 'a' : b[p] - 'A') + 10;
+            if (d >= base) {
+                return null; // 不是这个进制里的数字
             }
-            a = a * base + d; // 溢出按 Lua 的 int64 环绕处理，与 C 版一致
+            n = n * base + d; // 溢出按 Lua 的 int64 环绕处理，与 C 版一致
+            p++;
+        } while (p < len && isAsciiAlnum(b[p]));
+        while (p < len && LCType.isSpace(b[p] & 0xFF)) {
+            p++; // 尾部空白
         }
-        return neg ? -a : a;
+        if (p != len) {
+            return null; // 还有没吃掉的字节，包括内嵌的 \0
+        }
+        return neg ? -n : n;
+    }
+
+    /** C locale 的 {@code isalnum}：只认 ASCII 字母与数字，不含 {@code '_'} */
+    private static boolean isAsciiAlnum(byte c) {
+        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
     }
 
     /** {@code luaB_rawget} */

@@ -126,6 +126,15 @@ class RuntimeTest {
         // 库函数
         s.add("print(tonumber('10'), tonumber('0x10'), tonumber('1.5'), tonumber('abc'))");
         s.add("print(tonumber('ff', 16), tonumber('101', 2), tonumber('z', 36))");
+        /*
+         * 内嵌 \0：C 版靠「解析指针是否走到 s + l」判失败，Java 的
+         * String.trim() 却会把 \0 当成空白先去掉，于是这两组曾经全算成数字。
+         * 上游 math.lua 有六条断言对着它们。
+         */
+        s.add("print(tonumber('1\\0'), tonumber('1 \\0'), tonumber('1\\0 '))");
+        s.add("print(tonumber('1\\0', 2), tonumber('\\0ff', 16), tonumber('1\\0', 10))");
+        s.add("print(tonumber('  '), tonumber(''), tonumber('1  a'), tonumber('1  a', 2))");
+        s.add("print(tonumber('inf'), tonumber('Nan'), tonumber(' 3.4.5 '), tonumber('e1'))");
         s.add("print(tostring(1), tostring(nil), tostring(true), tostring(1.5))");
         s.add("local t = {1, 2, 3} print(table.unpack(t))");
         s.add("local t = {'a'} local k, v = next(t) print(k, v, next(t, k))");

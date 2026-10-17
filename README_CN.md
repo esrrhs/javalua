@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 769 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 777 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -725,6 +725,8 @@ C 帧。它表现为每次回溯末尾那行 `[C]: in ?`，以及
 | `literals.lua` | 末尾要 `os.setlocale("pt_BR")` 真的生效，JVM 设不上 |
 | `locals.lua` | `tracegc` 用 `io.stderr:write'.'` 在终结器里写进度点，终结时机由 JVM 定 |
 | `constructs.lua` | `_ENV.GLOB1 = math.random(0, 1)`（第 319 行），两个进程的种子不可能一样 |
+| `sort.lua` | 打印排序耗时与比较次数，而待排数据是 `math.random` 生成的 |
+| `math.lua` | 打印 `random seeds`、随机数的取值范围与耗时 |
 
 #### 本阶段由参考实现裁定的事
 
@@ -759,12 +761,38 @@ C 帧。它表现为每次回溯末尾那行 `[C]: in ?`，以及
   三处各差一格时，`errors.lua` 的「expected stack overflow after N calls」
   就会偏一。
 
+#### 把 `sort.lua` / `math.lua` 跑完时又挖出来的四个真缺陷
+
+这两个文件原来一进来就崩，修完才跑得到 `OK`。四个都不是「不一致」，是本实现
+写错了：
+
+* **`tunpack` 的越界判断要按无符号比。** C 版 `n` 是 `lua_Unsigned`，
+  `e - i` 溢出时回绕成一个巨大的数；Java 的 `long` 回绕成<b>负数</b>，照有符号
+  比就漏过去，然后循环从 `minI` 一路 push 到 `maxI`，把 `table.unpack` 撑成
+  `OutOfMemoryError`。
+* **`checkStack` / `checkStackOk` 里的 `top + n` 会整型溢出。** `n` 一下子来个
+  `2^31` 时和变成负数，「超过 `MAXSTACK`」的判断反而失效——同样是一路
+  `OutOfMemoryError`。改成 `long` 算。
+* **`tmove` 的判据不能化简。** C 版是 `e < LUA_MAXINTEGER + f`，不是
+  `e - f < LUA_MAXINTEGER`：两者在无溢出时等价，但这里<b>判的就是溢出</b>。
+  化简后 `table.move({}, minI, maxI, 1)` 报的是 `#4 (destination wrap around)`，
+  参考实现报 `#3 (too many elements to move)`。
+* **`luaG_tointerror` 要带 `varinfo` 后缀。** `math.huge << 1` 参考实现给的是
+  `number (field 'huge') has no integer representation`。
+* **`tonumber` 不能用 `String.trim()`。** Java 的 `trim` 去掉的是
+  「小于等于 U+0020 的字符」，<b>连 `\0` 一起去掉</b>；C 版只认
+  `SPACECHARS`（`" \f\n\r\t\v"`），并且要求解析指针正好走到 `s + l`。于是
+  `tonumber('1\0')` 与 `tonumber('1\0', 2)` 双双被算成 `1`。
+  `b_str2int` 现在整个改在字节上做，并回到长度上判「吃完了没有」。
+
 ### 还没补上的
 
 语言与十个标准库本身没有缺项，上游套件里能逐字节比的那些也都比过了。剩下的是
-<b>验证的广度</b>：更多差分脚本、更大的 fuzz 语料，以及 `attrib.lua` /
-`files.lua` / `big.lua`（要 `libs/` 与 `all.lua` 建的全局环境）、`sort.lua`
-（内存）这几条还没进表的用例。
+<b>验证的广度</b>：更多差分脚本、更大的 fuzz 语料。上游用例里没进表的只剩
+`all.lua` / `main.lua`（总驱动，要 `ltests.c` 编出来的 `T` 模块，还写
+`time.txt`）、`attrib.lua` / `files.lua` / `big.lua`（要 `libs/` 里那几个 C
+模块，以及 `all.lua` 建的全局环境——参考实现自己单跑也是失败）、`heavy.lua`
+（要跑好几分钟）、`bwcoercion.lua`（单跑没有输出）。
 
 ---
 

@@ -202,7 +202,24 @@ final class LuaTm {
             case Tm.TM_SHR:
             case Tm.TM_BNOT:
                 if (p1.isNumber() && p2.isNumber()) {
-                    throw L.runError("number has no integer representation");
+                    /*
+                     * {@code ldebug.c: luaG_tointerror}。两处都不能想当然：
+                     * <ul>
+                     *   <li><b>报哪一个</b>：先试 {@code p1}，它转不成整数才报
+                     *       {@code p1}，否则报 {@code p2}。
+                     *       {@code math.huge << 1} 报的是左边那个 inf。</li>
+                     *   <li><b>带 {@code varinfo} 后缀</b>：值若在寄存器里，
+                     *       参考实现还会反推它是怎么来的——上面那句实测是
+                     *       {@code number (field 'huge') has no integer
+                     *       representation}（{@code math.huge} 是
+                     *       {@code OP_GETFIELD} 取来的）。少了后缀，上游
+                     *       {@code math.lua} 的 {@code checkcompt("field
+                     *       'huge'", "return math.huge << 1")} 就对不上。</li>
+                     * </ul>
+                     */
+                    LuaValue bad = (Vm.toIntegerNs(p1, Arith.F2I_FLOOR) == null) ? p1 : p2;
+                    throw L.runError("number" + L.varInfo(bad)
+                            + " has no integer representation");
                 }
                 throw L.typeError(p1.isNumber() ? p2 : p1, "perform bitwise operation on");
             default:

@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 769 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 777 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate.
 
 **Phase 9 — complete, including `debug.sethook`.** The previous fakescript
@@ -835,6 +835,8 @@ compared that way but still have to finish.
 | `literals.lua` | the trailing locale section needs `os.setlocale("pt_BR")` to actually take effect; the JVM cannot |
 | `locals.lua` | `tracegc` writes a progress dot from a finalizer with `io.stderr:write'.'`; when it runs is up to the JVM |
 | `constructs.lua` | line 319 is `_ENV.GLOB1 = math.random(0, 1)`; two processes can never share a seed |
+| `sort.lua` | it prints sort timings and a comparison count, and the input is generated with `math.random` |
+| `math.lua` | it prints `random seeds`, the range of the random draws, and timings |
 
 #### What the reference binary settled in Phase 10
 
@@ -875,13 +877,42 @@ compared that way but still have to finish.
   each is worth one level of recursion in `errors.lua`'s "expected stack overflow
   after N calls".
 
+#### Four real bugs found while getting `sort.lua` / `math.lua` to finish
+
+Both files used to crash on entry; they only reach `OK` after these. None of them
+is a "we differ" — all four were plain mistakes on our side:
+
+* **`tunpack`'s overflow test must compare as unsigned.** In C, `n` is
+  `lua_Unsigned`, so a wrapping `e - i` becomes a *huge* value; a Java `long`
+  wraps to a *negative* one, the signed comparison lets it through, and the loop
+  then pushes from `minI` to `maxI` until `table.unpack` dies with
+  `OutOfMemoryError`.
+* **`top + n` overflows in `checkStack` / `checkStackOk`.** With an `n` of `2^31`
+  the sum goes negative, so the "over `MAXSTACK`" test stops firing — same
+  `OutOfMemoryError`. Now computed as `long`.
+* **`tmove`'s test must not be simplified.** C asks `e < LUA_MAXINTEGER + f`,
+  *not* `e - f < LUA_MAXINTEGER`: the two agree only when nothing wraps, and
+  wrapping is exactly what is being tested. Simplified,
+  `table.move({}, minI, maxI, 1)` reports `#4 (destination wrap around)` where
+  the reference reports `#3 (too many elements to move)`.
+* **`luaG_tointerror` carries a `varinfo` suffix.** For `math.huge << 1` the
+  reference says `number (field 'huge') has no integer representation`.
+* **`tonumber` must not use `String.trim()`.** Java's `trim` strips "characters
+  at or below U+0020", which *includes `\0`*; C recognises only `SPACECHARS`
+  (`" \f\n\r\t\v"`) and additionally requires the parse pointer to land exactly
+  on `s + l`. So both `tonumber('1\0')` and `tonumber('1\0', 2)` silently
+  returned `1`. `b_str2int` is now written over bytes and re-checks the length.
+
 ### What is still missing
 
 Nothing in the language or the ten standard libraries, and every upstream file
 whose output is deterministic now matches byte for byte. The remaining work is
-verification breadth: more differential scripts and a wider fuzz corpus, plus the
-files not yet on the list — `attrib.lua` / `files.lua` / `big.lua` (they need
-`libs/` and the globals `all.lua` sets up) and `sort.lua` (memory).
+verification breadth: more differential scripts and a wider fuzz corpus. The only
+upstream files still off the list are `all.lua` / `main.lua` (the driver: it needs
+the `T` module built from `ltests.c` and writes `time.txt`), `attrib.lua` /
+`files.lua` / `big.lua` (they need the C modules in `libs/` and the globals
+`all.lua` sets up — the reference binary fails on them standalone too),
+`heavy.lua` (minutes), and `bwcoercion.lua` (no output standalone).
 
 ---
 
