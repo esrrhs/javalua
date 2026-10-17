@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 861 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
+全量 862 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2319,6 +2319,27 @@ msgh orig | close a err=H |           xpcall -> false  E:a     <- 本实现
 * **素材放子目录、收尾整个删掉**，别撒在仓库根目录；
 * **永远不要拿真的系统文件试 `os.remove`**。`os.remove("/etc/hosts")` 一旦以
   root 跑就**真删掉了**。走 `EACCES` 那条路用的是测试自己建的 `chmod 555` 目录。
+
+#### `utf8` 矩阵：一个字面量抄了两份，以及一行谁也走不到
+
+`Utf8Lib` 是 0.930，而它跟 `IoLib` / `PackageLib` 不一样 —— 缺的都是<b>纯逻辑</b>，
+没有平台行为、没有 `IOException` 兜底。逐行读未覆盖行捞出来的是**同一份字面量抄了
+两遍**：`open` 里内联拼了一份 `utf8.charpattern` 的字节数组，旁边的
+`charPattern()` 一个调用者都没有。同一常量两份拷贝，是<b>看不出漂移</b>的 —— 覆盖率
+报告上就是两段都 `nc`。合成一处（并让矩阵真的去读 `utf8.charpattern`），这条才进
+了测试。
+
+72 行矩阵覆盖 `utf8.char` 的每个边界（0、`0x7F`、`0x80`、`0x7FF`、`0x800`、
+`0xFFFF`、`0x10000`、`0x10FFFF`、`0xD800`、`0x110000`、`MAXUTF`、`-1`、
+`math.mininteger` / `math.maxinteger`、非整数、字符串）、**只有第 2 个及之后的参数
+才走**的那条 `value out of range` 分支、`utf8.codepoint` 的全部越界形状
+（`i > j` 一个值都不返回、0、越过末尾、负数、空串、`lax` 真假、浮点 / 字符串 /
+布尔参数），以及**真正拿来用**而不是看一眼的 `charpattern` ——
+`"a中b\u{1F600}"` 上 `gmatch` 出 4 个字符，`"\xff\xfe"` 上出 0 个。
+
+第一跑逐字节一致。`Utf8Lib` 从 0.930 到 **0.995**，只剩一行：
+`throw L.libError("string slice too long")`，要一条不小于 2GB 的字符串才走得
+到。记为「走不到」，不去追。
 
 ### `__gc` 不再往深里做（有意停止）
 

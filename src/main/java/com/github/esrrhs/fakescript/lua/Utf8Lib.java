@@ -32,15 +32,21 @@ public final class Utf8Lib {
         LuaAux.setFn(u, "char", Utf8Lib::utfChar);
         LuaAux.setFn(u, "len", Utf8Lib::utfLen);
         LuaAux.setFn(u, "codes", Utf8Lib::iterCodes);
-        // UTF8PATT：[\0-\x7F\xC2-\xFD][\x80-\xBF]* —— 首字节里排除了 \xC0/\xC1
-        //（过长编码）与 \xFE/\xFF（非法），所以它能不重不漏地匹配一个 UTF-8 字符
-        byte[] patt = { '[', 0x00, '-', 0x7F, (byte) 0xC2, '-', (byte) 0xFD, ']', '[',
-                (byte) 0x80, '-', (byte) 0xBF, ']', '*' };
-        u.set("charpattern", LuaValue.ofString(LuaString.of(patt)));
+        u.set("charpattern", LuaValue.ofString(charPattern()));
         LuaAux.registerLib(L, "utf8", u);
     }
 
-    /** {@code utf8.charpattern} 之外也用得上（{@code string.gsub} 按字符切分） */
+    /**
+     * {@code UTF8PATT}：{@code [\0-\x7F\xC2-\xFD][\x80-\xBF]*}。
+     * <p>
+     * 首字节里排除了 {@code \xC0} / {@code \xC1}（过长编码）与 {@code \xFE} /
+     * {@code \xFF}（非法），所以它能不重不漏地匹配一个 UTF-8 字符。
+     * <p>
+     * 只留<b>这一份</b>：早先 {@code open} 里还抄了一份同样的字面量，而
+     * {@code charPattern()} 一个调用者都没有 —— 于是「改了这边没改那边」这种
+     * 漂移是<b>看不出来</b>的（覆盖率报告上表现为整段 nc）。合成一处之后
+     * {@code utf8.charpattern} 这条也就被真正走过了。
+     */
     public static LuaString charPattern() {
         return LuaString.of(new byte[] { '[', 0x00, '-', 0x7F, (byte) 0xC2, '-', (byte) 0xFD, ']',
                 '[', (byte) 0x80, '-', (byte) 0xBF, ']', '*' });

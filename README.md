@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 861 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 862 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2624,6 +2624,29 @@ Two traps while writing the probe, both recorded in the test's javadoc:
 * **Never exercise `os.remove` against a real system file.** `os.remove("/etc/hosts")`
   would *succeed* and delete it if the suite ever ran as root. The `EACCES` case
   uses a `chmod 555` directory the test creates itself.
+
+#### The `utf8` sweep: one literal written twice, and one line nobody can reach
+
+`Utf8Lib` was at 0.930, and unlike `IoLib`/`PackageLib` its holes are pure logic —
+no platform behaviour, no `IOException` handlers. Reading the uncovered lines found
+a literal written **twice**: `open` built the `utf8.charpattern` byte array inline
+while `charPattern()` sat next to it with no callers at all. Two copies of the same
+constant is a drift that nothing can detect — the coverage report just shows both
+blocks `nc`. Merging them (and having the matrix actually read
+`utf8.charpattern`) puts the pattern under test.
+
+The 72-line matrix covers `utf8.char` at every boundary (0, `0x7F`, `0x80`,
+`0x7FF`, `0x800`, `0xFFFF`, `0x10000`, `0x10FFFF`, `0xD800`, `0x110000`,
+`MAXUTF`, `-1`, `math.mininteger` / `math.maxinteger`, non-integer, string), the
+**separate** `value out of range` branch that only arguments 2..n take, every
+`utf8.codepoint` bounds shape (`i > j` returning nothing at all, 0, past the end,
+negative, empty string, `lax` true/false, float / string / boolean arguments), and
+`charpattern` **used** rather than inspected — `gmatch` over `"a中b\u{1F600}"`
+yields 4 characters, over `"\xff\xfe"` yields 0.
+
+Byte-identical on the first run. `Utf8Lib` went 0.930 → 0.995 with one line left:
+`throw L.libError("string slice too long")`, which needs a string of at least two
+gigabytes. It is recorded as unreachable rather than chased.
 
 ### `__gc` is deliberately not chased further
 
