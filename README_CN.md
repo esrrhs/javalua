@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 795 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 796 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -914,6 +914,46 @@ fuzz 生成器学会了 `table.*`，立刻回本：五处不一致，没有一�
 手写用例永远撞不到，上游套件全绿也撞不到——是 fuzzer 撞到的。
 `RuntimeTest.floatFormattingMatchesReferenceAcrossMagnitudes` 现在用脚本<b>内部</b>
 的 LCG 生成几千个值钉住它，随机数发生器本身不进比较范围。
+
+#### 把语料拓宽之后又咬出两处
+
+生成器接着学会了 `utf8.*`、`gmatch`、`next`、`string.pack`/`unpack`、
+`table.pack`、非字符串错误值、`math.ult`/`fmod`/`max`/`min`、
+`rawequal`/`rawlen`/`select`。信它之前先量了一遍：每条新分支在 6%–29% 的程序里
+出现，语料确实是活的。立刻又咬出两处，都在 `ltable.c` —— 前五处里也有三处在
+这个文件。
+
+* **`luaH_getn` 是先答 `limit-1`，根本不二分。** 手册只要求 `#t` 返回<b>某个</b>
+  边界，这让「我们找到了一个合法边界」听起来就够了。<b>不够</b>：真实程序看得见
+  具体是哪一个。`ltable.c` 为最常见的一串操作（`t[#t] = nil` 之后马上再取长度）
+  专门留了快路径：
+
+  ```c
+  if (limit > 0 && isempty(&t->array[limit - 1])) {
+    if (limit >= 2 && !isempty(&t->array[limit - 2]))
+      return limit - 1;          /* (1a) 不去二分 */
+    else { /* (1b) */ ... binsearch ... }
+  }
+  ```
+
+  数组 `[1, nil, 3, nil]`：二分给 `1`（它找的是<b>第一个</b>边界），参考实现给
+  `3`。`table.pack(1, nil, 3, nil)` 之后 `#t` 是 `3` 不是 `1`。系统性地铺开各种
+  空洞（单个空洞到 `n = 32`、空洞对到 `n = 19`、三空洞到 `n = 11`、
+  `table.pack` 的全部 32 种 nil 组合）—— **4968 条结果里错 212 条（4.3%）**。
+
+* **`luaH_resize` 必须允许哈希部分缩成 dummy。** `rehash` 之后 C 的 `reinsert`
+  用 `luaH_set` 搬旧数据，整数键只要 `<= asize` 就被路由进新数组部分，<b>不占
+  哈希槽</b>；所以 `luaH_resize(L, t, 4, 0)` 结束时哈希部分是 dummy（0 槽）。
+  这里早先按「所有搬过去的条目」撑哈希，于是数组 4 配着 2 个用不上的哈希槽。
+  要命的是 `luaH_newkey` 的判据里有 `isdummy(t)`：哈希不是 dummy 时，下一次插入
+  直接占空槽、<b>不再 rehash</b>，数组部分就再也长不大。
+  `t = {}; t[2]=2; t[3]=3; t[4]=4; t[6]=6; t[7]=7`，参考实现数组部分 8、
+  `#t` 是 7，这里是 4 和 4。上面那份空洞扫描正是把它挖出来的 —— 旧语料只会按
+  `1..n` 顺序插入，永远走不到这条路。
+
+两处都由 `RuntimeTest.tableLengthBoundaryMatchesReference` 钉住：空洞图案在脚本
+<b>内部</b>用循环铺开（用 LCG 会把随机数发生器本身也拉进比较范围），每张表把
+`#t` 读两次，因为 C 会在第一次调用时顺手把 `alimit` 改成一个提示。
 
 ### 还没补上的
 

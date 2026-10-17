@@ -792,10 +792,28 @@ public final class LuaTable {
             }
         }
 
-        // 新哈希部分。moved 非空时必须至少有一个槽，否则下面的搬运会失败
+        /*
+         * 新哈希部分。
+         * <p>
+         * 只有<b>不会落进新数组部分</b>的键才需要槽 —— 这一点是实测撞出来的。
+         * C 的 {@code reinsert} 用 {@code luaH_set} 搬旧数据，整数键只要
+         * {@code <= 新数组长度} 就被路由进数组部分，不占哈希槽；
+         * {@code luaH_resize(L, t, 4, 0)} 之后哈希部分因此是 dummy（0 槽）。
+         * 这里早先按 {@code moved.size()} 撑哈希，于是「数组 4 + 哈希 2 槽」
+         * 留了下来，而 {@code luaH_newkey} 的判据里有 {@code isdummy(t)}：
+         * 哈希不是 dummy 时，下一次插入直接占一个空槽，<b>不再 rehash</b>，
+         * 数组部分就再也长不大。实测 {@code t={}; t[2]=2 t[3]=3 t[4]=4
+         * t[6]=6 t[7]=7}：参考实现数组部分 8、{@code #t} 是 7，我们是 4 和 4。
+         */
         int hashSize = newHashSize;
-        if (moved.size() > hashSize) {
-            hashSize = moved.size();
+        int needSlots = 0;
+        for (LuaValue[] kv : moved) {
+            if (!landsInArray(kv[0], newArraySize)) {
+                needSlots++;
+            }
+        }
+        if (needSlots > hashSize) {
+            hashSize = needSlots;
         }
         setNodeVector(hashSize);
 
@@ -823,6 +841,18 @@ public final class LuaTable {
             throw new IllegalStateException("hash part too small after resize");
         }
         n.val.set(value);
+    }
+
+    /** 这个键搬进新表时会走数组部分吗？与 {@link #rawGet} 的路由保持一致 */
+    private static boolean landsInArray(LuaValue key, int newArraySize) {
+        if (key.tt == Lua.VNUMINT) {
+            return key.i > 0 && key.i <= newArraySize;
+        }
+        if (key.tt == Lua.VNUMFLT) {
+            long[] k = new long[1];
+            return floatToIntExact(key.n, k) && k[0] > 0 && k[0] <= newArraySize;
+        }
+        return false;
     }
 
     private void setArrayVector(int size) {
@@ -893,14 +923,37 @@ public final class LuaTable {
     /**
      * {@code luaH_getn}：返回一个「边界」——{@code t[n]} 非 nil 且 {@code t[n+1]} 为 nil。
      * <p>
-     * Lua 只要求返回<b>某个</b>边界，不指定是哪一个，所以这里的二分查找只要落在
-     * 合法边界上就算正确。数组部分满且哈希部分非空时，边界可能藏在哈希里，
-     * 走 {@code unbound_search}：先指数级试探再二分。
+     * Lua 的手册只要求返回<b>某个</b>边界，所以「二分查找落在某个合法边界上」
+     * 听起来就够了。<b>不够</b>：目标是与参考实现逐字节一致，而真实程序会观察到
+     * 具体是哪一个。{@code ltable.c} 在这里特意不走二分：
+     *
+     * <pre>
+     * if (limit &gt; 0 &amp;&amp; isempty(&amp;t-&gt;array[limit - 1])) {   // (1)
+     *   if (limit &gt;= 2 &amp;&amp; !isempty(&amp;t-&gt;array[limit - 2])) {
+     *     return limit - 1;             // (1a) 常见情形，别去二分
+     *   }
+     *   else { ... binsearch ... }      // (1b)
+     * }
+     * </pre>
+     *
+     * 少了 (1a) 会差多少：数组 {@code [1, nil, 3, nil]} —— 二分给 {@code 1}
+     * （{@code i=0,j=4 → m=2 空 → j=2 → m=1 非空 → i=1}），而参考实现给
+     * {@code 3}。实测 {@code table.pack(1, nil, 3, nil)} 之后
+     * {@code #t} 是 {@code 3} 不是 {@code 1}；{@code t = {1,2,3,4}; t[2]=nil;
+     * t[4]=nil} 同样是 {@code 3}。C 的注释写明了动机：{@code t[#t] = nil}
+     * 之后立刻再取长度是最常见的一串操作，直接答 {@code limit-1}。
+     * <p>
+     * 数组部分满且哈希部分非空时，边界可能藏在哈希里，走 {@code unbound_search}：
+     * 先指数级试探再二分。
      */
     public long length() {
         int j = array.length;
         if (j > 0 && array[j - 1].isNil()) {
-            // 数组部分末尾为空 → 边界在数组内，二分
+            // (1a)：倒数第二格还在，那 limit-1 就是边界，别去二分
+            if (j >= 2 && !array[j - 2].isNil()) {
+                return j - 1;
+            }
+            // (1b)：在 [0, limit] 里二分
             int i = 0;
             while (j - i > 1) {
                 int m = (i + j) / 2;
