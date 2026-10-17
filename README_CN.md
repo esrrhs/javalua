@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 865 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
+全量 869 个用例绿，JaCoCo 行覆盖 0.96（门禁 0.95）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -2458,6 +2458,45 @@ JaCoCo 知道这个分支两个方向都走过，行号表也证明 1315 行有�
 `time.txt`）、`attrib.lua` / `files.lua` / `big.lua`（要 `libs/` 里那几个 C
 模块，以及 `all.lua` 建的全局环境——参考实现自己单跑也是失败）、`heavy.lua`
 （要跑好几分钟）、`bwcoercion.lua`（单跑没有输出）。
+
+### `varinfo` 矩阵：错误消息里的名字是反推出来的，不是记下来的
+
+`attempt to index a nil value (local 'x')` 那个括号尾巴出自
+`ldebug.c: varinfo`，它<b>没有</b>被存在任何地方。`varinfo` 先问「这个值是不
+是正在跑的闭包的某个 upvalue」，再问「它落在第几个寄存器」，最后把寄存器交给
+`getobjname`，由后者根据<b>最后一次改写这个寄存器的指令</b>去猜。网格
+（**112 行**）把所有 kind 都钉住：`local`、`upvalue`、`constant`、`global`、
+`field`、`method`、`(for iterator 'for iterator')`，外加两种推不出来的形状
+`field 'integer index'`（`OP_GETI`，所以 kind 是 `field`、而<i>名字</i>是字面串
+`integer index`）和 `field '?'`（键推不出来）。<b>空后缀同样是答案的一部分</b>：
+`attempt to call a number value` 后面<b>不能</b>多出 `(constant '42')`——
+`kname` 只给<b>字符串</b>常量起名字，两行用例专门钉这条。
+
+这片矩阵值钱的地方在于它「红不起来」这件事本身。前 21 条是按「条件赋值会让
+名字消失」这个直觉写的：`local x = nil; if c then x = nil end; return x.y`。
+21 条<b>全部</b>答 `(local 'x')`，把 `filterpc` 改成无条件的 `return pc`，
+21 条一行都不红。原因在 `basicgetobjname`：它<b>先</b>调 `luaF_getlocalname`，
+只要那个寄存器在出错那一点是活着的局部量，当场就返回 `"local"` ——
+`findsetreg` 连同它的跳转目标过滤<b>根本进不去</b>。符号执行只负责
+<b>临时寄存器</b>。
+
+真正能进去的是 `and` / `or`：`(c and t.a or t.b).z` 两条分支写的是<b>同一个
+临时寄存器</b>，而且都写在跳转目标之前，于是最后一条改写记录被判成「可能没
+执行」而作废，尾巴塌成空串。补上这几行之后，同一个破坏从 0 行红变成
+<b>234</b> 行。
+
+敏感度（破坏一处再还原，数变红的行数）：`filterpc` 234、`instack` 435、
+`upvalname` 的 `"?"` 211、`kname` 只认字符串 131、`OP_MOVE` 的 `b < a` 22、
+`OP_LOADNIL` 的寄存器区间 10、`"integer index"` 3、`isenv` 的 `global` 3、
+`method` 2。
+
+有一条分支是<b>如实记成不可达</b>，而不是假装被覆盖了。给 `findsetreg` 插桩，
+统计它落在哪些 opcode 上（矩阵 + 上游 33 个用例）：`LOADNIL` 1080、
+`GETTABUP` 494、「没找到」326、`GETUPVAL` 199、`MOVE` 52……而 `TFORCALL`
+是 **0**。那条分支（`change = reg >= a + 2`）从错误消息里观测不到：
+`TFORCALL` 位于循环体末尾，它影响的那些寄存器在循环内都是活局部量，循环外又
+必然先被重写一遍才有人读。代码是从 C 逐字搬过来的，1032 行用例没有一行走到
+它——这是量出来的。
 
 ---
 

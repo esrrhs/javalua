@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 865 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 869 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2786,6 +2786,49 @@ the `T` module built from `ltests.c` and writes `time.txt`), `attrib.lua` /
 `files.lua` / `big.lua` (they need the C modules in `libs/` and the globals
 `all.lua` sets up — the reference binary fails on them standalone too),
 `heavy.lua` (minutes), and `bwcoercion.lua` (no output standalone).
+
+### The `varinfo` matrix: the name in an error message is reconstructed, not recorded
+
+`attempt to index a nil value (local 'x')` — the parenthesised tail comes from
+`ldebug.c: varinfo`, and none of it is stored anywhere. `varinfo` first asks "is
+this value an upvalue of the running closure?", then "which register holds it?",
+then hands that register to `getobjname`, which guesses from **the last
+instruction that wrote it**. The grid (**112 lines**) pins every kind: `local`,
+`upvalue`, `constant`, `global`, `field`, `method`, `(for iterator 'for
+iterator')`, plus the two failure shapes `field 'integer index'` (`OP_GETI`, so
+the kind is `field` and the *name* is the literal string `integer index`) and
+`field '?'` (a key it cannot recover). The empty tail is part of the answer too:
+`attempt to call a number value` must **not** grow a `(constant '42')`, because
+`kname` names *string* constants only — two rows pin that.
+
+The valuable half of this matrix is what it found by **not** being sensitive. The
+first 21 cases were written on the intuition "a conditional assignment makes the
+name disappear": `local x = nil; if c then x = nil end; return x.y`. All 21 answer
+`(local 'x')`, and rewriting `filterpc` as an unconditional `return pc` left all
+21 green. The reason is in `basicgetobjname`: it calls `luaF_getlocalname`
+**first**, and any register that is a live local at the failing pc returns
+`"local"` on the spot — `findsetreg`, its jump-target filter and all, is never
+entered. Symbolic execution only ever speaks about **temporaries**.
+
+What does reach it is `and` / `or`: in `(c and t.a or t.b).z` both branches write
+the *same* temporary and both writes sit before the jump target, so the last write
+is judged "may not have executed" and discarded, and the tail collapses to the
+empty string. Adding those turned the very same sabotage from 0 red lines into
+**234**.
+
+Sensitivity, measured by breaking one line and reverting: `filterpc` 234,
+`instack` 435, `upvalname`'s `"?"` 211, `kname` string-only 131, `OP_MOVE`'s
+`b < a` 22, `OP_LOADNIL`'s register range 10, `"integer index"` 3, `isenv`'s
+`global` 3, `method` 2.
+
+One branch is recorded as unreachable rather than quietly assumed covered.
+Instrumenting `findsetreg` over the grid and the 33 upstream files shows which
+opcode it lands on: `LOADNIL` 1080, `GETTABUP` 494, "not found" 326, `GETUPVAL`
+199, `MOVE` 52, … and `TFORCALL` **zero**. That branch (`change = reg >= a + 2`)
+cannot be observed from an error message: `TFORCALL` sits at the end of the loop
+body, the registers it touches are live locals inside the loop, and outside the
+loop they are always rewritten before anything reads them. It is transcribed
+verbatim from C; no case in 1032 lines reaches it, and that is a measured fact.
 
 ---
 
