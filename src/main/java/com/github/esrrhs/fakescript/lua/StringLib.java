@@ -1074,22 +1074,23 @@ public final class StringLib {
             }
             case 'd':
             case 'i': {
-                checkFormat(L, form, form.substring(1), "-+0 ", true);
+                // C 的 intcase 是「先 checkinteger，再 checkformat」，顺序别反
                 long n = LuaAux.checkInteger(L, arg);
+                checkFormat(L, form, form.substring(1), "-+0 ", true);
                 emitInt(out, sp, conv, n, false);
                 break;
             }
             case 'u': {
-                checkFormat(L, form, form.substring(1), "-0", true);
                 long n = LuaAux.checkInteger(L, arg);
+                checkFormat(L, form, form.substring(1), "-0", true);
                 emitInt(out, sp, conv, n, false);
                 break;
             }
             case 'o':
             case 'x':
             case 'X': {
-                checkFormat(L, form, form.substring(1), "-#0", true);
                 long n = LuaAux.checkInteger(L, arg);
+                checkFormat(L, form, form.substring(1), "-#0", true);
                 emitInt(out, sp, conv, n, false);
                 break;
             }
@@ -1101,8 +1102,8 @@ public final class StringLib {
                 break;
             }
             case 'f': {
-                checkFormat(L, form, form.substring(1), "-+#0 ", true);
                 double x = LuaAux.checkNumber(L, arg);
+                checkFormat(L, form, form.substring(1), "-+#0 ", true);
                 int prec = sp.hasPrec ? sp.prec : 6;
                 String d = fixedDigits(Math.abs(x), prec);
                 emitFloat(out, sp, isNeg(x), keepPoint(d, sp.hash), conv == 'F');
@@ -1110,8 +1111,8 @@ public final class StringLib {
             }
             case 'e':
             case 'E': {
-                checkFormat(L, form, form.substring(1), "-+#0 ", true);
                 double x = LuaAux.checkNumber(L, arg);
+                checkFormat(L, form, form.substring(1), "-+#0 ", true);
                 int prec = sp.hasPrec ? sp.prec : 6;
                 int[] exp = new int[1];
                 String m = expDigits(Math.abs(x), prec, exp);
@@ -1123,8 +1124,8 @@ public final class StringLib {
             }
             case 'g':
             case 'G': {
-                checkFormat(L, form, form.substring(1), "-+#0 ", true);
                 double x = LuaAux.checkNumber(L, arg);
+                checkFormat(L, form, form.substring(1), "-+#0 ", true);
                 int prec = sp.hasPrec ? sp.prec : 6;
                 emitFloat(out, sp, isNeg(x), generalDigits(Math.abs(x), prec, sp.hash), conv == 'G');
                 break;
@@ -1333,6 +1334,20 @@ public final class StringLib {
         return sb.toString();
     }
 
+    /** 去掉 {@code 0} 标志的副本（整数动词给了精度时用） */
+    private static Spec copyWithoutZero(Spec s) {
+        Spec c = new Spec();
+        c.left = s.left;
+        c.plus = s.plus;
+        c.space = s.space;
+        c.hash = s.hash;
+        c.zero = false;
+        c.width = s.width;
+        c.hasPrec = s.hasPrec;
+        c.prec = s.prec;
+        return c;
+    }
+
     private static void repeat(StringBuilder sb, char c, int n) {
         for (int k = 0; k < n; k++) {
             sb.append(c);
@@ -1380,6 +1395,18 @@ public final class StringLib {
             break;
         }
         digits = applyPrecision(digits, sp.hasPrec, sp.prec);
+        /*
+         * C 的规则：<b>整数转换一旦指定了精度，{@code 0} 标志就被忽略</b>
+         * （C99 7.19.6.1：「For d, i, o, u, x, and X conversions, if a
+         * precision is specified, the 0 flag is ignored」）。
+         * {@code ("%05.3d"):format(42)} 因此是 {@code "  042"}——精度先把值补成
+         * {@code "042"}，宽度 5 再用<b>空格</b>补，不是 {@code "00042"}。
+         * 实测矩阵里这一类错了 220 行，全是「{@code 0} 标志 + 精度 + 整数动词」。
+         * 浮点动词没有这条规则（{@code %08.3f} 照旧补零），所以只在这里改。
+         */
+        if (sp.hasPrec) {
+            sp = copyWithoutZero(sp);
+        }
         if (conv == 'o' && sp.hash && !digits.startsWith("0")) {
             /*
              * {@code #} 对 {@code %o} 的作用是「逼出前导 0」。必须在补完精度
