@@ -928,6 +928,46 @@ deterministic test (`TableLibTest.choosePivotStaysInsideTheInterval`) that check
 the C `lua_assert` — `lo + r4 <= p <= up - r4` — directly, instead of hoping a
 50 000-element sort trips over it.
 
+#### Phase 11: a precompiled chunk must load through *every* door
+
+`ldo.c: f_parser` reads one byte. If it is the first byte of `LUA_SIGNATURE`, the
+chunk goes to `luaU_undump`; otherwise to `luaY_parser`. That single test is why a
+caller never has to say whether it is handing over source or bytecode — and why
+`load`, `loadfile`, `dofile` and `require` all accept precompiled chunks for free.
+
+The dispatch used to exist only inside `BaseLib`'s `load` / `loadfile`. `lua_load`
+itself (`LuaState.load`) did not look at the signature, so **`require` of a
+precompiled module failed**:
+
+```
+error loading module 'mod' from file '/tmp/mod.lua':
+	/tmp/mod.lua:1: unexpected symbol near '<\27>'
+```
+
+The reference loads it and returns the module. `PackageLib` reaches the loader
+through `LuaState.loadFile`, which is why this showed up there and not in `load`.
+The fix is at the `lua_load` layer, not a patch on `require`:
+
+* `LuaState.load` / `loadFile` now dispatch on `Lua.LUA_SIGNATURE0`;
+* `loadFile` still runs the `lauxlib` preamble first (BOM, `#!`), because a
+  precompiled chunk never starts with `#` — order matters;
+* the binary branch does **not** push the first byte back: `luaU_undump` says
+  "skip 1st char (already read and checked)", so `checkHeader` starts at byte two.
+
+`BinaryChunkTest` covers both directions:
+
+* **chunks produced by the real `luac`** (`ReferenceLua.compile`, located via
+  `LUAC54_BIN` or sitting next to the reference `lua`), run on both sides and
+  compared byte for byte. Self-compiled chunks would be grading our own compiler
+  with our own compiler, so the reference's `luac` is what produces them. The
+  corpus covers upvalues, varargs, `goto`, mixed table constructors, integer and
+  float edges, coroutines, a 300-entry constant table, and two scripts that *fail*
+  on purpose — the error messages carry line numbers and local-variable names, so
+  losing the debug info in `undump` turns them red;
+* **chunks produced by our own `string.dump`** (`require`, `dofile`, `loadfile`,
+  the `mode` argument, the `binary string` chunk-name rule, and truncated or
+  tampered chunks, which must be load-time errors rather than crashes).
+
 ### What is still missing
 
 Nothing in the language or the ten standard libraries, and every upstream file

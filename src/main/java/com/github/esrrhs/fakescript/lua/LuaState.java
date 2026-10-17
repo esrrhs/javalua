@@ -2006,7 +2006,30 @@ public final class LuaState {
 
     /** 源名是 Lua 字符串（字节串）时的重载，避免 UTF-8 往返带来的失真 */
     public LClosure load(Zio z, byte[] chunkName) {
-        return load(z, chunkName, z.getc());
+        return loadDispatch(z, chunkName, z.getc());
+    }
+
+    /**
+     * {@code ldo.c: f_parser} 那一步分派：首字节是 {@code LUA_SIGNATURE} 的
+     * 第一个字节就走 {@code luaU_undump}，否则才进词法／语法分析。
+     * <p>
+     * 这一层之前只存在于 {@link BaseLib} 的 {@code load} / {@code loadfile} 里，
+     * 而 {@code lua_load} 本身（也就是 {@link #load}）不看签名——于是
+     * {@code require} 一个<b>预编译模块</b>会失败：{@code PackageLib} 走的是
+     * {@link #loadFile}，报的是
+     * {@code unexpected symbol near '<\27>'}（把签名当源码读了）。
+     * 参考实现里 {@code require} 预编译 chunk 是正常路径——
+     * {@code luac -o mod.luac} 之后直接 {@code require "mod"} 是常见分发方式。
+     * <p>
+     * 二进制分支<b>不回退</b>首字节：C 的 {@code luaU_undump} 注释写得很直白，
+     * 「skip 1st char (already read and checked)」，{@code checkHeader} 从第二个
+     * 字节开始比。
+     */
+    private LClosure loadDispatch(Zio z, byte[] chunkName, int firstChar) {
+        if (firstChar == Lua.LUA_SIGNATURE0) {
+            return undump(z, chunkName);
+        }
+        return load(z, chunkName, firstChar);
     }
 
     /**
@@ -2036,12 +2059,15 @@ public final class LuaState {
      * 不属于词法层）。行号必须靠补一个 {@code \n} 保住。
      */
     public LClosure loadFile(byte[] source, String chunkName) {
-        this.chunkName = LuaString.utf8(chunkName).bytes;
-        Proto p = Parser.parseFile(source, LuaString.utf8(chunkName).bytes, strings);
-        LClosure cl = new LClosure(p, 1);
-        cl.initUpvals();
-        cl.upvals[0] = UpVal.closed(LuaValue.ofTable(globals));
-        return cl;
+        byte[] name = LuaString.utf8(chunkName).bytes;
+        this.chunkName = name;
+        /*
+         * 先过 lauxlib 那一步（BOM / #!），再按签名分派。
+         * 顺序不能反：预编译 chunk 的第一个字节是签名，不是 '#'，
+         * skipFilePreamble 不会动它；反过来若先分派就吃不到 BOM 了。
+         */
+        Zio z = new Zio(Parser.skipFilePreamble(source));
+        return loadDispatch(z, name, z.getc());
     }
 
     /** 编译并执行一段源码 */

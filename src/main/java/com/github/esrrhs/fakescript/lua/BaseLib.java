@@ -833,7 +833,7 @@ public final class BaseLib {
     /* ==================== 加载 ==================== */
 
     /** {@code LUA_SIGNATURE} 的第一个字节；以它开头的就是二进制 chunk */
-    private static final int SIGNATURE0 = 0x1b;
+    private static final int SIGNATURE0 = Lua.LUA_SIGNATURE0;
 
     /**
      * {@code luaB_load}。

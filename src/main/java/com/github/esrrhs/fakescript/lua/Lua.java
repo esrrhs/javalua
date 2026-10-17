@@ -48,6 +48,16 @@ public final class Lua {
     public static final int VSHRSTR = TSTRING | (0 << 4); // 4：短字符串（参与驻留）
     public static final int VLNGSTR = TSTRING | (1 << 4); // 20：长字符串（不驻留）
 
+    /**
+     * {@code LUA_SIGNATURE}（{@code "\27Lua"}}）的首字节。
+     * <p>
+     * {@code ldo.c: f_parser} 就靠这一个字节决定走 {@code luaU_undump} 还是
+     * {@code luaY_parser}——所以「一个 chunk 是源码还是预编译」<b>不需要调用方
+     * 声明</b>，加载器自己看得出来。{@code load}、{@code loadfile}、
+     * {@code require}、{@code dofile} 全都因此天然支持预编译 chunk。
+     */
+    public static final int LUA_SIGNATURE0 = 0x1B;
+
     /** 线程 / 协程：{@code makevariant(LUA_TTHREAD, 0)} */
     public static final int VTHREAD = TTHREAD | (0 << 4); // 8
 
