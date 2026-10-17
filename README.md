@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 824 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 825 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1684,6 +1684,60 @@ It found one thing: **`_LOADED` has to be a field of the registry.**
 kept it in a `LuaState` field only, so `type(debug.getregistry()["_LOADED"])`
 gave `nil` where the reference gives `table`. Now it is read back out of the
 registry, so a script that swaps `_LOADED` swaps ours too.
+
+#### The error sweep: two things about `__name`
+
+208 lines on one axis that no earlier matrix had touched: `error(msg, level)` for
+`level` from `-1` to `math.maxinteger`, error **objects** of every type (and what
+`print` / `tostring` / `string.format("%s")` do to them), the `luaL_where`
+position prefix in every syntactic position that can raise (table constructor,
+numeric and generic `for`, all twelve metamethods, a `gsub` replacement, a `sort`
+comparator, a coroutine, `<close>`, a method, an `__index` chain, a tail call, a
+`load`ed chunk with `=` / `@` / string names), the shape of `xpcall`, errors
+inside hooks, and chunks dumped with `strip`.
+
+It found two things, both in `luaT_objtypename`:
+
+```c
+const char *luaT_objtypename (lua_State *L, const TValue *o) {
+  Table *mt;
+  if ((ttistable(o) && (mt = hvalue(o)->metatable) != NULL) ||
+      (ttisfulluserdata(o) && (mt = uvalue(o)->metatable) != NULL)) {
+    const TValue *name = luaH_getshortstr(mt, luaS_new(L, "__name"));
+    if (ttisstring(name))  /* is '__name' a string? */
+      return getstr(tsvalue(name));  /* use it as type name */
+  }
+  return ttypename(ttype(o));  /* else use standard type name */
+}
+```
+
+**`__name` is a C string.** `getstr()` hands back a `const char *` and
+`luaG_typeerror` interpolates it with `%s`, so it is cut at the first `\0`:
+`__name = "A\0B"` reports `attempt to perform arithmetic on a A value`. We
+returned the whole byte array. (The same rule was already applied on
+`luaL_tolstring`'s path — this was the second copy of the bug.)
+
+**Only tables and (full) userdata consult `__name`.** Everything else falls
+straight to `ttypename`, *type metatable and all*: after
+`debug.setmetatable(nil, {__name = "NilT"})`, `nil + 1` still reports
+`... on a nil value`. Our lookup went through `luaT_gettmbyobj`, which also
+returns the *type* metatable — so we reported `NilT`.
+
+Four more things the sweep pinned down, none of which were bugs:
+
+* **`debug.traceback` returns a non-string, non-`nil` message untouched**
+  (`ldblib.c: db_traceback`), so `xpcall(f, debug.traceback)` with a table error
+  object yields the *table*, not a traceback. And `lua_tostring` does **not**
+  honour `__tostring` — which is exactly why `lua.c`'s `msghandler` has to call
+  `luaL_callmeta(L, 1, "__tostring")` by hand.
+* **The line hook fires before the first instruction of the line**, so
+  `print(pcall(f))` written on the same line does *not* protect the hook's error;
+  the call hook fires for `print` and `pcall` themselves.
+* **`xpcall` drops the handler's second result**: `ldo.c: dothecall` calls it as
+  `luaD_callnoyield(L, L->top - 2, 1)` — `nresults` is hard-coded to 1.
+* `coroutine.wrap`'s error carries **two** position prefixes; `pcall(error, "x")`
+  has **none** (a C function has no line); a library error **does** have one,
+  because `luaL_error`'s `luaL_where(L, 1)` asks for the *caller*.
 
 #### Two sweeps that came back clean: coroutines, and numeric `for` with coercion
 

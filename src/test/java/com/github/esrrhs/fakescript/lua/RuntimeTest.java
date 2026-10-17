@@ -6250,4 +6250,390 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+
+    /**
+     * 错误与错误对象矩阵：{@code error} 的 {@code level}、错误对象的类型与
+     * 字符串化、位置前缀（{@code luaL_where}）在各种语法位置上的取值、
+     * {@code xpcall} 处理器的形状、协程与 {@code <close>} 里的传播，
+     * 外加剥掉调试信息的 chunk 与 userdata / 类型元表上的 {@code __name}。
+     * 208 行逐字节一致。
+     * <p>
+     * 咬出两处，都在 {@code __name} 上：
+     * <ul>
+     *   <li><b>{@code __name} 走 C 字符串语义</b>（{@code ltm.c: luaT_objtypename}
+     *       返回的是 {@code const char*}，{@code luaG_typeerror} 用 {@code %s} 拼）：
+     *       {@code __name = "A\0B"} 报的只有 {@code A}；</li>
+     *   <li><b>只有表与 userdata 认 {@code __name}</b>：C 的条件是
+     *       {@code ttistable(o) || ttisfulluserdata(o)}，其余类型<b>连类型元表
+     *       都不看</b>。实测 {@code debug.setmetatable(nil, {__name = "NilT"})}
+     *       之后 {@code nil + 1} 参考实现报的还是 {@code nil value} —— 走
+     *       {@link LuaTm#metatableOf} 会把类型元表也算进来，于是我们多报了
+     *       {@code NilT}。</li>
+     * </ul>
+     * <p>
+     * 片子里还钉住几条容易写反的：
+     * <ul>
+     *   <li><b>{@code debug.traceback} 把非字符串、非 nil 的消息原样返回</b>
+     *       （{@code ldblib.c: db_traceback}），所以
+     *       {@code xpcall(f, debug.traceback)} 碰上表错误对象返回的是那张表，
+     *       不是回溯；而 {@code lua_tostring} <b>不</b>认 {@code __tostring}
+     *       —— 这正是 {@code lua.c} 的 {@code msghandler} 要显式
+     *       {@code luaL_callmeta(1, "__tostring")} 的原因；</li>
+     *   <li><b>行钩子在这一行的第一条指令之前触发</b>，所以
+     *       {@code print(pcall(f))} 与钩子写在同一行是<b>拦不住</b>的，
+     *       调用钩子连 {@code print} / {@code pcall} 自己都算；</li>
+     *   <li><b>{@code xpcall} 处理器的第二个返回值会被丢掉</b>：
+     *       {@code ldo.c: dothecall} 用 {@code luaD_callnoyield(L, top - 2, 1)}，
+     *       结果数写死是 1；</li>
+     *   <li>{@code coroutine.wrap} 抛出的错<b>带两层位置前缀</b>；
+     *       {@code error} 作为 C 函数直接被 {@code pcall} 时<b>没有</b>前缀，
+     *       而库函数报错<b>有</b>（{@code luaL_error} 的 {@code luaL_where(L, 1)}
+     *       取的是调用者那一层）；</li>
+     *   <li>顶层未捕获的非字符串错误对象报 {@code (error object is a X value)}，
+     *       这里的 {@code luaL_typename} <b>不</b>看 {@code __name}。</li>
+     * </ul>
+     * <p>
+     * 回溯只打印头 6 个字节：整段打印的话归一化会从 {@code stack traceback:}
+     * 处把后面<b>全部</b>砍掉，后面几十行一条也比不到。
+     */
+    @Test
+    void errorsAndErrorObjectsMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 错误与错误对象矩阵：error 的 level、错误对象的类型与字符串化、
+                -- 位置前缀（luaL_where）在各种语法位置上的取值、xpcall 的形状、
+                -- 协程与 <close> 里的传播。
+                local function show(v)
+                  return (tostring(v):gsub("0x%x+", "0xADDR"))
+                end
+                local function w(tag, f, ...)
+                  local r = table.pack(pcall(f, ...))
+                  local parts = { tag, tostring(r[1]), "#" .. r.n }
+                  for i = 2, r.n do parts[#parts + 1] = show(r[i]) end
+                  print(table.concat(parts, " "))
+                end
+
+                -- 1) error(msg, level)
+                local function mkl(lv)
+                  return function() error("E", lv) end
+                end
+                for lv = -1, 6 do
+                  w("L" .. lv, mkl(lv))
+                end
+                for _, lv in ipairs({ 0, 1, 2, 3, 4 }) do
+                  w("C" .. lv, error, "E", lv)
+                end
+                print("LV1", pcall(error, "E", 1.0))
+                print("LV2", pcall(error, "E", 1.5))
+                print("LV3", pcall(error, "E", "2"))
+                print("LV4", pcall(error, "E", "x"))
+                print("LV5", pcall(error, "E", {}))
+                print("LV6", pcall(function() local function g() error("A", 2) end g() end))
+                print("LV7", pcall(function() local function g() error("A", 3) end g() end))
+                print("LV8", pcall(function() local function g() error("A", 4) end g() end))
+                print("LV9", pcall(function() local function g() return error("A", 2) end return g() end))
+
+                -- 2) 错误对象的类型
+                local OBJS = {
+                  { "str", "msg" }, { "int", 7 }, { "flt", 4.5 }, { "true", true }, { "false", false },
+                  { "tbl", {} }, { "fn", print }, { "thr", coroutine.create(function() end) },
+                }
+                for _, o in ipairs(OBJS) do
+                  local r = table.pack(pcall(function() error(o[2]) end))
+                  print("O", o[1], r[1], "#" .. r.n, type(r[2]), show(r[2]))
+                end
+                do
+                  local r = table.pack(pcall(function() error(nil) end))
+                  print("O", "nil", r[1], "#" .. r.n, type(r[2]), show(r[2]))
+                end
+                do
+                  local r = table.pack(pcall(error))
+                  print("O", "err0", r[1], "#" .. r.n, type(r[2]), show(r[2]))
+                end
+
+                -- 3) 错误对象的字符串化：print 走 luaL_tolstring
+                local e1 = setmetatable({}, { __tostring = function() return "TSTR" end })
+                local e2 = setmetatable({}, { __name = "MyType" })
+                local e3 = setmetatable({}, { __tostring = function() return 5 end })
+                local e4 = setmetatable({}, { __tostring = function() error("nested") end })
+                local e5 = setmetatable({}, { __tostring = function() return nil end })
+                local ES = { e1, e2, e3, {}, 5, "s", true, print }
+                for i = 1, #ES do
+                  print("S", i, show(ES[i]))
+                end
+                print("Snil", show(nil))
+                print("S2", string.format("%s", e1))
+                print("S3", pcall(string.format, "%s", e3))
+                print("S4", pcall(tostring, e4))
+                print("S5", pcall(print, e4))
+                -- __tostring 返回非字符串：luaL_tolstring 报的是「必须返回字符串」
+                print("S6", pcall(tostring, e5))
+                print("S7", pcall(function() return show(e5) end))
+                print("S8", pcall(function() return ("%s"):format(e5) end))
+
+                -- 4) luaL_where：位置前缀在各种语法位置上
+                w("W1", function() error("A") end)
+                w("W2", function()
+                  error("B")
+                end)
+                w("W3", function() local t = { 1, error("C"), 3 } end)
+                w("W4", function() local t = { [error("D")] = 1 } end)
+                w("W5", function() local function g() error("E") end for i = 1, 2 do g() end end)
+                w("W6", function() for i = 1, 2 do error("F") end end)
+                local mt = {}
+                function mt.__add(a, b) error("G") end
+                function mt.__index(t, k) error("H") end
+                function mt.__newindex(t, k, v) error("I") end
+                function mt.__tostring(t) error("J") end
+                function mt.__len(t) error("K") end
+                function mt.__call(t, ...) error("L") end
+                function mt.__concat(a, b) error("M") end
+                function mt.__eq(a, b) error("N") end
+                function mt.__lt(a, b) error("O") end
+                function mt.__le(a, b) error("P") end
+                function mt.__unm(t) error("Q") end
+                local obj = setmetatable({}, mt)
+                local obj2 = setmetatable({}, mt)
+                w("M1", function() return obj + 1 end)
+                w("M2", function() return obj.k end)
+                w("M3", function() obj.k = 1 end)
+                w("M4", function() return tostring(obj) end)
+                w("M5", function() return #obj end)
+                w("M6", function() return obj() end)
+                w("M7", function() return obj .. "x" end)
+                w("M8", function() return obj == obj2 end)
+                w("M9", function() return obj < obj2 end)
+                w("MA", function() return obj <= obj2 end)
+                w("MB", function() return -obj end)
+                w("G1", function() return ("x"):gsub("x", function() error("R") end) end)
+                w("G2", function() table.sort({ 3, 1, 2 }, function(a, b) error("S") end) end)
+                w("G3", function() local co = coroutine.create(function() error("T") end) return select(2, coroutine.resume(co)) end)
+                w("G4", function() local co = coroutine.wrap(function() error("U") end) return co() end)
+                w("G5", function() local function g(...) error("V") end return g(1, 2, 3) end)
+                w("G6", function() local t = {} t.a = function() error("X") end t:a() end)
+                w("G7", function() local t = setmetatable({}, { __index = { f = function() error("Y") end } }) return t:f() end)
+                w("G8", function() return (function() error("Z") end)() end)
+                w("G9", function() local f = function() error("AA") end return f() end)
+                w("GA", function() local function g() error("AB") end return g() end)
+                w("L1", function() return load("error('AC')", "=chunk")() end)
+                w("L2", function() return load("error('AD')", "@file.lua")() end)
+                w("L3", function() return load("error('AE')")() end)
+                w("L4", function() return load("x=", "=bad") end)
+                w("L5", function() return load("x=") end)
+                w("CF", error, "AF")
+                w("C1", function() return string.rep("a") end)
+                w("C2", function() return #5 end)
+                w("C3", function() return nil + 1 end)
+                print("SORT", pcall(table.sort, { 3, 1, 2 }, function(a, b) return true end))
+                print("EH", pcall(function() return xpcall(function() error("E1") end, function(e) error("H1") end) end))
+
+                -- 5) xpcall 的形状
+                print("X1", xpcall(function() return 1, 2, 3 end, print))
+                print("X2", xpcall(function() error("E") end, function(e) return "H:" .. tostring(e) end))
+                print("X3", xpcall(function() error("E") end, function(e) return "a", "b" end))
+                print("X4", xpcall(function(a, b) return a + b end, function(e) return "H" end, 3, 4))
+                print("X5", pcall(xpcall, function() end, 5))
+                print("X6", pcall(xpcall))
+                print("X7", pcall(xpcall, function() end))
+                -- 只打印头 6 个字节：整段打印的话 Diff 的归一化会从 "stack traceback:" 处
+                -- 把后面全部砍掉，后面的行一条也比不到（guard 会挡，但那就得改 assertFullMatches）
+                local ok8, r8 = xpcall(function() error("E8") end, debug.traceback)
+                print("X8", ok8, type(r8), r8:sub(1, 6))
+                -- debug.traceback 当处理器：非字符串、非 nil 的错误对象原样返回（ldblib.c: db_traceback）
+                local ok9, r9 = xpcall(function() error({}) end, debug.traceback)
+                print("X9", ok9, type(r9), show(r9))
+                local okA, rA = xpcall(function() error(setmetatable({}, { __tostring = function() return "TS" end })) end, debug.traceback)
+                print("XA", okA, type(rA), tostring(rA):match("^[^\\n]*"))
+                local okB, rB = xpcall(function() error(nil) end, debug.traceback)
+                print("XB", okB, type(rB), rB:sub(1, 6))
+                print("XC", type(debug.traceback({})), type(debug.traceback(nil)), type(debug.traceback("m")))
+                print("XD", (debug.traceback("m")):sub(1, 6), (debug.traceback("m", 2)):sub(1, 6))
+
+                -- 6) 协程里的错误传播
+                local co = coroutine.create(function() error("CE") end)
+                print("CR1", coroutine.resume(co))
+                print("CR2", coroutine.status(co))
+                local co2 = coroutine.create(function() error({}) end)
+                local okc, ec = coroutine.resume(co2)
+                print("CR3", okc, type(ec), show(ec))
+                local co3 = coroutine.create(function() coroutine.yield(1) error("CE3") end)
+                print("CR4", coroutine.resume(co3))
+                print("CR5", coroutine.resume(co3))
+                local co4 = coroutine.wrap(function() error("CE4") end)
+                print("CR6", pcall(co4))
+                print("CR7", pcall(co4))
+
+                -- 7) <close> 与关闭时抛错
+                print("CL1", pcall(function()
+                  local x <close> = setmetatable({}, { __close = function(_, err) print("closed", type(err), tostring(err)) end })
+                  error("IN")
+                end))
+                print("CL2", pcall(function()
+                  local x <close> = setmetatable({}, { __close = function() error("CLOSE") end })
+                  return 1
+                end))
+                print("CL3", pcall(function()
+                  local x <close> = setmetatable({}, { __close = function(_, err) print("e", type(err)) end })
+                  error({})
+                end))
+
+                -- 8) assert 的形状
+                print("A1", pcall(assert, false))
+                print("A2", pcall(assert, nil))
+                print("A3", pcall(assert, false, "msg"))
+                print("A4", pcall(assert, nil, 5))
+                print("A5", assert(1, 2, 3))
+                print("A6", pcall(assert))
+                print("A7", pcall(assert, false, {}))
+
+                -- 9) __name 进的是「类型错误」的消息，不是 luaL_typename
+                local nm = setmetatable({}, { __name = "MyType" })
+                local nm2 = setmetatable({}, { __name = "MyType" })
+                print("N1", pcall(function() return nm + 1 end))
+                print("N2", pcall(function() return nm < 1 end))
+                print("N3", pcall(function() return #nm end))
+                print("N4", pcall(function() return nm .. "x" end))
+                print("N5", pcall(function() return nm() end))
+                print("N6", pcall(function() return nm.k + 1 end))
+                print("N7", pcall(function() return 1 + nm end))
+                print("N8", pcall(function() return -nm end))
+                print("N9", pcall(function() return nm | 1 end))
+                print("NA", pcall(function() return nm == nm2 end))
+                print("NB", pcall(string.rep, nm))
+                print("NC", pcall(string.len, nm))
+                print("ND", pcall(math.abs, nm))
+                print("NE", pcall(table.concat, nm))
+                print("NF", pcall(table.insert, nm, 1))
+                print("NG", pcall(setmetatable, 5, nm))
+                do
+                  local n2 = setmetatable({}, { __name = 5 })
+                  print("NH", pcall(function() return n2 + 1 end))
+                end
+                do
+                  local n3 = setmetatable({}, { __name = "A\\0B" })
+                  print("NI", pcall(function() return n3 + 1 end))
+                  print("NJ", show(n3))
+                end
+                print("NK", show(nm))
+
+                -- 10) 边界：pcall / xpcall 的实参数型、for-in 的迭代器、goto、协程里的 level、
+                --    消息里的裸字节
+                print("P1", pcall(5))
+                print("P2", pcall(nil))
+                print("P3", pcall(pcall))
+                print("P4", xpcall(5, print))
+                print("P5", xpcall(nil, print))
+                print("P6", pcall(function() for k, v in 5 do end end))
+                print("P7", pcall(function() for k, v in pairs(nil) do end end))
+                print("P8", pcall(function() local t = setmetatable({}, { __pairs = function() error("PAIRS") end }) for k, v in pairs(t) do end end))
+                print("P9", pcall(function() local x = 0 ::top:: x = x + 1 if x < 2 then goto top end error("GOTO") end))
+                print("PA", pcall(function() local co = coroutine.create(function() error("CL", 2) end) return select(2, coroutine.resume(co)) end))
+                print("PB", pcall(function() local co = coroutine.wrap(function() error("CW", 0) end) return co() end))
+                print("PC", pcall(function() local co = coroutine.wrap(function() error("CW2", 1) end) return co() end))
+                print("PD", pcall(select, "x"))
+                print("PE", pcall(select, 0))
+                print("PF", pcall(select, 1))
+                print("PG", pcall(function() return select(-1, 1, 2) end))
+                print("PH", pcall(os.date, "%Q", 0))
+                print("PI", pcall(os.date, 5))
+                print("PJ", pcall(string.format, "%d", nil))
+                print("PK", pcall(function() error("E", 100) end))
+                print("PL", pcall(function() error("E", math.maxinteger) end))
+                print("PM", pcall(function() error("E", -1) end))
+                local rec = {}
+                setmetatable(rec, { __tostring = function() return rec end })
+                print("PN", pcall(tostring, rec))
+                do
+                  local ok, e = pcall(function() error("a\\0b") end)
+                  print("Q1", ok, #e, e:byte(1, -1))
+                end
+                do
+                  local ok, e = pcall(function() error("\\255\\254") end)
+                  print("Q2", ok, #e, e:byte(1, -1))
+                end
+                do
+                  local ok, e = pcall(function() error(255) end)
+                  print("Q3", ok, math.type(e))
+                end
+
+                -- 11) userdata 与类型元表上的 __name、错误对象的同一性、traceback 的其他形状
+                print("U1", pcall(function() return #io.stdout end))
+                print("U2", pcall(function() return io.stdout + 1 end))
+                print("U3", show(io.stdout))
+                print("U4", pcall(string.rep, io.stdout))
+                print("U5", pcall(function() return io.stdout .. "x" end))
+                debug.setmetatable(nil, { __name = "NilT" })
+                print("U6", pcall(function() return nil + 1 end))
+                print("U7", pcall(function() return #nil end))
+                debug.setmetatable(nil, nil)
+                print("U8", pcall(function() return nil + 1 end))
+                print("U9", pcall(xpcall, function() error("Z") end, setmetatable({}, { __call = function() return "CALLED" end })))
+                local idt = {}
+                local okid, eid = pcall(function() error(idt) end)
+                print("ID1", okid, eid == idt)
+                local s0 = "msg"
+                local oks, es = pcall(function() error(s0) end)
+                print("ID2", oks, es == s0, es)
+                local oks0, es0 = pcall(function() error(s0, 0) end)
+                print("ID3", oks0, es0 == s0, es0)
+                local cq = coroutine.create(function() local x <close> = setmetatable({}, { __close = function() end }) coroutine.yield() end)
+                coroutine.resume(cq)
+                print("CC1", coroutine.close(cq))
+                local cq2 = coroutine.create(function() error("CE9") end)
+                coroutine.resume(cq2)
+                print("CC2", coroutine.close(cq2))
+                print("CC3", pcall(coroutine.close, coroutine.running()))
+                local tbco = coroutine.create(function() coroutine.yield() end)
+                coroutine.resume(tbco)
+                print("TB1", type(debug.traceback(tbco)))
+                print("TB2", debug.traceback(tbco, "M"):sub(1, 6))
+                print("TB3", debug.traceback(tbco, "M", 0):sub(1, 6))
+                print("TB4", type(debug.traceback(tbco, nil)))
+
+                -- 12) 剥掉调试信息的 chunk：位置前缀没了
+                local f0 = load("local x = 1 error('E0') return x")
+                print("D1", pcall(f0))
+                print("D2", pcall(load(string.dump(f0, true))))
+                print("D3", pcall(load(string.dump(f0, false))))
+                print("D4", pcall(load(string.dump(f0, true), "=n")))
+                print("D5", pcall(load(string.dump(f0), "=n")))
+                print("D6", pcall(load(string.dump(f0), "@p.lua")))
+                local gs = load(string.dump(f0, true))
+                local inf = debug.getinfo(gs, "Sl")
+                print("D7", inf.currentline, inf.linedefined, inf.lastlinedefined, inf.short_src, inf.source)
+                local gf = load(string.dump(f0, false))
+                local inf2 = debug.getinfo(gf, "Sl")
+                print("D8", inf2.currentline, inf2.linedefined, inf2.lastlinedefined, inf2.short_src == inf2.source)
+                print("D9", pcall(function() return load(string.dump(f0, true), "=n", "t") end))
+                print("DA", pcall(function() return load(string.dump(f0), "=n", "t") end))
+                print("DB", pcall(function() return load(string.dump(f0), "=n", "b") end))
+
+                -- 13) 钩子里抛错
+                -- 行钩子在「这一行的第一条指令之前」触发，所以 pcall(...) 写在同一行是拦不住的：
+                -- 钩子先跑、pcall 还没进去。要拦住，得让触发点落在 pcall 里面。
+                local n = 0
+                local ok, e = pcall(function()
+                  debug.sethook(function() n = n + 1 if n == 1 then error("HOOK") end end, "l")
+                  local x = 1
+                  local y = x + 1
+                  return y
+                end)
+                print("HK", ok, e)
+                -- 钩子还在，所以清钩子这一步也得放在 pcall 里
+                print("HK2", pcall(function() debug.sethook() end), n > 0)
+                print("HK3", pcall(function() local z = 1 return z end))
+                -- 调用钩子会在「每一次调用」时触发，连 print / pcall 自己也算 —— 所以装钩子的
+                -- 那一步必须在 pcall 里面，否则第一个被钩住的就是外面那层的 print。
+                local m = 0
+                local ok4, e4 = pcall(function()
+                  debug.sethook(function() m = m + 1 if m == 1 then error("H2") end end, "c")
+                  return (function() return 1 end)()
+                end)
+                print("HK4", ok4, e4)
+                print("HK5", pcall(function() debug.sethook() end), m > 0)
+                print("HK6", pcall(function() local q = 1 return q end))
+
+                -- 14) 顶层未捕获：错误对象不是字符串（lua.c: msghandler 的兜底）
+                error(setmetatable({}, { __name = "MyType" }))
+                """);
+    }
 }

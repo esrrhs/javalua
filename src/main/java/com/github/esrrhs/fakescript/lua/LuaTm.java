@@ -83,13 +83,36 @@ final class LuaTm {
      * 这是 {@code print(#io.stdout)} 报
      * {@code attempt to get length of a FILE* value} 的那条路径——
      * 光有 {@code typeName} 会报成 {@code userdata}。
+     * <p>
+     * <b>只有表与 userdata 认 {@code __name}</b>：C 版的条件是
+     * {@code ttistable(o) || ttisfulluserdata(o)}，其余类型<b>连类型元表都不看</b>。
+     * 实测 {@code debug.setmetatable(nil, {__name = "NilT"})} 之后 {@code nil + 1}
+     * 参考实现报的仍是 {@code ... on a nil value} —— 走
+     * {@link #metatableOf} 会把类型元表也算进来，于是我们多报了 {@code NilT}。
+     * <p>
+     * <b>{@code __name} 还走 C 字符串语义</b>：{@code ltm.c: luaT_objtypename} 拿
+     * 到的是 {@code getstr()} 那个 {@code const char *}，而 {@code luaG_typeerror}
+     * 用 {@code "%s"} 拼进消息 —— 于是内容在第一个 {@code \0} 处被砍断。实测
+     * {@code setmetatable({}, {__name = "A\0B"}) + 1}：参考实现报
+     * <b>{@code attempt to perform arithmetic on a A value}</b>，只有 {@code A}。
+     * （{@code luaL_tolstring} 那条路上同样的问题另见 {@link LuaString#toCString}。）
      */
     static String objTypeName(LuaState L, LuaValue v) {
-        LuaTable mt = metatableOf(L, v);
+        LuaTable mt = null;
+        switch (v.baseType()) {
+        case Lua.TTABLE:
+            mt = v.asTable().getMetatable();
+            break;
+        case Lua.TUSERDATA:
+            mt = ((LuaUserdata) v.o).metatable;
+            break;
+        default:
+            break; // 其余类型不看 __name
+        }
         if (mt != null) {
             LuaValue nm = mt.get(LuaString.latin1("__name"));
             if (nm != null && nm.isString()) {
-                return nm.asString().toJavaString();
+                return nm.asString().toCString().toJavaString();
             }
         }
         return v.typeName();
