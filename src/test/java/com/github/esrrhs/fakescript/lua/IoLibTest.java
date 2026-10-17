@@ -49,6 +49,7 @@ class IoLibTest {
         add(tests, "err", ERRORS);
         add(tests, "zero", ZERO);
         add(tests, "proc", PROC);
+        add(tests, "mode", MODE);
         return tests;
     }
 
@@ -762,4 +763,186 @@ class IoLibTest {
             os.remove(p)
             print(table.concat(out, "\n"))
             """, };
+
+    /**
+     * {@code io.open} 的<b>模式矩阵</b>：{@code l_checkmode} 认的是
+     * {@code [rwa]%+?b*}，形状很容易写错（{@code "rbb"} 合法而 {@code "rb+"}
+     * 不合法 —— 后缀是 {@code strspn(mode, "b")} 与全长比，不是「一个 b」）。
+     * 34 种模式 ×「读 / 定位 / 写 / 位置 / 关 / 最终内容」，79 行。
+     * <p>
+     * 这一片咬出<b>三处</b>，其中两处是 C stdio 定的、本实现不打算建模，
+     * 第三处就是上面那句「写了之后位置是多少」——三处都量过才下的结论：
+     * <ul>
+     *   <li><b>更新模式（{@code r+}/{@code w+}/{@code a+}）上「读完不定位直接写」
+     *       </b>的落点由 stdio 的<b>预读缓冲</b>决定，ISO C 里这本就是未定义行为。
+     *       实测：12 字节的文件写到 13（EOF），6002 字节的写到 4097（BUFSIZ+1），
+     *       而 {@code read(5000)} 又快又准地写到 5001（大块读绕过缓冲）。
+     *       所以每次写之前都显式 {@code seek} 一次，把这条 UB 路径绕开 ——
+     *       绕开之后（{@code read → seek → write}）两边<b>逐字节一致</b>。</li>
+     *   <li><b>append 档上写完的位置</b>：{@code seek("set",0)} 再写 1 字节，
+     *       参考给 <b>1</b>（{@code base+n}），我们给 13（{@code EOF+n}，
+     *       这一边才符合 POSIX）。再量下去发现它也是缓冲定的：
+     *       {@code n<=4095} 给 {@code base+n}、{@code n>=4096} 给 {@code EOF+n}。
+     *       所以这里在量位置之前先 {@code flush} 把缓冲压掉，位置就落到 POSIX
+     *       那个唯一确定的答案上，两边才可比。<b>写进去的内容两边始终一致</b>，
+     *       分歧只在 {@code seek("cur",0)} 报的数。</li>
+     *   <li><b>标准流上的 {@code seek}</b>取决于真实 fd 可不可定位：重定向到文件
+     *       时给 0、{@code /dev/null} 给 0、管道与 tty 给 {@code "Illegal seek"}。
+     *       本实现拿不到那个 fd，无法建模，故不比。</li>
+     * </ul>
+     */
+    private static final String[] MODE = {"""
+
+        -- io.open 的模式矩阵：l_checkmode 认的是 [rwa]%+?b*，形状很容易写错
+        -- 两样东西不比，都是实测出来的，理由见 README：
+        --   1. 更新模式（r+/w+/a+）上「读完不定位直接写」的落点由 C stdio 的**预读缓冲**
+        --      决定（ISO C 里这本就是未定义行为）：12 字节的文件写到 13（EOF），
+        --      6002 字节的写到 4097（BUFSIZ+1），而 read(5000) 又写到 5001（大块读绕过缓冲）。
+        --      所以每个写之前都显式 seek 一次，把这条 UB 路径绕开。
+        --   2. 标准流上的 seek 取决于真实 fd 可不可定位：文件 / /dev/null 给 0，
+        --      管道 / tty 给 "Illegal seek"。本实现拿不到那个 fd，无法建模。
+        local out = {}
+        local function d(v)
+          local t = type(v)
+          if t == "nil" then return "nil" end
+          if t == "boolean" then return tostring(v) end
+          if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+          if t == "string" then return string.format("q(%d)[%s]", #v, v) end
+          return t
+        end
+        local function probe(name, f, ...)
+          local r = table.pack(pcall(f, ...))
+          local s = name .. " [" .. r.n .. "]"
+          for i = 2, r.n do s = s .. " " .. d(r[i]) end
+          if not r[1] then s = s .. " ERR " .. tostring(r[2]) end
+          out[#out + 1] = s
+        end
+
+        local P = "/tmp/fkmd.txt"
+        local function seed()
+          local f = assert(io.open(P, "w"))
+          f:write("hello\\nworld\\n")
+          f:close()
+        end
+
+        local modes = {
+          "r", "w", "a", "r+", "w+", "a+",
+          "rb", "wb", "ab", "r+b", "w+b", "a+b",
+          "rbb", "wbb", "abb", "r+bb", "w+bb", "a+bb",
+          "rb+", "wb+", "r b", "br", "rw", "ar", "r++", "", "x", "+r", "++r",
+          "rB", "R", "r\\t", "r\\n", "r ", " r",
+        }
+        for _, m in ipairs(modes) do
+          seed()
+          probe("open[" .. m:gsub("%c", "?") .. "]", function()
+            local f, e, en = io.open(P, m)
+            if f == nil then return f, e, en end
+            local r = {}
+            r[#r + 1] = io.type(f)
+            local ok1, v1 = pcall(function() return f:read("l") end)
+            r[#r + 1] = tostring(ok1) .. "/" .. tostring(v1)
+            -- 显式定位：把「读之后直接写」那条 UB 路径绕开
+            local okp, vp, ep = pcall(function() return f:seek("set", 0) end)
+            r[#r + 1] = tostring(okp) .. "/" .. tostring(vp) .. "/" .. tostring(ep)
+            local ok2, v2 = pcall(function() return (f:write("Z") == f) end)
+            r[#r + 1] = tostring(ok2) .. "/" .. tostring(v2)
+            -- append 档上「写了之后位置是多少」是 stdio 缓冲定的：小写入给 base+n
+            -- （n<=4095），大写入给 EOF+n（n>=4096）。先 flush 把缓冲压掉，位置就落到
+            -- POSIX 那个唯一确定的答案上，两边才可比。
+            if m:sub(1, 1) == "a" then
+              local okf, vf = pcall(function() return f:flush() end)
+              r[#r + 1] = "flush=" .. tostring(okf) .. "/" .. tostring(vf)
+            end
+            local ok3, v3, e3 = pcall(function() return f:seek("cur", 0) end)
+            r[#r + 1] = tostring(ok3) .. "/" .. tostring(v3) .. "/" .. tostring(e3)
+            local ok4, v4 = pcall(function() return f:close() end)
+            r[#r + 1] = tostring(ok4) .. "/" .. tostring(v4) .. "/" .. tostring(io.type(f))
+            -- 写完之后文件里到底是什么：这才是落点的真凭实据
+            local g = io.open(P, "r")
+            r[#r + 1] = (g == nil) and "gone" or ("[" .. tostring(g:read("a")) .. "]")
+            if g then g:close() end
+            return table.concat(r, ";")
+          end)
+        end
+
+        -- 模式参数的其它形状：不是字符串、缺失、数字
+        seed()
+        probe("m_nil", io.open, P, nil)
+        probe("m_none", io.open, P)
+        probe("m_num", io.open, P, 42)
+        probe("m_bool", io.open, P, true)
+        probe("m_tbl", io.open, P, {})
+        probe("m_nilfirst", io.open, nil, "r")
+        probe("m_noname", io.open)
+        probe("m_numname", io.open, 42, "r")
+
+        seed()
+        probe("r_write", function()
+          local f = assert(io.open(P, "r"))
+          local ok, e, en = pcall(function() f:write("x") end)
+          f:close()
+          return ok, e, en
+        end)
+        probe("w_read", function()
+          local f = assert(io.open(P, "w"))
+          local ok, v, en = pcall(function() return f:read("l") end)
+          f:close()
+          return ok, v, en
+        end)
+        probe("w_seek_read", function()
+          local f = assert(io.open(P, "w"))
+          f:write("abc")
+          local p = f:seek("set", 0)
+          local ok, v = pcall(function() return f:read("a") end)
+          f:close()
+          return p, ok, v
+        end)
+        probe("a_seek_write", function()
+          local f = assert(io.open(P, "a"))
+          local p = f:seek("cur", 0)
+          f:write("END")
+          f:close()
+          local g = assert(io.open(P, "r"))
+          local c = g:read("a")
+          g:close()
+          return p, c
+        end)
+        probe("rplus", function()
+          local f = assert(io.open(P, "r+"))
+          local a = f:read("l")
+          f:seek("cur", 0)
+          local b = (f:write("Q") == f)
+          f:seek("set", 0)
+          local c = f:read("a")
+          f:close()
+          return a, b, c
+        end)
+        probe("wplus", function()
+          local f = assert(io.open(P, "w+"))
+          f:write("XY")
+          f:seek("set", 0)
+          local a = f:read("a")
+          f:close()
+          return a
+        end)
+        probe("aplus", function()
+          local f = assert(io.open(P, "a+"))
+          local p = f:seek("cur", 0)
+          f:write("Z")
+          f:seek("set", 0)
+          local a = f:read("a")
+          f:close()
+          return p, a
+        end)
+
+        -- 标准流（seek 不比：见文件头第 2 条）
+        probe("close_stdout", function() return io.stdout:close() end)
+        probe("close_stdin", function() return io.stdin:close() end)
+        probe("write_stdout", function() return (io.write("") == io.stdout) end)
+        probe("stdin_write", function() local ok, v, e = pcall(function() return (io.stdin:write("x") == io.stdin) end); return ok, v, e end)
+        probe("stdout_type", function() return io.type(io.stdout), io.type(io.stderr), io.type(io.stdin) end)
+
+        os.remove(P)
+        print(table.concat(out, "\\n"))
+            """ };
 }
