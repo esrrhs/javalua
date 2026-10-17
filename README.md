@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 817 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 819 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1533,6 +1533,22 @@ It also pins down that a coroutine is **dead** (not suspended) after yielding
 inside `__eq`, that closing yourself reports `cannot close a running coroutine`,
 that `<close>` variables are closed in **reverse order of declaration**, and that
 an error raised inside `__close` replaces the original error.
+
+**Syntax and scope (121 lines):** sixty-odd fragments pushed through `load()`, so
+**compile-time** errors are part of the comparison too — `goto` into a local's
+scope, duplicate labels, assigning to a `<const>`, `break` outside a loop,
+malformed numerals and escapes, the various shapes of function names. Nothing a
+generated program will ever produce. The runtime half covers "the right-hand side
+is evaluated first" in multiple assignment, table-constructor evaluation order and
+key overwriting, varargs with `nil` mixed in, malformed uses of `:`, upvalue
+sharing, `repeat`'s condition seeing locals declared in the body, and operator
+precedence and associativity.
+
+**`debug` and `utf8` (114 lines):** every `what` letter of `getinfo` alone and in
+combination, out-of-range `getlocal` / `setlocal` / `getupvalue` / `setupvalue`,
+all four `sethook` masks, the **shape** of `traceback` (not compared wholesale —
+it contains chunk names and addresses), and the boundary cases of all five `utf8`
+functions.
 
 **Numeric `for` and coercion (551 lines):** all four `forprep` / `forloop`
 branches (integer up/down, float up/down), including `maxinteger` bounds,
