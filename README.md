@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 814 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 815 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -1483,6 +1483,41 @@ NaN, macOS libc prints no sign (`nan`) while glibc prints one (`+nan`). CI's
 conformance job runs on ubuntu, this machine runs macOS, so the **reference
 itself** differs between the two. The script strips NaN's sign before comparing;
 the implementation stays glibc-compatible.
+
+#### The optional-argument sweep: two checks in the wrong order
+
+The previous sweep only tried zero or one argument. This one permutes the second
+and third arguments too: for ~70 functions, every combination of `{nil, 1, "x"}`
+from zero arguments up to that function's arity — **1866 lines**. It found two,
+and both are the same mistake: **the order of the argument checks**.
+
+**`string.gsub`:**
+
+```c
+  int tr = lua_type(L, 3);                          /* just record the type */
+  lua_Integer max_s = luaL_optinteger(L, 4, srcl + 1);
+  ...
+  luaL_argexpected(L, tr == LUA_TNUMBER || tr == LUA_TSTRING ||
+                   tr == LUA_TFUNCTION || tr == LUA_TTABLE, 3,
+                      "string/function/table");
+```
+
+The fourth argument is checked **first**. So `gsub(s, p, nil, "x")` reports
+`bad argument #4 to 'gsub' (number expected, got string)`; we checked argument 3
+first and reported `bad argument #3 (string/function/table expected, got nil)`.
+
+**`tonumber`:** the three checks run `luaL_checkinteger(2)` →
+`luaL_checktype(1, LUA_TSTRING)` → `luaL_argcheck(2 <= base <= 36, ...)` — the
+range check comes **last**:
+
+| | reference | before the fix |
+| --- | --- | --- |
+| `tonumber(nil, 1)` | `bad argument #1 to 'tonumber' (string expected, got nil)` | `bad argument #2 (base out of range)` |
+| `tonumber(1, 1)` | `bad argument #1 to 'tonumber' (string expected, got number)` | `bad argument #2 (base out of range)` |
+
+Three functions are deliberately absent: `os.time` and `os.date` read the clock
+when their first argument is `nil`, `math.randomseed(nil)` seeds from the clock,
+and `io.lines` with no argument reads stdin.
 
 ### What is still missing
 

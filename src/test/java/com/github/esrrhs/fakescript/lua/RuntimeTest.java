@@ -3440,4 +3440,113 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+    /**
+     * <b>可选参数</b>矩阵：上一片只试了「0 个 / 1 个实参」，这一片把第 2、第 3 个
+     * 参数「给不给、给什么」也做全排列 —— 七十来个函数，按
+     * {@code {nil, 1, "x"}} 的所有组合从 0 个实参一直喂到各函数的形参上限。
+     * 共 {@code N} 行，专抓 {@code luaL_opt*} 的默认值与<b>多道校验的先后</b>。
+     * <p>
+     * 咬出两条，都是「校验顺序写反」：
+     * <ul>
+     *   <li><b>{@code string.gsub}</b>：C 里 {@code luaL_optinteger(L, 4, ...)}
+     *       在校验第 3 个参数<b>之前</b>，所以 {@code gsub(s, p, nil, "x")} 报的是
+     *       {@code bad argument #4 (number expected, got string)}，而不是
+     *       「第三个参数不是 string/function/table」。我们反过来了。</li>
+     *   <li><b>{@code tonumber}</b>：三道校验的顺序是
+     *       {@code luaL_checkinteger(2)} → {@code luaL_checktype(1, STRING)} →
+     *       {@code luaL_argcheck(2 <= base <= 36)}，<b>范围检查在最后</b>。
+     *       于是 {@code tonumber(1, 1)} 报
+     *       {@code bad argument #1 (string expected, got number)}，
+     *       我们报成了 {@code bad argument #2 (base out of range)}。</li>
+     * </ul>
+     * 三个函数不在这张表里：{@code os.time} / {@code os.date} 第一个参数为
+     * {@code nil} 时读的是时钟，{@code math.randomseed(nil)} 拿时钟播种，
+     * {@code io.lines} 无参会去读 stdin。
+     */
+    @Test
+    void optionalArgumentMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- 可选参数矩阵：上一片只试了「0 个 / 1 个实参」，这一片把第 2、第 3 个参数
+                -- 「给不给、给什么」也铺开 —— 每个函数按 {nil, 1, "x"} 的全排列调用到 maxn 个
+                -- 实参。专抓「可选参数的边界」：luaL_opt* 的默认值、缺参报错、类型文案。
+                local POOL = { nil, 1, "x" }
+                local NAMES = { "nil", "1", "x" }
+                -- 表/函数/线程的 tostring 带地址，两边不可能一致，只打类型
+                local function s(v)
+                  local t = type(v)
+                  if t == "table" or t == "function" or t == "thread" or t == "userdata" then
+                    return t
+                  end
+                  return tostring(v)
+                end
+                -- 不进这张表的：os.time / os.date / math.randomseed —— 它们第一个参数是 nil
+                -- 时读的是时钟（os.time(nil)、os.date(nil) 取当前时间；randomseed(nil) 拿
+                -- 时钟播种）；io.lines 无参会去读 stdin，跑在探针里会卡住。
+                local FNS = {
+                  { "rawget", rawget, 2 }, { "rawset", rawset, 3 }, { "rawlen", rawlen, 1 },
+                  { "rawequal", rawequal, 2 }, { "next", next, 2 },
+                  { "setmetatable", setmetatable, 2 }, { "getmetatable", getmetatable, 1 },
+                  { "type", type, 1 }, { "tostring", tostring, 1 }, { "tonumber", tonumber, 2 },
+                  { "select", select, 3 }, { "assert", assert, 2 }, { "pcall", pcall, 2 },
+                  { "error", error, 2 }, { "ipairs", ipairs, 1 }, { "pairs", pairs, 1 },
+                  { "table.insert", table.insert, 3 }, { "table.remove", table.remove, 2 },
+                  { "table.concat", table.concat, 4 }, { "table.move", table.move, 5 },
+                  { "table.unpack", table.unpack, 3 }, { "table.pack", table.pack, 3 },
+                  { "table.sort", table.sort, 2 },
+                  { "string.len", string.len, 1 }, { "string.sub", string.sub, 3 },
+                  { "string.rep", string.rep, 3 }, { "string.byte", string.byte, 3 },
+                  { "string.char", string.char, 3 }, { "string.upper", string.upper, 1 },
+                  { "string.reverse", string.reverse, 1 }, { "string.format", string.format, 3 },
+                  { "string.find", string.find, 4 }, { "string.match", string.match, 3 },
+                  { "string.gmatch", string.gmatch, 2 }, { "string.gsub", string.gsub, 4 },
+                  { "string.dump", string.dump, 2 },
+                  { "math.max", math.max, 3 }, { "math.min", math.min, 3 },
+                  { "math.fmod", math.fmod, 2 }, { "math.log", math.log, 2 },
+                  { "math.floor", math.floor, 1 }, { "math.ceil", math.ceil, 1 },
+                  { "math.tointeger", math.tointeger, 1 }, { "math.type", math.type, 1 },
+                  { "math.abs", math.abs, 1 }, { "math.sqrt", math.sqrt, 1 },
+                  { "math.ult", math.ult, 2 }, { "math.modf", math.modf, 1 },
+                  { "os.difftime", os.difftime, 2 }, { "os.setlocale", os.setlocale, 2 },
+                  { "os.getenv", os.getenv, 1 }, { "os.remove", os.remove, 1 },
+                  { "os.rename", os.rename, 2 },
+                  { "io.open", io.open, 2 },
+                  { "coroutine.resume", coroutine.resume, 3 }, { "coroutine.wrap", coroutine.wrap, 1 },
+                  { "coroutine.close", coroutine.close, 1 }, { "coroutine.status", coroutine.status, 1 },
+                  { "coroutine.create", coroutine.create, 1 },
+                  { "debug.getlocal", debug.getlocal, 3 }, { "debug.setmetatable", debug.setmetatable, 2 },
+                  { "debug.getmetatable", debug.getmetatable, 1 }, { "debug.getuservalue", debug.getuservalue, 2 },
+                  { "debug.setuservalue", debug.setuservalue, 2 },
+                  { "utf8.char", utf8.char, 3 }, { "utf8.codepoint", utf8.codepoint, 3 },
+                  { "utf8.len", utf8.len, 3 }, { "utf8.offset", utf8.offset, 3 },
+                }
+                for _, e in ipairs(FNS) do
+                  local name, fn, maxn = e[1], e[2], e[3]
+                  for len = 0, maxn do
+                    local idx = {}
+                    for i = 1, len do idx[i] = 1 end
+                    while true do
+                      local args, label = {}, {}
+                      for i = 1, len do
+                        args[i] = POOL[idx[i]]
+                        label[i] = NAMES[idx[i]]
+                      end
+                      local r = { pcall(fn, table.unpack(args, 1, len)) }
+                      local out = {}
+                      for j = 2, #r do out[#out + 1] = s(r[j]) end
+                      print("O", name, table.concat(label, ","), tostring(r[1]), table.concat(out, "\\t"))
+                      -- 里程表进位
+                      local p = len
+                      while p >= 1 do
+                        idx[p] = idx[p] + 1
+                        if idx[p] <= #POOL then break end
+                        idx[p] = 1
+                        p = p - 1
+                      end
+                      if p < 1 then break end
+                    end
+                  end
+                end
+                print("DONE")
+                """);
+    }
 }

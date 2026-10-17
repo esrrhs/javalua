@@ -959,8 +959,15 @@ public final class StringLib {
         LuaString src = LuaAux.checkString(L, 1);
         LuaString pat = LuaAux.checkString(L, 2);
         int tr = trType(L);
-        LuaAux.argExpected(L, tr >= 0, 3, "string/function/table");
+        /*
+         * 顺序照抄 C：<b>先</b> {@code luaL_optinteger(L, 4, ...)}，<b>再</b>
+         * 校验第三个参数的类型。所以 {@code gsub(s, p, nil, "x")} 报的是
+         * {@code bad argument #4 (number expected, got string)}，而不是
+         * 「第三个参数不是 string/function/table」——那个判断在后面。
+         * 写反了就会在「repl 不对、同时 max 也不对」时报错的那一条上偏。
+         */
         long maxS = LuaAux.optInteger(L, 4, (long) src.length() + 1);
+        LuaAux.argExpected(L, tr >= 0, 3, "string/function/table");
         MatchState ms = new MatchState();
         LuaAux.Buf b = new LuaAux.Buf();
         int pStart = 0;
