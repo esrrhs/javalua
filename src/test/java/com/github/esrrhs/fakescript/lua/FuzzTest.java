@@ -434,7 +434,9 @@ class FuzzTest {
         }
 
         private String simpleStatement() {
-            switch (pick(9)) {
+            switch (pick(10)) {
+            case 9: // table 库的一串操作（阶段 10 的缺陷就在这块）
+                return tableOps();
             case 8: // 带元方法的表
                 return metaTable();
             case 0: { // 局部声明（可能多重）
@@ -643,6 +645,64 @@ class FuzzTest {
             default:
                 return "tonumber(" + atom() + (chance(45) ? ", " + (2 + pick(35)) : "") + ")";
             }
+        }
+
+        /**
+         * table 库的一串操作：改一下表，再把长度与 concat 的结果打出来。
+         * <p>
+         * 为什么值得单独开一格：阶段 10 从上游用例里挖出来的两个真缺陷——
+         * {@code tunpack} 的溢出判断、{@code tmove} 的越界判据——都在
+         * {@code ltablib.c}，而生成器此前一个 {@code table.*} 都没生成过。
+         * <p>
+         * {@code sort} 与 {@code unpack} 一律包在 {@code pcall} 里：比较函数
+         * 不自洽会抛 {@code invalid order function for sorting}，区间越界会抛
+         * {@code too many results}——这些<b>都是期望之中的输出</b>，包住才不会
+         * 让整段程序在第一个错误处戛然而止，后面的操作就再也跑不到了。
+         */
+        private String tableOps() {
+            String t = "tb" + (tmpCounter++);
+            vars.add(t);
+            StringBuilder sb = new StringBuilder("local ").append(t).append(" = ")
+                    .append(tableLiteral(1)).append('\n');
+            switch (pick(7)) {
+            case 0:
+                sb.append("table.insert(").append(t).append(", ").append(expression(1)).append(')');
+                break;
+            case 1:
+                sb.append("table.insert(").append(t).append(", ").append(1 + pick(4))
+                        .append(", ").append(expression(1)).append(')');
+                break;
+            case 2:
+                sb.append("local rm").append(t).append(" = table.remove(").append(t)
+                        .append(chance(50) ? ", " + (1 + pick(4)) : "").append(')');
+                vars.add("rm" + t);
+                break;
+            case 3:
+                sb.append("table.move(").append(t).append(", ").append(pick(3))
+                        .append(", ").append(1 + pick(5)).append(", ").append(1 + pick(4))
+                        .append(')');
+                break;
+            case 4:
+                sb.append("print(pcall(table.sort, ").append(t);
+                if (chance(40)) {
+                    // 一半给个不自洽的比较函数，去撞 invalid order function
+                    sb.append(", ").append(chance(50)
+                            ? "function(a, b) return tostring(a) < tostring(b) end"
+                            : "function(a, b) return true end");
+                }
+                sb.append("))");
+                break;
+            case 5:
+                sb.append("print(pcall(table.unpack, ").append(t).append(", ").append(pick(3))
+                        .append(", ").append(1 + pick(6)).append("))");
+                break;
+            default:
+                sb.append("print(pcall(table.concat, ").append(t).append(", ',', ")
+                        .append(pick(3)).append(", ").append(1 + pick(5)).append("))");
+                break;
+            }
+            sb.append("\nprint(#").append(t).append(")");
+            return sb.toString();
         }
 
         /** 挂一两个元方法的新表：元方法派发与 luaV_finishOp 的组合全靠这里踩 */

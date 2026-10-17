@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 777 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
+全量 795 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。
 
 **阶段 9（`debug` 库，含 `sethook`）已完成。** 旧的 fakescript 语言实现已从
 `master` 移除，见下文 *迁移说明*。阶段 0~9 已落地：编译器（词法 → 语法 → 代码生成）
@@ -870,6 +870,50 @@ error loading module 'mod' from file '/tmp/mod.lua':
 常量表顺序与变长编码、行号表、局部变量与 upvalue 的调试名、`maxstacksize`、
 嵌套 proto。另有一条哨兵输出（`dumped true loaded true`）被断言，
 `string.dump` 静默失败没法再伪装成一致。
+
+#### 参考实现又裁定的五件事
+
+fuzz 生成器学会了 `table.*`，立刻回本：五处不一致，没有一处是手写用例撞得到的。
+
+* **`l_str2int` 的累加器是 `lua_Unsigned`。** `lobject.c` 里那个 `a` 是无符号的，
+  溢出判据是 `a >= MAXBY10`。用有符号 `long`，`a` 一旦过 2^63 就变负，判据从此
+  不再触发，溢出就漏了：`1 + (math.mininteger .. 0)` 的操作数是
+  `"-92233720368547758080"`，绕回成精确的 0，于是返回 `1`，而正确行为是落到
+  浮点路径给 `-9.2233720368548e+19`。改成 `Long.compareUnsigned`。
+* **`luaG_runerror` 是<b>当场</b>加 `file:line:` 的。** `idiv` / `mod` 的除零走
+  `luaG_runerror`，它在抛出点就调 `luaG_addinfo`。我们抛的是裸 `LuaError`，
+  前缀要等到受保护边界才补上，那时抛出的栈帧已经没了——所以
+  `coroutine.resume` 把错误当<b>值</b>返回时它是没有位置的：
+  `false  attempt to divide by zero`，参考实现给的是
+  `false  file:line: attempt to divide by zero`。为此 `Arith.rawArith` 现在收一个
+  `LuaState`。
+* **`luaH_newkey` 拒绝 nil 值。** 它的第一行是
+  `if (ttisnil(value)) return; /* do not insert nil values */`。给一个不存在的键
+  赋 nil，不建节点、也不触发 rehash。而建了节点就会改变算出来的<b>数组部分
+  大小</b>，那是 `#t` 的直接输入：`table.move({[1]=4.0}, 0, 2, 1)` 之后参考实现
+  的 `#t` 是 `2`，建了节点就成了 `0`。nil 键与 NaN 键的检查在<b>那一行之前</b>，
+  所以 `t[nil] = nil` 仍然要报 `table index is nil`。
+* **`lauxlib.c: interror` 判的是 `lua_isnumber`，不是类型。**
+  `luaL_checkinteger` 取不到整数时，若 `lua_isnumber(L, arg)` 成立（能解析成
+  数字的字符串也算），报 `number has no integer representation`，否则才是
+  `number expected, got string`。于是 `string.format("%d", "3.5")` 是前者
+  （`"3.5"` 解析得成 3.5，只是 3.5 不是整数），
+  `string.format("%d", "abc")` 才是后者。原来的判据写成 `v.isNumber()`，
+  两条都成了后者。
+* **`%.14g` 只能舍一次，而且要从真值舍。** Java 的
+  `String.format("%.Nf")` 舍的不是真值，而是 `Double.toString` 的<b>最短表示</b>
+  ——等于连舍两次。`math.sqrt(math.maxinteger)` 的真值是
+  `3037000499.976049900054931640625`，最短表示是 `3037000499.97605`，第 15 位
+  是 5，第二次舍入就进位成 `3037000499.9761`；参考实现给
+  `3037000499.976`。`StringLib` 本来就是用 `BigDecimal` 的
+  （`new BigDecimal(double)` 是精确的二进制展开），`luaO_tostring` 却另写了一份
+  基于 `String.format` 的。同一个 C 转换有两份实现，正是它们分家的原因，
+  现在 `Vm.formatG` 直接转调 `StringLib.generalDigits`。
+
+最后一条值得单独说清楚：拿 4602 个浮点实测，旧实现错了 **12** 个（0.26%）。
+手写用例永远撞不到，上游套件全绿也撞不到——是 fuzzer 撞到的。
+`RuntimeTest.floatFormattingMatchesReferenceAcrossMagnitudes` 现在用脚本<b>内部</b>
+的 LCG 生成几千个值钉住它，随机数发生器本身不进比较范围。
 
 ### 还没补上的
 

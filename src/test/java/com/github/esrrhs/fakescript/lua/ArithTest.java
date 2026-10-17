@@ -128,7 +128,7 @@ class ArithTest {
 
         for (int n = 0; n < cs.size(); n++) {
             Case c = cs.get(n);
-            LuaValue got = Arith.rawArith(c.op, c.a, c.b);
+            LuaValue got = Arith.rawArith(null, c.op, c.a, c.b);
             assertNotNull(got, "我们这边的运算失败了：" + c.expr);
             String ours = typeOf(got) + "\t" + format(got);
             assertEquals(lines[n], ours, "用例 " + c.expr);
@@ -186,14 +186,14 @@ class ArithTest {
 
     @Test
     void rawArithRejectsNonNumbers() {
-        assertNull(Arith.rawArith(Arith.OP_ADD, LuaValue.ofString(LuaString.latin1("x")), i(1)));
-        assertNull(Arith.rawArith(Arith.OP_BAND, f(1.5), i(1)), "非整值不能参与位运算");
+        assertNull(Arith.rawArith(null, Arith.OP_ADD, LuaValue.ofString(LuaString.latin1("x")), i(1)));
+        assertNull(Arith.rawArith(null, Arith.OP_BAND, f(1.5), i(1)), "非整值不能参与位运算");
     }
 
     @Test
     void divisionByZeroRaises() {
-        assertThrowsLuaError(() -> Arith.rawArith(Arith.OP_IDIV, i(1), i(0)));
-        assertThrowsLuaError(() -> Arith.rawArith(Arith.OP_MOD, i(1), i(0)));
+        assertThrowsLuaError(() -> Arith.rawArith(null, Arith.OP_IDIV, i(1), i(0)));
+        assertThrowsLuaError(() -> Arith.rawArith(null, Arith.OP_MOD, i(1), i(0)));
     }
 
     private static void assertThrowsLuaError(Runnable r) {

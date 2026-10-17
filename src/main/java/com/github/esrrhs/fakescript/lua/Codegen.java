@@ -1262,7 +1262,11 @@ public final class Codegen {
         if (v1 == null || v2 == null || !validOp(op, v1, v2)) {
             return false;
         }
-        LuaValue res = Arith.rawArith(op, v1, v2);
+        /*
+             * 常量折叠没有 LuaState，除零那两个分支也到不了
+             * （validOp 已经把它们挡在外面），所以这里传 null 是安全的。
+             */
+            LuaValue res = Arith.rawArith(null, op, v1, v2);
         if (res == null) {
             return false;
         }

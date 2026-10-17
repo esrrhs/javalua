@@ -312,6 +312,85 @@ class RuntimeTest {
         Diff.assertMatches(src);
     }
 
+    /**
+     * {@code lauxlib.c: interror} 的两种报错文本。
+     * <p>
+     * {@code luaL_checkinteger} 解释不出整数时，判据是
+     * {@code lua_isnumber(L, arg)}（是数字，<b>或字符串能解释成数字</b>），
+     * 不是 {@code lua_type(L, arg) == LUA_TNUMBER}。于是：
+     * <ul>
+     *   <li>{@code string.format('%d', '3.5')} —— {@code '3.5'} 解释得成
+     *       3.5，只是 3.5 不是整数 → {@code number has no integer
+     *       representation}；</li>
+     *   <li>{@code string.format('%d', 'abc')} —— 压根不是数字 →
+     *       {@code number expected, got string}。</li>
+     * </ul>
+     * 早年这里按 {@code v.isNumber()} 判，两条都成了后者。
+     */
+    @Test
+    void integerCoercionErrorTexts() {
+        Diff.assertMatches(""
+                + "print(pcall(string.format, '%d', '3.5'))\n"
+                + "print(pcall(string.format, '%d', 'abc'))\n"
+                + "print(pcall(string.format, '%d', '10'))\n"
+                + "print(pcall(string.format, '%d', '3.0'))\n"
+                + "print(pcall(string.format, '%d', ' 7 '))\n"
+                + "print(pcall(string.format, '%d', true))\n"
+                + "print(pcall(string.format, '%d', nil))\n"
+                + "print(pcall(string.format, '%d', {}))\n"
+                + "print(pcall(string.format, '%d', 1e100))\n"
+                + "print(pcall(string.format, '%5.2f', '3.5'))\n"
+                + "print(pcall(string.format, '%5.2f', 'abc'))\n"
+                + "print(pcall(string.rep, 'x', '3.5'))\n"
+                + "print(pcall(string.rep, 'x', 'abc'))\n"
+                + "print(pcall(string.sub, 'abcdef', '2', '4'))\n"
+                + "print(pcall(string.sub, 'abcdef', '2.5', '4'))\n"
+                + "print(pcall(string.sub, 'abcdef', 'x', '4'))\n"
+                + "print(pcall(table.concat, {'a','b'}, '2'))\n"
+                + "print(pcall(table.move, {1,2,3}, '1', '2', '1'))\n");
+    }
+
+    /**
+     * {@code %.14g} 的舍入：一次舍到位，不是「最短表示再舍一次」。
+     * <p>
+     * Java 的 {@code String.format("%.Nf")} / {@code ("%.Ne")} 不是拿真值舍的，
+     * 而是拿 {@code Double.toString} 的<b>最短表示</b>再舍一次 —— 连舍两次。
+     * {@code math.sqrt(math.maxinteger)} 的真值是
+     * {@code 3037000499.976049900054931640625}，最短表示 {@code 3037000499.97605}
+     * 的第 15 位是 5，于是第二次舍入把它顶成 {@code 3037000499.9761}；
+     * 参考实现按真值舍，给 {@code 3037000499.976}。
+     * <p>
+     * 这一类错很隐蔽：4602 个值里只错 12 个（0.26%），手写的用例几乎撞不到，
+     * 只有 fuzz 撞得到。所以这里用<b>脚本内的 LCG</b> 铺开几千个量级——
+     * 不用 {@code math.random}，免得随机数发生器本身也进入被比较的范围。
+     */
+    @Test
+    void floatFormattingMatchesReferenceAcrossMagnitudes() {
+        Diff.assertMatches(""
+                // 实测撞出来的那几个
+                + "print(math.sqrt(math.maxinteger))\n"
+                + "print(math.sqrt(56.5), math.sqrt(96), math.sqrt(385.5), math.sqrt(399.5))\n"
+                + "print(2^89)\n"
+                + "print(24807139121570.0, 6409511108729.2, 6.8674997827243e-05)\n"
+                // 循环小数与整除
+                + "for i = 1, 400 do print(i/7) print(i/3) print(i/9) end\n"
+                // 铺满量级：次正规到 1e300
+                + "for i = 0, 300 do print(2^(i - 150)) end\n"
+                + "for i = 1, 300 do print(i * 1e-5) print(i * 1e5) print(i / 3) end\n"
+                // 开方：结果往往正好落在 14 位有效数字的边界上
+                + "for i = 1, 400 do print(math.sqrt(i)) print(math.sqrt(i + 0.5)) end\n"
+                // 脚本内 LCG，铺随机尾数
+                + "local s = 12345\n"
+                + "local function rnd() s = (s * 1103515245 + 12345) % 2147483648 return s end\n"
+                + "for i = 1, 600 do\n"
+                + "  local a, b = rnd(), rnd()\n"
+                + "  print(a / b)\n"
+                + "  print(a * b * 1e-10)\n"
+                + "  print(a + b / 10000)\n"
+                + "end\n"
+                + "print(0.0, -0.0, 1/0, -1/0, 0/0)\n");
+    }
+
     @Test
     void errorMessagesMatchReference() {
         List<String> bad = new ArrayList<>();

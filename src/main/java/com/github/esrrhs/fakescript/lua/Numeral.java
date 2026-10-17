@@ -90,8 +90,22 @@ final class Numeral {
         } else {
             while (p < s.length() && LCType.isDigit(s.charAt(p))) {
                 int d = s.charAt(p) - '0';
-                // 负数的下界比正数多一个（Long.MIN_VALUE），故阈值随符号放宽 1
-                if (a >= MAXBY10 && (a > MAXBY10 || d > MAXLASTD + (neg ? 1 : 0))) {
+                /*
+                 * 累加器在 C 里是 <b>{@code lua_Unsigned}</b>，比较必须按无符号做。
+                 *
+                 * 有符号的 {@code long} 在这里会漏判：{@code a} 一旦越过 2^63
+                 * 就变成负数，{@code a >= MAXBY10} 从此恒为假，溢出检查整个失效。
+                 * 命中条件是「前 19 位已经 ≥ 2^63 且还有下一位」——
+                 * {@code "-92233720368547758080"}（= -10 * 2^63）正是这一类：
+                 * 它按无符号一路回绕，最后恰好等于 0，于是
+                 * {@code 1 + "-92233720368547758080"} 给出 <b>1</b>，
+                 * 而参考实现先拒绝它、落到浮点路径，给出 -9.2233720368548e+19。
+                 *
+                 * 负数的下界比正数多一个（Long.MIN_VALUE），故阈值随符号放宽 1。
+                 */
+                if (Long.compareUnsigned(a, MAXBY10) >= 0
+                        && (Long.compareUnsigned(a, MAXBY10) > 0
+                                || d > MAXLASTD + (neg ? 1 : 0))) {
                     return null;
                 }
                 a = a * 10 + d;

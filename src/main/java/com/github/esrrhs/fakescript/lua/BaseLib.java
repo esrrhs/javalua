@@ -88,7 +88,7 @@ public final class BaseLib {
         LuaValue n1 = numOf(p1);
         LuaValue n2 = numOf(p2);
         if (n1 != null && n2 != null) {
-            LuaValue res = Arith.rawArith(op, n1, n2);
+            LuaValue res = Arith.rawArith(L, op, n1, n2);
             if (res != null) {
                 L.push(res);
                 return 1;
