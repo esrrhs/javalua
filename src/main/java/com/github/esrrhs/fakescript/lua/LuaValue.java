@@ -289,7 +289,23 @@ public final class LuaValue {
         }
     }
 
-    /** 数值相等：整数与整数比 long，其余统一转 double（与 {@code luai_numeq} 一致） */
+    /**
+     * 数值相等。
+     * <p>
+     * <b>整数与浮点（变体不同）不是「都转 double 再比」。</b>Lua 5.4 的
+     * {@code luaV_equalobj} / {@code luaV_rawequalobj} 遇到变体不同的两个数，
+     * 是<b>两边都按 F2Ieq 转成整数</b>再比；浮点那一侧转不成整数就判不等。
+     * <p>
+     * 上一版统一转 double（{@code luai_numeq} 的语义），于是
+     * {@code rawequal(math.maxinteger, math.maxinteger + 1.0)} 给的是
+     * {@code true}：{@code (double)(2^63 - 1)} 舍入成 {@code 2^63}，正好撞上
+     * 右边那个浮点。实测参考实现给 {@code false}——并且表键也据此判成两个键
+     * （{@code t[math.maxinteger]} 与 {@code t[2^63]} 不是同一项）。
+     * <p>
+     * 两条规则只在 {@code math.maxinteger} 往前约一千个整数上分岔（那里整数
+     * 转 double 会舍入到 {@code 2^63}，而 {@code 2^63} 本身又转不回整数），
+     * 所以只能靠扫边界发现，读 {@code lvm.c} 的宏容易看漏。
+     */
     public static boolean numberEqual(LuaValue a, LuaValue b) {
         if (a.isInteger() && b.isInteger()) {
             return a.i == b.i;
@@ -297,9 +313,35 @@ public final class LuaValue {
         if (a.isFloat() && b.isFloat()) {
             return a.n == b.n;
         }
-        double x = a.isInteger() ? (double) a.i : a.n;
-        double y = b.isInteger() ? (double) b.i : b.n;
-        return x == y;
+        // 变体不同：把浮点那侧 F2Ieq 转整数，转不成就是不等
+        long i = a.isInteger() ? a.i : b.i;
+        double n = a.isFloat() ? a.n : b.n;
+        return fltIsExactInt(n) && (long) n == i;
+    }
+
+    /** {@code luaV_flttointns} 的 F2Ieq 判据：这个浮点精确等于某个整数吗 */
+    private static boolean fltIsExactInt(double n) {
+        if (Double.isNaN(n) || Double.isInfinite(n)) {
+            return false;
+        }
+        if (n >= Long.MIN_VALUE && n < 9223372036854775808.0) {
+            long k = (long) n;
+            return (double) k == n; // 必须精确往返，否则 1.5 会被当成 1
+        }
+        return false;
+    }
+
+    /**
+     * {@code luaV_flttointns} 的 F2Ieq 模式：浮点只有当<b>精确</b>等于某个整数
+     * 时才转换。键的规范化与 {@link #numberEqual} 共用这一份判据——放两处
+     * 迟早会有一处漏改。
+     */
+    public static boolean floatToIntExact(double n, long[] out) {
+        if (!fltIsExactInt(n)) {
+            return false;
+        }
+        out[0] = (long) n;
+        return true;
     }
 
     /* ---------- 读取 ---------- */

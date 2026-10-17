@@ -8253,4 +8253,219 @@ class RuntimeTest {
                 print(table.concat(out, "\\n"))
                 """);
     }
+
+    /**
+     * 表键语义矩阵：键 × 键 的读写、rehash、表构造、NaN/inf，以及
+     * {@code math.maxinteger} 附近那个区间。
+     * <p>
+     * 这个是覆盖扫描指过来的：{@code LuaTable} 有 16 行没被走到，其中
+     * {@code hashFloat} 的 {@code -0.0} 归一化、{@code landsInArray} 的浮点
+     * 分支、rehash 时哈希槽不够那三条，都是「只在很窄的键区间上才走」的路径。
+     * 手挑几个键是碰不到它们的，所以做成<b>键 × 键</b>的方阵：20 个键各写一遍、
+     * 再用全部 20 个键各读一遍。
+     * <p>
+     * 扫出来的真分歧只有一处，但它不在 {@code LuaTable} 里：
+     * <b>{@code rawequal(math.maxinteger, math.maxinteger + 1.0)} 应当是
+     * {@code false}，本实现给 {@code true}</b>。两个数确实不等——
+     * {@code (double)(2^63-1)} 舍入成 {@code 2^63} 才撞上的——而表拿
+     * {@code rawequal} 当键的比较用，于是 {@code t[math.maxinteger]} 与
+     * {@code t[2^63]} 被当成了同一项。修的是
+     * {@code LuaValue.numberEqual}：变体不同的两个数要按 F2Ieq
+     * <b>两边都转整数</b>再比，不是统一转 double。
+     * <p>
+     * 两条规则只在 {@code math.maxinteger} 往前约一千个整数上分岔，所以脚本末尾
+     * 专门按步长扫了那 2048 个整数——去掉这一段，修与不修只差 6 行；带上它，
+     * 改回旧写法会红 <b>77</b> 行。
+     * <p>
+     * {@code next} 的<b>顺序</b>依赖哈希函数，两边不必相同，所以键集合一律排序
+     * 后再打印；只比集合，不比顺序。
+     */
+    @Test
+    void tableKeySemanticsMatchesReference() {
+        Diff.assertMatches("""
+-- 表键语义矩阵：整数/浮点的键等价、rehash、表构造、NaN/inf、以及
+-- math.maxinteger 附近那个「整数转 double 会舍入」的分岔区间
+-- 整数与浮点在「变体不同」时的相等比较边界
+local MAXI = math.maxinteger
+local MINI = math.mininteger
+local C = {
+    { "MAXI", MAXI, MAXI + 1.0 },
+    { "MAXI2", MAXI, MAXI + 0.0 },
+    { "MAXI3", MAXI, 2.0 ^ 63 },
+    { "MAXI4", MAXI, -2.0 ^ 63 },
+    { "MINI", MINI, MINI - 1.0 },
+    { "MINI2", MINI, MINI + 0.0 },
+    { "MINI3", MINI, -2.0 ^ 63 },
+    { "OK1", 1, 1.0 },
+    { "OK2", 0, -0.0 },
+    { "OK3", 2 ^ 53, 2 ^ 53 + 1.0 },
+    { "OK4", 2 ^ 53 + 1, 2 ^ 53 + 2.0 },
+    { "BIG", 2 ^ 62, 2 ^ 62 + 1024.0 },
+    { "BIG2", 2 ^ 62, 2 ^ 62 + 512.0 },
+}
+for _, c in ipairs(C) do
+    local a, b = c[2], c[3]
+    print(string.format("%-6s %-22s == %-22s : %s   rawequal=%s  < = > : %s %s %s", c[1],
+        tostring(a), tostring(b), tostring(a == b), tostring(rawequal(a, b)),
+        tostring(a < b), tostring(a <= b), tostring(a > b)))
+end
+-- 表键：这两类键是不是同一项
+for _, c in ipairs(C) do
+    local t = {}
+    t[c[2]] = "A"
+    print(string.format("key %-6s get(%s)=%s  type=%s", c[1], tostring(c[3]), tostring(t[c[3]]),
+        math.type(c[3])))
+end
+
+-- LuaTable 键语义矩阵：键 × 键 的读写，外加 rehash / 表构造 / 边界键
+-- next 的顺序依赖哈希函数、两边不必相同，所以键集合一律排序后再打印
+
+local function keys(t)
+    local ks = {}
+    for k in next, t do
+        ks[#ks + 1] = tostring(k) .. "/" .. tostring(math.type(k))
+    end
+    table.sort(ks)
+    return table.concat(ks, ",")
+end
+
+local KEYS = {
+    "0", "-0.0", "0.0", "1", "1.0", "-1.0", "2", "2.0", "0.5", "-0.5",
+    "3", "2^53", "2^53+1.0", "math.maxinteger", "math.maxinteger+1.0",
+    "math.mininteger", "1e300", "-1e300", "math.pi", "1/3",
+}
+
+-- 1) 键 × 键：用 k 写、用 q 读
+for _, ks in ipairs(KEYS) do
+    local k = load("return " .. ks)()
+    local t = {}
+    local ok, err = pcall(function()
+        t[k] = "V"
+    end)
+    if not ok then
+        print(string.format("set %-18s ERR %s", ks, tostring(err)))
+    else
+        local rd = {}
+        for _, qs in ipairs(KEYS) do
+            local q = load("return " .. qs)()
+            rd[#rd + 1] = qs .. "=" .. tostring(t[q])
+        end
+        print(string.format("set %-18s ok  #=%s keys={%s} %s", ks, tostring(#t), keys(t),
+            table.concat(rd, " ")))
+    end
+end
+
+-- 2) 先写整数键再写同一个值的浮点键（触发 landsInArray 的浮点分支与 rehash）
+for n = 0, 12 do
+    local t = {}
+    for i = 1, n do
+        t[i] = tostring(i)
+    end
+    t[2.0] = "F"
+    print(string.format("mix n=%-3d #=%s keys={%s}", n, tostring(#t), keys(t)))
+end
+
+-- 3) 多条浮点键挤进哈希部分，逼哈希槽不够（hashSize = needSlots 那条）
+for n = 0, 10 do
+    local t = {}
+    for i = 1, n do
+        t[i] = true
+    end
+    for i = 1, 8 do
+        t[i + 0.5] = true -- 全是浮点、落不进数组部分
+    end
+    print(string.format("hash n=%-3d #=%s keys={%s}", n, tostring(#t), keys(t)))
+end
+
+-- 4) 表构造里的边界键
+local c1 = { [0] = "zero", [1] = "one" }
+print("ctor0", #c1, keys(c1))
+local c2 = { [1.0] = "f1", [2.0] = "f2" }
+print("ctorf", #c2, keys(c2))
+local c3 = { [-0.0] = "nz", [0.0] = "pz" }
+print("ctorz", #c3, keys(c3))
+local c4 = { [1] = "a", [2] = "b", [3] = "c" }
+print("ctorseq", #c4, keys(c4))
+local w = setmetatable({}, { __mode = "k" })
+w[1] = "x"
+print("weak", type(w), keys(w))
+
+-- 5) NaN / inf 键：hashFloat 的归一化与「索引是 NaN」那条错
+for _, ks in ipairs({ "0/0", "-(0/0)", "math.huge", "-math.huge", "1e400" }) do
+    local k = load("return " .. ks)()
+    local t = {}
+    local ok, err = pcall(function()
+        t[k] = "V"
+    end)
+    print(string.format("nan %-12s set=%s %s", ks, tostring(ok), tostring(err)))
+    local ok2, v2 = pcall(function()
+        return t[k]
+    end)
+    print(string.format("nan %-12s get=%s %s", ks, tostring(ok2), tostring(v2)))
+end
+
+-- 6) 负浮点键大批扫（hashFloat 里 ni<0 取反那条）
+local NEG = { "-1.0", "-2.0", "-0.5", "-1e300", "-math.pi", "-2^53", "-1/3", "-1e-300" }
+for _, ks in ipairs(NEG) do
+    local k = load("return " .. ks)()
+    local t = {}
+    t[k] = "V"
+    print(string.format("neg %-10s keys={%s} reread=%s", ks, keys(t), tostring(t[k + 0.0])))
+end
+
+-- 7) 删掉之后再写：浮点键与整数键互相覆盖
+local d = {}
+d[1] = "int"
+d[1.0] = "flt"
+print("ovr1", keys(d), d[1], d[1.0], #d)
+d[1.0] = nil
+print("ovr2", keys(d), d[1], #d)
+d[1] = nil
+print("ovr3", keys(d), #d)
+
+-- 8) rawget / rawset / rawlen 走的是同一套键归一化
+local r = {}
+rawset(r, 2.0, "two")
+print("raw", rawget(r, 2), rawget(r, 2.0), rawlen(r), keys(r))
+rawset(r, -0.0, "nz")
+print("rawz", rawget(r, 0), rawget(r, 0.0), rawlen(r), keys(r))
+
+-- 9) 把浮点键混进序列，看长度怎么算
+for n = 1, 8 do
+    local t = {}
+    for i = 1, n do
+        t[i] = true
+    end
+    t[n + 1.0] = true
+    print(string.format("seq n=%-3d #=%s", n, tostring(#t)))
+    t[n + 1.0] = nil
+    print(string.format("seqd n=%-3d #=%s", n, tostring(#t)))
+end
+
+-- 10) 精确扫 math.maxinteger 附近：整数转 double 会舍入到 2^63，而 2^63 转不回整数
+--     这个区间是「都转 double 比」与「F2Ieq 比」唯一分岔的地方
+for d = 0, 2048, 64 do
+    local i = math.maxinteger - d
+    local f = i + 0.0
+    print(string.format("near d=%-5d i=%s f=%s eq=%s raw=%s int=%s", d, tostring(i),
+        tostring(f), tostring(i == f), tostring(rawequal(i, f)),
+        tostring(math.tointeger(f))))
+end
+for d = 0, 2048, 64 do
+    local i = math.mininteger + d
+    local f = i + 0.0
+    print(string.format("nearlo d=%-5d i=%s f=%s eq=%s raw=%s int=%s", d, tostring(i),
+        tostring(f), tostring(i == f), tostring(rawequal(i, f)),
+        tostring(math.tointeger(f))))
+end
+-- 这些整数作键：写进去之后用对应的浮点去读
+for d = 0, 2048, 128 do
+    local i = math.maxinteger - d
+    local t = {}
+    t[i] = "A"
+    print(string.format("nearkey d=%-5d get=%s keys={%s}", d, tostring(t[i + 0.0]),
+        tostring(#t)))
+end
+        """);
+    }
 }

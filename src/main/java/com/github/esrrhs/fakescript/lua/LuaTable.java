@@ -378,17 +378,7 @@ public final class LuaTable {
      * </pre>
      */
     private static boolean floatToIntExact(double n, long[] out) {
-        if (Double.isNaN(n) || Double.isInfinite(n)) {
-            return false;
-        }
-        if (n >= Long.MIN_VALUE && n < 9223372036854775808.0) {
-            long k = (long) n;
-            if ((double) k == n) { // 必须精确往返，否则 1.5 会被错误地当成 1
-                out[0] = k;
-                return true;
-            }
-        }
-        return false;
+        return LuaValue.floatToIntExact(n, out);
     }
 
     /**

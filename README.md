@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 852 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 853 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2289,6 +2289,52 @@ The lesson is the standing one: **a comment agreeing with the C source is not
 evidence.** The more plausible that comment looked, the easier it was to read the
 mismatch as a deliberate deviation — and a branch that exists nowhere in C stayed
 quiet until a machine checked it.
+
+### JaCoCo can lie: the line that calls an always-throwing method
+
+Picking targets from uncovered lines has a trap, and this is where it surfaced:
+**JaCoCo marks the line that calls an always-throwing method as not covered.**
+The instruction after the call — the `pop` that discards the return value — is
+never reached, so the whole line is recorded as `nc`.
+
+Measured: `Undump`'s ten `error()` branches fired **848 times** during the suite
+(counted by adding a print inside `error()`), every line *inside* `error()` is
+`fc`, and **all nine call sites are `nc`**. Following the report would have meant
+writing more cases for code that was already covered.
+
+The test: **the line is an `xxxError(...)` call or starts with `throw`, and the
+method it calls is itself covered** — that is a fake gap. Filtering on it makes
+`Codegen`'s 15 lines, `Parser`'s 21 and `Undump`'s 10 **disappear entirely**;
+what is left is real.
+
+### The table-key matrix: `rawequal(math.maxinteger, math.maxinteger + 1.0)`
+
+Of the real gaps, `LuaTable` had 16 lines, all paths that only run for narrow key
+ranges: `hashFloat`'s `-0.0` normalisation, `landsInArray`'s float branch, rehash
+when the hash part needs more slots. A handful of hand-picked keys never reaches
+them, so this is a **key × key** square: 20 keys each written once, then read back
+with all 20, plus 2048 integers on each side of `math.maxinteger` swept by step.
+
+It turned up exactly one real divergence, and it is **not in `LuaTable`**:
+
+* **`rawequal(math.maxinteger, math.maxinteger + 1.0)` should be `false`.** The
+  two numbers are genuinely different (`math.maxinteger` is 2^63−1, the right side
+  is the float 2^63), but `(double)(2^63−1)` rounds to `2^63`, so "cast both to
+  double and compare" calls them equal. Lua 5.4 compares two numbers of
+  *different variants* the other way: convert **both** with F2Ieq and compare
+  integers; if the float side does not convert, they are not equal. The fix is in
+  `LuaValue.numberEqual`, which backs `==`, `rawequal`, **and the table's key
+  comparison** — so `t[math.maxinteger]` and `t[2^63]` were previously the same
+  entry.
+  <br>The duplicate `floatToIntExact` in `LuaTable` is now folded into
+  `LuaValue`, so the two copies of that rule cannot drift apart.
+
+The two rules only diverge over roughly the thousand integers before
+`math.maxinteger`, which is why the stepped sweep at the end of the script
+matters: **without it the fix is worth 6 lines; with it, reverting turns 77 red.**
+
+`next`'s **order** depends on the hash function and need not match, so key sets
+are always sorted before printing — the set is compared, not the order.
 
 ### What is still missing
 
