@@ -729,6 +729,119 @@ class CoroutineTest {
             """,
     };
 
+    /**
+     * 第三批：<b>出错之后</b>在 {@code __close} 里 yield。
+     * <p>
+     * 这一批钉的是 {@code ldo.c: finishpcallk} 那条恢复路径。C 版里
+     * {@code pcall} 在可 yield 的线程上<b>不建本地恢复点</b>：错误一路冒到
+     * {@code lua_resume}，由 {@code precover} → {@code finishpcallk} 用
+     * {@code luaF_close(..., yy = 1)} 收尾，于是每个 {@code __close} 都能
+     * yield，而且 {@code __close} 自己抛的新错误要<b>顶掉</b>原来的、接着传给
+     * 下一个还没关的变量。
+     * <p>
+     * 本实现用 Java 异常代替长跳转，恢复点落在 {@code pcall} 的 {@code catch}
+     * 里，所以「让不让 {@code __close} yield」得显式传下去（
+     * {@link LuaState#pcall(int, int, LuaValue)} 按 {@code yieldable()} 决定）；
+     * yield 一旦打断收尾，错误对象又不在栈上，只能靠
+     * {@link LuaState#closeErrPending} 暂存到下一次 {@code finishPcallK}。
+     * 这三样缺一样，这段脚本就会在第一个 {@code __close} 上报
+     * 「attempt to yield across a C-call boundary」。
+     */
+    @TestFactory
+    List<DynamicTest> yieldInsideClosingMetamethods() {
+        List<DynamicTest> tests = new ArrayList<>();
+        for (int i = 0; i < CLOSE_YIELD.length; i++) {
+            String src = CLOSE_YIELD[i];
+            int n = i;
+            tests.add(DynamicTest.dynamicTest("closeYield[" + n + "]",
+                    () -> Diff.assertMatches(src)));
+        }
+        return tests;
+    }
+
+    /** 出错解绕时 {@code __close} 里的 yield（见 {@link #yieldInsideClosingMetamethods}） */
+    private static final String[] CLOSE_YIELD = {
+
+            /*
+             * 函数体里 error(10)：x / y / z 依次 yield 出去，y 在 yield 之后
+             * 再 error(err + 20)，于是 z 看到的错误对象和 pcall 最终拿到的
+             * 都是 30 —— 不是 10。
+             */
+            """
+            local function func2close (f)
+              return setmetatable({}, {__close = f})
+            end
+
+            local co = coroutine.wrap(function ()
+              local function foo (err)
+                local z <close> = func2close(function(_, msg)
+                  print("z", msg)
+                  coroutine.yield("z")
+                  return 100, 200
+                end)
+                local y <close> = func2close(function(_, msg)
+                  print("y", msg)
+                  coroutine.yield("y")
+                  if err then error(err + 20) end
+                end)
+                local x <close> = func2close(function(_, msg)
+                  print("x", msg)
+                  coroutine.yield("x")
+                  return 100, 200
+                end)
+                if err == 10 then error(err) else return 10, 20 end
+              end
+              coroutine.yield(pcall(foo, nil))
+              coroutine.yield(pcall(foo, 1))
+              return pcall(foo, 10)
+            end)
+
+            for i = 1, 12 do
+              local a, b, c = co()
+              print(i, a, b, c)
+            end
+            """,
+
+            /* 只有一层 <close>，yield 之后 pcall 仍要返回 false + 原错误 */
+            """
+            local function func2close (f)
+              return setmetatable({}, {__close = f})
+            end
+
+            local co = coroutine.wrap(function ()
+              local function foo ()
+                local x <close> = func2close(function(_, msg)
+                  print("x", msg)
+                  coroutine.yield("x")
+                end)
+                error("boom")
+              end
+              return pcall(foo)
+            end)
+
+            print(co())
+            print(co())
+            """,
+
+            /* 主线上（不可 yield）出错时，__close 里的 yield 必须报错 */
+            """
+            local function func2close (f)
+              return setmetatable({}, {__close = f})
+            end
+
+            local function foo ()
+              local x <close> = func2close(function(_, msg)
+                print("x", msg)
+                local ok, e = pcall(coroutine.yield, "x")
+                print("yield?", ok, e)
+              end)
+              error("boom")
+            end
+
+            print(pcall(foo))
+            """,
+    };
+
     /** 只比第一行的用例（位置前缀细节尚未对齐） */
     private static final String[] FIRST_LINE = {
 

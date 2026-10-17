@@ -22,6 +22,7 @@ public final class CClosure {
     public final LuaValue[] upvalue;
 
     public CClosure(LuaFunction f, int nupvals) {
+        LuaState.chargeGc();
         this.f = f;
         this.upvalue = new LuaValue[nupvals];
         for (int i = 0; i < nupvals; i++) {

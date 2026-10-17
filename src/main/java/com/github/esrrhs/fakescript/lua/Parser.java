@@ -74,8 +74,16 @@ public final class Parser {
      * 也就与 C 一致。
      */
     public static Proto parse(Zio z, byte[] chunkName, StringPool strings) {
+        return parse(z, chunkName, strings, z.getc());
+    }
+
+    /**
+     * {@code firstChar} 见 {@link Lexer#Lexer(Zio, byte[], StringPool, int)}：
+     * 首字节由调用方（{@code f_parser} 形态）读过了，原样交给词法器，不要重读。
+     */
+    public static Proto parse(Zio z, byte[] chunkName, StringPool strings, int firstChar) {
         LuaString src = (chunkName == null) ? LuaString.latin1("?") : LuaString.of(chunkName);
-        Lexer ls = new Lexer(z, chunkName, strings);
+        Lexer ls = new Lexer(z, chunkName, strings, firstChar);
         DynData dyd = new DynData();
         Parser p = new Parser(ls, dyd, src);
         Proto f = new Proto();

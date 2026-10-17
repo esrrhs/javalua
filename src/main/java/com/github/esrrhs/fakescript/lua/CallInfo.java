@@ -51,6 +51,20 @@ public final class CallInfo {
     boolean hooked;
 
     /**
+     * {@code CIST_FIN}：本帧正在跑一个 {@code __gc} 终结器。
+     * <p>
+     * 注意这个标记打在<b>发起终结的那一帧</b>上，不是终结器自己的帧——
+     * {@code lgc.c: GCTM} 是在调用<b>之前</b>给 {@code L->ci} 置位、之后再清掉。
+     * 于是终结器里 {@code debug.getinfo(1)} 走
+     * {@code funcnamefromcall(ci->previous)} 时能认出来，给出
+     * {@code namewhat == "metamethod"}、{@code name == "__gc"}。
+     * 上游 {@code db.lua}「testing debug info for finalizers」就断言这两个值，
+     * 而且它用 {@code repeat local a = {} until name} 等终结器跑——认不出来
+     * 就是死循环。
+     */
+    boolean fin;
+
+    /**
      * {@code CIST_TRAN}：本帧的 {@code ftransfer / ntransfer} 有效。
      * 只在返回钩子的调用期间为真（{@code debug.getinfo(2, 'r')} 读它）。
      */

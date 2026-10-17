@@ -61,19 +61,28 @@ public final class BaseLib {
      */
     private static void openStringMetatable(LuaState L) {
         LuaTable mt = new LuaTable();
-        setFn(mt, "__add", l -> strArith(l, Arith.OP_ADD, "add"));
-        setFn(mt, "__sub", l -> strArith(l, Arith.OP_SUB, "sub"));
-        setFn(mt, "__mul", l -> strArith(l, Arith.OP_MUL, "mul"));
-        setFn(mt, "__mod", l -> strArith(l, Arith.OP_MOD, "mod"));
-        setFn(mt, "__pow", l -> strArith(l, Arith.OP_POW, "pow"));
-        setFn(mt, "__div", l -> strArith(l, Arith.OP_DIV, "div"));
-        setFn(mt, "__idiv", l -> strArith(l, Arith.OP_IDIV, "idiv"));
-        setFn(mt, "__unm", l -> strArith(l, Arith.OP_UNM, "unm"));
+        setFn(mt, "__add", l -> strArith(l, Arith.OP_ADD, Tm.TM_ADD, "add"));
+        setFn(mt, "__sub", l -> strArith(l, Arith.OP_SUB, Tm.TM_SUB, "sub"));
+        setFn(mt, "__mul", l -> strArith(l, Arith.OP_MUL, Tm.TM_MUL, "mul"));
+        setFn(mt, "__mod", l -> strArith(l, Arith.OP_MOD, Tm.TM_MOD, "mod"));
+        setFn(mt, "__pow", l -> strArith(l, Arith.OP_POW, Tm.TM_POW, "pow"));
+        setFn(mt, "__div", l -> strArith(l, Arith.OP_DIV, Tm.TM_DIV, "div"));
+        setFn(mt, "__idiv", l -> strArith(l, Arith.OP_IDIV, Tm.TM_IDIV, "idiv"));
+        setFn(mt, "__unm", l -> strArith(l, Arith.OP_UNM, Tm.TM_UNM, "unm"));
         L.setTypeMetatable(Lua.TSTRING, mt);
     }
 
-    /** {@code lstrlib.c: arith} */
-    private static int strArith(LuaState L, int op, String name) {
+    /**
+     * {@code lstrlib.c: arith}。
+     * <p>
+     * 关键在那句 {@code else trymt(L, mtname)}：<b>转换不成数字不是立刻报错</b>，
+     * 而是<b>再去第二个操作数身上找同名元方法</b>。少了这一步，
+     * {@code '5' + b}（{@code b} 是带 {@code __add} 的表）会报
+     * 「attempt to add a 'string' with a 'table'」，而参考实现是正常调用
+     * {@code b} 的 {@code __add}——上游 {@code events.lua} 那一整串
+     * {@code checkcap{"add", '5', b}} 全靠它。
+     */
+    private static int strArith(LuaState L, int op, int event, String name) {
         LuaValue p1 = L.arg(0);
         LuaValue p2 = L.arg(1);
         LuaValue n1 = numOf(p1);
@@ -82,6 +91,28 @@ public final class BaseLib {
             LuaValue res = Arith.rawArith(op, n1, n2);
             if (res != null) {
                 L.push(res);
+                return 1;
+            }
+        }
+        /* lstrlib.c: trymt —— 回到原来的两个参数，去 p2 身上找元方法 */
+        L.setTop(2);
+        /*
+         * 「第二个操作数是字符串」时<b>不找</b>：否则 {@code '5' + 'x'} 会找到
+         * 字符串元表的 {@code __add}——也就是现在正在跑的这个函数——无限递归。
+         * C 版用 {@code lua_type(L, 2) == LUA_TSTRING} 挡住，正是这个原因。
+         */
+        if (!p2.isString()) {
+            LuaValue tm = LuaTm.getTmByObj(L, p2, event);
+            if (tm != null && !tm.isNil()) {
+                int f1 = L.ci.func + 1; // 第一个参数的位置
+                L.push(tm);
+                // lua_insert(L, -3)：元方法挪到两个参数下面
+                LuaValue moved = new LuaValue(L.stack[L.top - 1]);
+                for (int i = L.top - 1; i > f1; i--) {
+                    L.stack[i].set(L.stack[i - 1]);
+                }
+                L.stack[f1].set(moved);
+                L.call(f1, 1); // C 版是 lua_call，允许 yield
                 return 1;
             }
         }
@@ -332,6 +363,14 @@ public final class BaseLib {
         return 2;
     }
 
+    /**
+     * {@code lbaselib.c: pairscont}。
+     * <p>
+     * yield 恢复之后被调用，三个返回值（迭代器、状态、初值）那时候已经在栈上，
+     * 这里只要报出「有 3 个结果」。
+     */
+    private static final LuaKFunction PAIRS_CONT = (L, status, ctx) -> 3;
+
     /** {@code luaB_pairs}（含 {@code __pairs} 元方法） */
     private static int pairs(LuaState L) {
         if (L.argCount() == 0) {
@@ -345,7 +384,13 @@ public final class BaseLib {
             L.stack[func].set(pf);
             L.stack[func + 1].set(t);
             L.top = func + 2;
-            L.call(func, 3);
+            /*
+             * {@code lua_callk(L, 1, 3, 0, pairscont)}：带续体，所以
+             * {@code __pairs} 里 yield 是允许的（上游 nextvar.lua 有这一条）。
+             * 用不带续体的 {@code call} 会在恢复时炸，因为那时 {@code ci.k} 是
+             * {@code null}。
+             */
+            L.callK(func, 3, 0, PAIRS_CONT);
             return 3;
         }
         if (!t.isTable()) {
@@ -417,14 +462,38 @@ public final class BaseLib {
         return count;
     }
 
-    /** {@code luaB_error} */
+    /**
+     * {@code luaB_error}。
+     * <p>
+     * 必须照 C 版的形状写，尤其那句 {@code lua_settop(L, 1)}——它不是顺手的
+     * 清理，而是决定「栈顶之下那一格是什么」。
+     * <p>
+     * 实测（{@code coroutine.wrap} 出来的函数崩掉时）：
+     * {@code luaB_auxwrap} 在错误分支里会先 {@code lua_xmove(co, L, 1)} 把错误
+     * 对象搬走，再 {@code lua_closethread} → {@code luaE_resetthread}，后者
+     * 走 {@code luaD_seterrorobj(L, status, L->stack + 1)}，而
+     * {@code seterrorobj} 的 {@code default} 分支是
+     * {@code setobjs2s(L, oldtop, L->top - 1)}——<b>搬的是「搬走一格之后」的栈顶</b>。
+     * 只有 {@code settop(1)} + {@code where} + {@code pushvalue} + {@code concat}
+     * 这套写法能让那一格正好是带位置的错误对象（{@code concat} 的结果把参数格
+     * 覆盖掉，于是「错误对象」在栈上是连着两格的）。少了 {@code settop}，那一格
+     * 还是原始的 {@code "boom"}，报出来就成了没有 {@code file:line:} 前缀的裸串。
+     */
     private static int error(LuaState L) {
         int n = L.argCount();
         // 注意没有「至少一个参数」的检查：error() 等价于 error(nil)，
         // 参考实现实测 print(pcall(error)) 得到 false nil。
         long level = (n > 1 && !L.arg(1).isNil()) ? checkInteger(L, 1) : 1;
-        LuaValue msg = (n > 0) ? L.arg(0) : LuaValue.ofNil();
-        throw L.errorAt(msg, (int) level);
+        L.setTop(1); // lua_settop(L, 1)：多出来的参数全部摘掉
+        LuaValue msg = L.arg(0);
+        if (msg.isString() && level > 0) {
+            L.push(LuaValue.ofString(LuaString.utf8(L.whereAt((int) level)))); // luaL_where
+            L.push(msg);          // lua_pushvalue(L, 1)
+            Vm.concat(L, 2);      // lua_concat(L, 2)
+        }
+        // lua_error(L)：抛栈顶那个值。位置已经拼进去了，errorAt 的 level 传 0
+        // 表示「别再加一次」——但 where 字段仍非 null，pcall 也不会补。
+        throw L.errorAt(L.stack[L.top - 1], 0);
     }
 
     /** {@code luaB_assert} */
@@ -515,7 +584,21 @@ public final class BaseLib {
             myCi.ctx = start;
             myCi.funcIdx = f;
             myCi.errHandler = handler;
-            myCi.recst = LuaState.LUA_OK;
+            /*
+             * 两种「被打断」必须分开记，因为 resume 之后 {@code finishPcallK}
+             * 只看 {@code recst}：
+             * <ul>
+             *   <li>被保护的函数正常跑着就 yield 了 → {@code LUA_OK}，续体原样
+             *       把结果交给调用方。</li>
+             *   <li>是<b>出错后关 tbc 变量</b>时 yield 的 → 错误还没交出去，
+             *       续体要接着把剩下的变量关完，再返回 {@code false, err}。
+             *       这就是 {@code finishpcallk} 里 {@code recst} 记着
+             *       {@code LUA_ERRRUN} 的含义。</li>
+             * </ul>
+             * {@link LuaState#closeErrPending} 非空就说明是后者（错误对象和
+             * 「还有变量没关完」是同一个条件，见那里的注释）。
+             */
+            myCi.recst = (L.closeErrPending != null) ? LuaState.LUA_ERRRUN : LuaState.LUA_OK;
             throw y;
         }
     }
@@ -579,19 +662,112 @@ public final class BaseLib {
     }
 
     /**
+     * {@code luaB_collectgarbage} 的 {@code opts[]}，顺序与 {@code luaB_collectgarbage}
+     * 里那个 {@code switch} 的下标严格对应。
+     */
+    private static final String[] GC_OPTS = {
+            "stop", "restart", "collect", "count", "step", "setpause",
+            "setstepmul", "isrunning", "generational", "incremental"
+    };
+
+    /**
      * {@code luaB_collectgarbage}。
      * <p>
-     * 这里做两件事：请求 JVM 做一次完整收集，然后递增「收集轮次」——弱表靠
-     * 轮次决定什么时候清扫失效条目，这一点与 C 版一致（Lua 是在 GC 周期末尾
-     * 清弱表，不是键一不可达就立刻消失）。
+     * {@code "collect"} 分支做两件事：请求 JVM 做一次完整收集，然后递增
+     * 「收集轮次」——弱表靠轮次决定什么时候清扫失效条目，这一点与 C 版一致
+     * （Lua 是在 GC 周期末尾清弱表，不是键一不可达就立刻消失）。
      * <p>
-     * 返回值一律 0。不假装统计内存：{@code collectgarbage("count")} 报任何具体
-     * 数字都是谎报（我们连自己的堆都摸不到），宁可让依赖它的脚本拿到 0，
-     * 也不要编一个看起来合理的数。
+     * 不假装统计内存：{@code collectgarbage("count")} 一律报 {@code 0.0}。
+     * 报任何具体数字都是谎报（我们连自己的堆都摸不到，更没有「收集之后降了多少」
+     * 这种量），宁可让依赖它的脚本拿到 0。曾试过报 JVM 堆的已用量，看起来
+     * 「更真」，但上游 {@code gc.lua} 里 {@code assert(gcinfo() < x)} 仍然
+     * 恒假（一百张小表对堆的影响测不出来），而 {@code repeat until gcinfo() > 3*x}
+     * 那种循环还可能一直涨不到——不如恒 0 那样确定：到那儿就停，不会 hang。
+     * 其余选项只保证<b>彼此自洽</b>（{@code stop} 之后 {@code isrunning}
+     * 为假、{@code generational} 返回切换前的模式名）。
      */
     private static int collectgarbage(LuaState L) {
         /*
-         * 先把所有栈的「死区」清掉，再请求收集。顺序不能反：
+         * {@code luaL_checkoption}：<b>必须先校验选项</b>。
+         * <p>
+         * 这一句不是为了挑刺——上游 {@code errors.lua} 的
+         * {@code (collectgarbage or print){}} 断言的就是
+         * 「bad argument #1 to 'collectgarbage' (string expected, got table)」。
+         * 少校验，那句里的 {@code pcall} 会成功返回，
+         * {@code checkmessage} 拿到 {@code false} 去 {@code string.find}，
+         * 整个文件就死在一条跟它无关的消息上。
+         */
+        int o = LuaAux.checkOption(L, 1, "collect", GC_OPTS);
+        switch (o) {
+        case 3: // "count"
+            L.push(LuaValue.ofFloat(0.0));
+            return 1;
+        case 4: // "step"
+            /*
+             * C 版的 {@code LUA_GCSTEP} 只推进一步，本实现没有步子可迈，
+             * 就<b>照一次完整收集来做</b>。这不是偷懒：弱表与 {@code __gc}
+             * 的清理时机全挂在「收集轮次」上，{@code "step"} 不做任何事的话，
+             * 上游 {@code gengc.lua} 那串「弱表该被清掉」的断言就全红——
+             * 而它们红在一个跟 {@code collectgarbage} 无关的地方。
+             */
+            doCollect(L);
+            L.push(LuaValue.ofBoolean(true));
+            return 1;
+        case 5: // "setpause"
+        case 6: { // "setstepmul"
+            LuaState m = L.mainThread;
+            int old = (o == 5) ? m.gcPause : m.gcStepMul;
+            long v = LuaAux.optInteger(L, 2, 0);
+            if (v != 0) {
+                if (o == 5) {
+                    m.gcPause = (int) v;
+                } else {
+                    m.gcStepMul = (int) v;
+                }
+            }
+            L.push(LuaValue.ofInteger(old));
+            return 1;
+        }
+        case 7: // "isrunning"
+            L.push(LuaValue.ofBoolean(L.mainThread.gcRunning));
+            return 1;
+        case 8: // "generational"
+        case 9: { // "incremental"
+            /*
+             * {@code lbaselib.c: pushmode}：这两个选项返回的是<b>切换前</b>的
+             * 模式，而且是<b>字符串</b>（{@code "incremental"} /
+             * {@code "generational"}），不是 {@code LUA_GCINC} 那个整数。
+             * 上游 {@code gc.lua} 开头四行就是照着字符串断言的，返回整数的话
+             * 它连「testing incremental garbage collection」都打不完。
+             */
+            LuaState m = L.mainThread;
+            int prev = m.gcKind;
+            m.gcKind = (o == 8) ? LuaState.LUA_GCGEN : LuaState.LUA_GCINC;
+            L.push(LuaValue.ofString(LuaString.latin1(
+                    (prev == LuaState.LUA_GCINC) ? "incremental" : "generational")));
+            return 1;
+        }
+        case 0: // "stop"
+            L.mainThread.gcRunning = false;
+            L.push(LuaValue.ofInteger(0));
+            return 1;
+        case 1: // "restart"
+            L.mainThread.gcRunning = true;
+            L.push(LuaValue.ofInteger(0));
+            return 1;
+        default:
+            break; // "collect"
+        }
+        doCollect(L);
+        L.push(LuaValue.ofInteger(0));
+        return 1;
+    }
+
+    /**
+     * 一次「完整收集」在本实现里的等价物：清栈死区 → {@code System.gc()} →
+     * 催终结 → 排空待终结队列 → 递增收集轮次。
+     * <p>
+     * 先把所有栈的「死区」清掉，再请求收集。顺序不能反：
          * {@code lgc.c: traversethread} 的 atomic 分支做的正是这件事——
          * mark 只扫 {@code [stack, top)}，扫完把 {@code [top, stack_last)}
          * 整段置 nil。也就是说 {@code top} 之上的槽在 Lua 里<b>对 GC 不可见</b>。
@@ -602,6 +778,7 @@ public final class BaseLib {
          * （{@code for i = 1, 5 do t[i] = {i} end} 之后 {@code {5}} 还留在
          * 寄存器里，而 {@code top} 只到调用参数处），于是弱表清不掉它。
          */
+    private static void doCollect(LuaState L) {
         L.clearDeadStackSlices();
         System.gc();
         /*
@@ -612,8 +789,6 @@ public final class BaseLib {
         System.runFinalization();
         L.mainThread.drainFinalizers(L);
         LuaTable.gcGeneration++;
-        L.push(LuaValue.ofInteger(0));
-        return 1;
     }
 
     /* ==================== 加载 ==================== */
@@ -661,7 +836,7 @@ public final class BaseLib {
             L.ensureSlots(f + 2);
             L.stack[f].set(reader);
             L.top = f + 1;
-            L.call(f, 1);
+            L.callNoYield(f, 1); /* lbaselib.c: generic_reader 用 lua_call —— 不可 yield */
             LuaValue r = new LuaValue(L.stack[f]);
             L.top = f;
             if (r.isNil()) {
@@ -707,12 +882,17 @@ public final class BaseLib {
                 L.push(LuaValue.ofClosure(L.undump(z, chunkname)));
                 return null;
             }
-            z.ungetc(first); // EOZ 回退是空操作
             if (mode.indexOf('t') < 0) {
                 throw new LuaError(LuaValue.ofString(LuaString.latin1(
                         "attempt to load a text chunk (mode is '" + mode + "')")));
             }
-            L.push(LuaValue.ofClosure(L.load(z, chunkname)));
+            /*
+             * 首字节<b>传进去</b>而不是回退。回退看着等价，但对惰性读函数不等价：
+             * 词法器起步时会再 {@code getc()} 一次，而那一次会<b>真的再调一遍读
+             * 函数</b>。首字节是 EOZ 时差别最大——参考实现就此认定流已结束，
+             * 这里却会重新去要下一批。
+             */
+            L.push(LuaValue.ofClosure(L.load(z, chunkname, first)));
             return null;
         } catch (LuaError e) {
             return e;
@@ -782,6 +962,15 @@ public final class BaseLib {
     }
 
     /**
+     * {@code lbaselib.c: dofilecont}：yield 恢复后，结果已经在栈上，只要报出个数。
+     * <p>
+     * C 版算的是 {@code lua_gettop(L) - 1}（栈顶减去「帧底 + 1」再减去 chunk
+     * 本身那一格）。这里直接把 chunk 的下标当 {@code ctx} 传进来，省得再推一遍
+     * ——{@code ctx} 在 {@code lua_callk} 里本来就是给续体用的。
+     */
+    private static final LuaKFunction DOFILE_CONT = (L, status, ctx) -> L.top - ctx;
+
+    /**
      * {@code luaB_dofile}。
      * <p>
      * 注意它<b>不吞加载错误</b>：{@code dofile("nope.lua")} 直接把错误抛出去，
@@ -798,7 +987,12 @@ public final class BaseLib {
             throw new LuaError(msg);
         }
         int f = L.top - 1; // 闭包在栈顶，0 个参数
-        L.call(f, LuaState.MULTRET);
+        /*
+         * {@code lua_callk(L, 0, LUA_MULTRET, 0, dofilecont)}：在 dofile 出来的
+         * chunk 里 yield 是允许的，所以这里要带续体。续体什么也不做，直接沿用
+         * 恢复时栈上已有的结果个数。
+         */
+        L.callK(f, LuaState.MULTRET, f, DOFILE_CONT);
         return L.top - f;
     }
 

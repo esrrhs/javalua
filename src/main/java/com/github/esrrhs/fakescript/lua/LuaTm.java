@@ -117,6 +117,26 @@ final class LuaTm {
      * 这里显式 {@code ensureSlots}。
      */
     /** 两参版本：{@code __close(obj, err)} 只有两个参数 */
+    /**
+     * 与 {@link #callTm} 同形，但 {@code forceYy} 为真时<b>一定</b>用可 yield 的
+     * {@code luaD_call}。
+     *
+     * @see #callTm(LuaState, LuaValue, LuaValue, LuaValue)
+     */
+    static void callTmYy(LuaState L, LuaValue f, LuaValue p1, LuaValue p2, boolean forceYy) {
+        int func = L.top;
+        L.ensureSlots(func + 3);
+        L.stack[func].set(f);
+        L.stack[func + 1].set(p1);
+        L.stack[func + 2].set(p2);
+        L.top = func + 3;
+        if (forceYy) {
+            L.call(func, 0);
+        } else {
+            L.callTmMightYield(func, 0);
+        }
+    }
+
     static void callTm(LuaState L, LuaValue f, LuaValue p1, LuaValue p2) {
         int func = L.top;
         L.ensureSlots(func + 3);
@@ -124,7 +144,7 @@ final class LuaTm {
         L.stack[func + 1].set(p1);
         L.stack[func + 2].set(p2);
         L.top = func + 3;
-        L.call(func, 0);
+        L.callTmMightYield(func, 0);
     }
 
     static void callTm(LuaState L, LuaValue f, LuaValue p1, LuaValue p2, LuaValue p3) {
@@ -135,7 +155,7 @@ final class LuaTm {
         L.stack[func + 2].set(p2);
         L.stack[func + 3].set(p3);
         L.top = func + 4;
-        L.call(func, 0);
+        L.callTmMightYield(func, 0);
     }
 
     /**
@@ -257,15 +277,72 @@ final class LuaTm {
      *
      * @param varIdx {@code luaG_findlocal} 用的序号：{@code 槽位 - ci.func}
      */
-    static void callCloseMethod(LuaState L, LuaValue obj, LuaValue errObj, int varIdx) {
+    /**
+     * {@code lfunc.c: prepcallclosemth + callclosemath}。
+     *
+     * @param varIdx   变量本身的<b>栈下标</b>
+     * @param localIdx 同一个变量相对 {@code ci.func} 的序号（{@code luaG_findlocal}）
+     */
+    static void callCloseMethod(LuaState L, LuaValue obj, LuaValue errObj,
+                                int varIdx, int localIdx, boolean forceYy) {
+        /*
+         * <b>这里不做「有没有 __close」的检查。</b>
+         * <p>
+         * {@code lfunc.c} 把检查放在 {@code luaF_newtbcupval} 里——也就是
+         * {@code local x <close> = ...} <b>赋值的当下</b>；而真正关闭用的
+         * {@code prepcallclosemth} 只管把查到的元方法<b>调掉</b>。两者不是一回事：
+         * 声明之后把 {@code __close} 改成 nil，参考实现会在关闭时报
+         * {@code attempt to call a nil value (metamethod 'close')}，
+         * 而不是 {@code variable 'x' got a non-closable value}
+         * （上游 {@code locals.lua} 有一整条断言对着这句）。
+         */
         LuaValue tm = getTmByObj(L, obj, Tm.TM_CLOSE);
-        if (tm == null || tm.isNil()) {
-            LuaString vn = L.localNameAt(varIdx);
-            throw L.runError("variable '" + ((vn == null) ? "?" : vn.toJavaString())
-                    + "' got a non-closable value");
+        if (tm == null) {
+            /*
+             * 没有元表时 C 版给的是 {@code luaO_nilobject}（一个 nil 的 TValue），
+             * 不是 NULL。这里对应成 nil 值——下面真会去调它，于是报
+             * 「attempt to call a nil value」，与参考实现一致。
+             */
+            tm = LuaValue.ofNil();
         }
+        /*
+         * 错误对象必须<b>拷一份</b>。传进来的那个 {@code errObj} 往往是某个栈槽的
+         * 别名（解绕时它就躺在 {@code top - 1}），而下面写调用帧会落到
+         * {@code varIdx + 2} 起的三格——正好可能压在它自己身上。不拷贝的话
+         * 写进去的就是刚刚被 {@code tm} 覆盖过的值：实测 {@code err} 变成了
+         * {@code function: 0x...}，也就是 {@code __close} 自己。
+         */
+        LuaValue errCopy = (errObj == null) ? LuaValue.ofNil() : new LuaValue(errObj);
+        int func;
+        if (errObj == null) {
+            /*
+             * {@code CLOSEKTOP}：错误对象用的是全局那个 nil，C 版<b>不动</b>
+             * {@code L->top}，调用帧就摆在 {@code top}（{@code OP_RETURN} 在关
+             * 之前已经把 {@code top} 抬到 {@code ci->top}）。这里只兜底抬一下，
+             * <b>不往下压</b>——压了就会盖住 {@code OP_RETURN} 已经算好的返回值
+             * （实测 {@code locals.lua}「closing functions do not corrupt
+             * returning values」那条断言就炸在这一点上）。
+             */
+            func = Math.max(L.top, varIdx + 2);
+        } else {
+            /*
+             * 出错解绕：{@code luaD_seterrorobj(L, status, level + 1)} 把错误对象
+             * 放到变量<b>后面那一格</b>，并把 {@code top} 设成 {@code level + 2}，
+             * 调用帧就摆在那儿。
+             * <p>
+             * 这一步不能省：解绕时 {@code top} 已经掉到变量底下，若直接用它当
+             * 调用位置，{@code __close} 的帧会把<b>还没关</b>的 tbc 变量冲掉
+             * ——实测第二个 {@code __close} 报「variable '?' got a non-closable
+             * value」，因为它的值被上一次调用的帧覆盖了。
+             */
+            func = varIdx + 2;
+            L.ensureSlots(varIdx + 5);
+            L.stack[varIdx + 1].set(errCopy);
+        }
+        L.ensureSlots(func + 3);
+        L.top = func;
         // __close 只收 (self, err) 两个参数；多传一个会把 err 顶成 self
-        callTm(L, tm, obj, errObj);
+        callTmYy(L, tm, obj, errCopy, forceYy);
     }
 
     /* ==================== 可变参数 ==================== */

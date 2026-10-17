@@ -111,12 +111,25 @@ final class ReferenceLua {
 
     /** 跑一个已存在的脚本文件 */
     static Result runFile(String path) {
+        return runFile(path, null);
+    }
+
+    /**
+     * 跑一个已存在的脚本文件。
+     *
+     * @param cwd 工作目录；上游测试套件靠它把 {@code ./?.lua} 落在用例目录上，
+     *            从而 {@code require} 到同目录里的同伴文件
+     */
+    static Result runFile(String path, File cwd) {
         String bin = find();
         if (bin == null) {
             throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
         }
         try {
             ProcessBuilder pb = new ProcessBuilder(new File(bin).getAbsolutePath(), path);
+            if (cwd != null) {
+                pb.directory(cwd);
+            }
             pb.redirectErrorStream(true);
             /*
              * stdin 定向到 /dev/null：本实现的 LuaState#in 默认是空流，

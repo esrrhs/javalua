@@ -176,10 +176,6 @@ public final class DebugLib {
 
     /**
      * {@code funcnamefromcall}。
-     * <p>
-     * {@code CIST_FIN} 那一条在本实现里<b>常量为假</b>，所以不搬：那是
-     * {@code __gc} 被调用时打的标记，而本实现的 {@code __gc} 走
-     * {@link GcSentinel}，不在 {@link CallInfo} 里起帧。
      */
     private static String funcNameFromCall(LuaState L, CallInfo ci, String[] name) {
         /*
@@ -195,6 +191,10 @@ public final class DebugLib {
         if (ci.hooked) {
             name[0] = "?";
             return "hook";
+        }
+        if (ci.fin) {
+            name[0] = "__gc";
+            return "metamethod";
         }
         // base_ci 就是这条分支的常客：它的 isLua 为 false，等价于 C 的
         // "ci->callstatus & CIST_C"，于是「主 chunk 是被谁调的」永远没有名字
@@ -475,7 +475,16 @@ public final class DebugLib {
             if (ownerOut != null) {
                 ownerOut[0] = cl.upvals[n - 1];
             }
-            return LuaState.upvalName(p, n - 1);
+            /*
+             * 这里<b>不能</b>用 {@link LuaState#upvalName}。C 版有两个不同的函数：
+             * {@code lapi.c: aux_upvalue} 在名字为空时给 {@code "(no name)"}，
+             * 而 {@code ldebug.c: upvalname} 给 {@code "?"}。差别只在调试信息被
+             * {@code string.dump(f, true)} 剥掉时才看得见——上游
+             * {@code db.lua} 断言 {@code debug.getupvalue(f, 1)} 拿到
+             * {@code "(no name)"}，给 {@code "?"} 就过不去。
+             */
+            LuaString nm = (p.upvalues[n - 1] != null) ? p.upvalues[n - 1].name : null;
+            return (nm == null) ? "(no name)" : nm.toJavaString();
         }
         return null;
     }

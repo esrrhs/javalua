@@ -17,3 +17,6 @@ crash-*
 
 # WorkBuddy 工作空间记忆（本地）
 .workbuddy/
+
+# 上游 code.lua / luac.lua 跑出来的字节码产物
+luac.out
