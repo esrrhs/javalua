@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 847 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 848 tests green, JaCoCo line coverage
 0.90 against a 0.89 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2130,6 +2130,35 @@ character for character.
 57 lines, byte-identical on the first run — so, again, sensitivity measured rather
 than assumed: changing `searchpath`'s default `sep` from `"."` to `"-"` turns it
 red at `sp_dots`.
+
+#### Reading the coverage report line by line
+
+Picking a target by class-level miss ratio only goes so far — after the mode and
+`require` matrices the top holes barely moved, because a class's uncovered
+instructions are mostly `catch (IOException e)` handlers that no Lua program can
+reach. So the next pass went one level down: open
+`target/site/jacoco/<pkg>/IoLib.java.html` (the XML report has no line detail, the
+HTML does), collect the `class="nc"` line numbers, and ask of each one **"can a Lua
+script reach this?"**
+
+Of 63 uncovered lines in `IoLib`, most are genuinely unreachable error handling.
+The rest were reachable behaviours that had simply never been run — 39 lines:
+
+* `tostring` of a closed handle is `"file (closed)"` — *not* `io.type`'s
+  `"closed file"`; two different strings, and only one of them was being tested.
+* `io.lines()` with **no argument**, and with an explicit `nil` — these go through
+  the registry's `IO_INPUT`, a different path from `io.lines(filename)`.
+* Every shape of `f:read("n")`: exponents (`1e5`, and `1e999` giving `inf`), hex
+  (`0x10`, `0x1p4`, `0x.8p1`), a leading zero (`0777` — decimal, not octal),
+  truncated prefixes (`0x`, `1e` give nil), and an over-long digit string (nil).
+* Closing the file *during* `lines` iteration: the iterator then raises
+  `"file is already closed"`.
+* A large write (5000 bytes), which takes the branch that bypasses the write
+  buffer and goes straight to the file.
+
+All 39 came back byte-identical — those branches were **correct but never
+executed**. Their value is as a regression net: change `read("n")`'s prefix
+handling or the write-buffer threshold and this goes red immediately.
 
 ### What is still missing
 

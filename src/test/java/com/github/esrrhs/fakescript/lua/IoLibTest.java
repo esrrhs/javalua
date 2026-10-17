@@ -50,6 +50,7 @@ class IoLibTest {
         add(tests, "zero", ZERO);
         add(tests, "proc", PROC);
         add(tests, "mode", MODE);
+        add(tests, "gaps", GAPS);
         return tests;
     }
 
@@ -945,4 +946,203 @@ class IoLibTest {
         os.remove(P)
         print(table.concat(out, "\\n"))
             """ };
+
+    /**
+     * 照着 JaCoCo 的<b>未覆盖行点名打</b>的一批（39 行）。
+     * <p>
+     * 上一篇矩阵的选题是「按类排序挑缺口最大的」，这一篇再往下走一层：
+     * 打开 {@code target/site/jacoco/<包>/IoLib.java.html}（{@code jacoco.xml}
+     * 里没有行级信息，HTML 有），把 {@code class="nc"} 的行号抄出来，
+     * 逐条问「这一行能不能从 Lua 里走到」。63 行未覆盖里大半是
+     * {@code catch (IOException e)} —— 那些确实走不到；剩下这些是<b>能走到
+     * 却从没走到</b>的，也就是真正漏测的行为：
+     * <ul>
+     *   <li>已关闭句柄的 {@code tostring} 是 {@code "file (closed)"}
+     *       （不是 {@code io.type} 的 {@code "closed file"}，两个字符串不一样）；</li>
+     *   <li>{@code io.lines()} <b>无参</b>与显式 {@code nil}：走注册表里的
+     *       {@code IO_INPUT}；</li>
+     *   <li>{@code f:read("n")} 的各形状 —— 指数 {@code 1e5} / {@code 1e999}
+     *       （给 inf）、十六进制 {@code 0x10} / {@code 0x1p4} / {@code 0x.8p1}、
+     *       前导零 {@code 0777}（十进制不是八进制）、{@code 0x} 与 {@code 1e}
+     *       这种残缺前缀给 nil、超长数字串给 nil；</li>
+     *   <li>迭代途中把文件关掉：迭代器再调用报 {@code "file is already closed"}；</li>
+     *   <li>大块写（5000 字节）绕开 {@code wbuf} 直接落盘的那条分支。</li>
+     * </ul>
+     * 39 行逐字节一致 —— 也就是说这些分支<b>本来就是对的，只是没人跑过</b>。
+     * 它们的价值在回归：以后谁改了 {@code read("n")} 的前缀判断或
+     * {@code wbuf} 的阈值，这里立刻红。
+     */
+    private static final String[] GAPS = {"""
+        -- 照着 JaCoCo 未覆盖行点名打：闭文件的 tostring、lines 无参、read("n") 各形状、
+        -- 迭代途中关文件、大块写
+        local out = {}
+        local function d(v)
+          local t = type(v)
+          if t == "nil" then return "nil" end
+          if t == "boolean" then return tostring(v) end
+          if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+          if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
+          return t
+        end
+        local function probe(name, f, ...)
+          local r = table.pack(pcall(f, ...))
+          local s = name .. " [" .. r.n .. "]"
+          for i = 2, r.n do s = s .. " " .. d(r[i]) end
+          if not r[1] then s = s .. " ERR " .. d(r[2]) end
+          out[#out + 1] = s
+        end
+
+        local P = "/tmp/fkio2.txt"
+        local function put(s)
+          local f = assert(io.open(P, "w"))
+          f:write(s)
+          f:close()
+        end
+
+        -- 1. 已关闭句柄的形状：tostring 给 "file (closed)"，io.type 给 "closed file"
+        probe("ts_closed", function()
+          local f = io.open(P, "w")
+          f:close()
+          return tostring(f), io.type(f)
+        end)
+        probe("ts_open", function()
+          local f = io.open(P, "w")
+          local s = tostring(f)
+          f:close()
+          -- 只比形状：%p 打的是指针，长度也对不上（已知的 file (%p) 偏离）
+          return s:match("^file %(0x%x+%)$") ~= nil
+        end)
+        probe("ts_closed_concat", function()
+          local f = io.open(P, "w")
+          f:close()
+          return "x" .. tostring(f)
+        end)
+
+        -- 2. lines 无参 / 显式 nil：走 registry 里的 IO_INPUT
+        put("a\\nb\\nc\\n")
+        probe("lines_noarg", function()
+          local f = assert(io.open(P, "r"))
+          io.input(f)
+          local r = {}
+          for l in io.lines() do r[#r + 1] = l end
+          io.input(io.stdin)
+          f:close()
+          return table.concat(r, ",")
+        end)
+        probe("lines_nil", function()
+          local f = assert(io.open(P, "r"))
+          io.input(f)
+          local r = {}
+          for l in io.lines(nil) do r[#r + 1] = l end
+          io.input(io.stdin)
+          f:close()
+          return table.concat(r, ",")
+        end)
+        probe("lines_noarg_fmt", function()
+          local f = assert(io.open(P, "r"))
+          io.input(f)
+          local r = {}
+          for l in io.lines("a") do r[#r + 1] = l end
+          io.input(io.stdin)
+          f:close()
+          return r[1]
+        end)
+        probe("lines_noarg_closed_input", function()
+          io.input(assert(io.open(P, "r")))
+          io.input():close()
+          local ok, e = pcall(function() for l in io.lines() do end end)
+          io.input(io.stdin)
+          return ok, e
+        end)
+
+        -- 3. read("n") 的各形状：指数、十六进制、前导零、超长
+        local nums = {
+          "1e5", "1E5", "1e+5", "1e-5", "0x10", "0X10", "0x1p4", "0x.8p1",
+          "0777", "0z", "0", "0x", "1e", ".5", "5.", "- 5", "  -3.5e-2  ",
+          "1e999", "0x1p999", "inf", "nan", "3abc", "--3", "+3",
+        }
+        for _, s in ipairs(nums) do
+          put(s .. "\\n")
+          probe("n[" .. s:gsub("%%", "%%%%") .. "]", function()
+            local f = assert(io.open(P, "r"))
+            local a, b = f:read("n")
+            f:close()
+            return a, b
+          end)
+        end
+        put(string.rep("1", 250) .. "\\n")
+        probe("n_250digits", function()
+          local f = assert(io.open(P, "r"))
+          local a = f:read("n")
+          f:close()
+          return a
+        end)
+
+        -- 4. 迭代途中把文件关掉：迭代器再调用报 "file is already closed"
+        put("a\\nb\\nc\\n")
+        probe("lines_close_mid", function()
+          local f = assert(io.open(P, "r"))
+          local it = f:lines()
+          local first = it()
+          f:close()
+          local ok, e = pcall(it)
+          return first, ok, e
+        end)
+        probe("lines_close_mid_named", function()
+          local f = assert(io.open(P, "r"))
+          local first
+          for l in f:lines() do
+            first = l
+            f:close()
+          end
+          return first
+        end)
+        probe("lines_readerr", function()
+          local f = io.open(P, "w")   -- 只写档：lines 读不出来
+          local ok, e = pcall(function() for l in f:lines() do end end)
+          f:close()
+          return ok, e
+        end)
+        probe("lines_multi_fmt", function()
+          local r = {}
+          local f = assert(io.open(P, "r"))
+          for a, b in f:lines("l", "l") do r[#r + 1] = tostring(a) .. "/" .. tostring(b) end
+          f:close()
+          return table.concat(r, ";")
+        end)
+
+        -- 5. 大块写：绕过 wbuf 直接落盘（wbuf 是 4096）
+        probe("write_big", function()
+          local f = assert(io.open(P, "w"))
+          f:write(string.rep("x", 5000))
+          f:close()
+          local g = assert(io.open(P, "r"))
+          local s = g:read("a")
+          g:close()
+          return #s
+        end)
+        probe("write_mixed", function()
+          local f = assert(io.open(P, "w"))
+          f:write(string.rep("a", 4000))
+          f:write(string.rep("b", 4000))
+          f:write("c")
+          f:close()
+          local g = assert(io.open(P, "r"))
+          local s = g:read("a")
+          g:close()
+          return #s, s:sub(3999, 4002)
+        end)
+        probe("read_partial", function()
+          put("abc")
+          local f = assert(io.open(P, "r"))
+          local a = f:read(100)
+          local b = f:read(100)
+          f:close()
+          return a, b
+        end)
+
+        os.remove(P)
+        print(table.concat(out, "\\n"))
+            """ };
+
 }
