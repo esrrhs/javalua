@@ -184,7 +184,7 @@ Lua 参考实现的解析器是手写递归下降。直接搬过来，就去掉�
 `utf8`、`vararg`、`verybig` 等）与真实 `lua5.4` 的输出**逐字节一致**；
 `cstack` / `gc` / `literals` / `locals` / `constructs` 五个因为打印的是随实现或
 随随机数而变的东西，只断言「跑完并打印 `OK`」——理由逐个列在 *阶段 10* 一节里。
-全量 846 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
+全量 847 个用例绿，JaCoCo 行覆盖 0.90（门禁 0.89）。（上游套件这道闸门要
 `LUA54_TESTS` 或 `target/lua54-tests`；没有用例目录时<b>整类自动跳过</b>，
 所以那种机器上「绿」其实比看起来少 25 个用例。）
 
@@ -1902,6 +1902,24 @@ bug 就藏在没人测的那一份里。**
 其中两处与 `setvbuf` 的 size 是同一个形状：C 把决定权交给 libc，没什么可建模的。
 差别在于这里的**可观测量**不只是 errno 而是文件偏移 —— 所以要写下来，而不是
 悄悄排除。
+
+#### 让 `require` 真去磁盘上找模块
+
+`package` 那道闸门之前只走了搜索器链的「纯 Lua 那一半」（在内存里摆
+`package.preload`），而 `PackageLib` 是未覆盖率第二高的类。所以补一片
+<b>把模块真写进磁盘</b>再让 `require` 去找的矩阵，57 行：模块返回
+nil / false / true / 数字 / 无返回 / 多值（只取第一个）、模块抛错、模块语法错、
+模块里自己设 `package.loaded`、点号模块名换目录分隔符、第二次 `require` 的缓存、
+循环 `require`（参考给 `C stack overflow`，不是哨兵）、`package.loaded` 预置成
+值 / false / nil 三种后果、`package.preload` 给函数 / 返回 nil / 抛错 / 非函数、
+`searchpath` 的 `sep` 与 `rep`、`package.searchers` 的个数与逐个调用、整条链被换掉。
+
+顺带钉住一件会悄悄坏掉的事：每条 `module 'X' not found` 都把候选路径<b>整串</b>
+打印出来，所以默认的 `package.path` 必须与参考二进制编译进去的
+`LUA_PATH_DEFAULT` 逐字符一致。
+
+57 行第一跑逐字节一致 —— 所以敏感性照旧是量过的：把 `searchpath` 的默认 `sep`
+从 `"."` 改成 `"-"`，立刻红在 `sp_dots`。
 
 ### 还没补上的
 
