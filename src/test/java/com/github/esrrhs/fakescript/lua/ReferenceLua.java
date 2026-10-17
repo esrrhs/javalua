@@ -195,6 +195,46 @@ final class ReferenceLua {
         }
     }
 
+    /**
+     * 跑一段脚本，stdin 由调用方给。
+     * <p>
+     * 只有 {@code debug.debug}（{@code ldblib.c: db_debug}）会读 stdin，而它
+     * 是<b>一路读到 EOF 或 {@code cont}</b> 的循环——不喂 stdin 就只能验到「打完
+     * 提示符就退出」这一种形状，循环体、出错分支、{@code cont} 三条路全验不到。
+     *
+     * @param stdin 喂给脚本的字节；{@code null} 表示 {@code /dev/null}
+     */
+    static Result runWithStdin(byte[] script, byte[] stdin) {
+        String bin = find();
+        if (bin == null) {
+            throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
+        }
+        try {
+            File tmp = File.createTempFile("fkstdin", ".lua");
+            Files.write(tmp.toPath(), script);
+            ProcessBuilder pb = new ProcessBuilder(bin, tmp.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            File in = null;
+            if (stdin == null) {
+                pb.redirectInput(new File("/dev/null"));
+            } else {
+                in = File.createTempFile("fkstdin", ".in");
+                Files.write(in.toPath(), stdin);
+                pb.redirectInput(in);
+            }
+            Process p = pb.start();
+            String out = readAll(p.getInputStream());
+            int code = p.waitFor();
+            Files.deleteIfExists(tmp.toPath());
+            if (in != null) {
+                Files.deleteIfExists(in.toPath());
+            }
+            return new Result(code, out);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to run reference lua: " + e, e);
+        }
+    }
+
     /** 跑一个已存在的脚本文件 */
     static Result runFile(String path) {
         return runFile(path, null);

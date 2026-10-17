@@ -155,6 +155,32 @@ final class Diff {
                 "file: " + name + "\n见 target/rt/" + name + ".ref 与 .mine");
     }
 
+    /**
+     * 与 {@link #assertMatches} 的差别：stdin 由调用方喂，用来验
+     * {@code debug.debug} 那条读 stdin 的循环。
+     * <p>
+     * 两边都喂同样的字节：参考实现重定向到临时文件，本实现设 {@code LuaState#in}
+     * （默认是空流，与 {@code /dev/null} 等价）。
+     */
+    static void assertMatchesWithStdin(String src, String stdin) {
+        requireReference();
+        String r = normalize(refRawWithStdin(src, stdin), false);
+        assertEquals(true, !r.isEmpty(),
+                "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
+        assertEquals(r, normalize(mineRawWithStdin(src, stdin), false),
+                "script:\n" + src);
+    }
+
+    private static String refRawWithStdin(String src, String stdin) {
+        String out = ReferenceLua.runWithStdin(src.getBytes(StandardCharsets.UTF_8),
+                stdin.getBytes(StandardCharsets.UTF_8)).output;
+        String bin = ReferenceLua.find();
+        if (bin != null) {
+            out = out.replace(new File(bin).getAbsolutePath() + ": ", "");
+        }
+        return out;
+    }
+
     /** 只比对第一行（回溯与后续内容不可比时用） */
     static void assertFirstLineMatches(String src) {
         requireReference();
@@ -474,6 +500,22 @@ final class Diff {
         L.out = ps;
         // stderr 也指到同一条缓冲上：参考实现是合并捕获的
         L.err = ps;
+        return mineRawOn(L, bos, src);
+    }
+
+    private static String mineRawWithStdin(String src, String stdin) {
+        LuaState L = new LuaState();
+        LuaLibs.openAll(L);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
+        L.out = ps;
+        // stderr 也指到同一条缓冲上：参考实现是合并捕获的
+        L.err = ps;
+        L.in = new java.io.ByteArrayInputStream(stdin.getBytes(StandardCharsets.UTF_8));
+        return mineRawOn(L, bos, src);
+    }
+
+    private static String mineRawOn(LuaState L, ByteArrayOutputStream bos, String src) {
         LuaValue err;
         try {
             err = runLikeLuaC(L, src);

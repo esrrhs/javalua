@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 869 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 871 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2786,6 +2786,66 @@ the `T` module built from `ltests.c` and writes `time.txt`), `attrib.lua` /
 `files.lua` / `big.lua` (they need the C modules in `libs/` and the globals
 `all.lua` sets up — the reference binary fails on them standalone too),
 `heavy.lua` (minutes), and `bwcoercion.lua` (no output standalone).
+
+### The library-argument grid: every function, every wrong argument
+
+`bad argument #1 to 'string.rep' (string expected, got boolean)` is the message
+real projects hit constantly, and every branch that produces it lives in
+`lauxlib.c`. The grid enumerates the functions **at runtime** (`_G` plus the nine
+library tables) rather than from a hand-written list — a hand-written list cannot
+miss a function silently, and "silently" is exactly what happened when `warn` was
+unimplemented for a long stretch with 828 green tests. 108 functions × `{0, 1, 2}`
+arguments × 10 values = **2396 lines**, all byte-identical.
+
+Three judgments it pins down:
+
+* **A missing argument reports `no value`, not `nil`.** `luaL_typename` on an
+  out-of-range index gives `no value`. Breaking it turns **212** lines red.
+* **`lua_type` on an out-of-range index is `LUA_TNONE`**, not `LUA_TNIL`, so a
+  parameter declared "nil or table" does not silently accept absence:
+  `setmetatable({})` must report `nil or table expected, got no value`. Only one
+  line in the grid covers it — which is one line more than before.
+* **Method calls subtract one from the argument index** (`arg--` in
+  `luaL_argerror`), and if that lands on 0 the message changes to
+  `calling 'x' on bad self (...)`. A direct call never reaches either branch, so
+  the grid adds a second, **literal** block of `(""):f(v)` / `(1):f(v)` calls
+  (377 lines) — `OP_SELF` only comes from a syntactic method call, it cannot be
+  assembled at runtime. Sensitivity 75 and 22.
+
+Two normalisations are deliberate: `math.atan` and `math.atan2` are the same C
+function and `findfield` picks one based on the string-hash seed, which changes
+every run; addresses become `PTR`. The functions on the blacklist are excluded
+for side effects, not for difficulty — `print` and `io.write` write to stdout,
+`os.date` / `os.time` / `os.clock` read the clock, `math.random` is random,
+`io.read` / `io.lines` read stdin, `debug.sethook` leaves a hook installed,
+`debug.setmetatable` mutates a global type metatable, and `collectgarbage`'s
+`step` / `count` are the documented deviations.
+
+### `debug.debug`: the one function that reads stdin
+
+`ldblib.c: db_debug` is a loop, and all three of its rules were wrong here before
+this grid existed:
+
+* it writes `"lua_debug> "` to **stderr before every read** (no newline). This was
+  missing entirely, so the reference's output had eleven bytes we never produced;
+* it **loops** until EOF or a line that is exactly `"cont\n"`, executing each line
+  as a chunk named `=(debug command)`. The Java version read one line and
+  returned;
+* a command that fails prints `luaL_tolstring(L, -1)` to stderr and the loop
+  **continues**.
+
+Testing any of this needs stdin, which the differential harness did not have — it
+redirects the reference's stdin to `/dev/null` and leaves `LuaState#in` as an
+empty stream, so only the "print one prompt, then EOF" shape was reachable.
+`Diff.assertMatchesWithStdin` feeds the same bytes to both sides, which brings the
+loop body, the error branch, `cont`, a line with no trailing newline, and the
+250-byte `fgets` buffer split (a long line is chopped into several chunks, each
+executed separately) into CI. All six cases now match byte for byte.
+
+One thing worth recording about ordering: C's `print` goes through
+`lua_writeline`, which calls `fflush(stdout)`, so stdout and stderr interleave in
+program order even when both are captured into one pipe — not "all stdout at
+exit".
 
 ### The `varinfo` matrix: the name in an error message is reconstructed, not recorded
 
