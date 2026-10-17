@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 871 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 872 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2820,6 +2820,18 @@ for side effects, not for difficulty — `print` and `io.write` write to stdout,
 `io.read` / `io.lines` read stdin, `debug.sethook` leaves a hook installed,
 `debug.setmetatable` mutates a global type metatable, and `collectgarbage`'s
 `step` / `count` are the documented deviations.
+
+There is a third layer on top of the same grid: **what a valid call returns**. The
+first version printed `OK` on success and threw the return values away, which
+hides an entire class of bug — return-value *type*. `math.abs(-1)` returns the
+integer `1`, not the float `1.0`, and `tostring` prints those as `1` and `1.0`.
+Routing `math.abs`'s integer branch through the float path leaves the
+argument-error grid **completely green** and turns 6 lines red here; conversely,
+breaking `math.type`'s return value turns 2 lines red here and none there. Of the
+2729 output lines, 959 are successful calls covering 139 distinct return shapes.
+Two functions are excluded because of their *return values*: `os.tmpname` is
+random, and `debug.traceback`'s return value contains `stack traceback:`, which
+the harness would cut at — silently skipping everything after it.
 
 ### `debug.debug`: the one function that reads stdin
 
