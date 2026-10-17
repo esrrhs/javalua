@@ -1017,4 +1017,281 @@ class RuntimeTest {
                 print(pcall(function() return #(string.format("%200s", "x")) end))
                 """);
     }
+
+    /**
+     * {@code string.pack} / {@code unpack} / {@code packsize} 矩阵：全部格式动词
+     * （含 {@code i/I} 的 1–16 字节宽度、{@code c/s} 的计数、{@code X} 对齐、
+     * {@code !n} 对齐、四种字节序）× 各类型的值，外加非法格式串与偏移越界，
+     * 706 行。这一批是干净的，收进来是为了把「<b>已经</b>一致」这件事也钉住——
+     * 否则下次动 {@code lstrlib.c} 的 pack 分支时，没有一条用例会说话。
+     */
+    @Test
+    void packUnpackMatrixMatchesReference() {
+        Diff.assertMatches("""
+                -- string.pack / unpack / packsize 矩阵
+                local function show(tag, fmt, ...)
+                  local pok, p = pcall(string.pack, fmt, ...)
+                  if not pok then
+                    print(tag, fmt, "pack-err", tostring(p))
+                    return
+                  end
+                  local sok, s = pcall(string.packsize, fmt)
+                  local uok, a, b, c = pcall(string.unpack, fmt, p)
+                  print(tag, fmt, "ok", #p, sok and s or ("err:" .. tostring(s)),
+                        uok and tostring(a) or ("err:" .. tostring(a)),
+                        uok and tostring(b) or "-", uok and tostring(c) or "-")
+                end
+
+                local FORMATS = {
+                  "b", "B", "h", "H", "l", "L", "j", "J", "T", "n", "d", "f", "z", "x", "Xi", "Xo",
+                  "i", "i1", "i2", "i3", "i4", "i8", "i16", "i17", "i0",
+                  "I", "I1", "I2", "I3", "I4", "I8", "I16",
+                  "c0", "c1", "c3", "c8", "s", "s1", "s2", "s4", "s8",
+                  "<i4", ">i4", "=i4", "!i4", "<I4", ">I4", "!4i4", "!8i8", "!1i1", "!2i2", "!16i8",
+                  "!4b", "!8d", "<d", ">d", "=d", "!d", "<f", ">f",
+                  "<j", ">j", "!8j", "<T", "!8T", "<n", ">n",
+                  "i4i4", "<i4>i4", "!8i8i8", "c3bBhH", "zs1", "i4z", "xXi4", "Xi4",
+                  "!8Xi4", "<Xi4", ">Xi4", "bXb", "i4Xi4",
+                  "s1i4", "i4s1", "c0c0", "zz",
+                }
+                local INTS = { 0, 1, -1, 127, 128, 255, -128, -129, 32767, 32768, -32768, -32769,
+                               2147483647, 4294967296, math.maxinteger, math.mininteger }
+                local STRS = { "", "a", "abc", "hello world" }
+
+                -- A) 整数动词 × 整数值
+                local IFMT = { "b", "B", "h", "H", "l", "L", "j", "J", "T", "i", "i1", "i2",
+                               "i3", "i4", "i8", "I", "I1", "I3", "I8", "<i4", ">i4", "!8i8" }
+                for i = 1, #IFMT do
+                  for k = 1, #INTS do
+                    show("A", IFMT[i], INTS[k])
+                  end
+                end
+
+                -- B) 浮点动词 × 浮点值
+                local FFMT = { "f", "d", "n", "<d", ">d", "=f", "!8d" }
+                local FLTS = { 0.0, -0.0, 1.0, -1.0, 1.5, -1.5, 1 / 3, 1e300, 1e-300, 1 / 0,
+                               -1 / 0, 0 / 0, 3.4028235e38, 1e39 }
+                for i = 1, #FFMT do
+                  for k = 1, #FLTS do
+                    show("B", FFMT[i], FLTS[k])
+                  end
+                end
+
+                -- C) 字符串动词 × 字符串
+                local SFMT = { "z", "s", "s1", "s2", "s4", "s8", "c0", "c1", "c3", "c8" }
+                for i = 1, #SFMT do
+                  for k = 1, #STRS do
+                    show("C", SFMT[i], STRS[k])
+                  end
+                end
+
+                -- D) 全部格式串 × 一个通用值
+                for i = 1, #FORMATS do
+                  show("D", FORMATS[i], 7)
+                end
+
+                -- E) 参数类型错误
+                for _, f in ipairs({ "b", "h", "l", "j", "i4", "I4", "d", "f", "n", "z", "s", "c3", "x" }) do
+                  print("E", f, pcall(string.pack, f, "x"))
+                  print("E", f, pcall(string.pack, f, nil))
+                  print("E", f, pcall(string.pack, f, {}))
+                  print("E", f, pcall(string.pack, f, true))
+                end
+
+                -- F) 非法格式串
+                for _, f in ipairs({ "", "y", "i17", "i0", "i-1", "!0i4", "!7i4", "!3", "!!",
+                                     "i4i", "c", "c-1", "X", "Xy", "s0", "s17", "z1", "b1",
+                                     "i4 ", " i4", "I17", "I0", string.rep("i4", 100) }) do
+                  print("F", string.format("[%s]", f), pcall(string.packsize, f),
+                        pcall(string.pack, f, 1))
+                end
+
+                -- G) unpack 的输入长度/偏移
+                for _, f in ipairs({ "i4", "c3", "z", "s1", "b" }) do
+                  print("G", f, pcall(string.unpack, f, ""))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40)))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), 1))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), 2))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), 41))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), 42))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), 0))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), -1))
+                  print("G", f, pcall(string.unpack, f, string.rep("\\1", 40), -41))
+                end
+
+                -- H) 多值往返
+                print("H", pcall(string.unpack, "i4i4", string.pack("i4i4", 1, 2)))
+                print("H", pcall(string.unpack, "<i4>i4", string.pack("<i4>i4", 1, 2)))
+                print("H", pcall(string.unpack, "zsi4", string.pack("zsi4", "ab", "cd", 9)))
+                print("H", pcall(string.unpack, "!8i8d", string.pack("!8i8d", 3, 1.25)))
+                print("H", pcall(string.unpack, "c3b", string.pack("c3b", "xyz", 5)))
+                print("H", pcall(string.pack, "i4i4", 1))
+                print("H", pcall(string.pack, "i4", 1, 2))
+                print("H", pcall(string.packsize))
+                print("H", pcall(string.unpack))
+                print("H", pcall(string.unpack, "i4"))
+                print("H", pcall(string.pack, 1, 2))
+                print("H", pcall(string.pack, true, 2))
+                """);
+    }
+
+    /**
+     * {@code os.date} 的每个转换说明符、{@code os.time} 的表参数校验、
+     * {@code utf8.char/codepoint/offset/len/codes} 的边界、{@code tonumber} 的
+     * 2–36 全进制，854 行。它咬出过一处真分歧与一处平台相关的假分歧：
+     * <ul>
+     *   <li><b>{@code luaL_checkinteger} 有两份实现</b>：{@code BaseLib} 里那份
+     *       既没带函数名前缀，也把「无整数表示」报成了「类型不对」。
+     *       {@code tonumber} 的进制、{@code select} 的下标、{@code error} 的层号、
+     *       {@code ipairs} 迭代器的下标——四个调用点全错。已改成转调
+     *       {@link LuaAux#checkInteger}。</li>
+     *   <li><b>{@code os.date('!%z', t)} 是平台相关的</b>：C 的
+     *       {@code strftime} 读的是<b>进程全局时区</b>，不是 Lua 传进去的那个
+     *       {@code tm}；带 {@code !} 时 macOS 给本地偏移 {@code +0800}、
+     *       glibc 给 {@code +0000}。所以这里只测<b>不带</b> {@code !} 的
+     *       {@code %z} 与 {@code %Z} —— 两边同一台机器，结果确定。
+     *       这是继次正规 {@code %a} 之后第二个「不是我们错、是 libc 不一致」的地方。</li>
+     * </ul>
+     */
+    @Test
+    void osDateAndUtf8AndBaseConversionMatchesReference() {
+        Diff.assertMatches("""
+                -- os.date / os.time / utf8 / tonumber 的边界
+                -- A) os.date 的每个转换说明符（UTC，固定时间戳，避免本地时区与当前时间）
+                local T = 1700000000
+                -- 注意：%z / %Z 不带 "!" —— C 的 strftime 读的是<b>进程全局时区</b>，不是
+                -- Lua 传进去的那个 tm；带 "!" 时两个 libc 给的答案相反（macOS 给本地偏移
+                -- +0800，glibc 给 +0000）。不带 "!" 时两边同一台机器，结果确定。
+                local SPECS = { "a", "A", "b", "B", "c", "C", "d", "D", "e", "F", "g", "G",
+                                "h", "H", "I", "j", "m", "M", "n", "p", "r", "R", "S", "t",
+                                "T", "u", "U", "V", "w", "W", "x", "X", "y", "Y", "%", "Z" }
+                for i = 1, #SPECS do
+                  print("A", SPECS[i], pcall(os.date, "!" .. SPECS[i], T))
+                end
+                for i = 1, #SPECS do
+                  print("A2", SPECS[i], pcall(os.date, "!%" .. SPECS[i], T))
+                end
+                print("A3", pcall(os.date, "%z", T))
+                print("A4", pcall(os.date, "%Z", T))
+
+                -- B) *t / !*t 整表
+                local ok, d = pcall(os.date, "!*t", T)
+                if ok then
+                  print("B", d.year, d.month, d.day, d.hour, d.min, d.sec, d.wday, d.yday, d.isdst)
+                else
+                  print("B", "err", d)
+                end
+                print("B2", pcall(os.date, "!*t"))
+                print("B3", pcall(os.date, "*t", T))
+                print("B4", pcall(os.date, "!*t", 0))
+                print("B5", pcall(os.date, "!*t", -1))
+                print("B6", pcall(os.date, "!*t", 2 ^ 40))
+                print("B7", pcall(os.date, "!*t", -2 ^ 40))
+                print("B8", pcall(os.date, "!*t", 1.5))
+                print("B9", pcall(os.date, "!*t", "x"))
+                print("B10", pcall(os.date, "!*t", {}))
+
+                -- C) os.date 的非法格式
+                for _, f in ipairs({ "%", "%Q", "%E", "%O", "%-", "%_", "%1", "%%%", "abc%",
+                                     "%q", "%Ez", "%Oy", "%Ec", "%EC", "%Ex", "%EY", "%Od",
+                                     "%Oe", "%OH", "%OI", "%Om", "%OM", "%OS", "%Ou", "%OU",
+                                     "%OV", "%Ow", "%OW", "%Oy" }) do
+                  print("C", string.format("[%s]", f), pcall(os.date, "!" .. f, T))
+                end
+
+                -- D) os.time
+                print("D", pcall(os.time, { year = 2023, month = 11, day = 14, hour = 22,
+                                            min = 13, sec = 20 }))
+                print("D2", pcall(os.time, { year = 1970, month = 1, day = 1, hour = 0,
+                                             min = 0, sec = 0 }))
+                print("D3", pcall(os.time, { year = 1970, month = 1, day = 2 }))
+                print("D4", pcall(os.time, {}))
+                print("D5", pcall(os.time, { year = 2023 }))
+                print("D6", pcall(os.time, { year = 2023, month = 13, day = 1 }))
+                print("D7", pcall(os.time, { year = 2023, month = 0, day = 1 }))
+                print("D8", pcall(os.time, { year = 2023, month = 1, day = 0 }))
+                print("D9", pcall(os.time, { year = 2023, month = 1, day = 32 }))
+                print("D10", pcall(os.time, { year = 2023, month = 1, day = 1, hour = 25 }))
+                print("D11", pcall(os.time, { year = 2023, month = 1, day = 1, isdst = true }))
+                print("D12", pcall(os.time, { year = 1900, month = 1, day = 1 }))
+                print("D13", pcall(os.time, { year = 3000, month = 1, day = 1 }))
+                print("D14", pcall(os.time, "x"))
+                print("D15", pcall(os.time, 5))
+                print("D16", pcall(os.difftime, 100, 50))
+                print("D17", pcall(os.difftime, 50, 100))
+                print("D18", pcall(os.difftime))
+                print("D19", pcall(os.difftime, 1))
+                print("D20", pcall(os.difftime, "x", "y"))
+
+                -- E) utf8.char
+                for _, n in ipairs({ 0, 1, 0x7f, 0x80, 0x7ff, 0x800, 0xffff, 0x10000, 0x10ffff,
+                                     0x110000, 0x7fffffff, 0x80000000, -1, -0x110000 }) do
+                  local ok, r = pcall(utf8.char, n)
+                  print("E", n, ok, ok and #r or tostring(r))
+                end
+                print("E2", pcall(utf8.char))
+                print("E3", pcall(utf8.char, 1, 2, 3))
+                print("E4", pcall(utf8.char, 1, "x"))
+                print("E5", pcall(utf8.char, 1.0))
+                print("E6", pcall(utf8.char, 1.5))
+                print("E7", pcall(utf8.char, 0x110000, 1))
+
+                -- F) utf8.codepoint / offset / len
+                local S = "hello" .. utf8.char(0x4e2d) .. utf8.char(0x6587) .. "ab"
+                for i = -12, 12 do
+                  print("F", i, pcall(utf8.codepoint, S, i))
+                end
+                for i = -12, 12 do
+                  for j = i, i + 2 do
+                    print("F2", i, j, pcall(utf8.codepoint, S, i, j))
+                  end
+                end
+                for i = -12, 12 do
+                  print("F3", i, pcall(utf8.offset, S, i))
+                end
+                for i = -12, 12 do
+                  print("F4", i, pcall(utf8.offset, S, i, 1))
+                end
+                print("F5", pcall(utf8.codepoint, ""))
+                print("F6", pcall(utf8.codepoint, S, 1, 100))
+                print("F7", pcall(utf8.codepoint, S, 0))
+                print("F8", pcall(utf8.codepoint, 5))
+                print("F9", pcall(utf8.offset, S, 1, 100))
+                print("F10", pcall(utf8.len, S))
+                print("F11", utf8.charpattern)
+                print("F12", pcall(utf8.len, "\\xff"))
+                print("F13", pcall(utf8.len, "\\xc3\\xa9"))
+                print("F14", pcall(utf8.len, "abc", 2))
+                print("F15", pcall(utf8.len, "abc", 2, 3))
+                print("F16", pcall(utf8.len, "abc", -1))
+                print("F17", pcall(utf8.len, "abc", 0))
+                print("F18", pcall(utf8.len, "abc", 5))
+                print("F19", pcall(utf8.len, 5))
+                local n = 0
+                for p, c in utf8.codes(S) do n = n + 1 end
+                print("F20", n, pcall(utf8.codes, "\\xff"), pcall(utf8.codes, 5))
+
+                -- G) tonumber 全进制
+                for base = 2, 36 do
+                  for _, s in ipairs({ "0", "1", "z", "Z", "-1", "-z", "10", "ff", "FF", "",
+                                       " 1 ", "1.5", "0x10", "+1", "1e2" }) do
+                    print("G", base, string.format("[%s]", s), pcall(tonumber, s, base))
+                  end
+                end
+                print("G2", pcall(tonumber, "10", 1))
+                print("G3", pcall(tonumber, "10", 37))
+                print("G4", pcall(tonumber, "10", 1.5))
+                print("G5", pcall(tonumber, "10", "10"))
+                print("G6", pcall(tonumber, 10, 10))
+                print("G7", pcall(tonumber, nil))
+                print("G8", pcall(tonumber, nil, 10))
+                print("G9", tonumber("  12  "), tonumber("0x1p4"), tonumber("0X10"),
+                      tonumber(".5"), tonumber("5."), tonumber("1e"), tonumber("inf"),
+                      tonumber("nan"), tonumber("-0"), tonumber("0xfffffffffffff"),
+                      tonumber("0xffffffffffffffff"))
+                print("G10", math.tointeger(1), math.tointeger(1.0), math.tointeger(1.5),
+                      math.tointeger("3"), math.tointeger(1 / 0), math.tointeger(0 / 0),
+                      math.tointeger(nil), math.tointeger(2 ^ 63))
+                """);
+    }
 }
