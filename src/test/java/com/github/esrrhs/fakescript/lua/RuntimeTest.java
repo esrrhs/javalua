@@ -7315,6 +7315,195 @@ class RuntimeTest {
     }
 
     /**
+     * 整数 / 浮点<b>子类型</b>网格。
+     * <p>
+     * 5.4 里「数字」分成 integer 与 float 两个子类型，{@code math.type} 看得见
+     * 差别 —— 而这是移植 5.4 最容易错的一类：写成「一律 double」的脚本大多能跑，
+     * 只是 {@code //}、{@code %}、{@code string.format("%d")}、
+     * {@code math.tointeger} 这些地方悄悄不同。所以把标准库里<b>所有会返回数字</b>
+     * 的门口过一遍，只比子类型（不比值：{@code os.time} / {@code math.random}
+     * 的值每次都不同）。
+     * <p>
+     * 铺两格：常用形状（数学库「整型进整型出、浮点进浮点出」、{@code tonumber} 的
+     * 四种写法、位运算、{@code string.unpack} 各宽度、{@code io} 的 seek、
+     * {@code os.date} 各字段），以及<b>边界</b>（{@code maxinteger + 1}、
+     * {@code mininteger // -1}、{@code math.fmod(1, 0)} 与 {@code 1 // 0} 是
+     * <b>抛错</b>而不是给 nan、{@code math.floor(-0.0)} 给整数、
+     * {@code math.tointeger(2^63)} 给 nil）。
+     * <p>
+     * 每条都套在 {@code pcall} 里 —— 上面那两个抛错的就是这么发现的：不套的话
+     * 脚本在第一条就死了，后面几十行一条也不会比，而用例照样是绿的。
+     */
+    @Test
+    void numberSubtypeMatchesReference() {
+        Diff.assertFullMatches("""
+                local out = {}
+                local function n(tag, f, ...)
+                  local ok, v = pcall(f, ...)
+                  out[#out + 1] = tag .. " " .. tostring(ok) .. " " .. tostring(math.type(v))
+                end
+                local function s(tag, v) out[#out + 1] = tag .. " " .. tostring(math.type(v)) end
+                -- 数学库：整型进整型出，浮点进浮点出
+                n("floor3.7", math.floor, 3.7)   n("floor3", math.floor, 3)
+                n("floor_3.7", math.floor, -3.7) n("floorstr", math.floor, "3.7")
+                n("ceil3.2", math.ceil, 3.2)     n("ceil3", math.ceil, 3)
+                n("abs_i", math.abs, -3)         n("abs_f", math.abs, -3.5)
+                n("abs_h", math.abs, -math.maxinteger - 1)
+                n("maxii", math.max, 1, 2)       n("maxif", math.max, 1, 2.5)
+                n("maxff", math.max, 1.0, 2.0)   n("minii", math.min, 1, 2)
+                n("minfi", math.min, 1.5, 2)
+                n("fmodii", math.fmod, 7, 3)     n("fmodif", math.fmod, 7.5, 2)
+                n("fmodfi", math.fmod, 7, 2.5)
+                n("sqrt4", math.sqrt, 4)         n("sin1", math.sin, 1)
+                n("exp1", math.exp, 1)           n("log8_2", math.log, 8, 2)
+                n("log8", math.log, 8)           n("pow", math.pow, 2, 3)
+                n("toint3.0", math.tointeger, 3.0) n("toint3.5", math.tointeger, 3.5)
+                n("toint_i", math.tointeger, 3)  n("toint_s", math.tointeger, "4")
+                n("ult", math.ult, 1, 2)         n("rand", math.random, 1, 10)
+                n("rand0", math.random, 0)       n("deg", math.deg, 90)
+                n("ldexp", math.ldexp, 3, 2)     n("cosh", math.cosh, 1)
+                s("huge", math.huge)             s("maxint", math.maxinteger)
+                s("minint", math.mininteger)     s("pi", math.pi)
+                -- 运算符
+                s("idiv_ii", 10 // 3)            s("idiv_fi", 10.0 // 3)
+                s("idiv_if", 10 // 3.0)          s("mod_ii", 10 % 3)
+                s("mod_fi", 10.5 % 3)            s("pow_ii", 2 ^ 2)
+                s("pow_if", 2 ^ 2.0)             s("div", 6 / 3)
+                s("str_arith", "10" + 1)         s("str_arith2", "10.5" + 1)
+                s("neg_i", -3)                   s("neg_f", -3.0)
+                -- 字符串
+                n("len", string.len, "abc")      n("byte", string.byte, "A")
+                s("hash", #("abc"))              n("rep_n", function() return ("ab"):rep(2) end)
+                n("find", string.find, "abc", "b")
+                n("find2", string.find, "abc", "z")
+                local ok, a, b = pcall(string.find, "abc", "b")
+                out[#out + 1] = "findpair " .. tostring(ok) .. " " .. tostring(math.type(a))
+                               .. " " .. tostring(math.type(b))
+                n("gsub", string.gsub, "abc", "b", "X")
+                local ok2, g1, g2 = pcall(string.gsub, "abc", "b", "X")
+                out[#out + 1] = "gsubpair " .. tostring(ok2) .. " " .. tostring(math.type(g2))
+                -- tonumber
+                n("tonum1", tonumber, "1")       n("tonum1.0", tonumber, "1.0")
+                n("tonum1e2", tonumber, "1e2")   n("tonum0x10", tonumber, "0x10")
+                n("tonum_sp", tonumber, " 1 ")   n("tonum_hex", tonumber, "ff", 16)
+                n("tonum_d5", tonumber, "1.5", 10)
+                n("tonum_i", tonumber, 3)        n("tonum_f", tonumber, 3.5)
+                -- utf8
+                n("u8len", utf8.len, "abc")      n("u8cp", utf8.codepoint, "A")
+                n("u8off", utf8.offset, "abc", 2)
+                -- os
+                n("ostime", os.time)             n("osdifftime", os.difftime, 10, 3)
+                n("osclock", os.clock)
+                s("osdate_year", os.date("!*t", 0).year)
+                s("osdate_hour", os.date("!*t", 0).hour)
+                -- string.pack / unpack
+                local pk = string.pack("i4", 7)
+                n("unpack_i4", string.unpack, "i4", pk)
+                n("unpack_I4", string.unpack, "I4", pk)
+                n("unpack_f", string.unpack, "n", string.pack("n", 1.5))
+                n("packsize", string.packsize, "i4")
+                -- io
+                local p = "/tmp/it_tmp.txt"
+                os.remove(p)
+                local w = io.open(p, "w"); w:write("abcd"); w:close()
+                local f = io.open(p)
+                n("seek_end", f.seek, f, "end")
+                f:close(); os.remove(p)
+                -- debug / 其他
+                s("getinfo_line", debug.getinfo(1).currentline)
+                s("select_n", select("#", 1, 2, 3))
+                s("pack_n", table.pack(1, 2).n)
+                s("tostring_i", tonumber(tostring(3)))
+                out[#out + 1] = "fmt_d_i " .. string.format("%d", 3)
+                out[#out + 1] = "fmt_d_f " .. string.format("%d", 3.0)
+                out[#out + 1] = "fmt_g " .. string.format("%.14g", 3)
+                out[#out + 1] = "tos_i " .. tostring(3)
+                out[#out + 1] = "tos_f " .. tostring(3.0)
+                out[#out + 1] = "tos_h " .. tostring(math.huge)
+                local function s2(tag, f)
+                  local ok, v = pcall(f)
+                  out[#out + 1] = tag .. " " .. tostring(ok) .. " " .. tostring(math.type(v))
+                end
+                -- 整数边界
+                s2("maxint1", function() return math.maxinteger + 1 end)
+                s2("minint1", function() return math.mininteger - 1 end)
+                s2("abs_minint", function() return math.abs(math.mininteger) end)
+                s2("floor_2_53", function() return math.floor(2 ^ 53) end)
+                s2("floor_n0", function() return math.floor(-0.0) end)
+                s2("floor_0", function() return math.floor(0.0) end)
+                s2("floor_nan", function() return math.floor(0 / 0) end)
+                s2("floor_inf", function() return math.floor(1 / 0) end)
+                s2("ceil_inf", function() return math.ceil(-1 / 0) end)
+                s2("fmod_0", function() return math.fmod(1, 0) end)
+                s2("fmod_hh", function() return math.fmod(math.huge, 2) end)
+                s2("toint_2_63", function() return math.tointeger(2 ^ 63) end)
+                s2("toint_huge", function() return math.tointeger(math.huge) end)
+                s2("toint_n0", function() return math.tointeger(-0.0) end)
+                s2("toint_max", function() return math.tointeger(3.0) end)
+                s2("toint_bool", function() return math.tointeger(true) end)
+                s2("sqrt_minint", function() return math.sqrt(math.mininteger) end)
+                s2("pow_0_0", function() return 0 ^ 0 end)
+                s2("pow_neg", function() return (-8) ^ (1 / 3) end)
+                -- 整除与取模
+                s2("idiv_by0i", function() return 1 // 0 end)
+                s2("idiv_by0f", function() return 1.0 // 0 end)
+                s2("mod_by0i", function() return 1 % 0 end)
+                s2("mod_by0f", function() return 1.0 % 0 end)
+                s2("idiv_min_1", function() return math.mininteger // -1 end)
+                s2("mod_min_1", function() return math.mininteger % -1 end)
+                s2("idiv_neg", function() return -7 // 2 end)
+                s2("mod_neg", function() return -7 % 2 end)
+                s2("idiv_fneg", function() return -7.0 // 2 end)
+                s2("mod_fneg", function() return -7.0 % 2 end)
+                -- 字符串转数字参与运算
+                s2("str_idiv", function() return "10" // "3" end)
+                s2("str_mod", function() return "10" % "3" end)
+                s2("str_max", function() return math.max("1", 2) end)
+                s2("str_abs", function() return math.abs2("-3.5") end)
+                s2("str_concat", function() return 1 .. 2 end)
+                s2("str_concat2", function() return 1.0 .. "" end)
+                -- random 的形状
+                s2("rand_none", function() return math.random() end)
+                s2("rand_m", function() return math.random(0) end)
+                s2("rand_nm", function() return math.random(3, 3) end)
+                s2("rand_max", function() return math.random(math.maxinteger) end)
+                -- randomseed 返回两个整数
+                s2("rseed1", function() return (math.randomseed(42, 7)) end)
+                s2("rseed2", function() return select(2, math.randomseed(42, 7)) end)
+                -- 多返回值里的数字
+                s2("byte3_1", function() return string.byte("ABC", 1, 3) end)
+                s2("byte3_2", function() return select(2, string.byte("ABC", 1, 3)) end)
+                s2("cp3_1", function() return utf8.codepoint("ABC", 1, 3) end)
+                s2("cp3_2", function() return select(2, utf8.codepoint("ABC", 1, 3)) end)
+                -- os
+                s2("ostime_t", function() return os.time({ year = 2000, month = 1, day = 1, hour = 12 }) end)
+                s2("date_year", function() return os.date("!*t", 0).year end)
+                s2("date_yday", function() return os.date("!*t", 0).yday end)
+                s2("date_isdst", function() return os.date("!*t", 0).isdst end)
+                -- 位运算
+                s2("band", function() return 7 & 3 end)
+                s2("bor", function() return 7 | 8 end)
+                s2("bxor", function() return 7 ~ 3 end)
+                s2("bnot", function() return ~0 end)
+                s2("shl", function() return 1 << 62 end)
+                s2("shr", function() return -1 >> 1 end)
+                -- string.unpack 的各整数宽度
+                s2("up_i1", function() return string.unpack("i1", string.pack("i1", 1)) end)
+                s2("up_i2", function() return string.unpack("i2", string.pack("i2", 1)) end)
+                s2("up_i4", function() return string.unpack("i4", string.pack("i4", 1)) end)
+                s2("up_i8", function() return string.unpack("i8", string.pack("i8", 1)) end)
+                s2("up_I8", function() return string.unpack("I8", string.pack("I8", 1)) end)
+                s2("up_i", function() return string.unpack("i", string.pack("i", 1)) end)
+                s2("up_j", function() return string.unpack("j", string.pack("j", 1)) end)
+                s2("up_f", function() return string.unpack("f", string.pack("f", 1.5)) end)
+                s2("up_d", function() return string.unpack("d", string.pack("d", 1.5)) end)
+                s2("up_b", function() return string.unpack("b", string.pack("b", 65)) end)
+                s2("up_sz", function() return select(2, string.unpack("s", string.pack("s", "hi"))) end)
+                print(table.concat(out, "\n"))
+""");
+    }
+
+    /**
      * 全局符号审计：本实现与参考实现暴露的<b>符号集</b>必须一模一样。
      * <p>
      * 存在的理由就是 {@code warn} 那次教训 —— 一整个函数没实现，828 个用例
