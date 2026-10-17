@@ -9743,4 +9743,325 @@ show("H4c", coroutine.status(h4))
 dump("H4_close_err_after_resume")
         """);
     }
+
+    /**
+     * 调试钩子矩阵：mask 的八种组合 × {@code count} × 各类帧（Lua / C / 尾调用 /
+     * 协程）× 钩子自身的各种行为（关自己、换自己、抛错、yield、读 {@code gethook}）。
+     * <p>
+     * 钩子是本实现唯一「用 Java 异常打断 VM 正常流程」的地方，形状最容易走偏：
+     * 事件在 {@code luaD_precall} / {@code luaD_poscall} / {@code luaV_execute}
+     * 三处各发一次，而 {@code allowhook}、{@code nCcalls}、{@code ci} 在这些点上的
+     * 状态都不一样。56 行可比输出（末尾那段回溯被 {@code assertMatches} 剥掉）。
+     * <p>
+     * 结果是<b>逐字节一致，没有真分歧</b>。但用例仍然收进来：反向验证过它敏感
+     * —— 把事件名 {@code "tail call"} 改成 {@code "tailcall"}，14 行立刻变红。
+     * 从没红过的用例等于没证明任何东西，所以这条破坏是安装前必做的一步。
+     * <p>
+     * 两条踩出来、必须在写同类探针时记住的：
+     * <ul>
+     *   <li><b>「钩子抛错能不能被 {@code pcall} 接住」取决于钩子设在哪。</b>
+     *       {@code sethook} 之后<b>下一个</b> {@code call} 事件就是
+     *       {@code pcall} 自己（{@code "c"} 掩码连 C 函数也算），而那一下发生在
+     *       {@code pcall} 建立保护<b>之前</b>，错会直接逃出去把脚本打死。实测
+     *       参考实现报 {@code lua: hk1} + 回溯里 {@code [C]: in function 'pcall'}，
+     *       脚本到此为止。要测「接住」就必须把 {@code sethook} 放在 {@code pcall}
+     *       <b>里面</b>（第 6 段）；「逃出去」那条只能放在脚本<b>最末</b>（第 14 段），
+     *       否则后面几十行一条也不会比 —— 而用例照样是绿的。</li>
+     *   <li><b>钩子里取栈要取到第 3 层。</b>{@code who(2)} 拿到的是打印用的
+     *       helper，{@code who(3)} 才是 {@code namewhat = "hook"} 那一层，
+     *       与 {@code debugFrameShapesMatchReference} 的结论对得上。</li>
+     * </ul>
+     */
+    @Test
+    void debugHookMatrixMatchesReference() {
+        Diff.assertMatches("""
+-- 调试钩子矩阵：mask 的八种组合 × count × 各类帧（Lua / C / 尾调用 / 协程）
+-- × 钩子自身的各种行为（关自己、抛错、yield、再 getinfo）。
+-- 钩子是本实现唯一「用 Java 异常打断 VM 正常流程」的地方，形状最容易走偏。
+
+local function show(...)
+    local a = { ... }
+    for i = 1, select("#", ...) do
+        a[i] = tostring(a[i])
+    end
+    print(table.concat(a, "  "))
+end
+
+-- 在钩子里取调用者那一层的信息。只打不带地址、不带顺序的字段。
+-- 层号：1 = getinfo 自己那层（是 C），2 = 钩子，3 = 被钩的那一帧
+local function who(lvl)
+    local ok, info = pcall(debug.getinfo, lvl, "nSlf")
+    if not ok then
+        return "ERR"
+    end
+    if info == nil then
+        return "nil"
+    end
+    local f = info.func
+    return string.format("%s/%s/%s/%s/%s",
+        tostring(info.name), tostring(info.namewhat), tostring(info.what),
+        tostring(info.currentline), type(f))
+end
+
+-- ==================== 1. 初始状态与 sethook 的返回值 ====================
+show("1a", debug.gethook())
+local h0 = function() end
+debug.sethook(h0, "crl", 17)
+do
+    local a, b, c = debug.gethook()
+    show("1b", type(a), b, c)
+end
+debug.sethook()
+show("1c", debug.gethook())
+
+-- 参数校验
+show("1d", pcall(debug.sethook))
+show("1e", pcall(debug.sethook, nil, "c"))
+show("1f", pcall(debug.sethook, 42, "c"))
+show("1g", pcall(debug.sethook, print))
+show("1h", pcall(debug.sethook, print, 42))
+show("1i", pcall(debug.sethook, print, "c", "x"))
+show("1j", pcall(debug.sethook, print, "Q"))
+do
+    local ok, err = pcall(debug.sethook, print, "c", -1)
+    show("1k", ok, type(err))
+end
+debug.sethook()
+show("1l", debug.gethook())
+
+-- ==================== 2. 八种 mask 组合 × 一小段调用 ====================
+local function target(n)
+    if n <= 0 then
+        return "end"
+    end
+    local x = n * 2
+    return target(n - 1)
+end
+
+local function runMask(mask, count)
+    local log = {}
+    local function h(what, line)
+        log[#log + 1] = tostring(what) .. "@" .. tostring(line)
+    end
+    debug.sethook(h, mask, count or 0)
+    local ok, res = pcall(target, 2)
+    debug.sethook()
+    show("2 mask=" .. mask .. " count=" .. tostring(count), ok, res, table.concat(log, ","))
+end
+
+for _, mask in ipairs({ "", "c", "r", "l", "cr", "cl", "rl", "crl" }) do
+    runMask(mask, 0)
+end
+runMask("", 1)
+runMask("", 2)
+runMask("l", 3)
+runMask("cr", 5)
+
+-- ==================== 3. 尾调用：有没有 "tail call" 事件 ====================
+local function tail2()
+    return 1
+end
+local function tail1()
+    return tail2()
+end
+do
+    local log = {}
+    debug.sethook(function(what)
+        log[#log + 1] = tostring(what)
+    end, "cr")
+    local r = tail1()
+    debug.sethook()
+    show("3_tail", r, table.concat(log, ","))
+end
+
+-- ==================== 4. C 函数的 call / return ====================
+do
+    local log = {}
+    debug.sethook(function(what)
+        log[#log + 1] = tostring(what)
+    end, "cr")
+    local r = string.rep("a", 3)
+    debug.sethook()
+    show("4_cfunc", r, table.concat(log, ","))
+end
+
+-- ==================== 5. 钩子里再关钩子 / 再设钩子 ====================
+do
+    local log, n = {}, 0
+    debug.sethook(function(what)
+        n = n + 1
+        log[#log + 1] = tostring(what)
+        debug.sethook() -- 第一个事件之后就关掉
+    end, "c")
+    target(1)
+    debug.sethook()
+    show("5a_disable_in_hook", n, #log > 0)
+end
+do
+    local n = 0
+    debug.sethook(function()
+        n = n + 1
+        if n == 1 then
+            debug.sethook(function() end, "c") -- 换一个空钩子
+        end
+    end, "cr")
+    target(1)
+    debug.sethook()
+    show("5b_swap_in_hook", n > 0)
+end
+
+-- ==================== 6. 钩子里抛错 ====================
+-- 钩子必须设在 pcall <b>内部</b>才能测「接住」：sethook 之后<b>下一个</b> call
+-- 事件就是 pcall 自己（"c" 掩码连 C 函数也算），那一下发生在 pcall 建立保护
+-- <b>之前</b>，错会直接逃出去把脚本打死。实测参考实现就是这样：
+--   "lua: hookerr" + 回溯里 [C]: in function 'pcall'，脚本到此为止。
+-- 所以「钩子在第一个事件上抛错」那条单独放到脚本最末（第 14 段）。
+show("6a_inside_pcall", pcall(function()
+    debug.sethook(function(what, line)
+        debug.sethook()
+        error("inside", 0)
+    end, "l")
+    local a = 1
+    local b = 2
+    return a + b
+end))
+show("6b_cleared", debug.gethook())
+show("6c_nonstring", pcall(function()
+    debug.sethook(function()
+        debug.sethook()
+        error({ c = 1 }, 0)
+    end, "l")
+    local a = 1
+    return a
+end))
+-- 钩子抛错后 debug.gethook 还在不在（钩子自己关掉了自己）
+show("6d", debug.gethook())
+
+-- ==================== 7. 钩子里 yield（已在协程矩阵里量过，这里补「行钩子」）========
+do
+    local co = coroutine.create(function()
+        debug.sethook(function()
+            debug.sethook()
+            coroutine.yield("from hook")
+        end, "l")
+        local x = 1
+        return x
+    end)
+    show("7a", coroutine.resume(co))
+    show("7b", coroutine.resume(co))
+end
+
+-- ==================== 8. 协程的钩子是各自的 ====================
+do
+    local log = {}
+    local function h(what)
+        log[#log + 1] = "main:" .. tostring(what)
+    end
+    debug.sethook(h, "c")
+    local co = coroutine.create(function()
+        return target(1)
+    end)
+    local ok, res = coroutine.resume(co)
+    debug.sethook()
+    show("8a_main_hook_not_inherited", ok, res, table.concat(log, ","))
+end
+-- 给指定线程设钩子
+do
+    local log = {}
+    local co = coroutine.create(function()
+        return target(1)
+    end)
+    debug.sethook(co, function(what)
+        log[#log + 1] = tostring(what)
+    end, "cr")
+    local ok, res = coroutine.resume(co)
+    local a, b, c = debug.gethook(co)
+    debug.sethook(co)
+    show("8b_thread_hook", ok, res, table.concat(log, ","), type(a), b, c)
+    show("8c_after_clear", debug.gethook(co))
+end
+-- 主线程的 gethook(coroutine.running())
+show("8d", pcall(debug.gethook, coroutine.running()))
+
+-- ==================== 9. 行钩子报的行号序列 ====================
+do
+    local log = {}
+    local function f()
+        local a = 1
+        local b = 2
+        local c = a + b
+        return c
+    end
+    debug.sethook(function(what, line)
+        log[#log + 1] = tostring(line)
+    end, "l")
+    local r = f()
+    debug.sethook()
+    show("9_lines", r, table.concat(log, ","))
+end
+
+-- ==================== 10. 钩子里取各层信息 ====================
+do
+    local log = {}
+    debug.sethook(function(what)
+        log[#log + 1] = tostring(what) .. ":" .. who(2) .. ":" .. who(3)
+    end, "c")
+    local r = target(1)
+    debug.sethook()
+    for i, s in ipairs(log) do
+        show("10_" .. i, s)
+    end
+end
+
+-- ==================== 11. count 钩子在循环里 ====================
+do
+    local n = 0
+    debug.sethook(function()
+        n = n + 1
+    end, "", 1)
+    local s = 0
+    for i = 1, 20 do
+        s = s + i
+    end
+    debug.sethook()
+    show("11_count1", s, n > 0)
+end
+
+-- ==================== 12. 钩子开着的开销之外：钩子期间不再触发钩子 ============
+do
+    local n = 0
+    debug.sethook(function()
+        n = n + 1
+        -- 钩子内再调一个会触发钩子的调用，不应再进来
+        local _ = string.rep("x", 1)
+    end, "c")
+    local _ = string.rep("y", 1)
+    debug.sethook()
+    show("12_no_reentrance", n)
+end
+
+-- ==================== 13. 钩子里改 mask / 读 gethook ====================
+do
+    local log = {}
+    debug.sethook(function()
+        local f, m, c = debug.gethook()
+        log[#log + 1] = type(f) .. "/" .. tostring(m) .. "/" .. tostring(c)
+    end, "c")
+    target(1)
+    debug.sethook()
+    show("13", table.concat(log, ","))
+end
+
+-- ==================== 14. 钩子在第一个事件上抛错：逃出 pcall，脚本到此为止 ===
+-- 必须放在<b>最后</b>：这一条会让参考实现直接死掉，后面任何输出都不会有。
+show("14_before")
+debug.sethook(function(what)
+    debug.sethook()
+    error("hk1", 0)
+end, "c")
+show("14_unreachable", pcall(function()
+    return 1
+end))
+        """);
+    }
 }

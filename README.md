@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 856 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 857 tests green, JaCoCo line coverage
 0.95 against a 0.94 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2460,6 +2460,35 @@ One combination is deliberately **not** in the matrix: a message handler that
 raises. `luaG_errormsg` recurses there until the C stack overflows, producing
 several hundred lines whose count varies with stack depth. The matrix pins the
 *result* only.
+
+### The debug-hook matrix: whether a hook error is catchable depends on where the hook was set
+
+Hooks are the one place where this implementation interrupts the VM's normal
+flow with a Java exception, so events are emitted from three different points
+(`precall`, `poscall`, the instruction loop) with `allowhook`, `nCcalls` and
+`ci` each in a different state. This is a matrix over the eight mask
+combinations (`c` / `r` / `l` and their unions) crossed with `count`
+(0, 1, 2, 3, 5), crossed with frame kind (Lua, C, tail call, coroutine), crossed
+with what the hook itself does (disable itself, swap itself, raise, raise a
+non-string, `yield`, read `debug.gethook`). 56 comparable lines.
+
+Result: byte for byte identical, **no real divergence**. It is still worth
+keeping, because it is measured to be sensitive — renaming the `"tail call"`
+event to `"tailcall"` turns 14 lines red.
+
+The interesting thing it pinned down is not a bug but a trap in writing such
+probes:
+
+* **Whether a hook error can be caught depends on where `sethook` was called.**
+  The very next `call` event after `sethook` is for `pcall` itself — the `c`
+  mask counts C functions — and that fires *before* `pcall` has established its
+  protected region, so the error escapes and kills the script. The reference
+  reports `lua: hk1` with `[C]: in function 'pcall'` in the traceback and stops
+  there. To test *catching*, `sethook` has to run **inside** the `pcall`; the
+  escaping variant can only go **last** in the script, or everything after it is
+  silently uncompared while the test stays green.
+* **Reading the stack from inside a hook needs level 3.** Level 2 is the
+  printing helper; level 3 is the frame with `namewhat = "hook"`.
 
 ### What is still missing
 
