@@ -2623,4 +2623,109 @@ class RuntimeTest {
                 print("DONE")
                 """);
     }
+
+    /**
+     * 栈溢出的<b>深度</b>与<b>报错行号</b>。它咬出过一处真分歧，而且根因不在引擎：
+     * <p>
+     * <b>{@code lua.c: main} 给 {@code pmain} 传的是 {@code (argc, argv)} 两个实参，
+     * 栈的初始 {@code top} 是 3。</b> {@code Diff} 只传了一个实参，于是整条栈比
+     * 参考实现<b>少占一格</b>。少一格会一路带到底：脚本栈溢出时的递归深度差一层，
+     * 最深那一帧也就换了个函数，报错行号随之不同。fuzz seed 7984 撞的正是这个
+     * —— 参考报第 67 行，我们报第 65 行。
+     * <p>
+     * 之所以难查，是因为它<b>不是每次都差</b>：每帧开销是 {@code k+1}（{@code k}
+     * 为局部变量个数），深度是 {@code floor((limit - base) / (k+1))}，
+     * 基址差 1 只在刚好跨过整除边界时才改变结果。实测 0/1/2/6 个局部变量时差一层，
+     * 3/4/8/16/32 个时不差 —— 挑一个例子来试的话会以为没问题。
+     * 所以这片要按帧大小<b>铺开</b>量，不能只测一种。
+     * <p>
+     * 另一组（互相递归）测的是<b>报错行号</b>：{@code r7}/{@code r8} 交替递归，
+     * 最深那一帧是谁，就决定报哪一行，深度差一层行号就换一行。
+     * <p>
+     * 顺带一个探针陷阱：{@code local function f() return f() end} 是<b>尾调用</b>，
+     * 不占栈，会变成死循环而不是溢出（参考实现实测挂满 5 分钟）。
+     * 这里所有递归都写成 {@code return 1 + f()} 这种非尾形式。
+     */
+    @Test
+    void stackOverflowDepthAndLineMatchReference() {
+        Diff.assertMatches("""
+
+                local function mk(k)
+                  local ls = {}
+                  for i = 1, k do ls[#ls + 1] = "local v" .. i .. " = " .. i end
+                  local src = "local n = 0\\nlocal function f()\\n" .. table.concat(ls, "\\n")
+                    .. "\\nn = n + 1\\nreturn 1 + f()\\nend\\nlocal ok = pcall(f)\\nreturn n"
+                  return load(src)
+                end
+                for _, k in ipairs({0,1,2,3,4,6,8,16,32}) do
+                  print("k=" .. k, mk(k)())
+                end
+                """);
+    }
+
+    /** 同上，另一半：互相递归时报错落在哪一行。 */
+    @Test
+    void stackOverflowLineInMutualRecursionMatchesReference() {
+        Diff.assertMatches("""
+                -- 栈溢出的报错行号：错误发生在 OP_CALL 的 precall 里，
+                -- C 在 precall 之前刚 savepc，所以行号应当是<b>调用点</b>那一行。
+                -- 注意：这里所有递归都刻意写成<b>非尾调用</b>（return 1 + r() 之类），
+                -- 尾调用不占栈，会变成死循环而不是溢出。
+                local function show(tag, f)
+                  local ok, e = pcall(f)
+                  print(tag, ok, tostring(e):gsub("^.-:(%d+):", "L%1:"))
+                end
+
+                local function r1() return 1 + r1() end
+                show("A", r1)
+
+                local function r2()
+                  for i = 1, 3 do
+                    local x = r2()
+                  end
+                end
+                show("B", r2)
+
+                local function r3()
+                  for _, v in ipairs({ 1, 2 }) do
+                    local x = r3()
+                  end
+                end
+                show("C", r3)
+
+                local function r4()
+                  local a = 1
+                  local b = 2
+                  if a < b then
+                    local x = r4()
+                  end
+                end
+                show("D", r4)
+
+                local r7
+                local function r8() return 1 + r7() end
+                r7 = function() return 1 + r8() end
+                show("G", r7)
+
+                local function r9() return 1 + r9() end
+                print("H", pcall(function() return r9() end))
+
+                local rf
+                rf = function() return 1 + rf() end
+                show("I", rf)
+
+                local function r10(n) return 1 + r10(n + 1) end
+                show("J", function() return r10(1) end)
+
+                -- 尾调用形态（不占栈，用别的方式逼出溢出）
+                local function rt() return rt() end
+                local guard = 0
+                local function rt2()
+                  guard = guard + 1
+                  if guard > 100000 then error("give up") end
+                  return rt2()
+                end
+                print("K", pcall(rt2), guard)
+                """);
+    }
 }
