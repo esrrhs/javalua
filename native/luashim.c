@@ -893,6 +893,48 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_bufAppend(JNIEnv *env,
 }
 
 /*
+ * 分配器 —— {@code lua_getallocf} / {@code lua_setallocf}。
+ * <p>
+ * 必须在 C 侧就地实现：{@code lua_getallocf} 交出去的是<b>能被直接调用的 C 函数
+ * 指针</b>，扩展拿它就是为了自己管内存（{@code lpeg} 的 {@code lpcode.c} 有三处
+ * {@code f(ud, ptr, osize, nsize)}），Java 交不出这种东西。
+ * <p>
+ * 语义照 {@code lauxlib.c} 的 {@code l_alloc}：{@code nsize == 0} 就是释放。
+ * <p>
+ * 这两个是<b>进程级</b>而不是 {@code global_State} 级的（真 Lua 是后者）。差得
+ * 远的场景基本不存在——一个进程里同时跑好几个 Lua 状态、还各自换分配器。
+ */
+static void *luashim_allocf(void *ud, void *ptr, size_t osize, size_t nsize) {
+    (void)ud;
+    (void)osize;
+    if (nsize == 0) {
+        free(ptr);
+        return NULL;
+    }
+    if (ptr == NULL) {
+        return malloc(nsize);
+    }
+    return realloc(ptr, nsize);
+}
+
+static lua_Alloc g_allocf = luashim_allocf;
+static void *g_allocud = NULL;
+
+LUA_API lua_Alloc (lua_getallocf) (lua_State *L, void **ud) {
+    (void)L;
+    if (ud != NULL) {
+        *ud = g_allocud;
+    }
+    return g_allocf;
+}
+
+LUA_API void (lua_setallocf) (lua_State *L, lua_Alloc f, void *ud) {
+    (void)L;
+    g_allocf = (f != NULL) ? f : luashim_allocf;
+    g_allocud = ud;
+}
+
+/*
  * 默认 panic 函数，照 lauxlib.c 那个 {@code panic} 抄。
  * <p>
  * 存在的意义是<b>初值</b>：{@code lua_newstate} 里 {@code g->panic = NULL}，

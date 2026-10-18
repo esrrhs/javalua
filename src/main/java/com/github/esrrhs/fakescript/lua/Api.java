@@ -999,9 +999,17 @@ final class Api {
         }
     }
 
+    /*
+     * {@code lua_getallocf} / {@code lua_setallocf}：整对在 {@code luashim.c} 里。
+     * <p>
+     * 为什么不能进 Java：{@code lua_getallocf} 交回去的是一个<b>能被直接调用的
+     * C 函数指针</b>，而 {@code lpeg} 这类扩展拿它就是为了自己 malloc/free
+     * （{@code lpcode.c} 的 {@code newcode} / {@code freecode} / {@code realloccode}
+     * 三处都这么干），Java 交不出这种东西。
+     */
     @Generated
     static long lua_getallocf(long L, long ud) {
-        throw unimplemented("lua_getallocf");
+        throw new IllegalStateException("lua_getallocf 在 luashim.c 里就地实现，不进 Java");
     }
 
     static long lua_getfield(long L, long idx, long k) {
@@ -1587,9 +1595,10 @@ final class Api {
         reverse(S, p, t);
     }
 
+    /** 同 {@link #lua_getallocf}：整对在 {@code luashim.c} 里就地实现 */
     @Generated
     static void lua_setallocf(long L, long f, long ud) {
-        throw unimplemented("lua_setallocf");
+        throw new IllegalStateException("lua_setallocf 在 luashim.c 里就地实现，不进 Java");
     }
 
     /*
