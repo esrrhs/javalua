@@ -51,7 +51,15 @@ public final class DebugLib {
          */
         LuaState state;
         LuaString source;
-        String shortSrc;
+        /**
+         * {@code luaO_chunkid} 的结果。
+         * <p>
+         * 这里存的是<b>字节串</b>而不是 Java String：chunk 名可以是任意字节
+         * （{@code load(f, "\xff")} 合法），走 Java String 会被 UTF-8 解码
+         * 替换成 {@code U+FFFD}，{@code short_src} 与
+         * {@code debug.traceback} 就都跟着错。
+         */
+        LuaString shortSrc;
         int linedefined;
         int lastlinedefined;
         String what;
@@ -163,7 +171,7 @@ public final class DebugLib {
             ar.lastlinedefined = p.lastlinedefined;
             ar.what = (p.linedefined == 0) ? "main" : "Lua";
         }
-        ar.shortSrc = new String(LuaState.chunkId(ar.source.bytes), StandardCharsets.UTF_8);
+        ar.shortSrc = LuaString.of(LuaState.chunkId(ar.source.bytes));
     }
 
     /** {@code getfuncname}：被调函数是怎么被<b>上一帧</b>调的 */
@@ -602,7 +610,7 @@ public final class DebugLib {
         L.push(LuaValue.ofTable(t));
         if (options.indexOf('S') >= 0) {
             t.set("source", LuaValue.ofString(ar.source));
-            t.set("short_src", LuaValue.ofString(LuaString.utf8(ar.shortSrc)));
+            t.set("short_src", LuaValue.ofString(ar.shortSrc));
             t.set("linedefined", LuaValue.ofInteger(ar.linedefined));
             t.set("lastlinedefined", LuaValue.ofInteger(ar.lastlinedefined));
             t.set("what", LuaValue.ofString(LuaString.utf8(ar.what)));
@@ -1211,9 +1219,9 @@ public final class DebugLib {
             return 1;
         }
         // luaL_traceback 用 strlen(msg) 取长度：  之后的内容不进回溯
-        String msg = m.isNil() ? null : LuaAux.asString(m).toCString().toJavaString();
+        LuaString msg = m.isNil() ? null : LuaAux.asString(m).toCString();
         int level = (int) LuaAux.optInteger(L, arg + 2, (L == L1) ? 1 : 0);
-        L.push(LuaValue.ofString(LuaString.utf8(traceback(L, L1, msg, level))));
+        L.push(LuaValue.ofString(traceback(L, L1, msg, level)));
         return 1;
     }
 
@@ -1228,35 +1236,47 @@ public final class DebugLib {
      * 但<b>帧</b>取自 {@code L1}——{@code debug.traceback(co)} 就是靠这个区别
      * 拿到协程自己的栈。
      */
-    static String traceback(LuaState L, LuaState L1, String msg, int level) {
-        StringBuilder b = new StringBuilder();
+    static LuaString traceback(LuaState L, LuaState L1, LuaString msg, int level) {
+        /*
+         * 用字节缓冲而不是 StringBuilder：msg 与 short_src 都是 Lua 字节串，
+         * 可以是任意字节。走 Java String 会先按 UTF-8 解码（非法字节变
+         * U+FFFD）再编码回去，内容就变了 —— 实测
+         * debug.traceback("\xff") 一度返回 "\xef\xbf\xbd" 打头的一串。
+         */
+        LuaAux.Buf b = new LuaAux.Buf();
         if (msg != null) {
-            b.append(msg).append('\n');
+            b.addString(msg);
+            b.addChar('\n');
         }
-        b.append("stack traceback:");
+        b.addAscii("stack traceback:");
         int last = lastLevel(L1);
         int limit2show = (last - level > LEVELS1 + LEVELS2) ? LEVELS1 : -1;
         LuaDebug ar = new LuaDebug();
         while (getStack(L1, level++, ar)) {
             if (limit2show-- == 0) {
                 int n = last - level - LEVELS2 + 1;
-                b.append("\n\t...\t(skipping ").append(n).append(" levels)");
+                b.addAscii("\n\t...\t(skipping ");
+                b.addAscii(Integer.toString(n));
+                b.addAscii(" levels)");
                 level += n;
             } else {
                 getInfo(L1, "Slnt", ar);
+                b.addAscii("\n\t");
+                b.addString(ar.shortSrc);
                 if (ar.currentline <= 0) {
-                    b.append("\n\t").append(ar.shortSrc).append(": in ");
+                    b.addAscii(": in ");
                 } else {
-                    b.append("\n\t").append(ar.shortSrc).append(':')
-                            .append(ar.currentline).append(": in ");
+                    b.addAscii(":");
+                    b.addAscii(Integer.toString(ar.currentline));
+                    b.addAscii(": in ");
                 }
-                b.append(pushFuncName(L, ar));
+                b.addString(pushFuncName(L, ar));
                 if (ar.istailcall) {
-                    b.append("\n\t(...tail calls...)");
+                    b.addAscii("\n\t(...tail calls...)");
                 }
             }
         }
-        return b.toString();
+        return b.result();
     }
 
     /**
@@ -1268,21 +1288,28 @@ public final class DebugLib {
      * {@code _LOADED._G} 里按<b>值相等</b>反查到了这个名字。所以这里必须先查全局，
      * 只查 {@code ar.namewhat} 会整体差一层「修饰语」。
      */
-    private static String pushFuncName(LuaState L, LuaDebug ar) {
+    private static LuaString pushFuncName(LuaState L, LuaDebug ar) {
+        /*
+         * 同样返回字节串：{@code function <shortSrc:linedefined>} 里嵌的是
+         * chunk 名，可以是任意字节。走 Java String 再 {@code addAscii} 会把
+         * 0xFF 截成 0xFD、把 U+4E2D 截成 '-'（实测 {@code load(f,"=\xe4\xb8\xad")}
+         * 的回溯打印成 {@code function <-:1>}）。
+         */
         String g = globalFuncName(L, ar);
         if (g != null) {
-            return "function '" + g + "'";
+            return LuaString.utf8("function '" + g + "'");
         }
         if (ar.namewhat != null && !ar.namewhat.isEmpty()) {
-            return ar.namewhat + " '" + ar.name + "'";
+            return LuaString.utf8(ar.namewhat + " '" + ar.name + "'");
         }
         if ("main".equals(ar.what)) {
-            return "main chunk";
+            return LuaString.latin1("main chunk");
         }
         if (!"C".equals(ar.what)) {
-            return "function <" + ar.shortSrc + ":" + ar.linedefined + ">";
+            return LuaString.latin1("function <").concat(ar.shortSrc)
+                    .concat(LuaString.latin1(":" + ar.linedefined + ">"));
         }
-        return "?";
+        return LuaString.latin1("?");
     }
 
     /**

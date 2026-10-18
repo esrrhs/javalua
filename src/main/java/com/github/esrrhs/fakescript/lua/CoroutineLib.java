@@ -157,9 +157,8 @@ public final class CoroutineLib {
             LuaValue err = L.stack[L.top - 1];
             if (err.isString()) {
                 // luaL_where(L, 1) + concat：wrap 出来的函数崩了要带位置
-                String prefix = L.whereAt(1);
-                err = LuaValue.ofString(
-                        LuaString.latin1(prefix + err.asString().toJavaString()));
+                LuaString prefix = L.whereAt(1);
+                err = LuaValue.ofString(prefix.concat(err.asString()));
                 L.stack[L.top - 1].set(err);
                 /*
                  * {@code where} 非 null = 「位置已经加过了」。这里哪怕
@@ -167,7 +166,7 @@ public final class CoroutineLib {
                  * {@code null} 会再补一次位置，报出
                  * {@code file:3: file:2: boom} 这种叠前缀。
                  */
-                throw new LuaError(err, prefix);
+                throw new LuaError(err, prefix.toJavaString());
             }
             throw new LuaError(err, "");
         }
