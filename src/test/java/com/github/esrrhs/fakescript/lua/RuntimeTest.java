@@ -2942,11 +2942,14 @@ class RuntimeTest {
                 local function norm(s)
                   return (tostring(s):gsub("0x%x+", "0xADDR"))
                 end
-                -- libc 分歧："+"/空格标志作用在 NaN 上时，macOS 的 libc 不打符号（"nan"），
-                -- glibc 打（"+nan"）。CI 的 conformance job 在 ubuntu 上跑，本机在 macOS 上跑，
-                -- 两边的参考实现自己就不一样，故统一成不带符号再比。
+                -- libc 分歧：NaN 的符号是 libc 自己的（约定 #96）—— x86 的默认
+                -- NaN 符号位是 1，glibc 连不带标志的 %f 都打 "-nan"、%+f 也打
+                -- "-nan"，而 Apple libc 一律打 "nan"。CI 在 ubuntu 上跑、本机在
+                -- macOS 上跑，两边的<b>参考实现</b>自己就不一样，故统一成不带
+                -- 符号再比。注意这里是把 nan 的前导符号全部抹掉，不是只抹 "+"
+                -- —— glibc 的默认分支给的就是 "-nan"。
                 local function fnorm(s)
-                  return (s:gsub("^[+ ]nan$", "nan"):gsub("^[+ ]NAN$", "NAN"))
+                  return (s:gsub("^[-+ ]nan$", "nan"):gsub("^[-+ ]NAN$", "NAN"))
                 end
                 local function show(s)
                   -- 带 \\0 和非法 UTF-8 的字符串直接 print 会难读，转成十六进制再打

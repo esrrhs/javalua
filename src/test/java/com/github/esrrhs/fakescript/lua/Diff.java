@@ -609,18 +609,23 @@ final class Diff {
          * </pre>
          * 而 C 的<b>实参求值顺序是 unspecified</b>：GCC 从右往左（先查 #2），
          * clang 从左往右（先查 #1）。于是 {@code math.fmod(nil, 1)} 在
-         * ubuntu（GCC 编的参考实现）上报 {@code bad argument #2}、
-         * 在 macOS（clang 编的）上报 {@code bad argument #1}。
+         * ubuntu（GCC 编的参考实现）上报 {@code bad argument #2 ... got no
+         * value}（#2 根本不存在），在 macOS（clang 编的）上报
+         * {@code bad argument #1 ... got nil}。
          * 其余函数两个 {@code check} 都在<b>独立语句</b>里，顺序是源码顺序，
          * 不受影响——所以只有这两个名字需要归一化。
          * <p>
-         * 归一化的是序号，不是「有没有报错」，也不是函数名：两边仍要比
-         * {@code got nil} / {@code got no value} / {@code got string}。
+         * 归一的是「序号 + 描述的是哪个参数」，<b>连 {@code (number expected,
+         * got X)} 一起归</b>——因为报的是<b>不同参数</b>，那个 {@code got X}
+         * 描述的压根不是同一个东西，没法只归序号。剩下的（有没有报错、
+         * 函数名、{@code number expected} 之外的消息）两边照比。
          */
-        s = s.replaceAll("bad argument #\\d+ to 'math\\.fmod'",
-                "bad argument #? to 'math.fmod'");
-        return s.replaceAll("bad argument #\\d+ to 'package\\.searchpath'",
-                "bad argument #? to 'package.searchpath'");
+        s = s.replaceAll(
+                "bad argument #\\d+ to '(?:math\\.)?(fmod)' \\([^)]*\\)",
+                "bad argument #? to '$1' (...)");
+        return s.replaceAll(
+                "bad argument #\\d+ to '(?:package\\.)?(searchpath)' \\([^)]*\\)",
+                "bad argument #? to '$1' (...)");
     }
 
     static String firstLine(String s) {

@@ -97,6 +97,11 @@ local function show(v)
   local t = type(v)
   if t == "string" then
     local s = v:gsub("0x%x+", "PTR")
+    -- NaN 的符号是 libc 自己的（约定 #96）：x86 默认 NaN 符号位是 1，glibc
+    -- 打 "-nan"（%+f 也打 "-nan"），Apple libc 打 "nan"。差一个字符就是
+    -- 差一格 —— 必须在量 # 之前归一，否则长度列也跟着红。
+    s = s:gsub("%-nan", "nan"):gsub("%+nan", "nan")
+    s = s:gsub("%-NAN", "NAN"):gsub("%+NAN", "NAN")
     return "#" .. #s .. "[" .. esc(s) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end

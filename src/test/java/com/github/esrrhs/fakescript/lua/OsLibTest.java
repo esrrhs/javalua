@@ -65,10 +65,11 @@ class OsLibTest {
             r = {}
             for _,o in ipairs(two) do r[#r+1] = o.."=["..os.date("!%"..o, t).."]" end
             print(table.concat(r, " "))
-            -- %z 不带 '!' 才比：macOS 的 strftime 在 gmtime 下给的 %z 是本地
-            -- 标准偏移而不是 +0000（实测 TZ=America/New_York 时 !%z 给 -0500
-            -- 而 %z 给 -0400），那是平台 bug，本实现按 POSIX 给 +0000
-            local three = {"y","Y","Z","%"}
+            -- %z 与 %Z 都不比：%z 带 '!' 时 macOS 的 strftime 给本地标准偏移而
+            -- 不是 +0000（实测 TZ=America/New_York 时 !%z 给 -0500、%z 给
+            -- -0400）；%Z 是「时区名」，glibc 给 GMT、Apple libc 给 UTC。
+            -- 两个都是平台自己的答案，都不是错（约定 #53）。
+            local three = {"y","Y","%"}
             r = {}
             for _,o in ipairs(three) do r[#r+1] = o.."=["..os.date("!%"..o, t).."]" end
             print(table.concat(r, " "))
