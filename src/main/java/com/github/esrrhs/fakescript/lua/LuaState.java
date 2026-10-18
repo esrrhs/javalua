@@ -380,6 +380,33 @@ public final class LuaState {
      */
     private int warnState = WARN_OFF;
 
+    /**
+     * {@code G(L)->panic}：{@code lua_atpanic} 存的函数指针。
+     * <p>
+     * 真 Lua 在「错误逃出所有保护区」时调它、调完 {@code abort()}。本实现的错误
+     * 是 Java 异常，逃出去之后由宿主决定怎么处理，所以这里只存不调——见
+     * {@code Api#lua_atpanic}。
+     * <p>
+     * 初值是 {@code -1}，意思是「还没取过 {@code luaL_newstate} 装的那个默认
+     * panic」：{@code lua_newstate} 里 {@code g->panic = NULL}，但
+     * {@code luaL_newstate} 紧接着就装上了 lauxlib 的 {@code panic}，
+     * 所以从解释器里看第一次取到的不是 NULL。
+     */
+    private long panicFn = -1;
+
+    /** {@code G(L)->panic}，必要时先补上默认值 */
+    long panic() {
+        if (panicFn == -1) {
+            panicFn = NativeBridge.AVAILABLE ? NativeBridge.defaultPanic() : 0;
+        }
+        return panicFn;
+    }
+
+    /** {@code lua_atpanic} 写入 */
+    void setPanic(long f) {
+        panicFn = f;
+    }
+
     /** {@code lauxlib.c: warnfon} 打的消息前缀 */
     private static final byte[] WARN_PREFIX =
             { 'L', 'u', 'a', ' ', 'w', 'a', 'r', 'n', 'i', 'n', 'g', ':', ' ' };
@@ -1003,7 +1030,7 @@ public final class LuaState {
     }
 
     /** {@code yieldable(L)}：与 {@link #isYieldable} 同义，包内用短名 */
-    private boolean yieldable() {
+    boolean yieldable() {
         return nNy == 0;
     }
 
@@ -1917,6 +1944,37 @@ public final class LuaState {
         } finally {
             errFunc = oldErrFunc;
         }
+    }
+
+    /**
+     * {@code lapi.c: lua_pcallk} 里 {@code k != NULL && yieldable(L)} 的那一条分支。
+     * <p>
+     * 与 {@link #pcall} 的差别只有一处，但很要紧：<b>不建本地恢复点</b>。
+     * C 版这一段是裸的 {@code luaD_call}，出错时 {@code longjmp} 一路穿出
+     * {@code lua_pcallk} 本身、穿出那个 C 函数，直到 {@code lua_resume} 的
+     * 保护区；{@code precover} 找到这个被标记的帧，<b>收完尾再调续体</b>，
+     * 续体拿到的 {@code status} 就是那个错误码。
+     * <p>
+     * 所以这里既不接 {@link LuaError} 也不接 {@link LuaYield}：接了就等于替
+     * C 版的 {@code precover} 把活干了，续体永远只看到 {@code LUA_YIELD}。
+     * 记下的那几项和 {@code BaseLib} 里 {@code pcall} 的 {@code catch (LuaYield)}
+     * 分支一模一样——{@link #finishPcallK} 只读那几个字段，不认是谁写的。
+     */
+    LuaValue pcallK(int funcIdx, int nresults, LuaValue handler, int ctx,
+            LuaKFunction k) {
+        CallInfo c = ci;
+        c.k = k;
+        c.ctx = ctx;
+        c.yieldPcall = true;
+        c.funcIdx = funcIdx;
+        c.errHandler = handler;
+        c.recst = LUA_OK;
+        call(funcIdx, nresults);
+        // 正常返回：C 版在这里清 CIST_YPCALL 并恢复 errfunc，然后返回 LUA_OK
+        c.yieldPcall = false;
+        c.k = null;
+        c.ctx = 0;
+        return null;
     }
 
     /**

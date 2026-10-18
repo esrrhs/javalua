@@ -32,6 +32,8 @@ static JavaVM *g_vm = NULL;
 static jclass g_cls = NULL;
 static jmethodID g_dispatch = NULL;
 static jmethodID g_dispatchD = NULL;
+/** LuaYield 类：Java 异常要跨过 C 帧时，用它判「这是 yield 还是 error」 */
+static jclass g_clsYield = NULL;
 
 /** longjmp 落点：每个 Java→C 调用在<b>最外层 C 帧</b>设一个，嵌套时串成链 */
 static _Thread_local jmp_buf *g_jmp = NULL;
@@ -196,6 +198,37 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_init(JNIEnv *env, jclass cls)
             "(IJJJJJJD)J");
     g_dispatchD = (*env)->GetStaticMethodID(env, cls, "dispatchD",
             "(IJJJJJJD)D");
+    {
+        jclass y = (*env)->FindClass(env,
+                "com/github/esrrhs/fakescript/lua/LuaYield");
+        if (y != NULL) {
+            g_clsYield = (*env)->NewGlobalRef(env, y);
+            (*env)->DeleteLocalRef(env, y);
+        }
+    }
+}
+
+/**
+ * 「刚捕获的 Java 异常是不是 yield」。
+ * <p>
+ * C 里 {@code luaD_throw(L, LUA_YIELD)} 和抛错走的是同一条 longjmp，靠
+ * {@code g_yielding} 区分。但本实现多一种情形：yield 是被调函数<b>在 Java 侧</b>
+ * 抛出来的（{@code coroutine.yield} 经由 {@code lua_callk} 一路冒上来），
+ * C 函数里那一句 {@code lua_yieldk} 压根没执行到，{@code g_yielding} 就是 0，
+ * 旧代码会把它当成 error——{@code coroutine.wrap} 里 C 函数调用 Lua 回调再
+ * yield 的场景必错。所以出口处再问一次 Java。
+ */
+static int pending_is_yield(void) {
+    JNIEnv *env;
+    int r = 0;
+    if (g_pending == NULL || g_clsYield == NULL) {
+        return 0;
+    }
+    env = env_now();
+    if (env != NULL) {
+        r = (*env)->IsInstanceOf(env, g_pending, g_clsYield) ? 1 : 0;
+    }
+    return r;
 }
 
 JNIEXPORT jobject JNICALL
@@ -261,7 +294,36 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeC(JNIEnv *env,
         int (*f)(void *) = (int (*)(void *))(intptr_t)fn;
         r = f(LUASHIM_STATE(L));
     } else {
-        r = g_yielding ? -2 : -1;
+        r = (g_yielding || pending_is_yield()) ? -2 : -1;
+    }
+    g_jmp = prev;
+    g_yielding = 0;
+    return (jint)r;
+}
+
+/*
+ * 调一个 lua_KFunction：{@code int (*)(lua_State *L, int status, lua_KContext ctx)}。
+ * <p>
+ * 续体是 <b>resume 之后</b>才跑的，所以它也必须有自己的落点——它里面照样可以
+ * 再 {@code lua_yieldk}、照样可以抛错。返回码与 {@code invokeC} 同义。
+ */
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeK(JNIEnv *env,
+        jclass cls, jlong fn, jlong L, jint status, jlong ctx) {
+    (void)cls;
+    if (fn == 0) {
+        return -3;
+    }
+    jmp_buf buf;
+    jmp_buf *prev = g_jmp;
+    volatile int r;
+    g_yielding = 0;
+    g_jmp = &buf;
+    if (setjmp(buf) == 0) {
+        int (*f)(void *, int, long) = (int (*)(void *, int, long))(intptr_t)fn;
+        r = f(LUASHIM_STATE(L), (int)status, (long)ctx);
+    } else {
+        r = (g_yielding || pending_is_yield()) ? -2 : -1;
     }
     g_jmp = prev;
     g_yielding = 0;
@@ -831,6 +893,30 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_bufAppend(JNIEnv *env,
 }
 
 /*
+ * 默认 panic 函数，照 lauxlib.c 那个 {@code panic} 抄。
+ * <p>
+ * 存在的意义是<b>初值</b>：{@code lua_newstate} 里 {@code g->panic = NULL}，
+ * 但 {@code luaL_newstate} 紧接着 {@code lua_atpanic(L, &panic)} —— 所以从
+ * Lua 解释器里看，{@code lua_atpanic} 第一次返回的<b>不是</b> NULL（实测探针
+ * 第一条 {@code old == NULL} 给 false）。
+ */
+static int luashim_panic(lua_State *L) {
+    const char *msg = (lua_type(L, -1) == LUA_TSTRING)
+            ? lua_tostring(L, -1)
+            : "error object is not a string";
+    fprintf(stderr, "PANIC: unprotected error in call to Lua API (%s)\n", msg);
+    return 0;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_defaultPanic(JNIEnv *env,
+        jclass cls) {
+    (void)env;
+    (void)cls;
+    return (jlong)(intptr_t)luashim_panic;
+}
+
+/*
  * yield 与 error 走同一条 longjmp，只是出口标记不同——invokeC 据此返回 -2，
  * Java 侧再抛 LuaYield。这里不能用生成的 stub：生成版会正常返回，C 函数就继续
  * 往下跑了，那不是 yield 的语义。
@@ -842,6 +928,22 @@ LUA_API int (lua_yieldk) (lua_State *L, int nresults, lua_KContext ctx,
     g_yielding = 1;
     luashim_throw();
     return 0;
+}
+
+/*
+ * {@code lua_resume} 的 {@code nres} 是<b>出参</b>（{@code int *}），而 Java 那头
+ * 只能回一个 long。所以打包：高 32 位是 status，低 32 位是该从协程栈上搬走的
+ * 结果个数。
+ */
+LUA_API int (lua_resume) (lua_State *L, lua_State *from, int nargs,
+        int *nres) {
+    jlong r = luashim_call(ID_lua_resume, LUASHIM_HANDLE(L),
+            LUASHIM_HANDLE(from), (jint)nargs, 0, 0, 0, 0.0);
+    int status = (int)(r >> 32);
+    if (nres != NULL) {
+        *nres = (int)(r & 0xffffffffL);
+    }
+    return status;
 }
 
 /* ---- lua_Debug：C 侧的 struct，Java 按固定下标给值，C 按 offsetof 落字段 ---- */

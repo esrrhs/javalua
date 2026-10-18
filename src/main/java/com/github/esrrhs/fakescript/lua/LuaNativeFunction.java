@@ -29,11 +29,19 @@ public final class LuaNativeFunction implements LuaFunction {
         if (n >= 0) {
             return n;
         }
-        if (n == -2) {
-            // lua_yieldk：nresults 由 C 侧记录在 LuaState 上
-            throw LuaYield.INSTANCE;
-        }
         Throwable t = NativeBridge.takePending();
+        if (n == -2) {
+            /*
+             * yield。两种来源：①C 函数自己调了 {@code lua_yieldk}（C 侧置
+             * {@code g_yielding} 后 longjmp，Java 这头没抛过，{@code t} 为 null）；
+             * ②被调的 Lua 代码 yield 了，Java 异常一路冒过 C 帧——那时
+             * {@code luashim.c} 靠 {@code IsInstanceOf(LuaYield)} 认出它是 yield
+             * 而不是 error，{@code t} 就是那个 {@link LuaYield}。
+             * 两种都往上抛，绝不包成 {@link LuaError}：包了就穿不出
+             * {@code pcall}，而 yield 是能穿过 pcall 的。
+             */
+            throw (t instanceof LuaYield) ? (LuaYield) t : LuaYield.INSTANCE;
+        }
         if (t instanceof LuaError) {
             throw (LuaError) t;
         }

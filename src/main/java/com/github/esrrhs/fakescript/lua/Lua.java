@@ -69,6 +69,12 @@ public final class Lua {
      */
     public static final String LUA_VERSION = "Lua 5.4";
 
+    /**
+     * {@code LUA_VERSION_NUM}：{@code lua_version} / {@code luaL_checkversion}
+     * 比对的那个数（{@code LUA_VERSION_MAJOR * 100 + LUA_VERSION_MINOR}）。
+     */
+    public static final int VERSION_NUM = 504;
+
     /** 线程 / 协程：{@code makevariant(LUA_TTHREAD, 0)} */
     public static final int VTHREAD = TTHREAD | (0 << 4); // 8
 
