@@ -1617,6 +1617,13 @@ public final class LuaState {
                  * 处理函数把栈跑穿才产生的。
                  */
                 v = LuaValue.ofString(LuaString.latin1(ERRERR_MSG));
+            } else if (e.errMem) {
+                /*
+                 * {@code LUA_ERRMEM} 直跳，不进 {@code luaG_errormsg}：
+                 * 消息处理函数接不到，位置前缀也不补（内存错误的值恒是那个
+                 * 驻留短串，C 版 {@code luaD_seterrorobj} 写的就是它）。
+                 */
+                v = e.value;
             } else {
                 v = e.value;
                 if (e.where == null && v != null && v.isString()) {
@@ -1863,7 +1870,9 @@ public final class LuaState {
                 throw y;
             } catch (LuaError e2) {
                 LuaValue v = e2.value;
-                if (e2.where == null && v != null && v.isString()) {
+                if (e2.errMem) {
+                    // 同上：内存错误不过消息处理函数，位置也不补
+                } else if (e2.where == null && v != null && v.isString()) {
                     LuaString prefix = where(); // 出错那刻的帧，先于恢复
                     v = LuaValue.ofString(prefix.concat(v.asString()));
                 }
@@ -1886,8 +1895,13 @@ public final class LuaState {
                  * 也就是<b>最终结果是处理函数的返回值</b>，不是 {@code __close}
                  * 那个原始错。{@code error in error handling} 那一条也靠这里：
                  * 处理函数自己抛错时，{@code __close} 的错再过一次它被兜成那句话。
+                 * <p>
+                 * <b>内存错误例外</b>：{@code __close} 里
+                 * {@code error("not enough memory", 0)} 走的是
+                 * {@code luaM_error}，压根不进 {@code luaG_errormsg}，
+                 * 处理函数接不到。
                  */
-                if (handler != null) {
+                if (handler != null && !e2.errMem) {
                     v = applyErrMsg(v, handler);
                 }
                 ci = saved;
@@ -2216,11 +2230,13 @@ public final class LuaState {
                 throw y;
             } catch (LuaError e2) {
                 LuaValue v = e2.value;
-                if (e2.where == null && v != null && v.isString()) {
+                if (e2.errMem) {
+                    // 内存错误：不过消息处理函数，也不补位置（见 closeUpvalsOnUnwind）
+                } else if (e2.where == null && v != null && v.isString()) {
                     LuaString prefix = where(); // 与 closeUpvalsOnUnwind 同形
                     v = LuaValue.ofString(prefix.concat(v.asString()));
                 }
-                if (handler != null) {
+                if (handler != null && !e2.errMem) {
                     v = applyErrMsg(v, handler);
                 }
                 errObj = v;
@@ -2712,13 +2728,42 @@ public final class LuaState {
      *              {@code <= 0} 表示不加位置
      */
     public LuaError errorAt(LuaValue msg, int level) {
+        /*
+         * C 版 {@code lua_error} 的内存错误特判就在这条路上：
+         * {@code error()} 与 {@code luaL_error} 最终都是 {@code lua_error(L)}，
+         * 而它判的是<b>栈顶那个值</b>是不是"not enough memory"这个驻留短串。
+         * 位置前缀拼好之后再判，所以 {@code error("not enough memory")}
+         * （默认 level 1）拼上了前缀、反而退化成普通错误。
+         */
         if (level > 0 && msg.isString()) {
             LuaString prefix = whereAt(level);
-            return new LuaError(LuaValue.ofString(prefix.concat(msg.asString())),
-                    prefix.toJavaString());
+            LuaValue full = LuaValue.ofString(prefix.concat(msg.asString()));
+            LuaError e = new LuaError(full, prefix.toJavaString());
+            e.errMem = isMemErr(full);
+            return e;
         }
-        return new LuaError(msg, "");
+        LuaError e = new LuaError(msg, "");
+        e.errMem = isMemErr(msg);
+        return e;
     }
+
+    /**
+     * {@code lapi.c: lua_error} 那句
+     * {@code eqshrstr(tsvalue(errobj), G(L)->memerrmsg)}。
+     * <p>
+     * C 比的是<b>短串指针</b>——短串全局驻留，所以「内容相等」与「同一个对象」
+     * 等价。这里按内容比：{@code "not enough memory"} 只有 17 字节，恒为短串，
+     * 不会有「内容相同却是长串」的偏差；而按内容比还能接住那些没过驻留池就
+     * 造出来的消息串。
+     */
+    static boolean isMemErr(LuaValue v) {
+        return v != null && v.isString()
+                && Arrays.equals(v.asString().bytes, MEM_ERR_MSG);
+    }
+
+    /** {@code lstring.h: MEMERRMSG} */
+    private static final byte[] MEM_ERR_MSG = "not enough memory".getBytes(
+            java.nio.charset.StandardCharsets.ISO_8859_1);
 
     /**
      * {@code luaL_error} / {@code luaL_argerror}：库函数抛的错误。

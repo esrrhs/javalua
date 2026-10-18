@@ -416,4 +416,448 @@ for _, K in ipairs({ 0, 1, 2, 3 }) do
 end
         """);
     }
+    /**
+     * 片三：to-be-closed 变量出错的全网格（406 行）。
+     * <p>
+     * 起因是 JaCoCo 里 {@code LuaState#closeUpvalsOnUnwind} 有一条分支从没被
+     * 走到 ——「{@code __close} 抛出的错误没有位置时补一个前缀」。既有的
+     * {@code D close} 那一组清一色是 {@code error(o)}（默认 level 1，自带位置），
+     * 所以那条分支从没被扫过。
+     * <p>
+     * 两维铺开：
+     * <ul>
+     *   <li><b>维一 24 种「{@code __close} 怎么出错」</b>：{@code error} 的
+     *       level 0/1/2/3/99/-1、运行时错、{@code error(非串)}、
+     *       {@code assert}、<b>C 函数当 {@code __close}</b>
+     *       （{@code error} / {@code string.rep} / {@code tonumber} /
+     *       {@code print}）、带 {@code __call} 的表、以及 {@code __close} 里
+     *       yield；</li>
+     *   <li><b>维二 8 种上下文</b>：函数体正常返回 / 函数体先抛错 / 两个
+     *       {@code <close>} 变量 / {@code xpcall} + 处理函数 / 处理函数自己抛。</li>
+     * </ul>
+     * 再单铺四组：协程里（{@code resume} 两趟）、<b>main chunk 里</b>
+     * （{@code do} 块结束才关）、<b>四种跳出作用域的方式</b>
+     * （{@code return} / {@code break} / {@code goto} / 尾调用），
+     * 以及 <b>10 种「不可关」的值</b>（{@code non-closable}）。
+     * <p>
+     * 这一片本身没有咬出分歧，但把上面那条分支和
+     * {@link #memoryErrorSkipsHandlerMatchesReference}、{@code next} 那两处
+     * 真分歧的<b>触发语料</b>一起固化了下来。
+     * <p>
+     * 写法上两个坑：
+     * <ul>
+     *   <li>换掉<b>字符串的类型元表</b>时必须带上 {@code __index = string}，
+     *       否则 {@code show} 里的 {@code v:gsub} 会抛
+     *       {@code attempt to index a string value}，而那是在 {@code pcall}
+     *       外面抛的，整个探针崩掉（约定 #38）；</li>
+     *   <li>{@code print} 当 {@code __close} 会打出 {@code table: 0x...}，
+     *       由 {@link Diff} 的地址归一化兜住（约定 #42）。</li>
+     * </ul>
+     */
+    @Test
+    void toBeClosedErrorGridMatchesReference() {
+        Diff.assertMatches("""
+-- to-be-closed 变量出错的全网格
+-- 起因：JaCoCo 里 LuaState 的 closeUpvalsOnUnwind 有一条分支从没被走到 ——
+-- 「__close 抛出的错误<b>没有位置</b>时补一个前缀」。既有的 ErrorPropagationTest
+-- 只有一组 `D close`，而且清一色是 error(o)（默认 level 1，自带位置），
+-- 所以那条分支从没被扫过。
+--
+-- 这里铺两维：
+--   维一 24 种「__close 怎么出错」；维二 8 种「在什么上下文里出错」。
+-- 再加几组单点的：main chunk 里的 tbc、goto 跳出作用域、非函数 __close。
+
+local function show(v)
+  local t = type(v)
+  if t == "string" then
+    return "#" .. #v .. "[" .. (v:gsub("[\\r\\n]", "?")) .. "]"
+  elseif t == "number" then
+    if math.type(v) == "integer" then return "i" .. tostring(v) end
+    return "f" .. tostring(v)
+  elseif t == "nil" or t == "boolean" then
+    return tostring(v)
+  end
+  local ok, s = pcall(tostring, v)
+  if not ok or type(s) ~= "string" then return t .. "(<notostring>)" end
+  return t .. "(" .. (s:gsub("0x%x+", "PTR")) .. ")"
+end
+
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. show(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+
+-- ==================== 维一：__close 怎么出错 ====================
+-- 每一行是一个「close 方法」。_self 是被关的变量，_err 是传给它的错误对象。
+local SHAPES = {
+  { "nil",        function(_self, _err) return nil end },
+  { "retvals",    function(_self, _err) return 1, 2, 3 end },
+  { "err0",       function(_self, _err) error("E0", 0) end },
+  { "err1",       function(_self, _err) error("E1", 1) end },
+  { "err2",       function(_self, _err) error("E2", 2) end },
+  { "err3",       function(_self, _err) error("E3", 3) end },
+  { "err99",      function(_self, _err) error("E99", 99) end },
+  { "errneg",     function(_self, _err) error("ENEG", -1) end },
+  { "errnolevel", function(_self, _err) error("ENO") end },
+  { "errtwo",     function(_self, _err) error("ET", 2) end },
+  { "nilindex",   function(_self, _err) local t = nil return t.x end },
+  { "callstr",    function(_self, _err) return ("s")() end },
+  { "arith",      function(_self, _err) return nil + 1 end },
+  { "obj",        function(_self, _err) error(setmetatable({}, { __tostring = function() return "OBJ" end })) end },
+  { "errarg",     function(_self, _err) error("EARG:" .. show(_err)) end },
+  { "errarg0",    function(_self, _err) error("EARG0:" .. show(_err), 0) end },
+  { "assert",     function(_self, _err) return assert(false) end },
+  { "assertmsg",  function(_self, _err) return assert(false, "AMSG") end },
+  { "cerr",       error },                       -- C 函数当 __close：error(obj, err)
+  { "crep",       string.rep },                  -- C 函数当 __close：参数不对
+  { "ctonumber",  tonumber },                    -- C 函数当 __close：能跑通
+  { "cprint",     print },                       -- C 函数当 __close：有副作用
+  { "callable",   setmetatable({}, { __call = function(_self2, _a, _b) error("ECALL", 0) end }) },
+  { "yield",      function(_self, _err) return coroutine.yield("YC") end },
+}
+
+-- ==================== 维二：什么上下文 ====================
+-- 每个上下文收一个 close 函数，返回一个「被 pcall 包起来的动作」。
+local CTXS = {
+  { "plain", function(cf)
+    return function()
+      local x <close> = setmetatable({}, { __close = cf })
+      return "body"
+    end
+  end },
+  { "bodyerr", function(cf)
+    return function()
+      local x <close> = setmetatable({}, { __close = cf })
+      error("BODY")
+    end
+  end },
+  { "bodynil", function(cf)
+    return function()
+      local x <close> = setmetatable({}, { __close = cf })
+      local t = nil
+      return t.x
+    end
+  end },
+  { "two", function(cf)
+    return function()
+      local a <close> = setmetatable({}, { __close = cf })
+      local b <close> = setmetatable({}, { __close = cf })
+      return "body"
+    end
+  end },
+  { "twoerr", function(cf)
+    return function()
+      local a <close> = setmetatable({}, { __close = cf })
+      local b <close> = setmetatable({}, { __close = cf })
+      error("BODY2")
+    end
+  end },
+  { "xpcall", function(cf)
+    return function()
+      return xpcall(function()
+        local x <close> = setmetatable({}, { __close = cf })
+        return "body"
+      end, function(m) return "H:" .. show(m) end)
+    end
+  end },
+  { "xpcallerr", function(cf)
+    return function()
+      return xpcall(function()
+        local x <close> = setmetatable({}, { __close = cf })
+        error("BODY3")
+      end, function(m) return "H:" .. show(m) end)
+    end
+  end },
+  { "xpcallherr", function(cf)
+    return function()
+      return xpcall(function()
+        local x <close> = setmetatable({}, { __close = cf })
+        error("BODY4")
+      end, function(m) error("HANDLER") end)
+    end
+  end },
+}
+
+print("=== grid ===")
+for i = 1, #CTXS do
+  local cname, mk = CTXS[i][1], CTXS[i][2]
+  for j = 1, #SHAPES do
+    local sname, cf = SHAPES[j][1], SHAPES[j][2]
+    P(cname .. "/" .. sname, mk(cf))
+  end
+end
+
+-- ==================== 协程里的 tbc ====================
+-- 单独一列：__close 在协程里出错时，错误是从 resume 那侧回来的。
+print("=== coroutine ===")
+for j = 1, #SHAPES do
+  local sname, cf = SHAPES[j][1], SHAPES[j][2]
+  P("co/" .. sname, function()
+    local co = coroutine.create(function()
+      local x <close> = setmetatable({}, { __close = cf })
+      coroutine.yield("Y1")
+      return "body"
+    end)
+    local r1 = table.pack(coroutine.resume(co))
+    local r2 = table.pack(coroutine.resume(co))
+    local out = ""
+    for i = 1, r1.n do out = out .. " r1:" .. show(r1[i]) end
+    for i = 1, r2.n do out = out .. " r2:" .. show(r2[i]) end
+    return out .. " st=" .. coroutine.status(co)
+  end)
+  P("coerr/" .. sname, function()
+    local co = coroutine.create(function()
+      local x <close> = setmetatable({}, { __close = cf })
+      error("COBODY")
+    end)
+    local r1 = table.pack(coroutine.resume(co))
+    local out = ""
+    for i = 1, r1.n do out = out .. " r1:" .. show(r1[i]) end
+    return out .. " st=" .. coroutine.status(co)
+  end)
+end
+
+-- ==================== main chunk 里的 tbc ====================
+-- 函数体外面也能声明 <close>：do 块结束时关。
+print("=== mainchunk ===")
+for j = 1, #SHAPES do
+  local sname, cf = SHAPES[j][1], SHAPES[j][2]
+  P("mc/" .. sname, function()
+    local f = load("local x <close> = ... return 'body'", "=c")
+    return f(setmetatable({}, { __close = cf }))
+  end)
+end
+
+-- ==================== 跳出作用域的四种方式 ====================
+print("=== scape ===")
+local function mkClose(cf)
+  return setmetatable({}, { __close = cf })
+end
+for j = 1, #SHAPES do
+  local sname, cf = SHAPES[j][1], SHAPES[j][2]
+  P("return/" .. sname, function()
+    local function f()
+      local x <close> = mkClose(cf)
+      if true then return "ret" end
+      return "no"
+    end
+    return f()
+  end)
+  P("break/" .. sname, function()
+    local function f()
+      for i = 1, 3 do
+        local x <close> = mkClose(cf)
+        if i == 2 then break end
+      end
+      return "brk"
+    end
+    return f()
+  end)
+  P("goto/" .. sname, function()
+    local function f()
+      do
+        local x <close> = mkClose(cf)
+        goto out
+      end
+      ::out::
+      return "gto"
+    end
+    return f()
+  end)
+  P("tail/" .. sname, function()
+    local function g() return "tail" end
+    local function f()
+      local x <close> = mkClose(cf)
+      return g()
+    end
+    return f()
+  end)
+end
+
+-- ==================== 非函数 / 不可关的值 ====================
+print("=== nonclosable ===")
+local NCS = {
+  { "nil", "nil" },
+  { "false", "false" },
+  { "true", "true" },
+  { "int", "42" },
+  { "float", "1.5" },
+  { "str", "'abc'" },
+  { "func", "print" },
+  { "thread", "coroutine.create(function() end)" },
+  { "notm", "setmetatable({}, {})" },
+  { "emptymt", "setmetatable({}, {__close = nil})" },
+}
+for i = 1, #NCS do
+  local name, expr = NCS[i][1], NCS[i][2]
+  P("nc/" .. name, function()
+    local f = load("local x <close> = (" .. expr .. ") return 'body'", "=c")
+    return f()
+  end)
+  P("ncn/" .. name, function()
+    local function f()
+      local x <close> = load("return " .. expr, "=c")()
+      return "body"
+    end
+    return f()
+  end)
+end
+
+-- 字符串/数字的类型元表上挂 __close（约定 #80：用完必须还原）
+print("=== typemt ===")
+do
+  local old = debug.getmetatable("")
+  -- __index 必须带上：换掉字符串的类型元表之后，show 里的 v:gsub 会变成
+  -- "attempt to index a string value"，而那是在 pcall 外面抛的，整个探针就崩了
+  debug.setmetatable("", { __index = string, __close = function() error("SCLOSE", 0) end })
+  P("strmt", load("local x <close> = 'zz' return 'body'", "=c"))
+  debug.setmetatable("", old)
+end
+
+print("END")
+        """);
+    }
+
+    /**
+     * 片四：{@code lua_error} 的<b>内存错误</b>特判（16 行，咬出两处真分歧）。
+     * <p>
+     * {@code lapi.c: lua_error} 里有唯一一处「<b>按错误值的内容决定错误种类</b>」
+     * 的判断：错误对象是 {@code "not enough memory"} 这个<b>驻留短串</b>时走
+     * {@code luaM_error}（{@code LUA_ERRMEM}，直跳），否则走
+     * {@code luaG_errormsg}（先过 {@code L->errfunc}）。
+     * 两条路<b>唯一的外部差别是过不过消息处理函数</b>：
+     * <pre>
+     * xpcall(function() error("not enough memory", 0) end, H)
+     *   参考：false  not enough memory          （处理函数接不到）
+     *   本实现：false  H:not enough memory
+     * xpcall(function() return io.open("/dev/null"):read(-1) end, H)
+     *   参考：false  not enough memory
+     *   本实现：false  H:not enough memory
+     * </pre>
+     * 而 {@code error("not enough memory")}（默认 level 1）会先拼上位置前缀，
+     * 拼出来的串<b>不再是</b>那个驻留串，于是退化成普通错误、处理函数照样接得到
+     * ——「有没有位置」这个看似无关的差别把错误种类换了，所以十个用例里
+     * {@code level} 取 0/1 都要有。
+     * <p>
+     * {@code f:read(-1)} 那条同源：C 的 {@code resizebox} 是
+     * {@code lua_pushliteral + lua_error}，同样被认成内存错误。
+     */
+
+    @Test
+    void memoryErrorSkipsHandlerMatchesReference() {
+        Diff.assertMatches("""
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+local H = function(m) return "H:" .. tostring(m) end
+P("lit", function() return xpcall(function() error("not enough memory") end, H) end)
+P("lit0", function() return xpcall(function() error("not enough memory", 0) end, H) end)
+P("lit1", function() return xpcall(function() error("not enough memory", 1) end, H) end)
+P("concat", function() return xpcall(function() error("not enough " .. "memory") end, H) end)
+P("pcall", function() return pcall(error, "not enough memory") end)
+P("read", function() return xpcall(function() return io.open("/dev/null"):read(-1) end, H) end)
+P("close", function() return xpcall(function()
+   local x <close> = setmetatable({}, {__close = function() error("not enough memory") end})
+   return "b" end, H) end)
+P("co", function()
+   local co = coroutine.create(function() error("not enough memory") end)
+   local r = table.pack(coroutine.resume(co))
+   local o = ""
+   for i = 1, r.n do o = o .. " | " .. tostring(r[i]) end
+   return o end)
+P("var", function() local s = "not enough memory" return xpcall(function() error(s) end, H) end)
+-- level 0：拼出来的串<i>就是</i>那个驻留串（"内容相等"与"同一个对象"等价）
+P("var0", function() local s = "not enough memory" return xpcall(function() error(s, 0) end, H) end)
+-- 拼接结果：短串驻留，拼出来的还是同一个串对象
+P("concat0", function() return xpcall(function() error("not enough " .. "memory", 0) end, H) end)
+P("rep1", function() return xpcall(function() error(("not enough memory"):rep(1), 0) end, H) end)
+P("sub", function() return xpcall(function() error(("Xnot enough memory"):sub(2), 0) end, H) end)
+print("END")
+        """);
+    }
+
+    /**
+     * 片五：{@code luaG_runerror} 在 <b>C 帧</b>里没有位置（74 行，咬出
+     * {@code next} 那处真分歧）。
+     * <p>
+     * C 版给运行时错误加位置的是 {@code luaG_runerror}，判据是
+     * {@code isLua(ci)} —— <b>只看当前帧</b>，与 {@code luaL_error} 的
+     * {@code luaL_where(L, 1)}（回跳一层到调用者）完全是两回事。于是
+     * {@code ltable.c: findindex} 里那句
+     * {@code luaG_runerror(L, "invalid key to 'next'")} 永远没有位置：跑到
+     * 那儿时 {@code ci} 是 {@code luaB_next} 这个 C 帧。
+     * <p>
+     * 本实现当时用的是 {@link LuaState#libError}（{@code luaL_error} 那套），
+     * 于是凭空多出 {@code case.lua:N:}：
+     * <pre>
+     * 参考：  false  invalid key to 'next'
+     * 本实现：false  case.lua:12: invalid key to 'next'
+     * </pre>
+     * <b>约定 #8 那句「库函数一律 {@code libError}」在这里不成立</b>——
+     * 这条消息的源头在 {@code ltable.c} 而不在库代码里，得走
+     * {@link LuaState#runError}。
+     * <p>
+     * 这一片把 23 种运行时错误各放进三种上下文（直接在 Lua 帧里 / 在
+     * {@code gsub} 的 Lua 回调里 / 由 C 函数自己触发），目的就是找出
+     * 「同一个错误在不同帧里位置不一样」的那一族。除 {@code next} 之外
+     * 全部一致（{@code table.sort} 的 {@code attempt to compare} 也是
+     * C 帧无位置，两边都对）。
+     */
+    @Test
+    void runtimeErrorPositionByFrameMatchesReference() {
+        Diff.assertMatches("""
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+-- 一批「运行时错误」，分别在三种上下文里触发：
+--   L = 直接在 Lua 帧里
+--   G = 在 gsub 的 Lua 回调里（ci 还是 Lua）
+--   C = 由 C 函数自己做（ci 是 C 帧）
+local E = {
+  { "nextbad",  function() return next({}, 1) end },
+  { "nextbad2", function() return next({1,2,3}, "k") end },
+  { "sortcmp",  function() local t = {1,"a"} table.sort(t) return t end },
+  { "sortcmp2", function() local t = {{},{}} table.sort(t) return t end },
+  { "callnil",  function() return pcall(nil) end },
+  { "callnum",  function() return pcall(42) end },
+  { "callnum2", function() return xpcall(42, print) end },
+  { "nilidx",   function() local t = {} t[nil] = 1 end },
+  { "nanidx",   function() local t = {} t[0/0] = 1 end },
+  { "idiv0",    function() return 1 // 0 end },
+  { "mod0",     function() return 1 % 0 end },
+  { "arith",    function() return {} + 1 end },
+  { "concat",   function() return {} .. "x" end },
+  { "index",    function() local t = nil return t.x end },
+  { "callstr",  function() return ("s")() end },
+  { "intrep",   function() return ("x"):rep(1.5) end },
+  { "intrep2",  function() return string.format("%d", 1.5) end },
+  { "totoint",  function() return ("x"):sub(1.5) end },
+  { "yieldout", function() return coroutine.yield() end },
+  { "yieldC",   function()
+      local co = coroutine.create(function() return ("x"):gsub("x", function() return coroutine.yield(1) end) end)
+      local a = table.pack(coroutine.resume(co))
+      local b = table.pack(coroutine.resume(co))
+      return tostring(a[1]) .. " " .. tostring(a[2]) .. " / " .. tostring(b[1]) .. " " .. tostring(b[2])
+    end },
+  { "getmeta",  function() return ("x"):gsub("x", setmetatable({}, {__index = function() error("IDX", 0) end})) end },
+  { "le",       function() return {} < {} end },
+  { "ltn",      function() return 1 < "a" end },
+}
+for i = 1, #E do
+  local n, f = E[i][1], E[i][2]
+  P("L/" .. n, f)
+  P("G/" .. n, function() return ("x"):gsub("x", f) end)
+  P("C/" .. n, function() return pcall(f) end)
+end
+print("END")
+        """);
+    }
 }
