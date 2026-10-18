@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -856,4 +857,211 @@ class CoroutineTest {
             print(ok)
             """,
     };
+
+    /**
+     * <b>yield 边界矩阵</b>（51 档）：能不能 yield，取决于「当前帧上面压着
+     * 什么样的 C 帧」。
+     * <p>
+     * C 的判据是 {@code ldo.c} 里 {@code luaD_call} 与 {@code luaD_callnoyield}
+     * 的分野，外加被调用的 C 函数<b>有没有续体</b>（{@code lua_KFunction}）——
+     * 本实现只有 {@code pcall} / {@code xpcall} 注册了续体，所以 yield 能穿过
+     * 这两个、穿不过其余一切。
+     * <p>
+     * 六组：
+     * <ul>
+     *   <li><b>带续体的 C 帧</b>：{@code pcall}/{@code xpcall} 单层与嵌套、
+     *       yield 之后才 {@code error}（错误对象不是字符串、处理函数返回一个值）、
+     *       {@code pcall(coroutine.yield)} 这种把 yield 本身当 f 的写法、
+     *       处理函数自己 yield —— 最后一种给
+     *       {@code error in error handling}（约定 #23）。</li>
+     *   <li><b>无续体的 C 函数回调 Lua</b>：{@code table.sort} 的比较函数、
+     *       {@code gsub} 的函数替换、{@code gmatch}/{@code ipairs}/
+     *       {@code pairs} 的迭代器（这三个<b>能</b> yield，走的是
+     *       {@code OP_TFORCALL} 那条 {@code luaD_call}）。</li>
+     *   <li><b>元方法</b>：由 Lua 自己触发的 {@code __index}/{@code __newindex}/
+     *       {@code __call}/{@code __concat}/{@code __len}/{@code __eq}/
+     *       {@code __lt} 都能 yield；由 <b>C 函数</b>触发的（{@code gsub} 的表
+     *       替换、{@code print} 与 {@code tostring} 与 {@code string.format}
+     *       的 {@code __tostring}）一律报
+     *       {@code attempt to yield across a C-call boundary}（约定 #81）。</li>
+     *   <li><b>{@code load} 的读函数</b>与<b>钩子里 yield</b>：都不可。</li>
+     *   <li><b>{@code <close>} 的 {@code __close}</b>：能 yield，且 yield
+     *       打断收尾后错误对象靠 {@code closeErrPending} 暂存。</li>
+     *   <li><b>yield 的返回值</b>：{@code resume} 给几个、{@code nil} 怎么传、
+     *       {@code select('#', yield(...))} 数几个；末尾一档是主线程不可 yield。</li>
+     * </ul>
+     * <p>
+     * 一条分歧都没咬出来 —— 留作回归网：{@code luaT_callTMres} /
+     * {@code luaT_callTM} 那一刀（约定 #81）与续体的 {@code LUA_YIELD} 分支
+     * 是最容易改坏的两处。
+     */
+    @Test
+    void yieldBoundaryMatrixMatchesReference() {
+        Diff.assertMatches("""
+-- yield 边界矩阵：能不能 yield，取决于「当前帧上面压着什么样的 C 帧」。
+-- C 的判据是 ldo.c: luaD_callnoyield 与 luaD_call 的分野，以及 C 函数
+-- 有没有续体（lua_KFunction）。本实现只有 pcall / xpcall 注册了续体。
+-- 这一片把「可能踩到 C 边界」的写法挨个铺一遍，比对 resume 的返回值与协程状态。
+local function norm(s)
+  if type(s) ~= "string" then return tostring(s) end
+  return (s:gsub("0x%x+", "PTR"):gsub("[%-%+]nan", "nan"))
+end
+local function run(tag, f)
+  local ok, co = pcall(coroutine.create, f)
+  if not ok then print(tag, "mkfail", norm(co)) return end
+  local r1 = table.pack(coroutine.resume(co))
+  local out = { tag, "r1=" .. tostring(r1[1]) }
+  for i = 2, r1.n do out[#out + 1] = norm(r1[i]) end
+  local st = coroutine.status(co)
+  out[#out + 1] = "st=" .. st
+  if st == "suspended" then
+    local r2 = table.pack(coroutine.resume(co, "X"))
+    out[#out + 1] = "r2=" .. tostring(r2[1])
+    for i = 2, r2.n do out[#out + 1] = norm(r2[i]) end
+    out[#out + 1] = "st2=" .. coroutine.status(co)
+    if coroutine.status(co) == "suspended" then
+      local r3 = table.pack(coroutine.resume(co))
+      out[#out + 1] = "r3=" .. tostring(r3[1])
+      for i = 2, r3.n do out[#out + 1] = norm(r3[i]) end
+      out[#out + 1] = "st3=" .. coroutine.status(co)
+    end
+  end
+  print(table.concat(out, " | "))
+end
+local Y = coroutine.yield
+
+-- 1) 带续体的 C 帧：pcall / xpcall
+run("Y01", function() return pcall(function() return Y(1) end) end)
+run("Y02", function() return pcall(Y) end)
+run("Y03", function() return pcall(function() Y(1) Y(2) return 3 end) end)
+run("Y04", function() return pcall(pcall, function() return Y(1) end) end)
+run("Y05", function() return pcall(function() return pcall(function() return Y(1) end) end) end)
+run("Y06", function() return xpcall(function() return Y(1) end, print) end)
+run("Y07", function() return xpcall(Y, print) end)
+run("Y08", function() return xpcall(function() return Y(1) end, function(e) return "H" .. tostring(e) end) end)
+run("Y09", function() return pcall(function() Y(1) error("boom") end) end)
+run("Y10", function() return pcall(function() Y(1) error({}) end) end)
+run("Y11", function() return xpcall(function() Y(1) error("boom") end, function(e) return "H" end) end)
+-- 处理函数自己 yield（xpcall 的处理器在 callNoYield 里跑）
+run("Y12", function() return xpcall(function() error("e") end, function(e) return Y(9) end) end)
+
+-- 2) 无续体的 C 函数回调 Lua
+run("Y20", function() local t = { 3, 1, 2 } table.sort(t, function(a, b) Y(0) return a < b end) return t end)
+run("Y21", function() return ("x"):gsub("x", function() return Y("r") end) end)
+run("Y22", function() return ("x"):gsub("x", "y") end)
+run("Y23", function() local n = 0 for s in ("a b"):gmatch("%a") do n = n + 1 Y(s) end return n end)
+run("Y24", function() local t = { 10, 20 } local n = 0 for i, v in ipairs(t) do n = n + v Y(i) end return n end)
+run("Y25", function() local t = { a = 1 } local n = 0 for k, v in pairs(t) do n = n + 1 Y(k) end return n end)
+run("Y26", function() return select(2, Y(1, 2, 3)) end)
+run("Y27", function() return table.concat({ "a", Y, "b" }) end)
+
+-- 3) 元方法：由 Lua 触发 vs 由 C 函数触发（约定 #81）
+do
+  local mt = { __index = function(t, k) return Y("idx" .. k) end }
+  run("Y30", function() local t = setmetatable({}, mt) return t.x end)
+end
+do
+  local mt = { __newindex = function(t, k, v) Y("ni") rawset(t, k, v) end }
+  run("Y31", function() local t = setmetatable({}, mt) t.x = 1 return t.x end)
+end
+do
+  local mt = { __call = function(s, a) return Y("call" .. tostring(a)) end }
+  run("Y32", function() return setmetatable({}, mt)(7) end)
+end
+do
+  local mt = { __concat = function(a, b) return Y("cc") end }
+  run("Y33", function() return setmetatable({}, mt) .. "x" end)
+end
+do
+  local mt = { __len = function() return Y(5) end }
+  run("Y34", function() return #setmetatable({}, mt) end)
+end
+do
+  local mt = { __eq = function() return Y(true) end }
+  run("Y35", function() return setmetatable({}, mt) == setmetatable({}, mt) end)
+end
+do
+  local mt = { __lt = function() return Y(true) end }
+  run("Y36", function() return setmetatable({}, mt) < setmetatable({}, mt) end)
+end
+do
+  -- 由 C 函数触发 __index：gsub 的「表替换」
+  local mt = { __index = function(t, k) return Y("fromC" .. k) end }
+  run("Y37", function() return ("x"):gsub("x", setmetatable({}, mt)) end)
+end
+do
+  -- 由 C 函数触发 __tostring：print
+  local mt = { __tostring = function() return Y("ts") end }
+  run("Y38", function() print(setmetatable({}, mt)) return "ok" end)
+end
+do
+  local mt = { __tostring = function() return Y("ts2") end }
+  run("Y39", function() return tostring(setmetatable({}, mt)) end)
+end
+do
+  local mt = { __tostring = function() return Y("ts3") end }
+  run("Y40", function() return string.format("%s", setmetatable({}, mt)) end)
+end
+
+-- 4) load 的读函数、以及读回来就跑
+run("Y50", function() return load(function() return Y("chunk") end, "=rd") end)
+run("Y51", function() local f = load(function() return nil end, "=rd") return f ~= nil end)
+
+-- 5) 钩子里 yield
+run("Y60", function()
+  debug.sethook(function() Y("hook") end, "l")
+  local n = 0
+  for i = 1, 3 do n = n + i end
+  debug.sethook()
+  return n
+end)
+
+-- 6) to-be-closed 与 __close 里 yield
+run("Y70", function()
+  local t <close> = setmetatable({}, { __close = function() Y("cl") end })
+  return "body"
+end)
+run("Y71", function()
+  local t <const> = setmetatable({}, { __close = function() Y("cl2") end })
+  return "body"
+end)
+run("Y72", function()
+  local t <close> = setmetatable({}, { __close = function() error("inclose") end })
+  Y("mid")
+  return "body"
+end)
+
+-- 7) 协程套协程 / wrap
+run("Y80", function()
+  local inner = coroutine.wrap(function() Y("i1") return "i2" end)
+  return inner(), inner()
+end)
+run("Y81", function()
+  local inner = coroutine.create(function() Y("j1") return "j2" end)
+  local _, a = coroutine.resume(inner)
+  local _, b = coroutine.resume(inner)
+  Y("outer")
+  return a, b
+end)
+run("Y82", function() return coroutine.isyieldable() end)
+run("Y83", function() return coroutine.running() end)
+run("Y84", function() local co, main = coroutine.running() return main, Y("after") end)
+run("Y85", function() return coroutine.close(coroutine.running()) end)
+run("Y86", function() return coroutine.status(coroutine.running()) end)
+
+-- 8) yield 的返回值个数 / 类型
+run("Y90", function() local a, b, c = Y(1) return a, b, c end)
+run("Y91", function() return Y() end)
+run("Y92", function() return select("#", Y(1, 2, 3)) end)
+run("Y93", function() return Y(nil) end)
+run("Y94", function() return Y(nil, nil) end)
+
+-- 9) 主线程不可 yield
+local ok, err = pcall(Y)
+print("Y99", ok, norm(err))
+
+print("END")
+
+                """);
+    }
 }
