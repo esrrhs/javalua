@@ -2167,4 +2167,111 @@ final class Api {
         LuaLibs.openAllSkippingLoaded(st(L));
     }
 
+    /* ================================================================
+     * lualib.h: luaopen_*
+     * ================================================================ */
+
+    /*
+     * 这十个是符号表对撞撞出来的：{@code nm liblua.a} 的导出符号里有它们，
+     * 我们的 dylib 里一个都没有——因为 {@code lualib.h} 用的是
+     * {@code LUAMOD_API} 而不是 {@code LUALIB_API}，生成器原本只认后两个，
+     * 于是整整十个缺席。光看「头文件里有没有」看不出来。
+     * <p>
+     * 语义要和 {@code luaL_requiref} 分清：{@code luaopen_X} <b>不动全局表、
+     * 不动 {@code package.loaded}</b>，它只是 <b>{@code luaL_newlib}</b>——
+     * 造一张<b>全新的</b>表，把库函数填进去，压栈返回 1。
+     * 所以 {@code rawequal(n.openlib("table"), table)} 参考给 <b>false</b>：
+     * 每次调都是一张新表，改它不影响真的 {@code table}。
+     * 第一版这里压的是 {@code package.loaded} 里那份，整好反了。
+     */
+    private static long openLib(LuaState S, String name,
+            java.util.function.Consumer<LuaState> open) {
+        LuaValue cur = S.loadedTable().get(name);
+        if (cur == null || !cur.isTable()) {
+            open.accept(S);
+            cur = S.loadedTable().get(name);
+        }
+        grow(S, 1);
+        S.stack[S.top++].setTable(freshCopy(cur));
+        return 1;
+    }
+
+    /**
+     * 照一张表<b>浅拷</b>出一张新表。
+     * <p>
+     * 库表都是平的（键到函数，没有嵌套），浅拷与 C 的 {@code luaL_newlib}
+     * 造出来的那张在观测上一致：同一个 {@code next} 序列、同样改它不影响原表。
+     * 之所以不直接「再跑一遍 open」：{@code IoLib} 会去建 {@code FILE*} 元表，
+     * 建第二遍就炸（{@code luaL_openlibs} 连调两次都得靠
+     * {@code openAllSkippingLoaded} 绕开，同一件事）。
+     */
+    private static LuaTable freshCopy(LuaValue src) {
+        LuaTable dst = new LuaTable();
+        if (src == null || !src.isTable()) {
+            return dst;
+        }
+        LuaTable t = src.asTable();
+        LuaValue k = LuaValue.ofNil();
+        while (true) {
+            LuaValue[] kv = t.next(k);
+            if (kv == null) {
+                break;
+            }
+            dst.set(new LuaValue(kv[0]), new LuaValue(kv[1]));
+            k = kv[0];
+        }
+        return dst;
+    }
+
+    static long luaopen_base(long L) {
+        LuaState S = st(L);
+        if (S.globals.get("print") == null) {
+            BaseLib.open(S);
+        }
+        /*
+         * {@code lbaselib.c: luaopen_base} 与其余九个不同：它 {@code luaL_setfuncs}
+         * 到<b>全局表</b>上，压回来的是全局表本身 —— 不是一张新表，
+         * 也不是 {@code package.loaded._G}（那份压根不存在）。
+         */
+        grow(S, 1);
+        S.stack[S.top++].setTable(S.globals);
+        return 1;
+    }
+
+    static long luaopen_coroutine(long L) {
+        return openLib(st(L), "coroutine", CoroutineLib::open);
+    }
+
+    static long luaopen_table(long L) {
+        return openLib(st(L), "table", TableLib::open);
+    }
+
+    static long luaopen_io(long L) {
+        return openLib(st(L), "io", IoLib::open);
+    }
+
+    static long luaopen_os(long L) {
+        return openLib(st(L), "os", OsLib::open);
+    }
+
+    static long luaopen_string(long L) {
+        return openLib(st(L), "string", StringLib::open);
+    }
+
+    static long luaopen_math(long L) {
+        return openLib(st(L), "math", MathLib::open);
+    }
+
+    static long luaopen_utf8(long L) {
+        return openLib(st(L), "utf8", Utf8Lib::open);
+    }
+
+    static long luaopen_debug(long L) {
+        return openLib(st(L), "debug", DebugLib::open);
+    }
+
+    static long luaopen_package(long L) {
+        return openLib(st(L), "package", PackageLib::open);
+    }
+
 }

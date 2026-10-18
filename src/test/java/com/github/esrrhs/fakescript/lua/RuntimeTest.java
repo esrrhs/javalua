@@ -10710,6 +10710,13 @@ end
 -- ② <b>清理的输出不进断言</b>：这条用例测的是 errno，而某些宿主环境会给
 --    rm 套一层包装、往 stdout/stderr 上打自己的话（内容还带随调用次数变的
 --    计数）。那类输出两边拿到的是两份，逐字节比必然假红。
+-- ③ <b>rm 之前先把权限放开</b>：这条用例自己会在结尾造一个 555 的只读目录
+--    {@code au_tmp/ro}。正常收尾会 {@code chmod -R u+w}，但<b>上一次运行要是被
+--    kill 了</b>（超时、Ctrl-C、宿主杀进程）就留在盘上 —— 那时第一次
+--    {@code rm -rf} 删不掉它里面的东西，{@code mkdir -p} 又照建，状态就串了。
+--    实测偶发红过一次（{@code os.rename(目录, 空目录)} 那一条给成 ENOTEMPTY），
+--    两轮重跑都绿，是这一族里最像的那个解释。chmod 独立一条、失败也不影响后面。
+os.execute("chmod -R u+w au_tmp >/dev/null 2>&1")
 os.execute("rm -rf au_tmp >/dev/null 2>&1")
 os.execute("mkdir -p au_tmp/d au_tmp/e")
 local w = io.open(D .. "f.txt", "w")
