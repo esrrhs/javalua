@@ -79,8 +79,6 @@ public final class LuaState {
      */
     private boolean stackErr;
 
-    /** {@link #applyErrMsg} 的重入保护，见那里的注释 */
-    private boolean inErrMsg;
 
     /**
      * 当前安装的<b>消息处理函数</b>（{@code lstate.c: L->errfunc}）。
@@ -1626,6 +1624,20 @@ public final class LuaState {
                     v = LuaValue.ofString(prefix.concat(v.asString()));
                 }
                 if (handler != null) {
+                    /*
+                     * C 版在<b>抛出点</b>还留着保护调用自己那一次 {@code ccall}
+                     * 加的层：{@code f_call → luaD_callnoyield → ccall} 的
+                     * {@code L->nCcalls -= inc} 被 {@code longjmp} 跳过了。
+                     * 本实现的 {@link #call} 用 {@code finally} 把它减回去，
+                     * 于是处理函数整体浅一格 —— 递归到 C 栈上限的层数随之差 1。
+                     * <p>
+                     * 实测（处理函数连续出错 {@code K} 次后才成功）：
+                     * {@code K=196} 参考给 {@code done:C stack overflow}、
+                     * 本实现给 {@code done:...h}；{@code K=215} 参考给
+                     * {@code error in error handling}、本实现还能成功。
+                     * 补上这一格之后两处临界点都对齐。
+                     */
+                    nCcalls = oldNCcalls + 1;
                     v = applyErrMsg(v, handler);
                 }
             }
@@ -1709,41 +1721,96 @@ public final class LuaState {
         return (errFunc == null) ? v : applyErrMsg(v, errFunc);
     }
 
+    /**
+     * 处理函数自身出错时<b>再进一次 {@code luaG_errormsg}</b>。
+     * <p>
+     * 曾经这里是个重入开关：第二层直接判死，返回
+     * {@code "error in error handling"}。那把「第二次调用其实会成功」的情形也
+     * 一起吞了。实测分歧（错误对象是个 {@code __tostring} 返回非串的表，
+     * 处理函数写 {@code type(m) .. ":" .. tostring(m)}）：
+     * <pre>
+     * 参考：false  string:case.lua:6: '__tostring' must return a string
+     * 本实现：false  error in error handling
+     * </pre>
+     * 道理是：C 版 {@code luaG_errormsg} 是在<b>抛出点</b>无保护地
+     * {@code luaD_callnoyield} 处理函数，而那时 {@code L->errfunc} <b>还设着</b>
+     * （{@code luaD_pcall} 要到保护区出口才还原）。所以处理函数里
+     * {@code error(...)} 会再次走进 {@code luaG_errormsg}，把<b>新的</b>错误对象
+     * 交给<b>同一个</b>处理函数——递归，而不是失败。
+     * <p>
+     * 判死的条件不是「重入」，是<b>深度</b>：{@code luaD_callnoyield} 每次
+     * {@code incXCcalls} 加一层，而错误是 longjmp 出去的，对应的
+     * {@code decXCcalls} <b>不会执行</b>，于是层数一层层累上去。第 200 层
+     * {@code luaE_checkcstack} 抛 {@code C stack overflow}（这个消息又会被交给
+     * 处理函数），一直累到 220 层（{@code MAXCCALLS / 10 * 11}）才
+     * {@code luaD_throw(L, LUA_ERRERR)}，最终落成
+     * {@code "error in error handling"}。
+     * <p>
+     * Java 这边 {@link #call} 的 {@code nCcalls--} 在 {@code finally} 里，longjmp
+     * 那一步被 {@code finally} 抵消了，所以要在 {@code catch} 里手工把那一层加回去。
+     */
     private LuaValue applyErrMsg(LuaValue v, LuaValue handler) {
-        if (inErrMsg) {
-            return v;
-        }
-        inErrMsg = true;
+        int saved = nCcalls;
         try {
-            int hf = top;
+            return applyErrMsgRec(v, handler);
+        } finally {
+            /*
+             * 递归累上去的层数必须在<b>本函数出口</b>还回去。
+             * <p>
+             * C 版是 {@code luaD_throw} 跳到 {@code luaD_rawrunprotected} 的恢复点，
+             * 那里无条件 {@code L->nCcalls = oldnCcalls}。本实现没有 longjmp，
+             * 而且 {@link #closeUpvalsOnUnwind} 里那次调用发生在 {@code pcall}
+             * 的恢复点<b>之后</b>，不在这里还，层数就永久漏在外面——实测
+             * {@code xpcall} + 永远抛错的处理器 + {@code <close>} 之后，同一次
+             * 运行里后续所有 {@code coroutine.resume} 都变成
+             * {@code false, "C stack overflow"}。
+             */
+            nCcalls = saved;
+        }
+    }
+
+    private LuaValue applyErrMsgRec(LuaValue v, LuaValue handler) {
+        int hf = top;
+        int depth = nCcalls;
+        try {
             checkStack(2);
             stack[hf].set(handler);
             stack[hf + 1].set(v);
             top = hf + 2;
             /*
-             * 处理函数<b>必须在不可 yield 的上下文里调</b>。
-             * <p>
-             * C 版这里是 {@code luaD_callnoyield}。上一版用的是 {@code pcall}，
-             * 于是 {@code xpcall} 的消息处理函数里 {@code coroutine.yield}
-             * 竟然成功了：实测参考实现给的是
-             * {@code false, "error in error handling"}，本实现给的是
-             * {@code true, "in msgh"}（协程停在 suspended）。
-             * <p>
-             * 道理是：能在错误处理的续体里 yield，就意味着「错误已经交出去一半」
-             * 的中间态可以被挂起，而 C 版没有这种状态。
-             */
-            try {
-                callNoYield(hf, 1);
-            } catch (LuaError e) { // 处理函数自身出错（含在里头 yield）不再兜底
-                top = hf;
-                return LuaValue.ofString(LuaString.latin1("error in error handling"));
-            }
-            LuaValue res = new LuaValue(stack[top - 1]);
+         * 处理函数<b>必须在不可 yield 的上下文里调</b>。
+         * <p>
+         * C 版这里是 {@code luaD_callnoyield}。上一版用的是 {@code pcall}，
+         * 于是 {@code xpcall} 的消息处理函数里 {@code coroutine.yield}
+         * 竟然成功了：实测参考实现给的是
+         * {@code false, "error in error handling"}，本实现给的是
+         * {@code true, "in msgh"}（协程停在 suspended）。
+         * <p>
+         * 道理是：能在错误处理的续体里 yield，就意味着「错误已经交出去一半」
+         * 的中间态可以被挂起，而 C 版没有这种状态。
+         */
+            callNoYield(hf, 1);
+        } catch (LuaError e) {
             top = hf;
-            return res;
-        } finally {
-            inErrMsg = false;
+            // 补上 incXCcalls 加的那一层（C 版靠 longjmp 跳过 decXCcalls 保留它）
+            nCcalls = depth + 1;
+            if (e.errErr) {
+                /*
+                 * 累到 220 层：{@code luaD_throw(L, LUA_ERRERR)} 直跳到<b>最内层
+                 * 的</b>保护区，由 {@code luaD_seterrorobj} 写成那句固定串。
+                 * 这里必须<b>返回</b>而不是继续上抛 —— this 帧就在 {@code pcall}
+                 * 的 {@code catch} 块里，再抛就越过那道边界了（实测：
+                 * {@code xpcall(f, function() error('h') end)} 外层再套
+                 * {@code pcall}，本实现给 {@code false, "error in error handling"}，
+                 * 参考给 {@code true, false, "error in error handling"}）。
+                 */
+                return LuaValue.ofString(LuaString.latin1(ERRERR_MSG));
+            }
+            return applyErrMsgRec(e.value, (errFunc != null) ? errFunc : handler);
         }
+        LuaValue res = new LuaValue(stack[top - 1]);
+        top = hf;
+        return res;
     }
 
     /**
