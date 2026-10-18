@@ -516,6 +516,16 @@ local SHAPES = {
   { "cprint",     print },                       -- C 函数当 __close：有副作用
   { "callable",   setmetatable({}, { __call = function(_self2, _a, _b) error("ECALL", 0) end }) },
   { "yield",      function(_self, _err) return coroutine.yield("YC") end },
+  -- 下面这批是「<b>没有位置</b>的错误」：它们不是 error() / luaL_error 抛的，
+  -- 而是 LuaTable / IoLib 里直接 new 出来的裸错误值，where 字段是 null。
+  -- 位置是走到保护区才补的（判据 isLua(ci)），__close 这条路径上补的地方
+  -- 就是 closeUpvalsOnUnwind —— 这一批形状专门为了走到那条分支。
+  { "setnil",     function(_self, _err) local t = {} t[nil] = 1 end },
+  { "setnan",     function(_self, _err) local t = {} t[0/0] = 1 end },
+  { "idiv0",      function(_self, _err) return 1 // 0 end },
+  { "mod0",       function(_self, _err) return 1 % 0 end },
+  { "nextbad",    function(_self, _err) return next({}, 1) end },
+  { "nomem",      function(_self, _err) return io.open("/dev/null"):read(-1) end },
 }
 
 -- ==================== 维二：什么上下文 ====================
@@ -856,6 +866,171 @@ for i = 1, #E do
   P("L/" .. n, f)
   P("G/" .. n, function() return ("x"):gsub("x", f) end)
   P("C/" .. n, function() return pcall(f) end)
+end
+print("END")
+        """);
+    }
+
+    /**
+     * 片六：协程边界<b>漏了补位置</b>（62 行，咬出第三处真分歧）。
+     * <p>
+     * C 的位置是 {@code luaG_runerror} 在<b>抛出点</b>加的；本实现里
+     * {@code table index is nil} / {@code table index is NaN} /
+     * {@code not enough memory} 抛的是<b>裸错误值</b>
+     * （{@link LuaError#where} 为 {@code null}），位置要等走到保护边界才补。
+     * {@code pcall} 那条边界补了，<b>协程这条没补</b>：
+     * <pre>
+     * 参考：  false  case.lua:8: table index is nil
+     * 本实现：false  table index is nil
+     * </pre>
+     * 四条路都是同一个洞：{@code resume} / {@code wrap} / yield 之后再抛 /
+     * {@code __close} 里抛。修在 {@code errObjAt}（{@code resume} 与
+     * {@code precover} 两个 {@code catch} 共用）。
+     * <p>
+     * 这一片同时是对照组：{@code error("E0", 0)}
+     * （{@code where} 是空串不是 null）、{@code next} 的错（C 帧，
+     * {@code where()} 给空串）、以及带位置的普通错，三类都<b>不该</b>再补。
+     */
+    @Test
+    void coroutineBoundaryAddsPositionMatchesReference() {
+        Diff.assertMatches("""
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+local SH = {
+  { "setnil",  function() local t = {} t[nil] = 1 end },
+  { "setnan",  function() local t = {} t[0/0] = 1 end },
+  { "idiv0",   function() return 1 // 0 end },
+  { "mod0",    function() return 1 % 0 end },
+  { "nextbad", function() return next({}, 1) end },
+  { "nomem",   function() return io.open("/dev/null"):read(-1) end },
+  { "err1",    function() error("E1") end },
+  { "err0",    function() error("E0", 0) end },
+  { "runtime", function() local t = nil return t.x end },
+  { "memerr",  function() error("not enough memory", 0) end },
+}
+for i = 1, #SH do
+  local n, f = SH[i][1], SH[i][2]
+  -- 协程里直接抛（没有 pcall 兜）
+  P("co/" .. n, function()
+    local co = coroutine.create(f)
+    local r = table.pack(coroutine.resume(co))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o .. " st=" .. coroutine.status(co)
+  end)
+  -- 协程里有 pcall 兜
+  P("copcall/" .. n, function()
+    local co = coroutine.create(function() return pcall(f) end)
+    local r = table.pack(coroutine.resume(co))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o .. " st=" .. coroutine.status(co)
+  end)
+  -- coroutine.wrap
+  P("wrap/" .. n, function()
+    local w = coroutine.wrap(f)
+    local r = table.pack(pcall(w))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o
+  end)
+  -- yield 之后再抛
+  P("y/" .. n, function()
+    local co = coroutine.create(function() coroutine.yield("Y") return f() end)
+    local a = table.pack(coroutine.resume(co))
+    local b = table.pack(coroutine.resume(co))
+    return tostring(a[1]) .. " " .. tostring(a[2]) .. " / " .. tostring(b[1]) .. " " .. tostring(b[2])
+  end)
+  -- 闭包里（__close）—— 正常返回路径
+  P("close/" .. n, function()
+    local co = coroutine.create(function()
+      local x <close> = setmetatable({}, {__close = f})
+      coroutine.yield("Y")
+      return "b"
+    end)
+    local a = table.pack(coroutine.resume(co))
+    local b = table.pack(coroutine.resume(co))
+    return tostring(a[1]) .. " " .. tostring(a[2]) .. " / " .. tostring(b[1]) .. " " .. tostring(b[2])
+  end)
+  -- 主线程对照
+  P("main/" .. n, function() return f() end)
+end
+print("END")
+        """);
+    }
+
+    /**
+     * 片七：{@code __close} 里 <b>yield 之后再抛</b>的错怎么走处理函数
+     * （14 行，咬出第四处真分歧）。
+     * <p>
+     * 这一片专门打 {@code ldo.c: finishpcallk} 那条路：{@code xpcall} 的函数体
+     * 先出错，{@code __close} 里 yield 把 {@code pcall} 打断，resume 回来之后
+     * {@code __close} 才抛真正的错。这时错误对象是「上一趟 yield 出去、这一趟
+     * 从栈上取回来」的，<b>当初那个 {@code LuaError} 的 {@code errMem} 标记早
+     * 丢了</b> —— 只能像 C 那样<b>判错误对象本身</b>：
+     * <pre>
+     * 参考：  false  not enough memory
+     * 本实现：false  H:not enough memory
+     * </pre>
+     * 对照组（{@code err0} / {@code err1} / {@code setnil}）都是普通错误，
+     * 处理函数照旧要跑。
+     */
+    @Test
+    void closeYieldsThenErrorsMatchesReference() {
+        Diff.assertMatches("""
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+-- __close 里先 yield（打断 pcall），恢复之后再抛一个「裸错」
+local CFS = {
+  { "setnil", function(_s, _e) coroutine.yield("Y") local t = {} t[nil] = 1 end },
+  { "setnan", function(_s, _e) coroutine.yield("Y") local t = {} t[0/0] = 1 end },
+  { "idiv0",  function(_s, _e) coroutine.yield("Y") return 1 // 0 end },
+  { "err0",   function(_s, _e) coroutine.yield("Y") error("E0", 0) end },
+  { "err1",   function(_s, _e) coroutine.yield("Y") error("E1") end },
+  { "mem",    function(_s, _e) coroutine.yield("Y") error("not enough memory", 0) end },
+}
+for i = 1, #CFS do
+  local n, cf = CFS[i][1], CFS[i][2]
+  P("yclose/" .. n, function()
+    local co = coroutine.create(function()
+      return xpcall(function()
+        local x <close> = setmetatable({}, {__close = cf})
+        error("BODY")
+      end, function(m) return "H:" .. tostring(m) end)
+    end)
+    local out = ""
+    for k = 1, 5 do
+      local r = table.pack(coroutine.resume(co))
+      out = out .. " r" .. k .. ":"
+      for j = 1, r.n do out = out .. " " .. tostring(r[j]) end
+      if coroutine.status(co) == "dead" then break end
+    end
+    return out
+  end)
+  P("ypcall/" .. n, function()
+    local co = coroutine.create(function()
+      return pcall(function()
+        local x <close> = setmetatable({}, {__close = cf})
+        error("BODY")
+      end)
+    end)
+    local out = ""
+    for k = 1, 5 do
+      local r = table.pack(coroutine.resume(co))
+      out = out .. " r" .. k .. ":"
+      for j = 1, r.n do out = out .. " " .. tostring(r[j]) end
+      if coroutine.status(co) == "dead" then break end
+    end
+    return out
+  end)
 end
 print("END")
         """);
