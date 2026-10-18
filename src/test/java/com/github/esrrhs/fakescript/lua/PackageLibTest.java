@@ -499,13 +499,20 @@ class PackageLibTest {
           if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
           return t
         end
-        -- C 搜索器 / loadlib 的失败文本是平台自己的（macOS 是 "dlopen(...): tried: ..."，
-        -- 本实现没有 dlopen，给 "dynamic libraries not enabled..."）。两边都是「没有动态库」
+        -- C 搜索器 / loadlib 的失败文本是平台自己的：macOS 是
+        -- "dlopen(...): tried: '...' (slice is not valid mach-o file)"，glibc 是
+        -- "...: cannot open shared object file" / "...: file too short" /
+        -- "undefined symbol: ..."，本实现没有 dlopen，给
+        -- "dynamic libraries not enabled..."，而 require 那层会把它们再包成
+        -- "error loading module 'x' from file 'y': ..."。两边都是「没有动态库」
         -- 这一件事，只是措辞不同 —— 归一成 <NODL> 再比，其余部分照比。
+        local NODL_PATS = { "dlopen", "dynamic libraries not enabled",
+                            "cannot open shared object", "file too short",
+                            "undefined symbol", "error loading module" }
         local function nodl(v)
           if type(v) ~= "string" then return v end
-          if v:find("dlopen", 1, true) or v:find("dynamic libraries not enabled", 1, true) then
-            return "<NODL>"
+          for i = 1, #NODL_PATS do
+            if v:find(NODL_PATS[i], 1, true) then return "<NODL>" end
           end
           return v
         end

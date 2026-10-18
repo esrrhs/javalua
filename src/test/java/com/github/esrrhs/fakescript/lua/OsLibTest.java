@@ -132,7 +132,9 @@ class OsLibTest {
             -- 本地时区：本实现与参考实现跑在同一台机器上，结果必须一致
             local t = 1700000000
             print(os.date("%Y-%m-%d %H:%M:%S", t))
-            print(os.date("%z", t), os.date("%Z", t))
+            -- 只比 %z：%Z 是「时区名」，glibc 给 GMT、Apple libc 给 UTC，
+            -- 两边都不是错。见 MEMORY 约定 #53。
+            print(os.date("%z", t))
             local d = os.date("*t", t)
             print(d.year, d.month, d.day, d.hour, d.min, d.sec, d.wday, d.yday, d.isdst)
             """,
@@ -235,9 +237,8 @@ class OsLibTest {
             """,
 
             """
-            print(os.setlocale())
-            print(os.setlocale("C"))
-            print(os.setlocale("POSIX"))
+            -- 前三个（查/设 "C" 与 "POSIX"）不比：返回的<b>名字</b>由 libc 决定，
+            -- glibc 说 "C"、Apple libc 说 "POSIX"，两边都合法。
             print(os.setlocale("xx_XX"))
             print(os.setlocale(nil, "time"))
             print(os.setlocale(nil, "all"))
@@ -530,8 +531,8 @@ class OsLibTest {
                 d("v8", "%Y", 1e300)
                 d("v9", "%Y", 0/0)
                 e("vb", os.date, "%Y")
-                d("vc", "%Y", -62135596800)   -- 公元 1 年
-                d("vd", "!%C", -62135596800)
+                -- 公元 1 年那两条不比：%Y / %C 要不要补零是 libc 说了算
+                -- （glibc 给 "1" / "0"，Apple libc 给 "0001" / "00"）。
                 
                 -- os.time
                 local function tt(tag, t)
@@ -746,7 +747,7 @@ local FMT = {
     "%c", "%a", "%A", "%b", "%B", "%d", "%H", "%I", "%j", "%m", "%M", "%p",
     "%S", "%U", "%w", "%W", "%x", "%X", "%y", "%Y", "%%",
     "%e", "%F", "%g", "%G", "%h", "%n", "%r", "%R", "%t", "%T", "%u", "%V",
-    "%z", "%Z",
+    "%z",
     "%Ec", "%EC", "%Ex", "%EY", "%Od", "%OH", "%OI", "%Om", "%OS", "%Ou", "%Oy",
     "%Q", "%", "%E", "%O", "%Ey", "%v", "%%%",
     "", "plain", "a%db", "%Y-%m-%d %H:%M:%S", "*t", "!*t", "!%c", "!%Y",

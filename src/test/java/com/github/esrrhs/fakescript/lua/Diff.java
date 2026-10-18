@@ -580,7 +580,47 @@ final class Diff {
                 s = s.substring(0, tb);
             }
         }
-        return s.replaceAll("0x[0-9a-fA-F]+", "0xADDR");
+        s = s.replaceAll("0x[0-9a-fA-F]+", "0xADDR");
+        /*
+         * NaN 的符号：libc 说了算，两边不一致（约定 #96）。
+         * <p>
+         * x86 的「默认 NaN」符号位是 1，所以 C 里 {@code 0/0}、{@code sqrt(-1)}
+         * 得到的那个 NaN 是负的，glibc 的 {@code printf("%.14g")} 打
+         * {@code -nan}（{@code %+f} 则是 {@code +nan}）；Apple libc 一律打
+         * {@code nan}。C99 把 NaN 的符号留作 <i>unspecified</i>，两边都合法。
+         * <p>
+         * 这一条出现在<b>所有</b>会打印 NaN 的用例里（{@code tostring}、
+         * {@code print}、{@code string.format}、{@code warn}、数学库返回值、
+         * 差分 fuzz），没有「局部挪出差分表」这个选项，只能归一化后比对。
+         * 归一化的是 <b>两边同一种写法</b>，不是把差异抹掉：{@code nan} 与
+         * {@code -inf} 之类的真差异照样会红。
+         */
+        s = s.replace("-nan", "nan").replace("-NAN", "NAN");
+        s = s.replace("+nan", "nan").replace("+NAN", "NAN");
+        /*
+         * {@code math.fmod} / {@code package.searchpath} 报错的<b>参数序号</b>：
+         * 编译器说了算，两边不一致。
+         * <p>
+         * 这两处是 C 里唯一「同一个调用表达式里塞了两个 {@code luaL_check*}」
+         * 的地方：
+         * <pre>
+         * l_mathop(fmod)(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+         * searchpath(L, luaL_checkstring(L, 1), luaL_checkstring(L, 2), ...);
+         * </pre>
+         * 而 C 的<b>实参求值顺序是 unspecified</b>：GCC 从右往左（先查 #2），
+         * clang 从左往右（先查 #1）。于是 {@code math.fmod(nil, 1)} 在
+         * ubuntu（GCC 编的参考实现）上报 {@code bad argument #2}、
+         * 在 macOS（clang 编的）上报 {@code bad argument #1}。
+         * 其余函数两个 {@code check} 都在<b>独立语句</b>里，顺序是源码顺序，
+         * 不受影响——所以只有这两个名字需要归一化。
+         * <p>
+         * 归一化的是序号，不是「有没有报错」，也不是函数名：两边仍要比
+         * {@code got nil} / {@code got no value} / {@code got string}。
+         */
+        s = s.replaceAll("bad argument #\\d+ to 'math\\.fmod'",
+                "bad argument #? to 'math.fmod'");
+        return s.replaceAll("bad argument #\\d+ to 'package\\.searchpath'",
+                "bad argument #? to 'package.searchpath'");
     }
 
     static String firstLine(String s) {
