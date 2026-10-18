@@ -1276,6 +1276,38 @@ assertion *outside* the differential table, so that nobody "fixes" it by matchin
 a macOS reference binary and breaks Linux. (`Double.toHexString` already produces
 the glibc form, so there is nothing to implement.)
 
+#### A second one that is *not* a divergence: `%a` rounding, and `inf`/`nan` padding
+
+Apple libc is simply **wrong** when `%a` is given a precision and the first dropped
+hex digit is `8`. It is not round-to-nearest at all — its decision depends on the
+*parity of the second dropped digit*:
+
+```text
+("%.4a"):format(0x1.500082p0)  ->  0x1.5000p+0     # 0x82 > 0x80, yet rounded down
+("%.4a"):format(0x1.500081p0)  ->  0x1.5001p+0     # ...and this one rounds up
+```
+
+glibc's rule, straight from `stdio-common/printf_fphex.c` plus
+`include/rounding-mode.h`:
+
+```c
+bool more_bits = ((next_digit_value & 7) != 0 || precision + 1 < numend - numstr);
+do_round_away = round_away (negative, last_digit_value & 1,
+                            next_digit_value >= 8, more_bits, mode);
+/* FE_TONEAREST:  half_bit && (last_digit_odd || more_bits)  */
+```
+
+i.e. round-to-nearest, ties-to-even — and when `precision == 0` the "last kept
+digit" is the one left of the point, so `("%.0a"):format(1.5)` is `0x2p+0`, not
+`0x1p+0`. `StringLibTest.hexFloatPrecisionRoundingFollowsGlibc` pins these with
+plain assertions; the differential sweep skips every case whose first dropped digit
+is `8` (the two sides skip exactly the same set — the predicate is computed from the
+unrounded `%a`, which both agree on).
+
+Same file, one more: `inf` and `nan` are **not** zero-padded. The `special` branch
+does `pad(buf, ' ', width)` unconditionally and never looks at `pad == '0'`, so
+`("%020.5a"):format(math.huge)` is seventeen spaces followed by `inf`.
+
 #### One more, from sweeping the `table` library: `tmove` dropped a condition
 
 The `table` sweep — `insert` / `remove` / `move` / `concat` / `unpack` / `pack` /

@@ -1112,6 +1112,35 @@ C99 只规定小数点左边恰好一位十六进制数字，并且「这个数�
 免得有人照 macOS 上的参考实现「修」一把反而把 Linux 上本来对的行为改错。
 （`Double.toHexString` 给出的正是 glibc 那种写法，所以不需额外实现。）
 
+#### 第二处<b>不是</b>分歧：`%a` 带精度的舍入，与 `inf`/`nan` 的零填充
+
+Apple libc 在「`%a` 给了精度、且舍弃的第一位十六进制数字恰为 8」时是<b>错</b>的
+——它根本不是就近舍入，判据成了「第二位舍弃数字的奇偶」：
+
+```text
+("%.4a"):format(0x1.500082p0)  ->  0x1.5000p+0     # 0x82 > 0x80，却舍了下去
+("%.4a"):format(0x1.500081p0)  ->  0x1.5001p+0     # 这个反倒进上来
+```
+
+glibc 的判据照抄自 `stdio-common/printf_fphex.c` 与 `include/rounding-mode.h`：
+
+```c
+bool more_bits = ((next_digit_value & 7) != 0 || precision + 1 < numend - numstr);
+do_round_away = round_away (negative, last_digit_value & 1,
+                            next_digit_value >= 8, more_bits, mode);
+/* FE_TONEAREST:  half_bit && (last_digit_odd || more_bits)  */
+```
+
+即<b>就近舍入、平局取偶</b>；并且 `precision == 0` 时「保留的最后一位」是小数点
+<b>左边</b>那一位，所以 `("%.0a"):format(1.5)` 是 `0x2p+0` 而不是 `0x1p+0`。
+这批由 `StringLibTest.hexFloatPrecisionRoundingFollowsGlibc` 用普通断言钉住；
+差分网格里跳过所有「舍弃的第一位为 8」的用例（两边跳过的完全一致——判据是用
+<b>不舍入</b>的 `%a` 算的，那个两边一致）。
+
+同一个文件里还藏着一条：**`inf` / `nan` 不参与零填充**。`special` 分支无条件走
+`pad(buf, ' ', width)`，压根不看 `pad == '0'`，所以
+`("%020.5a"):format(math.huge)` 是 17 个空格加 `inf`。
+
 #### 把 `table` 库铺开扫：咬出 `tmove` 少了一个条件
 
 `table` 矩阵 —— `insert`/`remove`/`move`/`concat`/`unpack`/`pack`/`sort` 的
