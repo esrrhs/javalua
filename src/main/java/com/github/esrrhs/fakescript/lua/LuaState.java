@@ -1052,6 +1052,38 @@ public final class LuaState {
         return e.errErr ? LuaValue.ofString(LuaString.latin1(ERRERR_MSG)) : e.value;
     }
 
+    /**
+     * {@link #errObjOf} 之后再补一次位置 —— 与 {@link #pcall} 的 {@code catch}
+     * 同形，给<b>协程边界</b>（{@link #resume} / {@link #precover}）用。
+     * <p>
+     * C 的位置是 {@code luaG_runerror} 在<b>抛出点</b>加的，判据
+     * {@code isLua(ci)}；本实现里 {@code LuaTable}（{@code table index is
+     * nil} / {@code NaN}）与 {@code IoLib}（{@code not enough memory}）抛的是
+     * <b>裸错误值</b>（{@link LuaError#where} 为 {@code null}），位置只能等走到
+     * 保护边界再补 —— 而补的地方就是 {@code where()}，同样按 {@code isLua(ci)}
+     * 判，所以 C 帧里抛的那些（{@code next} 的 {@code invalid key}）照样没位置。
+     * <p>
+     * {@code pcall} 那条边界早就补了，<b>协程这条漏了</b>：实测
+     * {@code coroutine.resume(co)}，{@code co} 里 {@code t[nil] = 1} ——
+     * <pre>
+     * 参考：false  case.lua:8: table index is nil
+     * 本实现：false  table index is nil
+     * </pre>
+     * 同理 {@code coroutine.wrap}、yield 之后再抛、以及 {@code __close} 里抛，
+     * 四条路都是同一个洞。
+     * <p>
+     * 跳过两类：{@link LuaError#errMem}（内存错误的值恒是那个驻留短串）与
+     * {@link LuaError#directThrow}（语法错误 / 二进制 chunk 畸形，消息本身就
+     * 带着 {@code chunkname:}，而且 {@code load} 会先接住它们，到不了这儿）。
+     */
+    private LuaValue errObjAt(LuaError e) {
+        LuaValue v = errObjOf(e);
+        if (!e.errMem && !e.directThrow && e.where == null && v != null && v.isString()) {
+            return LuaValue.ofString(where().concat(v.asString()));
+        }
+        return v;
+    }
+
     /** {@code luaD_throw(L, LUA_ERRERR)} */
     private LuaError errErr() {
         LuaError e = new LuaError(LuaValue.ofString(LuaString.latin1(ERRERR_MSG)), "");
@@ -2027,7 +2059,7 @@ public final class LuaState {
              * {@code __close} 先 yield 再 {@code error(err + 20)}，下一个变量
              * 看到的必须是 30 而不是 10。
              */
-            push(errObjOf(e));
+            push(errObjAt(e));
             closeErrPending = null;
             st = LUA_ERRRUN;
         }
@@ -2171,7 +2203,20 @@ public final class LuaState {
              * 的槽，于是 {@code __close} 被覆盖成消息处理函数自己，报
              * 「attempt to call a nil value」。
              */
-            if (c.errHandler != null && !alreadyHandled) {
+            if (c.errHandler != null && !alreadyHandled && !isMemErr(errObj)) {
+                /*
+                 * 最后那个条件是<b>内存错误</b>：它在 C 里压根没进过
+                 * {@code luaG_errormsg}（{@code luaM_error} 直跳），所以
+                 * {@code finishpcallk} 也不该再补一次处理函数。
+                 * 判的是<b>错误对象本身</b>而不是当初那个 {@code LuaError} 的
+                 * 标记——这个对象是「上一趟 yield 出去、这一趟从栈上取回来」的，
+                 * 标记早丢了，而 C 那边判的本来也就是值。
+                 * <p>
+                 * 实测（协程里 {@code xpcall}，{@code __close} 先 yield 再
+                 * {@code error("not enough memory", 0)}）：
+                 * 参考 {@code false  not enough memory}、
+                 * 本实现 {@code false  H:not enough memory}。
+                 */
                 errObj = applyHandler(c.errHandler, errObj, fIdx);
             }
             top = fIdx + 1;
@@ -2290,7 +2335,7 @@ public final class LuaState {
             } catch (LuaYield y) {
                 st = LUA_YIELD;
             } catch (LuaError e) {
-                push(errObjOf(e));
+                push(errObjAt(e));
                 closeErrPending = null; // 同上：新错误顶掉 yield 时暂存的那个
                 st = LUA_ERRRUN;
             }
