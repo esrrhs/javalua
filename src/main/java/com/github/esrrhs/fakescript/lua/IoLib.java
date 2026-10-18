@@ -24,8 +24,14 @@ import java.nio.charset.StandardCharsets;
  *   <li><b>{@code f_tostring}</b> 里的 {@code %p} 是地址，不可能与参考实现相同，
  *       只能给个同形状的十六进制值（差分比对会把它抹成 {@code 0xADDR}）。</li>
  *   <li><b>{@code setvbuf}</b> 只认参数、总是成功，不真的改缓冲策略。</li>
- *   <li><b>{@code popen}</b> 的子进程输出走管道而不是 {@code FILE*}，
- *       {@code io.popen(cmd, "w")} 的写端语义一致，但拿不到 shell 的真实 errno。</li>
+ *   <li><b>{@code popen}</b> 的子进程输出走管道而不是 {@code FILE*}
+ *       （{@code pclose} 起来失败时拿不到 shell 的真实 errno）。被接管的
+ *       那一条（读模式是子进程的 {@code stdout}、写模式是它的 {@code stdin}）
+ *       语义与 C 一致；<b>没被接管的那两条是转发到 {@code L.out} / {@code L.err}
+ *       的</b>，不是 {@code Redirect.INHERIT} —— 后者走 JVM 进程的 fd 1 / fd 2，
+ *       会绕过这两个流。代价是「转发线程什么时候写完」有个很小的时间窗，
+ *       靠 {@code pclose} 里 {@code join} 收口；那一刀<b>没有用例盯得住</b>
+ *       （窗口太小，破坏它矩阵照样全绿），它防的是偶发红，不是语义。</li>
  * </ol>
  */
 public final class IoLib {
@@ -146,6 +152,13 @@ public final class IoLib {
         InputStream in;
         OutputStream out;
         java.lang.Process proc;
+
+        /**
+         * {@code io.popen} 的子进程里那些<b>没被接管</b>的流的转发线程。
+         * 关句柄时要先 {@code join} 它们，否则子进程的最后几行输出可能还没
+         * 落到 {@code L.out} / {@code L.err} 上，比对就时好时坏。
+         */
+        Thread[] pumps;
 
         /**
          * 标准流要<b>现用现取</b> {@code LuaState#out} / {@code #in} / {@code #err}。
@@ -670,6 +683,29 @@ public final class IoLib {
             f.dir = true;
             return true;
         }
+        /*
+         * {@code "r+"}：<b>C 的 {@code fopen("r+") 不创建文件</b>——它走的是
+         * {@code open(path, O_RDWR)}，没带 {@code O_CREAT}；而 Java 的
+         * {@code RandomAccessFile(f, "rw")} <b>一定会建</b>。于是
+         * {@code io.open(不存在的文件, "r+")} 参考给
+         * {@code nil, "...: No such file or directory", 2}，我们却开出一个
+         * 新文件。
+         * <p>
+         * 修法是先用<b>只读</b>模式探一次（{@code "r"} 模式本身就不创建），
+         * 打不开就说明文件不在（或者没权限），errno 交给
+         * {@code LuaAux.errnoOf} 从异常消息里反查——于是 ENOENT 与 EACCES
+         * 各归各的，不用在这儿再判一遍。直接用 {@code File.exists()} 会把
+         * 「父目录不可搜索」的 EACCES 错报成 ENOENT。
+         */
+        if (base == 'r' && f.writable) {
+            try (RandomAccessFile exists = new RandomAccessFile(fname, "r")) {
+                // 只为确认「这个文件已经在」，句柄立刻关掉
+            } catch (IOException e) {
+                f.err = true;
+                f.errno = LuaAux.errnoOf(e);
+                return false;
+            }
+        }
         try {
             f.raf = new RandomAccessFile(fname, f.writable ? "rw" : "r");
             if (base == 'w') {
@@ -719,16 +755,53 @@ public final class IoLib {
         LuaAux.argCheck(L, checkModeP(mode), 2, "invalid mode");
         f.err = false;
         boolean forRead = mode.charAt(0) == 'r';
+        /*
+         * C 的 {@code popen} <b>只接管一条流</b>：读模式接管子进程的
+         * {@code stdout}，写模式接管它的 {@code stdin}，<b>其余一律继承</b>
+         * ——它内部就是 {@code pipe} + {@code fork} + 一次 {@code dup2} +
+         * {@code exec}，没碰的 fd 原样传下去。
+         * <p>
+         * 实测（参考二进制）：
+         * <pre>
+         * io.popen("echo out; echo err 1>&2", "r")  -- 读到 "out"，"err" 落在 lua 自己的 stderr
+         * io.popen("cat; echo WERR 1>&2", "w")      -- 写进去的 "hello" 被 cat 回显到 stdout
+         * </pre>
+         * Java 的 {@code ProcessBuilder} 默认是<b>三条全接成管道</b>，于是这两
+         * 边全被吞掉；更糟的是读模式下子进程的 {@code stdin} 也是管道且没人关
+         * ——{@code io.popen("cat", "r")} 会一直等到天荒地老。
+         * <p>
+         * 目标流用 {@code LuaState#out} / {@code #err} 而不是
+         * {@code Redirect.INHERIT}：INHERIT 走的是 <b>JVM 进程</b>的 fd 1 / fd 2，
+         * 而本实现的「标准输出 / 标准错误」就是 {@code L.out} / {@code L.err}
+         * （差分测试正是靠把它们换成内存缓冲区来比 {@code popen} 的输出的）。
+         * C 那边的落点是 fd 1 / fd 2，两边是同一件事。
+         */
         try {
-            java.lang.Process p = new ProcessBuilder("sh", "-c", filename).start();
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c", filename);
+            /*
+             * 重定向必须在 {@code start()} <b>之前</b>设好 —— {@code ProcessBuilder}
+             * 是在 {@code start} 那一刻才照这份配置去摆 fd 的，之后再改不影响已
+             * 经起来的子进程。读模式要把 {@code stdin} 设为 INHERIT：子进程的
+             * 输入应当来自 lua 自己的标准输入（{@code cat} 这类命令才读得到东西），
+             * 而不是一条没人写也没人关的管道。
+             */
+            if (forRead) {
+                pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+            }
+            java.lang.Process p = pb.start();
             f.proc = p;
+            java.util.List<Thread> ps = new java.util.ArrayList<>();
             if (forRead) {
                 f.in = p.getInputStream();
                 f.readable = true;
+                ps.add(pump(p.getErrorStream(), L.err));
             } else {
                 f.out = p.getOutputStream();
                 f.writable = true;
+                ps.add(pump(p.getInputStream(), L.out));
+                ps.add(pump(p.getErrorStream(), L.err));
             }
+            f.pumps = ps.toArray(new Thread[0]);
         } catch (IOException e) {
             f.err = true;
             f.errno = LuaAux.errnoOf(e);
@@ -741,9 +814,50 @@ public final class IoLib {
         return 1;
     }
 
+    /**
+     * 起一条守护线程，把子进程那条「没被接管」的流<b>原样搬</b>到
+     * {@code LuaState} 的输出流上。
+     * <p>
+     * 搬而不是 {@code Redirect.INHERIT} 的理由见 {@link #ioPopen}：
+     * INHERIT 绕过了 {@code L.out} / {@code L.err}。
+     * <p>
+     * 必须<b>一直抽干</b>：子进程往里写而我们不读的话，管道缓冲满了它就会
+     * 阻塞 —— C 那边目标是继承来的 fd，不会堵。守护线程是为了「脚本压根没
+     * 关这个句柄」时也不拖住 JVM 退出。
+     */
+    private static Thread pump(InputStream src, OutputStream dst) {
+        Thread t = new Thread(() -> {
+            byte[] b = new byte[4096];
+            try {
+                int n;
+                while ((n = src.read(b)) > 0) {
+                    dst.write(b, 0, n);
+                    dst.flush(); // 行/无缓冲语义：子进程写一行就看得见
+                }
+            } catch (IOException e) {
+                // 子进程一退出管道就自然断在这里，正常结束
+            } finally {
+                try {
+                    src.close();
+                } catch (IOException ignored) {
+                    // 关不掉就算了
+                }
+            }
+        });
+        t.setName("lua-popen-pump");
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
     /** {@code io_pclose} */
     private static int ioPclose(LuaState L) {
         LuaFile p = toLStream(L);
+        if (p.proc == null) {
+            // popen 就没起来过（shell 不存在之类），没有进程可等
+            LuaAux.fileResult(L, false, null, (p.errno != 0) ? p.errno : 2);
+            return 3;
+        }
         int stat;
         try {
             if (p.out != null) {
@@ -760,6 +874,22 @@ public final class IoLib {
             Thread.currentThread().interrupt();
             LuaAux.fileResult(L, false, null, 4); // EINTR
             return 3;
+        }
+        /*
+         * 等转发线程收尾 —— 子进程已经退出了，它们读到 EOF 就会结束，所以
+         * join 不会久等。不等的话 {@code popen} 的最后几行输出可能还没落到
+         * {@code L.out} / {@code L.err} 上，比对就时好时坏：C 那边是 fd 直接
+         * 写的，{@code pclose} 返回时早就写完了。
+         */
+        if (p.pumps != null) {
+            for (Thread t : p.pumps) {
+                try {
+                    t.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            p.pumps = null;
         }
         LuaAux.execResult(L, stat);
         return 3;

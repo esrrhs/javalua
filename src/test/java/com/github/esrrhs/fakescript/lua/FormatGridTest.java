@@ -98,10 +98,17 @@ local function show(v)
   if t == "string" then
     local s = v:gsub("0x%x+", "PTR")
     -- NaN 的符号是 libc 自己的（约定 #96）：x86 默认 NaN 符号位是 1，glibc
-    -- 打 "-nan"（%+f 也打 "-nan"），Apple libc 打 "nan"。差一个字符就是
-    -- 差一格 —— 必须在量 # 之前归一，否则长度列也跟着红。
-    s = s:gsub("%-nan", "nan"):gsub("%+nan", "nan")
-    s = s:gsub("%-NAN", "NAN"):gsub("%+NAN", "NAN")
+    -- 打 "-nan"（%+f 也打 "-nan"），Apple libc 打 "nan"。抹掉符号只是第一步
+    -- —— glibc 填的是 4 个字符、Apple 填的是 3 个，同样 width=20，前者补
+    -- 16 个空格、后者补 17 个；符号抹平之后<b>总长度就差一格</b>
+    -- （"%20.5a":format(0/0) 参考给 19 列、我们给 20 列）。
+    -- 所以带填充的 nan 连「填了几个空格」一起让出去，只比「填的是空格、
+    -- 内容是 nan、填在哪一侧」。inf 不受影响：两边都是 3 个字符。
+    local lead, nan, trail = s:match("^(%s*)([%-%+]?[nN][aA][nN])(%s*)$")
+    if nan then
+      local function p(x) return (#x > 0) and "<PAD>" or "" end
+      s = p(lead) .. nan:gsub("^[%-%+]", "") .. p(trail)
+    end
     return "#" .. #s .. "[" .. esc(s) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end
