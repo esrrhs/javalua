@@ -231,8 +231,13 @@ public final class BaseLib {
              * 地址用 C 的 "%p" 格式：0x 加十六进制、<b>不补前导零</b>
              * （macOS 打出 0x7ab30002c0，glibc 打出 0x55d3...）。补成 16 位
              * 只是看着整齐，跟参考实现对不上。
+             * <p>
+             * 取值的活交给 {@link Api#topointer}：轻量 userdata 要打的是它
+             * 载荷里那个 {@code void*}，不是 Java 对象的 identity hash。
+             * {@code cjson.null} 是 {@code lua_pushlightuserdata(L, NULL)}
+             * 推出来的，参考实现打 {@code userdata: 0x0}。
              */
-            String ptr = "0x" + Integer.toHexString(System.identityHashCode(v.o));
+            String ptr = "0x" + Long.toHexString(Api.topointer(v));
             return kind.concat(LuaString.latin1(": " + ptr));
         }
         }

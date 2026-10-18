@@ -1895,16 +1895,18 @@ final class Api {
         return r;
     }
 
-    static long lua_topointer(long L, long idx) {
-        /*
-         * {@code lapi.c: lua_topointer} 的 switch <b>没有 default 分支指向对象</b>：
-         * 数字、字符串、布尔、nil 一律落到 {@code return NULL}。
-         * 之前这里拿 {@code NativeBridge.handle} 兜底，于是
-         * {@code lua_topointer(L, 1) != NULL} 在数字上给 true，而参考实现给
-         * false —— 扩展里「这个值有没有地址可当键用」的判断会整个反过来。
-         */
-        LuaState S = st(L);
-        LuaValue v = val(S, (int) idx);
+    /**
+     * {@code lapi.c: lua_topointer} 的取值部分，与 {@code luaL_tolstring} 里
+     * {@code "%p"} 打的是<b>同一个值</b>。
+     * <p>
+     * 轻量 userdata 这一支<b>必须取载荷里的指针值</b>，不能退化成对象的
+     * identity hash：C 的 {@code lua_topointer} 对 {@code LUA_TLIGHTUSERDATA}
+     * 返回的正是 {@code pvalue(o)}。{@code cjson.null} 是
+     * {@code lua_pushlightuserdata(L, NULL)} 推出来的，参考实现
+     * {@code print(cjson.null)} 打的是 {@code userdata: 0x0}——拿 identity
+     * hash 顶上会打出一串看着很像、其实毫无意义的十六进制。
+     */
+    static long topointer(LuaValue v) {
         if (v == null) {
             return 0;
         }
@@ -1923,6 +1925,22 @@ final class Api {
         default:
             return 0;
         }
+    }
+
+    static long lua_topointer(long L, long idx) {
+        /*
+         * {@code lapi.c: lua_topointer} 的 switch <b>没有 default 分支指向对象</b>：
+         * 数字、字符串、布尔、nil 一律落到 {@code return NULL}。
+         * 之前这里拿 {@code NativeBridge.handle} 兜底，于是
+         * {@code lua_topointer(L, 1) != NULL} 在数字上给 true，而参考实现给
+         * false —— 扩展里「这个值有没有地址可当键用」的判断会整个反过来。
+         */
+        LuaState S = st(L);
+        LuaValue v = val(S, (int) idx);
+        if (v == null) {
+            return 0;
+        }
+        return topointer(v);
     }
 
     static long lua_tothread(long L, long idx) {
