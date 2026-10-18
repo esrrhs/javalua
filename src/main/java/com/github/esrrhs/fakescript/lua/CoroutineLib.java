@@ -161,8 +161,28 @@ public final class CoroutineLib {
                 if (co.closeThreadValue(L, prev) != null) {
                     LuaState.xmove(co, L, 1);
                 }
+                /*
+                 * C 版这里把 stat 重新赋值：{@code stat = lua_closethread(co, L)}。
+                 * 也就是说判「是不是内存错误」用的<b>不是</b>协程原来的状态，而是
+                 * 关完 {@code <close>} 之后的状态 —— {@code __close} 自己抛了错
+                 * 就变成 {@code LUA_ERRRUN}，那是要补位置的。
+                 */
+                stat = co.closeStatus;
             }
             LuaValue err = L.stack[L.top - 1];
+            /*
+             * {@code lcorolib.c: luaB_auxwrap} 的判据是
+             * {@code stat != LUA_ERRMEM && lua_type(L,-1) == LUA_TSTRING}：
+             * <b>内存错误不补位置</b>。少这一半，协程里 {@code f:read(-1)}
+             * 会被套上 {@code case.lua:40: } 前缀（协程第二遍咬出来的）。
+             * 不补位置的时候还得把 {@code errMem} 传下去，否则外层
+             * {@code pcall} 见 {@code where == null} 会再补一次。
+             */
+            if (stat == LuaState.LUA_ERRMEM) {
+                LuaError e = new LuaError(err, "");
+                e.errMem = true;
+                throw e;
+            }
             if (err.isString()) {
                 // luaL_where(L, 1) + concat：wrap 出来的函数崩了要带位置
                 LuaString prefix = L.whereAt(1);

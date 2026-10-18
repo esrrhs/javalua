@@ -160,6 +160,26 @@ public final class LuaState {
     /** {@code LUA_ERRRUN}：运行期错误（本实现目前只区分这三种状态） */
     public static final int LUA_ERRRUN = 2;
 
+    /**
+     * {@code lua.h: LUA_ERRMEM}：内存错误（编号照抄 lua.h：
+     * {@code OK=0, YIELD=1, ERRRUN=2, ERRSYNTAX=3, ERRMEM=4, ERRERR=5}）。
+     * <p>
+     * 为什么非得有这个常量：{@code lcorolib.c: luaB_auxwrap} 补位置前要先看
+     * <b>状态</b> —— {@code if (stat != LUA_ERRMEM && lua_type(L,-1) == LUA_TSTRING)}。
+     * 内存错误<b>任何边界都不补位置</b>（见 {@link LuaError#errMem}）：
+     * {@code coroutine.wrap(function() return f:read(-1) end)()} 参考实现给的是
+     * 光秃秃的 {@code not enough memory}，本实现以前给它套上了
+     * {@code case.lua:40: } 前缀。
+     */
+    public static final int LUA_ERRMEM = 4;
+
+    /**
+     * {@code lua_closethread} 的返回值：关完 {@code <close>} 变量之后的状态。
+     *
+     * @see #closeThreadValue(LuaState, LuaValue)
+     */
+    int closeStatus = LUA_OK;
+
     /** {@code lua_State.status} */
     int status = LUA_OK;
 
@@ -2070,7 +2090,13 @@ public final class LuaState {
              */
             push(errObjAt(e));
             closeErrPending = null;
-            st = LUA_ERRRUN;
+            /*
+             * C 的 {@code lua_resume} 返回的是 {@code luaD_throw} 的那个错误码，
+             * 内存错误是 {@code LUA_ERRMEM}（{@code luaM_error} 直跳），不是
+             * 一律 {@code LUA_ERRRUN}。协程死掉时 {@code L->status} 记的就是它，
+             * 后面 {@code coroutine.wrap} 判「补不补位置」全看这个值。
+             */
+            st = e.errMem ? LUA_ERRMEM : LUA_ERRRUN;
         }
         st = precover(st);
         if (st != LUA_OK && st != LUA_YIELD) {
@@ -2494,6 +2520,13 @@ public final class LuaState {
         }
         baseCi.top = top + MINSTACK;
         status = LUA_OK; // 关完之后一律「正常」——第二次 close 才会返回 true
+        /*
+         * {@code lua_closethread} 的<b>返回值</b>是关完之后的状态，而协程自己的
+         * {@code status} 已经归 LUA_OK 了 —— 两者不是一回事。
+         * {@code coroutine.wrap} 要用它判「这个错是不是内存错误」（见
+         * {@link #LUA_ERRMEM}），所以单独存一份。
+         */
+        closeStatus = st;
         return (st == LUA_OK) ? null : new LuaValue(stack[1]);
     }
 
