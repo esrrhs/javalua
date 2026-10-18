@@ -41,6 +41,7 @@ HAND_WRITTEN = {
     "luaL_setfuncs",      # const luaL_Reg *，要在 C 侧走数组
     "luaL_gsub",          # 整个用 luaL_Buffer 在 C 侧做完，不进 Java
     "lua_yieldk",         # 要走 longjmp，不能在 C 里正常返回
+    "lua_resume",         # int *nres 是出参，得在 C 侧写回
     "lua_load",           # lua_Reader 是 C 函数指针，只能在 C 侧喂
     "luaL_loadfilex",     # 整个照 lauxlib.c：BOM / '#' 首行 / 二进制重开
     "luaL_buffinit", "luaL_buffinitsize", "luaL_prepbuffsize",

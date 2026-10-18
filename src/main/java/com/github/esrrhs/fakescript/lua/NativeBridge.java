@@ -135,6 +135,21 @@ public final class NativeBridge {
      */
     static native int invokeC(long fn, long L);
 
+    /**
+     * 调一个 {@code lua_KFunction}（续体）：
+     * {@code int (*)(lua_State *L, int status, lua_KContext ctx)}。
+     *
+     * @return 同 {@link #invokeC}
+     */
+    static native int invokeK(long fn, long L, int status, int ctx);
+
+    /**
+     * {@code luaL_newstate} 装的那个默认 panic 函数的地址。
+     * {@code lua_atpanic} 第一次要把它作为「旧值」交回去（见
+     * {@code Api#lua_atpanic}）。
+     */
+    static native long defaultPanic();
+
     /** 取回 C 侧接住的 Java 异常（{@code lua_error} 那一跳的载荷） */
     static native Throwable takePending();
 

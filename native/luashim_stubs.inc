@@ -468,11 +468,6 @@ LUA_API int (lua_resetthread) (lua_State *L) {
 }
 
 /* lua.h */
-LUA_API int (lua_resume) (lua_State *L, lua_State *from, int narg, int *nres) {
-  return (int)luashim_call(ID_lua_resume, LUASHIM_HANDLE(L), LUASHIM_HANDLE(from), (jint)narg, (intptr_t)nres, 0, 0, 0);
-}
-
-/* lua.h */
 LUA_API void (lua_rotate) (lua_State *L, int idx, int n) {
   luashim_call(ID_lua_rotate, LUASHIM_HANDLE(L), (jint)idx, (jint)n, 0, 0, 0, 0);
 }

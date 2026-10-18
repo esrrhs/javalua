@@ -377,6 +377,29 @@ final class Api {
         if (sz != 136) {
             throw st(L).libError("core and library have incompatible numeric types");
         }
+        /*
+         * 后面那半句原来是漏的：只比 sz，不比版本。于是任何一个声明
+         * 「我需要 5.3」的老扩展都能静默加载进来，真 Lua 在这里是
+         * {@code luaL_error}（不是返回错误码，是抛）。
+         * <p>
+         * 消息里两个 {@code %f} 是 C99 默认精度的定点格式（6 位小数），
+         * 走 {@code BigDecimal} 而不是 {@code String.format}——后者连舍两次
+         * （见 README 浮点格式化那条）。
+         */
+        if (ver != Lua.VERSION_NUM) {
+            /*
+             * {@code %f} 在 {@code lua_pushvfstring} 里走的不是 printf 那条路：
+             * {@code lobject.c} 的 {@code case 'f'} 是 {@code addnum2buff}，
+             * 也就是 {@code tostringbuff} —— {@code %.14g} 之后再给整数样的
+             * 结果补 {@code .0}。所以参考实现打的是 {@code 503.0} 而不是
+             * {@code 503.000000}（一开始照 printf 写，网格当场红了一条）。
+             */
+            String msg = "version mismatch: app. needs "
+                    + Vm.numberToString(LuaValue.ofFloat(ver))
+                    + ", Lua core provides "
+                    + Vm.numberToString(LuaValue.ofFloat(Lua.VERSION_NUM));
+            throw st(L).libError(msg);
+        }
     }
 
     static long luaL_error(long L, long fmt, long a2) {
@@ -765,15 +788,35 @@ final class Api {
         S.top -= 1;
     }
 
-    @Generated
+    /*
+     * lapi.c: lua_atpanic 只是「换个函数指针、交回旧的」。
+     * <p>
+     * 至于<b>什么时候真的调它</b>：C 版是 {@code luaD_throw} 发现
+     * {@code L->errorJmp == NULL}（错误逃出了所有保护区）时调，调完 {@code abort()}。
+     * 本实现的错误是 Java 异常，逃出保护区后一路冒到宿主（{@code pcall} 或者
+     * {@code Runner}），那里才是「要不要 panic」的决定点——所以这里只存不调。
+     * 真要接上，宿主在自己的捕获点取 {@link LuaState#panicFn} 即可。
+     */
     static long lua_atpanic(long L, long panicf) {
-        throw unimplemented("lua_atpanic");
+        LuaState S = st(L);
+        long old = S.panic();
+        S.setPanic(panicf);
+        return old;
     }
 
     static void lua_callk(long L, long nargs, long nresults, long ctx, long k) {
         LuaState S = st(L);
         int funcIdx = S.top - (int) nargs - 1;
-        S.call(funcIdx, (int) nresults);
+        /*
+         * lapi.c: {@code k != NULL && yieldable(L)} 才把续体记到当前 C 帧上，
+         * 否则走 {@code luaD_callnoyield}——「不可 yield」在 C 里是靠
+         * {@code nyci} 计数的，回调里 yield 会报跨 C 调用边界而不是真的挂起。
+         */
+        if (k != 0 && S.yieldable()) {
+            S.callK(funcIdx, (int) nresults, (int) ctx, new NativeKFunction(k));
+        } else {
+            S.callNoYield(funcIdx, (int) nresults);
+        }
     }
 
     static long lua_checkstack(long L, long n) {
@@ -796,9 +839,14 @@ final class Api {
         throw unimplemented("lua_closeslot");
     }
 
-    @Generated
+    /*
+     * lstate.c: {@code lua_closethread} 就是 {@code luaE_resetthread(L, L->status)}。
+     * {@code coroutine.close} 用的是同一条路，这里直接复用。
+     */
     static long lua_closethread(long L, long from) {
-        throw unimplemented("lua_closethread");
+        LuaState S = st(L);
+        LuaState f = (from == 0) ? null : st(from);
+        return S.closeThread(f);
     }
 
     static long lua_compare(long L, long idx1, long idx2, long op) {
@@ -1307,6 +1355,17 @@ final class Api {
         int ef = (int) errfunc;
         LuaValue handler = ef == 0 ? null
                 : (ef == REGISTRY ? null : val(S, ef));
+        if (k != 0 && S.yieldable()) {
+            /*
+             * lapi.c 这个分支<b>不建本地恢复点</b>：错误（和 yield）一路冒到
+             * {@code lua_resume}，由 {@code precover} → {@code finishpcallk}
+             * 收尾，收完之后才调续体 —— 续体拿到的 {@code status} 就是那个错误码。
+             * 所以这里不接 {@code LuaError}，让它照 C 那样穿出去。
+             */
+            S.pcallK(funcIdx, (int) nresults, handler, (int) ctx,
+                    new NativeKFunction(k));
+            return 0;
+        }
         LuaValue err = S.pcall(funcIdx, (int) nresults, handler);
         if (err == null) {
             return 0;
@@ -1499,14 +1558,23 @@ final class Api {
         S.top -= 1;
     }
 
-    @Generated
+    /** {@code lua_resetthread} 已废弃，等价于 {@code lua_closethread(L, NULL)} */
     static long lua_resetthread(long L) {
-        throw unimplemented("lua_resetthread");
+        return st(L).closeThread(null);
     }
 
-    @Generated
+    /*
+     * {@code lua_resume}。注意 {@code nres} 是 <b>C 侧的出参</b>：
+     * {@code luashim.c} 的手写 stub 在 Java 返回后把它写回 {@code *nres}，
+     * 这里拿到的那个值用不上。返回值打包成 {@code status << 32 | nresults}，
+     * C 侧再拆开。
+     */
     static long lua_resume(long L, long from, long narg, long nres) {
-        throw unimplemented("lua_resume");
+        LuaState S = st(L);
+        LuaState f = (from == 0) ? null : st(from);
+        int[] out = new int[1];
+        int r = S.resume(f, (int) narg, out);
+        return ((long) r << 32) | (out[0] & 0xFFFFFFFFL);
     }
 
     static void lua_rotate(long L, long idx, long n) {
@@ -1524,9 +1592,13 @@ final class Api {
         throw unimplemented("lua_setallocf");
     }
 
-    @Generated
+    /*
+     * lstate.c：5.4.7 里这个函数<b>什么都不做</b>，恒返回 {@code LUAI_MAXCCALLS}，
+     * 参数连 {@code UNUSED} 都懒得写——别照名字去实现「设上限」。
+     * {@code ldblib.c} 的 {@code debug.setcstacklimit} 就靠它把旧值带回去。
+     */
     static long lua_setcstacklimit(long L, long limit) {
-        throw unimplemented("lua_setcstacklimit");
+        return LuaState.MAXCCALLS;
     }
 
     static void lua_setfield(long L, long idx, long k) {
@@ -1922,9 +1994,15 @@ final class Api {
         ((LClosure) f1.o).setUpVal((int) n1 - 1, (UpVal) o2[0]);
     }
 
-    @Generated
+    /**
+     * {@code lapi.c: lua_version} —— 恒返回 {@code LUA_VERSION_NUM}，
+     * 连 {@code L} 都不看（{@code UNUSED(L)}）。
+     * <p>
+     * 几乎所有 C 扩展的 {@code luaopen_xxx} 开头都有
+     * {@code luaL_checkversion(L)}，那个宏展开就是调它。
+     */
     static double lua_version(long L) {
-        throw unimplemented("lua_version");
+        return Lua.VERSION_NUM;
     }
 
     static void lua_warning(long L, long msg, long tocont) {
@@ -1941,9 +2019,31 @@ final class Api {
         LuaState.xmove(st(from), st(to), (int) n);
     }
 
-    @Generated
+    /*
+     * {@code lua_yieldk}。
+     * <p>
+     * <b>这里不抛 {@link LuaYield}</b>：C 侧的 {@code lua_yieldk} stub 在本方法
+     * 返回之后置 {@code g_yielding} 再 {@code longjmp} 出去，
+     * {@code invokeC} 因此返回 {@code -2}，{@link LuaNativeFunction} 才抛。
+     * 反过来的话 Java 异常会先被 {@code luashim_call} 捕获、按 error 处理。
+     * <p>
+     * 记账与 {@link LuaState#yieldk} 一致（{@code status}、{@code ci.nyield}），
+     * 续体记在 {@code ci} 上——恢复时 {@code doResume} / {@code unroll} 会调它。
+     * {@code k == 0} 就是不续：C 版 {@code luaB_yield} 正是这么用的，恢复时
+     * 直接把 resume 的参数当成那个 C 调用的返回值。
+     */
     static long lua_yieldk(long L, long nresults, long ctx, long k) {
-        throw unimplemented("lua_yieldk");
+        LuaState S = st(L);
+        if (!S.yieldable()) {
+            throw S.runError((S.mainThread == S)
+                    ? "attempt to yield from outside a coroutine"
+                    : "attempt to yield across a C-call boundary");
+        }
+        S.status = LuaState.LUA_YIELD;
+        S.ci.nyield = (int) nresults;
+        S.ci.k = (k == 0) ? null : new NativeKFunction(k);
+        S.ci.ctx = (int) ctx;
+        return 0;
     }
 
     static void luaL_openlibs(long L) {
