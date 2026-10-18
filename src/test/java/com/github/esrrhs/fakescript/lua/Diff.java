@@ -443,9 +443,11 @@ final class Diff {
      */
     private static int msghandler(LuaState L) {
         LuaValue v = L.arg1(1);
-        String msg;
+        // 字节串：错误对象可以是任意字节（error("\xff")），走 Java String 再
+        // 编码回去会把非法字节换成 U+FFFD，回溯就没得比了
+        LuaString msg;
         if (v.isString()) {
-            msg = v.asString().toJavaString();
+            msg = v.asString();
         } else if (callMeta(L, v, "__tostring")
                 && L.stack[L.top - 1].isString()) {
             /*
@@ -457,9 +459,9 @@ final class Diff {
              */
             return 1;
         } else {
-            msg = "(error object is a " + Lua.typeName(v.baseType()) + " value)";
+            msg = LuaString.latin1("(error object is a " + Lua.typeName(v.baseType()) + " value)");
         }
-        L.push(LuaValue.ofString(LuaString.utf8(DebugLib.traceback(L, L, msg, 1))));
+        L.push(LuaValue.ofString(DebugLib.traceback(L, L, msg, 1)));
         return 1;
     }
 

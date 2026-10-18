@@ -1599,9 +1599,8 @@ public final class LuaState {
             } else {
                 v = e.value;
                 if (e.where == null && v != null && v.isString()) {
-                    String prefix = where(); // 必须用出错时的帧，先于恢复调用链
-                    v = LuaValue.ofString(
-                            LuaString.latin1(prefix + v.asString().toJavaString()));
+                    LuaString prefix = where(); // 必须用出错时的帧，先于恢复调用链
+                    v = LuaValue.ofString(prefix.concat(v.asString()));
                 }
                 if (handler != null) {
                     v = applyErrMsg(v, handler);
@@ -1756,9 +1755,8 @@ public final class LuaState {
             } catch (LuaError e2) {
                 LuaValue v = e2.value;
                 if (e2.where == null && v != null && v.isString()) {
-                    String prefix = where(); // 出错那刻的帧，先于恢复
-                    v = LuaValue.ofString(
-                            LuaString.latin1(prefix + v.asString().toJavaString()));
+                    LuaString prefix = where(); // 出错那刻的帧，先于恢复
+                    v = LuaValue.ofString(prefix.concat(v.asString()));
                 }
                 /*
                  * {@code __close} 自己抛的错<b>也要过消息处理函数</b>。
@@ -2110,9 +2108,8 @@ public final class LuaState {
             } catch (LuaError e2) {
                 LuaValue v = e2.value;
                 if (e2.where == null && v != null && v.isString()) {
-                    String prefix = where(); // 与 closeUpvalsOnUnwind 同形
-                    v = LuaValue.ofString(
-                            LuaString.latin1(prefix + v.asString().toJavaString()));
+                    LuaString prefix = where(); // 与 closeUpvalsOnUnwind 同形
+                    v = LuaValue.ofString(prefix.concat(v.asString()));
                 }
                 if (handler != null) {
                     v = applyErrMsg(v, handler);
@@ -2442,8 +2439,9 @@ public final class LuaState {
      * 只当「已经加过位置」的标记用，避免 {@link #pcall} 再加一次。
      */
     public LuaError runError(String msg) {
-        String prefix = where();
-        return new LuaError(LuaValue.ofString(LuaString.latin1(prefix + msg)), prefix);
+        LuaString prefix = where();
+        LuaString full = prefix.concat(LuaString.latin1(msg));
+        return new LuaError(LuaValue.ofString(full), prefix.toJavaString());
     }
 
     /** {@code luaG_typeerror}（含 {@code varinfo} 的变量名后缀） */
@@ -2606,10 +2604,9 @@ public final class LuaState {
      */
     public LuaError errorAt(LuaValue msg, int level) {
         if (level > 0 && msg.isString()) {
-            String prefix = whereAt(level);
-            return new LuaError(
-                    LuaValue.ofString(LuaString.latin1(prefix + msg.asString().toJavaString())),
-                    prefix);
+            LuaString prefix = whereAt(level);
+            return new LuaError(LuaValue.ofString(prefix.concat(msg.asString())),
+                    prefix.toJavaString());
         }
         return new LuaError(msg, "");
     }
@@ -3111,11 +3108,17 @@ public final class LuaState {
      * {@code isLua(ci)} 这一个判断，而 {@code error()} 走的是
      * {@code luaL_where(L, 1)}，会往回跳一层到调用者。混用会让
      * {@code error("x")} 报出行号偏移一格。
+     * <p>
+     * <b>返回的是字节串</b>，不是 Java {@code String}。chunk 名与错误消息都是
+     * Lua 字节串，可以是任意字节；走 Java String 会被 UTF-8 解码替换成
+     * {@code U+FFFD}，再拼回去内容就变了（{@code assert(false, "\xff")}
+     * 一度直接抛 {@code IllegalArgumentException: not latin-1}）。
+     * 拼接一律用 {@link LuaString#concat}。
      */
-    public String where() {
+    public LuaString where() {
         CallInfo c = ci;
         if (c == null || !c.isLua) {
-            return "";
+            return LuaString.EMPTY;
         }
         return lineInfo(c, true);
     }
@@ -3126,13 +3129,13 @@ public final class LuaState {
      * {@code level} 只数调用层数、不跳过 C 帧——这一点与 {@code lua_getstack}
      * 一致：若那一层恰好是 C 函数，就没有行号可给，返回空串。
      */
-    public String whereAt(int level) {
+    public LuaString whereAt(int level) {
         CallInfo c = ci;
         for (int i = 0; i < level && c != null; i++) {
             c = c.previous;
         }
         if (c == null || !c.isLua) {
-            return "";
+            return LuaString.EMPTY;
         }
         return lineInfo(c, false);
     }
@@ -3155,23 +3158,24 @@ public final class LuaState {
      * chunkName 兜底」更糟——它会把那段二进制 chunk 名塞进消息里，那串是非法
      * UTF-8，解码出来就是替换字符。
      */
-    private String lineInfo(CallInfo c, boolean addInfo) {
+    private LuaString lineInfo(CallInfo c, boolean addInfo) {
         if (c.func >= stack.length) {
-            return "";
+            return LuaString.EMPTY;
         }
         LuaValue f = stack[c.func];
         if (f.tt != Lua.VLIF) {
-            return "";
+            return LuaString.EMPTY;
         }
         LClosure cl = (LClosure) f.o;
         int pc = (c.savedpc > 0) ? c.savedpc - 1 : 0;
         int line = cl.p.getFuncline(pc);
         if (!addInfo && line <= 0) {
-            return ""; // luaL_where：没有行号就不给位置
+            return LuaString.EMPTY; // luaL_where：没有行号就不给位置
         }
-        String src = (cl.p.source == null) ? "?"
-                : new String(chunkId(cl.p.source.bytes), StandardCharsets.UTF_8);
-        return src + ":" + line + ": ";
+        // 源名是字节串（load(f, "\xff") 是合法的），不能解码成 Java String 再拼
+        LuaString src = (cl.p.source == null) ? LuaString.latin1("?")
+                : LuaString.of(chunkId(cl.p.source.bytes));
+        return src.concat(LuaString.latin1(":" + line + ": "));
     }
 
     /**

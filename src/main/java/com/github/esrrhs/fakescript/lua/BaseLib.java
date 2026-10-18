@@ -571,7 +571,7 @@ public final class BaseLib {
         L.setTop(1); // lua_settop(L, 1)：多出来的参数全部摘掉
         LuaValue msg = L.arg(0);
         if (msg.isString() && level > 0) {
-            L.push(LuaValue.ofString(LuaString.utf8(L.whereAt((int) level)))); // luaL_where
+            L.push(LuaValue.ofString(L.whereAt((int) level))); // luaL_where（字节串，别转 Java String）
             L.push(msg);          // lua_pushvalue(L, 1)
             Vm.concat(L, 2);      // lua_concat(L, 2)
         }

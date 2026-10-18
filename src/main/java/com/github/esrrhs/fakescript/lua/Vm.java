@@ -1327,6 +1327,13 @@ public final class Vm {
      * <p>
      * Lua 字符串可以含 {@code \0}，所以比较要分段：每段比到 {@code \0} 或串尾，
      * 相等则跳过 {@code \0} 继续下一段。段长不同时短的更小。
+     * <p>
+     * <b>每个字节都要当 {@code unsigned char} 比。</b>C99 对 {@code strcoll}
+     * 的规定是「返回值符号由第一对不相等字节之差决定，两个字节都按
+     * {@code unsigned char} 解释」。Java 的 {@code byte} 是有符号的，直接相减会
+     * 把 {@code 0xFF} 当成 {@code -1}：于是 {@code "\xff" < "abc"} 从
+     * <b>false</b> 翻成 <b>true</b>，{@code table.sort} 的结果也跟着整体反转。
+     * 本机实测 {@code strcoll("\xff","abc") == 158 > 0}。
      */
     static int lStrcmp(LuaString a, LuaString b) {
         byte[] s1 = a.bytes;
@@ -1342,7 +1349,8 @@ public final class Vm {
             int seg2 = (z2 < 0) ? rl2 : (z2 - p2);
             int n = Math.min(seg1, seg2);
             for (int j = 0; j < n; j++) {
-                int d = s1[p1 + j] - s2[p2 + j]; // 有符号 byte，与 C 的 char 一致
+                // unsigned char：见上面 javadoc 里 strcoll 的规定
+                int d = (s1[p1 + j] & 0xFF) - (s2[p2 + j] & 0xFF);
                 if (d != 0) {
                     return d;
                 }
