@@ -1164,4 +1164,166 @@ print("END")
 
     private MetamethodTest() {
     }
+
+    /**
+     * 第五片：<b>{@code table} 库 × 元方法</b>（133 行）。
+     * <p>
+     * C 的 {@code luaL_len} / {@code lua_geti} / {@code lua_seti} 走的是
+     * <b>非 raw</b> 的读写，而 {@code luaH_getn} 那一支（{@code #}）走的是 raw
+     * —— 两边混错一处就对不上。实测出来的分野：
+     * <ul>
+     *   <li><b>{@code #} 原样返回 {@code __len} 的返回值</b>，连类型都不查：
+     *       {@code __len} 给 2.5 就得到 2.5、给 {@code true} 就得到
+     *       {@code true}、给一张表就得到那张表。</li>
+     *   <li>而走 {@code luaL_len} 的 {@code table.unpack} / {@code concat} /
+     *       {@code insert} / {@code remove} 都要整数，拿不到就报
+     *       {@code object length is not an integer}。</li>
+     *   <li>{@code rawlen} 与 {@code #} 在带 {@code __len} 的表上<b>不是</b>一个数。</li>
+     * </ul>
+     * <p>
+     * 六组：{@code __len} 的十种返回值 × 十个入口（# / unpack / concat /
+     * insert / remove / sort / ipairs / rawlen / move）；{@code __index} 与
+     * {@code __newindex} 在 {@code table} 库每个入口上触发几次（连调用<b>顺序</b>
+     * 一起比）；{@code sort} 的 {@code __lt}（注意 {@code __lt} 挂在<b>表</b>上
+     * 而不是元素上时用不上）；{@code __pairs} 的三种形态与受保护元表
+     * （{@code debug.setmetatable} 能绕过 {@code __metatable}）；元表链与
+     * raw*；最后一组是 {@code table} 库第 2..4 个参数在带元方法的表上的边界。
+     */
+    @Test
+    void tableLibraryByMetamethodMatchesReference() {
+        Diff.assertMatches("""
+-- table 库 × 元方法：C 的 luaL_len / lua_geti / lua_seti 走的是<b>非 raw</b>
+-- 的读写，而 luaH_getn 那一支（#）走的是 raw。两边混错一处就对不上。
+local function pr(tag, ...)
+  local n = select("#", ...)
+  local out = { tag }
+  for i = 1, n do out[#out + 1] = tostring((select(i, ...))) end
+  print(table.concat(out, " | "))
+end
+local function pc(tag, f, ...)
+  local r = table.pack(pcall(f, ...))
+  local out = { tag }
+  for i = 1, r.n do out[#out + 1] = tostring(r[i]) end
+  print(table.concat(out, " | "))
+end
+
+-- 素材：一张数组部分有洞的表，套不同的元方法
+local function mkt(mt) return setmetatable({ 10, 20, 30 }, mt) end
+
+-- 1) # 与 __len：__len 不是整数时 luaL_len 报什么
+do
+  local cases = {
+    { "nil",  nil },
+    { "int",  function() return 2 end },
+    { "flt",  function() return 2.0 end },
+    { "frac", function() return 2.5 end },
+    { "str",  function() return "2" end },
+    { "big",  function() return 2 ^ 63 end },
+    { "bool", function() return true end },
+    { "tbl",  function() return {} end },
+    { "neg",  function() return -1 end },
+    { "zero", function() return 0 end },
+  }
+  for i = 1, #cases do
+    local t = mkt({ __len = cases[i][2] })
+    pc("L" .. i .. "#", function() return #t end)
+    pc("L" .. i .. "unp", function() return table.unpack(t) end)
+    pc("L" .. i .. "cat", function() return table.concat(t, ",") end)
+    pc("L" .. i .. "ins", function() table.insert(t, 99) return t end)
+    pc("L" .. i .. "rem", function() return table.remove(t) end)
+    pc("L" .. i .. "srt", function() table.sort(t) return t end)
+    pc("L" .. i .. "ip", function() local n = 0 for _ in ipairs(t) do n = n + 1 end return n end)
+    pc("L" .. i .. "raw", function() return rawlen(t) end)
+    pc("L" .. i .. "mov", function() return table.move(t, 1, 3, 1) end)
+  end
+end
+
+-- 2) __index / __newindex：table 库的读写走哪条路
+do
+  local log = {}
+  local mt = {
+    __index = function(t, k) log[#log + 1] = "get:" .. tostring(k) return 7 end,
+    __newindex = function(t, k, v) log[#log + 1] = "set:" .. tostring(k) rawset(t, k, v) end,
+  }
+  local t = mkt(mt)
+  pc("I1", function() return t[1] end)
+  pc("I2", function() return t[5] end)
+  pc("I3", function() t[5] = 1 return rawget(t, 5) end)
+  pc("I4", function() return table.unpack(t, 1, 3) end)
+  pc("I5", function() return table.concat(t, ",") end)
+  pc("I6", function() table.insert(t, 99) return rawlen(t) end)
+  pc("I7", function() return table.remove(t) end)
+  pc("I8", function() return table.move(t, 1, 3, 1) end)
+  pc("I9", function() return #t end)
+  pc("I10", function() return rawget(t, 1), rawset(t, 1, 1), rawequal(t, t) end)
+  pr("I11", table.concat(log, " "))
+end
+
+-- 3) __lt / __le 在 sort 里
+do
+  local t = setmetatable({ 3, 1, 2 }, { __lt = function(a, b) return a > b end })
+  pc("S1", function() table.sort(t) return t[1], t[2], t[3] end)
+  local t2 = setmetatable({ 3, 1, 2 }, { __lt = function() error("cmp-boom") end })
+  pc("S2", function() table.sort(t2) end)
+  local t3 = setmetatable({ 1, 2 }, { __lt = function(a, b) return "x" end })
+  pc("S3", function() table.sort(t3) return t3[1] end)
+  local t4 = { 1, 2, 3 }
+  pc("S4", function() table.sort(t4, function(a, b) return true end) return t4[1] end)
+  pc("S5", function() return table.sort({ 1, 2 }, setmetatable({}, {})) end)
+  pc("S6", function() return table.sort({ 1, 2 }, 5) end)
+  pc("S7", function() return table.sort({}, nil) end)
+end
+
+-- 4) __pairs / __metatable（受保护元表）
+do
+  local t = setmetatable({ 1 }, { __pairs = function(tt) return function(_, k) if not k then return 1, "one" end end, tt, nil end })
+  local n = 0
+  for k, v in pairs(t) do n = n + 1 end
+  pr("P1", n)
+  local t2 = setmetatable({ 1 }, { __pairs = function() return 5, 6, 7 end })
+  pc("P2", function() local c = 0 for _ in pairs(t2) do c = c + 1 end return c end)
+  local t3 = setmetatable({ 1 }, { __pairs = 5 })
+  pc("P3", function() for _ in pairs(t3) do end end)
+  local t4 = setmetatable({ 1 }, { __metatable = "locked" })
+  pr("P4", getmetatable(t4))
+  pc("P5", function() return setmetatable(t4, {}) end)
+  pr("P6", rawequal(getmetatable(t4), "locked"))
+  pc("P7", function() return debug.setmetatable(t4, { __index = {} }) end)
+  pr("P8", getmetatable(t4))
+end
+
+-- 5) 元表链与 raw
+do
+  local base = { __index = { deep = 1 }, __len = function() return 1 end }
+  local mid = setmetatable({}, { __index = base })
+  local t = setmetatable({ 5 }, mid)
+  pr("C1", t.deep)
+  pr("C2", #t)
+  pr("C3", rawlen(t), rawget(t, 1))
+  local t2 = setmetatable({}, { __index = setmetatable({}, { __index = { x = 9 } }) })
+  pr("C4", t2.x)
+  -- 元方法里再来一次同样的查找（递归）
+  local t3 = setmetatable({}, { __index = function(tt, k) if k == "y" then return tt.y end end })
+  pc("C5", function() return t3.y end)
+end
+
+-- 6) table 库的第 2..4 个参数的边界（带元方法的表）
+do
+  local t = mkt({ __len = function() return 3 end, __index = function() return 7 end })
+  pc("B1", function() return table.unpack(t, 1, 2) end)
+  pc("B2", function() return table.unpack(t, 0, 3) end)
+  pc("B3", function() return table.unpack(t, 3, 1) end)
+  pc("B4", function() return table.concat(t, ",", 2, 3) end)
+  pc("B5", function() return table.concat(t, ",", 4, 5) end)
+  pc("B6", function() table.move(t, 1, 3, 2) return t end)
+  pc("B7", function() return table.insert(t, 4, 40) end)
+  pc("B8", function() return table.insert(t, 10, 40) end)
+  pc("B9", function() return table.remove(t, 0) end)
+  pc("B10", function() return table.remove(t, 5) end)
+end
+
+print("END")
+
+                """);
+    }
 }
