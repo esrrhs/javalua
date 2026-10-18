@@ -1174,7 +1174,9 @@ public final class LuaState {
         LuaValue tm = LuaTm.getTmByObj(this, v, Tm.TM_CLOSE);
         if (tm == null || tm.isNil()) {
             LuaString vn = localNameAt(stackIdx - ci.func);
-            throw runError("variable '" + ((vn == null) ? "?" : vn.toJavaString())
+            // "%s" 是 C 字符串：局部名（只有二进制 chunk 能带 NUL）在这里被砍断
+            throw runError("variable '"
+                    + ((vn == null) ? "?" : LuaString.cutAtNul(vn.toLatin1String()))
                     + "' got a non-closable value");
         }
         UpVal uv = UpVal.open(stack[stackIdx], stackIdx);
@@ -2624,6 +2626,17 @@ public final class LuaState {
         return errorAt(LuaValue.ofString(LuaString.latin1(msg)), 1);
     }
 
+    /**
+     * 与 {@link #libError(String)} 的差别：消息<b>已经是字节串</b>。
+     * <p>
+     * 消息里嵌了 Lua 数据（文件名、模块名、{@code __name}）时走这条——那些是
+     * 任意字节，绕一圈 Java String 再 {@code latin1} 编码回去不是内容被改写
+     * 就是直接抛 {@code IllegalArgumentException}。
+     */
+    public LuaError libError(LuaString msg) {
+        return errorAt(LuaValue.ofString(msg), 1);
+    }
+
     /* ==================== lauxlib.c 那套「参数检查」 ==================== */
 
     /**
@@ -2800,12 +2813,13 @@ public final class LuaState {
             LuaValue v = r[1];
             if (k.isString()) {
                 if (LuaValue.rawEqual(obj, v)) {
-                    return k.asString().toJavaString();
+                    return LuaString.cutAtNul(k.asString().toLatin1String());
                 }
                 if (v.isTable()) {
                     String sub = findFieldName(v.asTable(), obj, level - 1);
                     if (sub != null) {
-                        return k.asString().toJavaString() + "." + sub;
+                        return LuaString
+                                .cutAtNul(k.asString().toLatin1String() + "." + sub);
                     }
                 }
             }
@@ -2928,7 +2942,22 @@ public final class LuaState {
         return (s == null) ? "?" : s.toJavaString();
     }
 
-    /** {@code ldebug.c: kname}：只有字符串常量才有名字 */
+    /**
+     * {@code ldebug.c: kname}：只有字符串常量才有名字。
+     * <p>
+     * 两处 C 字符串语义都要照搬：
+     * <ul>
+     * <li>名字最终经 {@code formatvarinfo} 的 {@code "%s"} 拼进消息，而 C 的
+     * {@code %s} 在第一个 {@code \0} 处断 —— {@code toCString()}。实测
+     * {@code load("local t={} return t['a\0b'].x")()}：参考实现报
+     * {@code (field 'a')}，不是 {@code (field 'a\0b')}。</li>
+     * <li>常量可以是任意字节（{@code t['\xff']} 的键），Latin-1 往返才不丢 —— 用
+     * UTF-8 解会把 {@code 0xFF} 变成 {@code U+FFFD}，回头 {@code latin1} 还要抛
+     * {@code IllegalArgumentException}（那是 Java 异常，{@code pcall} 接不住）。</li>
+     * </ul>
+     * 高字节<b>不</b>截断：实测 {@code t['\255\254']} 参考实现原样报
+     * {@code (field '<FF><FE>')}。
+     */
     static String kName(Proto p, int index, String[] name) {
         if (index < 0 || index >= p.k.length) {
             name[0] = "?";
@@ -2936,7 +2965,7 @@ public final class LuaState {
         }
         LuaValue kv = p.k[index];
         if (kv.isString()) {
-            name[0] = kv.asString().toJavaString();
+            name[0] = kv.asString().toCString().toLatin1String();
             return "constant";
         }
         name[0] = "?";
@@ -3200,8 +3229,26 @@ public final class LuaState {
     /**
      * 字节版的 {@code chunkId}：源名是 Lua 字符串（字节串），截取是按<b>字节</b>
      * 算的，不能先解码成 {@code String} 再截，否则遇到非法 UTF-8 时长度就对不上了。
+     * <p>
+     * 结果<b>还要按 C 字符串再截一次</b>（道理同 {@link LuaString#cutAtNul}）：
+     * C 版写进 {@code char buff[LUA_IDSIZE]}，之后无论 {@code luaG_addinfo} 的
+     * {@code "%s"} 还是 {@code short_src} 的 {@code lua_pushstring}，看到的
+     * 都只有第一个 NUL 之前那一段。
+     * <p>
+     * 源名里带 NUL 只有<b>二进制 chunk</b> 做得到——{@code lua_load} 的
+     * {@code chunkname} 是 {@code const char*}，进 {@code Proto.source} 之前
+     * 就被 {@code strlen} 截过了，所以 {@code load(s, "a\0b")} 测不出这一层。
+     * 实测：把 {@code string.dump} 出来的源名 {@code "local zzzz <close> = 1..."}
+     * 改成 {@code "local a\0b\0 ..."} 再 {@code load}，参考实现的报错是
+     * {@code [string "local a:1: variable 'a' got a non-closable value}
+     * —— 连收尾的 {@code "]"} 都没有。
      */
     static byte[] chunkId(byte[] source) {
+        return nulTruncate(chunkIdRaw(source));
+    }
+
+    /** {@link #chunkId} 的实现，不含最后的 C 字符串截断。 */
+    private static byte[] chunkIdRaw(byte[] source) {
         final int IDSIZE = 60; // LUA_IDSIZE
         final byte[] RETS = { '.', '.', '.' };
         final byte[] PRE = "[string \"".getBytes(StandardCharsets.US_ASCII);

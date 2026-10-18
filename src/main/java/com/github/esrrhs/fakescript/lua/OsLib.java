@@ -761,7 +761,8 @@ public final class OsLib {
         // remove 的参数是 const char*：在第一个 \0 处砍断。不砍的话 Java 的
         // Paths.get 会抛 InvalidPathException —— 而它不是 LuaError，pcall 拦不住，
         // 会整颗逃逸成 Java 异常（实测 os.remove("a\0b") 直接崩掉进程）。
-        String path = LuaAux.checkString(L, 1).toCString().toJavaString();
+        LuaString pname = LuaAux.checkString(L, 1).toCString();
+        String path = pname.toJavaString();
         /*
          * 空路径：C 的 remove("") 走 unlink 直接给 ENOENT（实测
          * os.remove("") -> nil, ": No such file or directory", 2），
@@ -769,7 +770,7 @@ public final class OsLib {
          * 与 loadfile("") 是同一类「C 与 Java 判路径不一致」的角落。
          */
         if (path.isEmpty()) {
-            LuaAux.fileResult(L, false, path, 2); // ENOENT
+            LuaAux.fileResult(L, false, pname, 2); // ENOENT
             return 3;
         }
         try {
@@ -777,7 +778,7 @@ public final class OsLib {
             L.push(LuaValue.ofBoolean(true));
             return 1;
         } catch (IOException | RuntimeException e) {
-            LuaAux.fileResult(L, false, path, LuaAux.errnoOf(e));
+            LuaAux.fileResult(L, false, pname, LuaAux.errnoOf(e));
             return 3;
         }
     }

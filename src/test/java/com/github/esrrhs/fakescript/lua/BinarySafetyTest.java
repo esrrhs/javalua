@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
  *       {@code U+4E2D} 截成 {@code '-'}，长度倒是对的，只有内容错。</li>
  * </ul>
  * <p>
- * 三片各自成阵：
+ * 四片各自成阵：
  * <ul>
  *   <li><b>片一：string 核心函数 × 字节样本</b>。27 个样本（含 NUL 在头/中/尾、
  *       {@code 0xFF}、四类非法 UTF-8、超长编码、代理项、合法 UTF-8）乘上
@@ -50,13 +50,22 @@ import org.junit.jupiter.api.Test;
  *   <li><b>片三：chunk 名本身是任意字节</b>。{@code =} / {@code @} / 裸三种
  *       写法 × 含 NUL 与高位字节 × 跨 {@code LUA_IDSIZE} 的长度，看
  *       {@code luaL_where} / {@code short_src} / {@code traceback} 三条出口。</li>
+ *   <li><b>片四：错误消息里嵌的<b>值本身</b></b>——{@code varinfo} 反推的字段名、
+ *       {@code __name}、{@code require} 的模块名、{@code io}/{@code os} 的文件名。
+ *       这里额外咬出<b>「名字是 C 字符串」</b>这一层：{@code kname} 拿到的是
+ *       {@code getstr()} 那个 {@code const char*}，{@code formatvarinfo} 用
+ *       {@code "%s"} 拼，于是名字在第一个 {@code \0} 处被砍断——实测
+ *       {@code load("local t={} return t['a\0b'].x")()} 参考实现报
+ *       {@code (field 'a')}，而高字节<b>不</b>砍（{@code t['\255\254']} 原样报
+ *       {@code (field '<FF><FE>')}）。</li>
  * </ul>
  * <p>
- * 最后一片还带一遍<b>协程第二遍</b>（约定：同一批语料塞进
+ * 片二与片四都带一遍<b>协程第二遍</b>（约定：同一批语料塞进
  * {@code coroutine.create} 再跑一遍）。
  *
  * @see Vm#lStrcmp
  * @see LuaState#errorAt
+ * @see LuaState#kName
  * @see DebugLib#traceback
  */
 class BinarySafetyTest {
@@ -780,4 +789,395 @@ end)
         """);
     }
 
+
+    /**
+     * 片四：错误消息里「回流的 Lua 字符串」。
+     * <p>
+     * 与前三片的差别：前三片修的是位置前缀与回溯，这一片盯的是<b>嵌在消息里的
+     * 值本身</b>——{@code varinfo} 反推出的字段名（{@code t["\xff"]} 的键）、
+     * 元表的 {@code __name}、{@code require} 的模块名、{@code argError} 反查
+     * 出来的函数名。这些值从 Lua 字节串出发、绕一圈 Java String、最后又
+     * {@code LuaString.latin1} 编码回 Lua 字符串；中间那一圈用 UTF-8 解码就会
+     * 把 {@code 0xFF} 变成 {@code U+FFFD}。
+     * <p>
+     * 修法与前几片不同：这里没有把每一处的类型都改成 {@code LuaString}
+     * （{@code varinfo} 那一串 {@code String[]} 出参牵动十几个函数），而是引入
+     * {@code LuaString.toLatin1String()} —— 与 {@code latin1} 互为逆运算，
+     * 保证 {@code byte<->char} 在 0..255 上无损往返。代价是这条链上的中间
+     * 表示只能是 Latin-1，凡是拿它去拼 Lua 字符串的地方都必须用
+     * {@code latin1} 而不是 {@code utf8}（{@code debug.getinfo} 的
+     * {@code name} / {@code namewhat}、回溯里的 {@code function 'x'} 就是）。
+     * <p>
+     * 光有 Latin-1 还不够，<b>名字还要再走一次 {@code toCString()}</b>：
+     * {@code W2} 段是专门为此加的——{@code W} 段用变量键（{@code t[k]}），
+     * 编译器走寄存器，压根碰不到 {@code kname}；只有写成<b>字面键</b>
+     * （{@code load("local t = {} return t['a\0b'].x")}）才会编译成
+     * {@code OP_GETFIELD}、由 {@code kname} 报 {@code field}。灵敏度脚本一开始
+     * 说「{@code kName} 的改动盯不住」，就是缺了这一段。补上之后 470 行里
+     * 咬出 14 处分歧（{@code (field '')} vs {@code (field '<00>')}）。
+     * <p>
+     * {@code io} / {@code os} 那一段<b>故意不比</b>三件事（参考实测值记在
+     * 约定 #57）：文件名含非 UTF-8 字节时，C 把原始字节递给 {@code fopen}，
+     * macOS 回 EILSEQ(92)，而 Java 的文件层走 UTF-8、直接建出别的文件；
+     * 同理 {@code os.execute} 的命令行；以及 {@code os.setlocale} 设成非 C 之后
+     * {@code strcoll} 变成 locale 相关排序（参考在 {@code zh_CN.UTF-8} 下
+     * {@code "a" < "B"} 为 <b>true</b>、排序 {@code aAbBcC}，本实现恒字节序）。
+     */
+    @Test
+    void errorMessageEmbeddedValueGridMatchesReference() {
+        Diff.assertMatches("""
+
+-- 二进制安全矩阵 IV：错误消息里「回流的 Lua 字符串」
+-- 上一片修的是位置前缀与 traceback；这一片盯的是另一类出口：
+-- 错误消息里嵌的**值本身**（varinfo 的字段名、__name、模块名、文件名）。
+local NUL = string.char(0)
+local HEX = "0123456789ABCDEF"
+local function hb(b) return HEX:sub((b // 16) + 1, (b // 16) + 1) .. HEX:sub((b % 16) + 1, (b % 16) + 1) end
+local function esc(s)
+  -- 地址不可比（约定 #43）
+  s = s:gsub("0x%x+", function(a) return string.rep("P", #a) end) -- 等长替换：# 也要可比
+  return (s:gsub(".", function(c)
+    local b = c:byte()
+    if b == 91 or b == 93 then return "<" .. hb(b) .. ">" end
+    if b < 32 or b > 126 then return "<" .. hb(b) .. ">" end
+    return c
+  end))
+end
+local function show(v)
+  local t = type(v)
+  if t == "string" then return "#" .. #v .. "[" .. esc(v) .. "]" end
+  if t == "number" then
+    local mt = math.type(v)
+    if mt == "integer" then return "i" .. tostring(v) end
+    if mt == "float" then return "f" .. tostring(v) end
+  end
+  if t == "nil" or t == "boolean" then return tostring(v) end
+  return t .. "(" .. (tostring(v):gsub("0x%x+", "PTR")) .. ")"
+end
+local function P(tag, fn, ...)
+  local r = table.pack(pcall(fn, ...))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. show(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+
+local NAMES = {
+  "ok", NUL, "a" .. NUL .. "b", string.char(0xFF), string.char(0xC3) .. string.char(0x28),
+  string.char(0xE4) .. string.char(0xB8) .. string.char(0xAD), "", "veryveryverylongname",
+}
+
+print("=== V __name（tostring 的类型名）===")
+for i = 1, #NAMES do
+  local nm = NAMES[i]
+  -- 地址长度本身不可比（C 与 JVM 的指针位数不同）：先抹再取长度
+  P("V name " .. esc(nm), function()
+    return (tostring(setmetatable({}, {__name = nm})):gsub("0x%x+", "PTR"))
+  end)
+  P("V nameS " .. esc(nm), function()
+    return tostring(setmetatable({}, {__name = nm})):gsub("0x%x+", "PTR")
+  end)
+  P("V arith " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    return t + 1
+  end)
+  P("V call " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    return t()
+  end)
+  P("V idx " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    return t.x
+  end)
+  P("V len " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    return #t
+  end)
+  P("V concat " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    return t .. "x"
+  end)
+  P("V cmp " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    return t < 1
+  end)
+  P("V newidx " .. esc(nm), function()
+    local t = setmetatable({}, {__name = nm})
+    t.x = 1
+    return "ok"
+  end)
+end
+
+print("=== W varinfo：错误消息里嵌的字段名 ===")
+for i = 1, #NAMES do
+  local k = NAMES[i]
+  P("W getidx " .. esc(k), function()
+    local t = {}
+    return t[k].x
+  end)
+  P("W call " .. esc(k), function()
+    local t = {}
+    return t[k]()
+  end)
+  P("W arith " .. esc(k), function()
+    local t = {}
+    return t[k] + 1
+  end)
+  P("W concat " .. esc(k), function()
+    local t = {}
+    return t[k] .. "x"
+  end)
+  P("W cmp " .. esc(k), function()
+    local t = {}
+    return t[k] < 1
+  end)
+  P("W len " .. esc(k), function()
+    local t = {}
+    return #t[k]
+  end)
+  P("W newidx " .. esc(k), function()
+    local t = {}
+    t[k].x = 1
+    return "ok"
+  end)
+  P("W forlimit " .. esc(k), function()
+    local t = {}
+    for j = 1, t[k] do end
+    return "ok"
+  end)
+  P("W forinit " .. esc(k), function()
+    local t = {}
+    for j = t[k], 2 do end
+    return "ok"
+  end)
+  P("W upval " .. esc(k), function()
+    local t = {}
+    local function f() return t[k] + 1 end
+    return f()
+  end)
+  P("W method " .. esc(k), function()
+    local t = {}
+    return t[k](t, 1)
+  end)
+  P("W intidx", function()
+    local t = {}
+    return t[1].x
+  end)
+  P("W selfidx " .. esc(k), function()
+    local t = setmetatable({}, {__index = function(_, kk) error("boom", 1) end})
+    return t[k]
+  end)
+end
+
+print("=== W2 字面键：编译器把它当常量，varinfo 报 constant/field ===")
+for i = 1, #NAMES do
+  local k = NAMES[i]
+  -- 用 load 造源码：字面写进字符串的是真字节，编译器才会走 OP_GETFIELD -> kname
+  P("W2 const " .. esc(k), function()
+    return load("local t = {} return t['" .. k .. "'].x")()
+  end)
+  P("W2 arith " .. esc(k), function()
+    return load("local t = {} return t['" .. k .. "'] + 1")()
+  end)
+  P("W2 call " .. esc(k), function()
+    return load("local t = {} return t['" .. k .. "']()")()
+  end)
+  P("W2 set " .. esc(k), function()
+    return load("local t = {} t['" .. k .. "'].y = 1 return 'ok'")()
+  end)
+  P("W2 concat " .. esc(k), function()
+    return load("local t = {} return t['" .. k .. "'] .. 'x'")()
+  end)
+  P("W2 len " .. esc(k), function()
+    return load("local t = {} return #t['" .. k .. "']")()
+  end)
+  P("W2 for " .. esc(k), function()
+    return load("local t = {} for j = 1, t['" .. k .. "'] do end return 'ok'")()
+  end)
+  P("W2 cmp " .. esc(k), function()
+    return load("local t = {} return t['" .. k .. "'] < 1")()
+  end)
+  -- 字段名也要出现在 argError 反查出来的「函数名」里
+  P("W2 badself " .. esc(k), function()
+    local f = load("local t = {} local m = t['" .. k .. "'] return m.x(1)")
+    return f()
+  end)
+  -- 全局名：_ENV 的字面键
+  P("W2 global " .. esc(k), function()
+    return load("return _ENV['" .. k .. "'] + 1")()
+  end)
+end
+
+-- 约定第四条：同一批语料塞进协程再跑一遍。registry / 位置前缀是 global_State
+-- 级的，主线程上怎么跑都正常的 bug 只有在这里现形。
+print("=== W3 协程第二遍：字面键 varinfo ===")
+local function PC(tag, src)
+  P(tag, function()
+    local co = coroutine.create(assert(load(src)))
+    local ok, e = coroutine.resume(co)
+    return ok, e
+  end)
+end
+for i = 1, #NAMES do
+  local k = NAMES[i]
+  PC("W3 const " .. esc(k), "local t = {} return t['" .. k .. "'].x")
+  PC("W3 arith " .. esc(k), "local t = {} return t['" .. k .. "'] + 1")
+  PC("W3 call " .. esc(k), "local t = {} return t['" .. k .. "']()")
+  PC("W3 concat " .. esc(k), "local t = {} return t['" .. k .. "'] .. 'x'")
+  PC("W3 global " .. esc(k), "return _ENV['" .. k .. "'] + 1")
+  PC("W3 method " .. esc(k), "local t = {} return t['" .. k .. "']:x()")
+end
+print("=== V2 协程第二遍：__name ===")
+for i = 1, #NAMES do
+  local nm = NAMES[i]
+  P("V2 arith " .. esc(nm), function()
+    local co = coroutine.create(function()
+      local t = setmetatable({}, {__name = nm})
+      return t + 1
+    end)
+    local ok, e = coroutine.resume(co)
+    return ok, e
+  end)
+  P("V2 cmp " .. esc(nm), function()
+    local co = coroutine.create(function()
+      local t = setmetatable({}, {__name = nm})
+      return t < 1
+    end)
+    local ok, e = coroutine.resume(co)
+    return ok, e
+  end)
+end
+
+print("=== X require 的模块名 ===")
+for i = 1, #NAMES do
+  local nm = NAMES[i]
+  P("X req " .. esc(nm), function()
+    package.path = "target/rt/?.lua"
+    return require(nm)
+  end)
+  P("X searchpath " .. esc(nm), function()
+    return package.searchpath(nm, "target/rt/?.lua")
+  end)
+  P("X searchpath2 " .. esc(nm), function()
+    return package.searchpath("m", nm)
+  end)
+  P("X searchpath3 " .. esc(nm), function()
+    return package.searchpath("m", "target/rt/?.lua", nm)
+  end)
+  P("X searchpath4 " .. esc(nm), function()
+    return package.searchpath("m", "target/rt/?.lua", ".", nm)
+  end)
+  P("X searchers " .. esc(nm), function()
+    return package.searchers[1](nm)
+  end)
+  P("X searchers2 " .. esc(nm), function()
+    return package.searchers[2](nm)
+  end)
+  P("X searchers3 " .. esc(nm), function()
+    return package.searchers[3](nm)
+  end)
+  P("X searchers4 " .. esc(nm), function()
+    return package.searchers[4](nm)
+  end)
+  P("X preload " .. esc(nm), function()
+    package.preload[nm] = function() return 1 end
+    return require(nm)
+  end)
+end
+
+print("=== Y io / os 的文件名 ===")
+for i = 1, #NAMES do
+  local fn = NAMES[i]
+  P("Y open " .. esc(fn), function() return io.open(fn) end)
+  P("Y lines " .. esc(fn), function() return io.lines(fn) end)
+  P("Y remove " .. esc(fn), function() return os.remove(fn) end)
+  P("Y rename " .. esc(fn), function() return os.rename(fn, fn .. "2") end)
+  P("Y getenv " .. esc(fn), function() return os.getenv(fn) end)
+end
+print("=== Z 消息里嵌值的其他出口 ===")
+for i = 1, #NAMES do
+  local v = NAMES[i]
+  -- 约定 #80：debug.setmetatable 改的是全局类型元表，用完必须还原原值
+  P("Z setmeta " .. esc(v), function()
+    local old = debug.getmetatable(v)
+    local ok, e = pcall(debug.setmetatable, v, {})
+    debug.setmetatable(v, old)
+    return ok, e
+  end)
+  P("Z getmeta " .. esc(v), function() return getmetatable(v) end)
+  P("Z setmeta2 " .. esc(v), function()
+    return debug.setmetatable(nil, v)
+  end)
+  P("Z badarg " .. esc(v), function() return pcall(string.rep, "a", v) end)
+  P("Z badarg2 " .. esc(v), function() return pcall(string.format, v) end)
+  P("Z badarg3 " .. esc(v), function() return pcall(io.open, {}, v) end)
+  P("Z badarg4 " .. esc(v), function() return pcall(os.setlocale, v, "x") end)
+  P("Z loadmode " .. esc(v), function() return load("return 1", "=x", v) end)
+  P("Z gsub " .. esc(v), function() return ("abc"):gsub("b", v) end)
+  P("Z gsubtbl " .. esc(v), function()
+    local t = setmetatable({}, {__index = function(_, k) return k .. "!" end})
+    return ("abc"):gsub("b", t)
+  end)
+  P("Z sortcmp " .. esc(v), function()
+    return pcall(table.sort, {1, 2, 3}, v)
+  end)
+end
+
+-- 下面三段是灵敏度脚本点出来的「用例盯不住」的补测：
+-- findfield 的名字、<close> 变量名、loadfile 的 mode。
+-- 前两条都要绕开「pairs 顺序不可比」（约定 #43）与「标识符只能 ASCII」。
+print("=== AA findfield：package.loaded 里反查出来的函数名 ===")
+for i = 1, #NAMES do
+  local nm = NAMES[i]
+  -- 名字必须**唯一可达**：只挂在 package.loaded 下、不进 _G，
+  -- 否则 findfield 撞上 _G 的先后由 lua_next 决定，顺序不可比。
+  P("AA tb " .. esc(nm), function()
+    local inner = function() return debug.traceback("MSG") end
+    local m = {}
+    m[nm] = inner
+    package.loaded["M" .. nm] = m
+    return inner()
+  end)
+  P("AA getinfo " .. esc(nm), function()
+    local inner = function() return 1 end
+    local m = {}
+    m[nm] = inner
+    package.loaded["M" .. nm] = m
+    -- 走同一条 pushglobalfuncname，但出口是 getinfo 的 name
+    local co = coroutine.create(function() return inner() end)
+    return select(2, coroutine.resume(co))
+  end)
+end
+
+print("=== AB <close> 变量名：只有二进制 chunk 能带非 ASCII 局部名 ===")
+-- 语法里的标识符只能 ASCII，想让局部名含高位字节必须改 dump；
+-- 等长替换（zzzz -> 4 字节）保证 dump 仍然合法。
+for _, v in ipairs({ "nil", "1", "'x'", "{}", "io.stdout" }) do
+  local src = "local zzzz <close> = " .. v .. " return 'ok'"
+  P("AB src " .. v, function() return load(src)() end)
+  local d1 = string.dump(load(src))
+  P("AB dump " .. v, function() return load(d1)() end)
+  local d2 = d1:gsub("zzzz", "\255\254\253\252")
+  P("AB patched " .. v, function() return load(d2)() end)
+end
+-- 局部名含 NUL：C 这边是 %s，照样在第一个 \0 处断
+P("AB nulname", function()
+  local d = string.dump(load("local zzzz <close> = 1 return 'ok'")):gsub("zzzz", "a\0b\0")
+  return load(d)()
+end)
+
+print("=== AC loadfile 的 mode：原样拼进错误消息 ===")
+-- 约定 #41：自己建临时文件，别读 target/rt/case.lua（那个文件的内容随测试而异）
+os.remove("target/rt/ac.lua")
+local w = assert(io.open("target/rt/ac.lua", "wb"))
+w:write("return 1\n")
+w:close()
+
+for i = 1, #NAMES do
+  local md = NAMES[i]
+  P("AC loadfile " .. esc(md), function() return loadfile("target/rt/ac.lua", md) end)
+  P("AC loadfile2 " .. esc(md), function() return loadfile("target/rt/nope.lua", md) end)
+  P("AC load " .. esc(md), function() return load("return 1", "=x", md) end)
+end
+        """);
+    }
 }

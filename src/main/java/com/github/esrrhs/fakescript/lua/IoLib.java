@@ -637,14 +637,15 @@ public final class IoLib {
     }
 
     /** {@code opencheck}：打不开直接报错（{@code io.lines} 用它） */
-    private static void openCheck(LuaState L, String fname, String mode) {
+    private static void openCheck(LuaState L, LuaString fname, String mode) {
         LuaFile f = new LuaFile();
         L.push(LuaValue.ofUserdata(f));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         f.closef = IoLib::ioFclose;
-        if (!openInto(f, fname, mode)) {
-            throw L.libError("cannot open file '" + fname + "' ("
-                    + LuaAux.strError(f.errno) + ")");
+        if (!openInto(f, fname.toJavaString(), mode)) {
+            // 文件名是任意字节，消息得按字节拼
+            throw L.libError(LuaString.latin1("cannot open file '").concat(fname)
+                    .concat(LuaString.latin1("' (" + LuaAux.strError(f.errno) + ")")));
         }
     }
 
@@ -693,14 +694,15 @@ public final class IoLib {
      * （后者 {@code checkMode} 会判成 invalid mode）。
      */
     private static int ioOpen(LuaState L) {
-        String filename = LuaAux.checkString(L, 1).toCString().toJavaString();
+        LuaString fname = LuaAux.checkString(L, 1).toCString();
+        String filename = fname.toJavaString(); // 交给 Java 文件 API 的那一侧
         String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
         newFile(L, f);
         LuaAux.argCheck(L, checkMode(mode), 2, "invalid mode");
         f.err = false;
         if (!openInto(f, filename, mode)) {
-            LuaAux.fileResult(L, false, filename, f.errno);
+            LuaAux.fileResult(L, false, fname, f.errno);
             return 3;
         }
         return 1;
@@ -708,7 +710,8 @@ public final class IoLib {
 
     /** {@code io.popen} */
     private static int ioPopen(LuaState L) {
-        String filename = LuaAux.checkString(L, 1).toCString().toJavaString();
+        LuaString fname = LuaAux.checkString(L, 1).toCString();
+        String filename = fname.toJavaString();
         String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
         L.push(LuaValue.ofUserdata(f));
@@ -732,7 +735,7 @@ public final class IoLib {
         }
         f.closef = IoLib::ioPclose;
         if (f.err) {
-            LuaAux.fileResult(L, false, filename, f.errno);
+            LuaAux.fileResult(L, false, fname, f.errno);
             return 3;
         }
         return 1;
@@ -808,7 +811,7 @@ public final class IoLib {
             LuaValue a = L.arg1(1);
             LuaString s = (a.isString() || a.isNumber()) ? LuaAux.asString(a) : null;
             if (s != null) {
-                openCheck(L, s.toCString().toJavaString(), mode);
+                openCheck(L, s.toCString(), mode);
             } else {
                 toFile(L); // 确认是个开着的句柄
                 L.push(a);
@@ -881,7 +884,7 @@ public final class IoLib {
             toFile(L); // 确认默认输入还开着
             toclose = false;
         } else {
-            String filename = LuaAux.checkString(L, 1).toCString().toJavaString();
+            LuaString filename = LuaAux.checkString(L, 1).toCString();
             openCheck(L, filename, "r");
             L.replace(1);
             toclose = true;
@@ -1143,7 +1146,7 @@ public final class IoLib {
         }
         if (n > 1) {
             // 第二个结果是错误信息
-            throw L.libError(L.stack[L.top - n + 1].asString().toJavaString());
+            throw L.libError(L.stack[L.top - n + 1].asString().toLatin1String());
         }
         if (L.upvalue(2).toBoolean()) {
             L.setTop(0);

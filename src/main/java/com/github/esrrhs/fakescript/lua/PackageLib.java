@@ -273,10 +273,10 @@ public final class PackageLib {
     private static int searchpath(LuaState L) {
         // 四个参数全都是 const char*（ll_searchpath 的签名 + luaL_gsub 的替换串），
         // 在第一个 \0 处砍断：searchpath("a\0b", "./?.lua") 找的是 "./a.lua"。
-        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
-        String path = LuaAux.checkString(L, 2).toCString().toJavaString();
-        String sep = LuaAux.optString(L, 3, LuaString.latin1(".")).toCString().toJavaString();
-        String dirsep = LuaAux.optString(L, 4, LuaString.latin1(DIRSEP)).toCString().toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toLatin1String();
+        String path = LuaAux.checkString(L, 2).toCString().toLatin1String();
+        String sep = LuaAux.optString(L, 3, LuaString.latin1(".")).toCString().toLatin1String();
+        String dirsep = LuaAux.optString(L, 4, LuaString.latin1(DIRSEP)).toCString().toLatin1String();
         String f = searchPath(L, name, path, sep, dirsep);
         if (f != null) {
             L.push(LuaValue.ofString(LuaString.latin1(f)));
@@ -297,7 +297,7 @@ public final class PackageLib {
         if (p == null || !(p.isString() || p.isNumber())) {
             throw L.libError("'package." + pname + "' must be a string");
         }
-        return searchPath(L, name, LuaAux.asString(p).toJavaString(), ".", dirsep);
+        return searchPath(L, name, LuaAux.asString(p).toLatin1String(), ".", dirsep);
     }
 
     /* ==================== 动态库（兜底：一律失败） ==================== */
@@ -360,15 +360,15 @@ public final class PackageLib {
             return 2;
         }
         LuaValue msg = L.stack[L.top - 1];
-        throw L.libError("error loading module '" + L.arg1(1).asString().toJavaString()
+        throw L.libError("error loading module '" + L.arg1(1).asString().toLatin1String()
                 + "' from file '" + filename + "':\n\t"
-                + LuaAux.asString(msg).toJavaString());
+                + LuaAux.asString(msg).toLatin1String());
     }
 
     /** {@code searcher_preload} */
     private static int searcherPreload(LuaState L) {
         // 模块名在 C 里是 const char*，第一个 \0 之后的内容连错误消息里都不出现
-        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toLatin1String();
         LuaValue v = preloadTable(L).get(name);
         if (v == null || v.isNil()) {
             L.push(LuaValue.ofString(LuaString.latin1(
@@ -382,7 +382,7 @@ public final class PackageLib {
 
     /** {@code searcher_Lua} */
     private static int searcherLua(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toLatin1String();
         String filename = findFile(L, name, "path", DIRSEP);
         if (filename == null) {
             return 1; // 消息已压栈
@@ -410,7 +410,7 @@ public final class PackageLib {
             L.push(LuaValue.ofClosure(cl));
         } catch (Exception e) {
             String m = (e instanceof LuaError)
-                    ? LuaAux.asString(((LuaError) e).value).toJavaString()
+                    ? LuaAux.asString(((LuaError) e).value).toLatin1String()
                     : String.valueOf(e.getMessage());
             L.push(LuaValue.ofString(LuaString.latin1(m)));
             return checkLoad(L, false, filename);
@@ -421,7 +421,7 @@ public final class PackageLib {
     /** {@code searcher_C} */
     private static int searcherC(LuaState L) {
         // 与 searcher_preload / searcher_Lua 同理：name 是 const char*
-        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toLatin1String();
         String filename = findFile(L, name, "cpath", DIRSEP);
         if (filename == null) {
             return 1;
@@ -431,7 +431,7 @@ public final class PackageLib {
 
     /** {@code searcher_Croot} */
     private static int searcherCroot(LuaState L) {
-        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toLatin1String();
         int p = name.indexOf('.');
         if (p < 0) {
             return 0; // 就是根，交给别的搜索器
@@ -500,7 +500,7 @@ public final class PackageLib {
              * 会出现 "42"。写成 isString 会把它当成「没给消息」整条丢掉。
              */
             if (r[0].isString() || r[0].isNumber()) {
-                msg.append(LuaAux.asString(r[0]).toJavaString());
+                msg.append(LuaAux.asString(r[0]).toLatin1String());
             } else {
                 msg.setLength(msg.length() - 2); // 这个搜索器没给消息
             }
@@ -510,7 +510,7 @@ public final class PackageLib {
     /** {@code ll_require} */
     private static int requireFn(LuaState L) {
         // 模块名是 const char*，第一个 \0 之后的内容连 package.loaded 的键都进不去
-        String name = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String name = LuaAux.checkString(L, 1).toCString().toLatin1String();
         L.setTop(1);
         LuaTable loaded = L.loadedTable();
         LuaValue cached = loaded.get(name);
