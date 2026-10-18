@@ -238,11 +238,6 @@ LUA_API int (lua_error) (lua_State *L) {
 }
 
 /* lua.h */
-LUA_API lua_Alloc (lua_getallocf) (lua_State *L, void **ud) {
-  return (lua_Alloc)(intptr_t)luashim_call(ID_lua_getallocf, LUASHIM_HANDLE(L), (intptr_t)ud, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
 LUA_API int (lua_getfield) (lua_State *L, int idx, const char *k) {
   return (int)luashim_call(ID_lua_getfield, LUASHIM_HANDLE(L), (jint)idx, (intptr_t)k, 0, 0, 0, 0);
 }
@@ -470,11 +465,6 @@ LUA_API int (lua_resetthread) (lua_State *L) {
 /* lua.h */
 LUA_API void (lua_rotate) (lua_State *L, int idx, int n) {
   luashim_call(ID_lua_rotate, LUASHIM_HANDLE(L), (jint)idx, (jint)n, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API void (lua_setallocf) (lua_State *L, lua_Alloc f, void *ud) {
-  luashim_call(ID_lua_setallocf, LUASHIM_HANDLE(L), (intptr_t)f, (intptr_t)ud, 0, 0, 0, 0);
 }
 
 /* lua.h */
