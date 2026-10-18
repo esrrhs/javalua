@@ -291,6 +291,14 @@ public final class Lexer {
             }
         }
         LuaError e = new LuaError(LuaValue.ofString(LuaString.of(out.toByteArray())));
+        /*
+         * C 版 {@code lexerror} 结尾是 {@code luaD_throw(L, LUA_ERRSYNTAX)}：
+         * <b>直接跳，不过 {@code L->errfunc}</b>。所以语法错误消息永远不带
+         * {@code xpcall} 处理器的痕迹（实测：{@code xpcall(function() return
+         * load("x++") end, H)} 给裸的 {@code [string "x++"]:1: syntax error}），
+         * 而读函数里 {@code error()} 出来的会给 {@code H:...}。
+         */
+        e.directThrow = true;
         throw e;
     }
 

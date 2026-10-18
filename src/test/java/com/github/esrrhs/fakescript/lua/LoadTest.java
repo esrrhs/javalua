@@ -294,5 +294,37 @@ class LoadTest {
             -- 二进制 chunk：模式不含 'b' 时报模式错（这一条已对齐）
             print(load("\\27Lua"))
             print(load("\\27Lua", nil, "b"))
+            """,
+
+            """
+            -- 消息处理函数是「抛出点」生效，不是「pcall 边界」生效。
+            -- luaD_protectedparser 把 L->errfunc 原样传进内层保护区，
+            -- 于是读函数里的 error() 当场被外层 xpcall 的处理器接住。
+            local function X(tag, fn)
+              local r = table.pack(xpcall(fn, function(m) return "H:" .. tostring(m) end))
+              local out = tag
+              for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+              print(out .. " | n=" .. r.n)
+            end
+            -- 走 luaD_throw 直跳：不带 H
+            X("syntax", function() return load("x++") end)
+            X("syntax2", function() return load(function() return "x++" end) end)
+            X("mode", function() return load("return 1", "=x", "q") end)
+            X("mode2", function() return loadfile("target/rt/case.lua", "q") end)
+            X("cannotopen", function() return loadfile("target/rt/nope.lua") end)
+            -- 走 luaG_errormsg：带 H
+            X("readererr", function() return load(function() error("boom") end) end)
+            X("readerbad", function() return load(function() return true end) end)
+            X("readerlvl0", function() return load(function() error("b", 0) end) end)
+            X("readernonstr", function() return load(function() error({ "t" }) end) end)
+            -- dofile 的打不开要走 lua_error，所以带 H
+            X("dofile", function() return dofile("target/rt/nope.lua") end)
+            -- 协程不继承 errfunc：新线程那份是 0
+            X("co", function()
+              local co = coroutine.create(function()
+                return load(function() error("co") end)
+              end)
+              return select(2, coroutine.resume(co))
+            end)
             """, };
 }

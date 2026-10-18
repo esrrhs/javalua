@@ -964,6 +964,14 @@ public final class BaseLib {
         return loadZio(L, new Zio(src), chunkname, mode);
     }
 
+    /** {@code lbaselib.c: checkmode} —— 结尾是 {@code luaD_throw(LUA_ERRSYNTAX)}，直跳 */
+    private static LuaError modeError(String what, String mode) {
+        LuaError e = new LuaError(LuaValue.ofString(LuaString.latin1(
+                "attempt to load a " + what + " chunk (mode is '" + mode + "')")));
+        e.directThrow = true;
+        return e;
+    }
+
     private static LuaError loadZio(LuaState L, Zio z, byte[] chunkname, String mode) {
         /*
          * 整段都必须在 try 里，<b>包括最前面那次窥探</b>。读函数是惰性的，
@@ -976,8 +984,7 @@ public final class BaseLib {
             int first = z.getc();
             if (first == SIGNATURE0) {
                 if (mode.indexOf('b') < 0) {
-                    throw new LuaError(LuaValue.ofString(LuaString.latin1(
-                            "attempt to load a binary chunk (mode is '" + mode + "')")));
+                    throw modeError("binary", mode);
                 }
                 /*
                  * 二进制分支<b>不回退</b>首字节：C 的 luaU_undump 的注释写得很直白，
@@ -989,8 +996,7 @@ public final class BaseLib {
                 return null;
             }
             if (mode.indexOf('t') < 0) {
-                throw new LuaError(LuaValue.ofString(LuaString.latin1(
-                        "attempt to load a text chunk (mode is '" + mode + "')")));
+                throw modeError("text", mode);
             }
             /*
              * 首字节<b>传进去</b>而不是回退。回退看着等价，但对惰性读函数不等价：
@@ -1001,6 +1007,18 @@ public final class BaseLib {
             L.push(LuaValue.ofClosure(L.load(z, chunkname, first)));
             return null;
         } catch (LuaError e) {
+            /*
+             * 整段 try 对应 C 的 {@code luaD_protectedparser}，而它把
+             * {@code L->errfunc} <b>原样</b>传进内层的 {@code luaD_pcall}。
+             * 于是「不是 {@code luaD_throw} 直跳的错」在<b>抛出点</b>就被外层
+             * {@code xpcall} 的处理器接住了 —— 实测
+             * {@code xpcall(function() return load(function() error("boom") end) end, H)}
+             * 参考实现给 {@code nil, "H:case.lua:13: boom"}；语法错误因为走
+             * {@code luaD_throw} 直跳，给的是裸消息，两种都得对上。
+             */
+            if (!e.directThrow && L.errFunc != null) {
+                return new LuaError(L.applyErrFunc(e.value), e.where);
+            }
             return e;
         }
     }

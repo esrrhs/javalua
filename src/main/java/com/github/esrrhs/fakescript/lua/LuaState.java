@@ -83,6 +83,23 @@ public final class LuaState {
     private boolean inErrMsg;
 
     /**
+     * 当前安装的<b>消息处理函数</b>（{@code lstate.c: L->errfunc}）。
+     * <p>
+     * C 版由 {@code luaD_pcall} 在保护区期间赋值、出来时还原，而<b>调用它的地方
+     * 是 {@code luaG_errormsg}（抛出点），不是 {@code luaD_pcall}（捕获点）</b>。
+     * 这个差别只在<b>嵌套的保护区</b>上显形：{@code luaD_protectedparser}
+     * （{@code load} / {@code loadfile} / {@code require}）把 {@code L->errfunc}
+     * <b>原样传进内层</b>，于是读函数里 {@code error()} 的那一刻就被外层
+     * {@code xpcall} 的处理器拦下了 —— {@code load} 于是返回
+     * {@code nil, "H:..."}，而语法错误走 {@code luaD_throw} 直跳、不带痕迹。
+     * <p>
+     * 协程不继承：新线程的 {@code L->errfunc} 是 0（{@code preinit_thread}
+     * 不拷这一项），实测 {@code xpcall} 里 {@code coroutine.resume} 一个
+     * {@code load(读函数)} 出错的协程，消息<b>不</b>带 {@code H}。
+     */
+    LuaValue errFunc;
+
+    /**
      * 不可 yield 的调用层数 —— C 版是 {@code nCcalls} 的高 16 位
      * （{@code nyci = 0x10000 | 1}，{@code yieldable(L)} 判高位是否为 0）。
      * 这里拆成独立字段：{@code nCcalls} 只管深度，这里只管能不能 yield。
@@ -1551,6 +1568,9 @@ public final class LuaState {
     public LuaValue pcall(int funcIdx, int nresults, LuaValue handler) {
         int oldTop = top;
         CallInfo saved = ci;
+        // luaD_pcall：L->errfunc = ef（ef 为 0 即「没有」，与 handler == null 等价）
+        LuaValue oldErrFunc = errFunc;
+        errFunc = handler;
         /*
          * {@code luaD_pcall} 里的 {@code old_allowhooks}。
          * <p>
@@ -1580,9 +1600,10 @@ public final class LuaState {
          */
         int oldNCcalls = nCcalls;
         try {
-            call(funcIdx, nresults);
-            return null;
-        } catch (LuaError e) {
+            try {
+                call(funcIdx, nresults);
+                return null;
+            } catch (LuaError e) {
             /*
              * 位置信息在这里补，而不是在抛出的地方补：像「除以零」这类错误
              * 来自 Arith 这种没有 LuaState 的纯算术层，它抛的是裸错误值，
@@ -1653,6 +1674,9 @@ public final class LuaState {
             top = oldTop;
             shrinkStack(); // 与 C 版 luaD_pcall 末尾那句同位置
             return v;
+            }
+        } finally {
+            errFunc = oldErrFunc;
         }
     }
 
@@ -1669,6 +1693,22 @@ public final class LuaState {
      * {@code luaD_seterrorobj} 把它写成 {@code "error in error handling"}。
      * 这里直接认这个结果，中间那几十层递归没有意义。
      */
+    /**
+     * {@code ldebug.c: luaG_errormsg} 里那句「调 {@code L->errfunc}」。
+     * <p>
+     * 给<b>被保护区包住的嵌套加载</b>用（{@code load} / {@code loadfile} /
+     * {@code require}）：C 那边是 {@code luaD_protectedparser} 把
+     * {@code L->errfunc} <b>原样</b>传进 {@code luaD_pcall}，于是读函数里
+     * {@code error()} 的<b>抛出点</b>就被外层 {@code xpcall} 的处理器接住了，
+     * {@code load} 返回的是 {@code nil, "H:..."}。
+     * <p>
+     * 只有<b>非</b>{@link LuaError#directThrow} 的错才过这一道——语法错误在 C 里
+     * 走 {@code luaD_throw} 直跳，压根不进 {@code luaG_errormsg}。
+     */
+    LuaValue applyErrFunc(LuaValue v) {
+        return (errFunc == null) ? v : applyErrMsg(v, errFunc);
+    }
+
     private LuaValue applyErrMsg(LuaValue v, LuaValue handler) {
         if (inErrMsg) {
             return v;

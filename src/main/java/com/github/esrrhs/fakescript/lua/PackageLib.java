@@ -409,8 +409,11 @@ public final class PackageLib {
             LClosure cl = L.loadFile(src, "@" + filename);
             L.push(LuaValue.ofClosure(cl));
         } catch (Exception e) {
+            // 与 BaseLib 的 loadZio 同理：这一层也是 luaD_protectedparser，
+            // 非直跳的错要在「抛出点」过一遍 L->errfunc
             String m = (e instanceof LuaError)
-                    ? LuaAux.asString(((LuaError) e).value).toLatin1String()
+                    ? LuaAux.asString(((((LuaError) e).directThrow) ? ((LuaError) e).value
+                            : L.applyErrFunc(((LuaError) e).value))).toLatin1String()
                     : String.valueOf(e.getMessage());
             L.push(LuaValue.ofString(LuaString.latin1(m)));
             return checkLoad(L, false, filename);
