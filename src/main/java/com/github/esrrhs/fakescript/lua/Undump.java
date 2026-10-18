@@ -99,7 +99,10 @@ public final class Undump {
         out.write(S.name, 0, S.name.length);
         byte[] tail = (": bad binary format (" + why + ")").getBytes(StandardCharsets.UTF_8);
         out.write(tail, 0, tail.length);
-        throw new LuaError(LuaValue.ofString(LuaString.of(out.toByteArray())));
+        LuaError e = new LuaError(LuaValue.ofString(LuaString.of(out.toByteArray())));
+        // 与 lexerror 同一条路：luaD_throw(LUA_ERRSYNTAX) 直跳，不过 errfunc
+        e.directThrow = true;
+        throw e;
     }
 
     /* ---------- 基本读取 ---------- */

@@ -25,6 +25,25 @@ public class LuaError extends RuntimeException {
     public boolean addTraceback = true;
 
     /**
+     * 是不是 <b>{@code luaD_throw} 直跳</b>出来的（语法错误、{@code load} 的
+     * mode 错误、二进制 chunk 的畸形）。
+     * <p>
+     * C 版有两条抛错的路，只有一条会过消息处理函数：
+     * <ul>
+     * <li>{@code luaG_errormsg}：先调 {@code L->errfunc} 再跳。{@code error()}、
+     *     {@code luaL_error}、{@code luaG_runerror}（含「C stack overflow」）走这条。</li>
+     * <li>{@code luaD_throw}：<b>直接跳</b>。{@code lexerror}（{@code LUA_ERRSYNTAX}）、
+     *     {@code checkmode}、{@code lundump} 的 {@code error()} 走这条。</li>
+     * </ul>
+     * 可观测的场合是 {@code xpcall} 里 {@code load(读函数)}：
+     * {@code luaD_protectedparser} 把 {@code L->errfunc} 原样传进内层保护区，
+     * 于是读函数里 {@code error("boom")} 的<b>抛出点</b>就被 {@code xpcall}
+     * 的处理器拦下了 —— 实测 {@code load} 返回
+     * {@code nil, "H:case.lua:13: boom"}，而语法错误返回的是裸消息。
+     */
+    public boolean directThrow;
+
+    /**
      * {@code LUA_ERRERR}：错误处理过程本身又出错了。
      * <p>
      * {@code ldo.c: luaD_seterrorobj} 对这一档不取栈顶那个错误值，而是固定写
