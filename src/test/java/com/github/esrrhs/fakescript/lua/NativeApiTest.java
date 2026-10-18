@@ -1,0 +1,513 @@
+package com.github.esrrhs.fakescript.lua;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
+
+/**
+ * C API 逐符号的差分用例 —— 阶段 C 的第二片。
+ * <p>
+ * {@link NativeExtTest} 证明的是「一个真的扩展能跑」；这一片证明的是
+ * <b>每一个 {@code lua_*} / {@code luaL_*} 的语义都和参考实现一致</b>。做法是
+ * 一条 C 函数对一个符号，Lua 侧铺参数网格，两边比对 stdout。
+ * <p>
+ * 为什么不挑几个典型用例就收工：本项目里真分歧全是系统扫描咬出来的，不是
+ * 挑用例挑出来的。这里的网格也照那条经验写——每个符号都过一遍「类型 × 值」
+ * 的组合，而不是只试一次「正常用法」。
+ * <p>
+ * 有一条硬约束：<b>任何可能打印出地址的调用都不能直接 print</b>。
+ * {@code 0x...} 两边必然不同，打印它就等于给自己造一条永远修不好的红。凡涉
+ * 及表 / 函数 / userdata / 线程的，一律只打 {@code type(...)} 或比相等。
+ */
+class NativeApiTest {
+
+    private static String so;
+
+    private static String skipReason = "还没试";
+
+    private static final String C = String.join("\n",
+            "#include <string.h>",
+            "#include \"lua.h\"",
+            "#include \"lauxlib.h\"",
+            "#include \"lualib.h\"",
+            "",
+            "/* ==================== 栈 ==================== */",
+            "static int f_gettop(lua_State *L) {",
+            "  lua_pushinteger(L, lua_gettop(L)); return 1;",
+            "}",
+            "static int f_settop(lua_State *L) {",
+            "  lua_settop(L, (int) luaL_checkinteger(L, 1));",
+            "  lua_pushinteger(L, lua_gettop(L)); return 1;",
+            "}",
+            "static int f_rotate(lua_State *L) { lua_rotate(L, 1, -1); return lua_gettop(L); }",
+            "static int f_copy(lua_State *L) {",
+            "  lua_copy(L, 1, (int) luaL_checkinteger(L, 2)); return lua_gettop(L);",
+            "}",
+            "static int f_insert(lua_State *L) { lua_insert(L, (int) luaL_checkinteger(L, 1)); return lua_gettop(L); }",
+            "static int f_remove(lua_State *L) { lua_remove(L, (int) luaL_checkinteger(L, 1)); return lua_gettop(L); }",
+            "static int f_replace(lua_State *L) { lua_replace(L, (int) luaL_checkinteger(L, 1)); return lua_gettop(L); }",
+            "static int f_checkstack(lua_State *L) {",
+            "  lua_pushboolean(L, lua_checkstack(L, (int) luaL_checkinteger(L, 1))); return 1;",
+            "}",
+            "static int f_pushlightuserdata(lua_State *L) {",
+            "  lua_pushlightuserdata(L, (void *) L);",
+            "  lua_pushboolean(L, lua_touserdata(L, -1) == (void *) L);",
+            "  lua_pushboolean(L, lua_isuserdata(L, -2));",
+            "  lua_pushboolean(L, lua_islightuserdata(L, -2));",
+            "  return 3;",
+            "}",
+            "static int f_pushthread(lua_State *L) {",
+            "  lua_pushboolean(L, lua_pushthread(L));",
+            "  lua_pushboolean(L, lua_tothread(L, -1) != NULL);",
+            "  return 3;",
+            "}",
+            "",
+            "/* ==================== 取值与类型转换 ==================== */",
+            "static int f_tointegerx(lua_State *L) {",
+            "  int isnum = 123;",
+            "  lua_Integer v = lua_tointegerx(L, 1, &isnum);",
+            "  lua_pushinteger(L, v); lua_pushboolean(L, isnum); return 2;",
+            "}",
+            "static int f_tonumberx(lua_State *L) {",
+            "  int isnum = 123;",
+            "  lua_Number v = lua_tonumberx(L, 1, &isnum);",
+            "  lua_pushnumber(L, v); lua_pushboolean(L, isnum); return 2;",
+            "}",
+            "static int f_tostringx(lua_State *L) {",
+            "  lua_pushstring(L, lua_tostring(L, 1));",
+            "  lua_pushboolean(L, lua_tostring(L, 1) != NULL); return 2;",
+            "}",
+            "static int f_toboolean(lua_State *L) {",
+            "  lua_pushboolean(L, lua_toboolean(L, 1)); return 1;",
+            "}",
+            "static int f_iscfunction(lua_State *L) {",
+            "  lua_pushboolean(L, lua_iscfunction(L, 1));",
+            "  lua_pushboolean(L, lua_tocfunction(L, 1) != NULL); return 2;",
+            "}",
+            "static int f_sameptr(lua_State *L) {",
+            "  lua_pushboolean(L, lua_topointer(L, 1) == lua_topointer(L, 2));",
+            "  lua_pushboolean(L, lua_topointer(L, 1) != NULL); return 2;",
+            "}",
+            "static int f_compare(lua_State *L) {",
+            "  lua_pushboolean(L, lua_compare(L, 1, 2, LUA_OPEQ));",
+            "  lua_pushboolean(L, lua_compare(L, 1, 2, LUA_OPLT));",
+            "  lua_pushboolean(L, lua_compare(L, 1, 2, LUA_OPLE));",
+            "  lua_pushboolean(L, lua_rawequal(L, 1, 2)); return 4;",
+            "}",
+            "static int f_types(lua_State *L) {",
+            "  int i, n = lua_gettop(L);",
+            "  /* C 帧只保证 LUA_MINSTACK(=20) 格。要推 n*7 个返回值就得自己开口子；",
+            "     不开就是写穿 ci->top 的未定义行为——参考实现会把超出的槽读成 nil，",
+            "     本实现因为栈是 Java 数组反而「正常」。两边都不是对的，所以这条探针",
+            "     必须自己 luaL_checkstack。 */",
+            "  luaL_checkstack(L, n * 7, \"not enough stack\");",
+            "  for (i = 1; i <= n; i++) {",
+            "    lua_pushstring(L, lua_typename(L, lua_type(L, i)));",
+            "    lua_pushboolean(L, lua_isnumber(L, i));",
+            "    lua_pushboolean(L, lua_isstring(L, i));",
+            "    lua_pushboolean(L, lua_isinteger(L, i));",
+            "    lua_pushboolean(L, lua_isnil(L, i));",
+            "    lua_pushboolean(L, lua_isnone(L, i));",
+            "    lua_pushboolean(L, lua_isnoneornil(L, i));",
+            "  }",
+            "  return n * 7;",
+            "}",
+            "",
+            "/* ==================== 取表与设表 ==================== */",
+            "static int f_getset(lua_State *L) {",
+            "  luaL_checktype(L, 1, LUA_TTABLE);",
+            "  lua_pushvalue(L, 2); lua_gettable(L, 1);",
+            "  lua_pushvalue(L, 2); lua_rawget(L, 1);",
+            "  lua_geti(L, 1, 3);",
+            "  lua_rawgeti(L, 1, 3);",
+            "  return 4;",
+            "}",
+            "static int f_setter(lua_State *L) {",
+            "  luaL_checktype(L, 1, LUA_TTABLE);",
+            "  lua_pushvalue(L, 2); lua_pushvalue(L, 3); lua_settable(L, 1);",
+            "  lua_pushvalue(L, 2); lua_pushvalue(L, 3); lua_rawset(L, 1);",
+            "  lua_pushinteger(L, luaL_len(L, 1));",
+            "  return 1;",
+            "}",
+            "static int f_seti(lua_State *L) {",
+            "  luaL_checktype(L, 1, LUA_TTABLE);",
+            "  lua_pushvalue(L, 3); lua_seti(L, 1, 2);",
+            "  lua_pushvalue(L, 3); lua_rawseti(L, 1, 2);",
+            "  return 0;",
+            "}",
+            "static int f_rawp(lua_State *L) {",
+            "  luaL_checktype(L, 1, LUA_TTABLE);",
+            "  lua_pushvalue(L, 2); lua_rawsetp(L, 1, (void *) L);",
+            "  lua_rawgetp(L, 1, (void *) L);",
+            "  lua_pushboolean(L, lua_type(L, -1) == lua_type(L, 2));",
+            "  return 2;",
+            "}",
+            "static int f_glob(lua_State *L) {",
+            "  const char *k = luaL_checkstring(L, 1);",
+            "  lua_getglobal(L, k);",
+            "  lua_pushvalue(L, 2); lua_setglobal(L, k);",
+            "  lua_getglobal(L, k);",
+            "  return 2;",
+            "}",
+            "static int f_newtable(lua_State *L) {",
+            "  lua_createtable(L, 2, 1);",
+            "  lua_newtable(L);",
+            "  lua_pushboolean(L, lua_type(L, -1) == LUA_TTABLE);",
+            "  lua_pushboolean(L, lua_type(L, -2) == LUA_TTABLE);",
+            "  return 3;",
+            "}",
+            "",
+            "/* ==================== 调用 ==================== */",
+            "static int f_pcallk(lua_State *L) {",
+            "  lua_pushvalue(L, 1);",
+            "  int st = lua_pcallk(L, 0, 1, 0, 0, NULL);",
+            "  lua_pushinteger(L, st);",
+            "  return 2;",
+            "}",
+            "static int f_callk(lua_State *L) {",
+            "  lua_pushvalue(L, 1);",
+            "  lua_callk(L, 0, 1, 0, NULL);",
+            "  return 1;",
+            "}",
+            "",
+            "/* ==================== lauxlib ==================== */",
+            "static int f_checkany(lua_State *L) { luaL_checkany(L, 1); lua_pushboolean(L, 1); return 1; }",
+            "static int f_getmetafield(lua_State *L) {",
+            "  int t = luaL_getmetafield(L, 1, luaL_checkstring(L, 2));",
+            "  lua_pushstring(L, lua_typename(L, t));",
+            "  return lua_gettop(L) - 2;",
+            "}",
+            "static int f_callmeta(lua_State *L) {",
+            "  int r = luaL_callmeta(L, 1, luaL_checkstring(L, 2));",
+            "  lua_pushboolean(L, r);",
+            "  return lua_gettop(L) - 2;",
+            "}",
+            "static int f_getsubtable(lua_State *L) {",
+            "  int had = luaL_getsubtable(L, LUA_REGISTRYINDEX, luaL_checkstring(L, 1));",
+            "  lua_pushboolean(L, had);",
+            "  return 2;",
+            "}",
+            "static int f_tolstring(lua_State *L) {",
+            "  size_t n = 0;",
+            "  const char *s = luaL_tolstring(L, 1, &n);",
+            "  lua_pushstring(L, s);",
+            "  lua_pushinteger(L, (lua_Integer) n);",
+            "  return 2;",
+            "}",
+            "static int f_checkoption(lua_State *L) {",
+            "  static const char *const opts[] = {\"a\", \"b\", \"c\", NULL};",
+            "  lua_pushinteger(L, luaL_checkoption(L, 1, \"a\", opts));",
+            "  return 1;",
+            "}",
+            "static int f_loadstring(lua_State *L) {",
+            "  const char *s = luaL_checkstring(L, 1);",
+            "  int st = luaL_loadstring(L, s);",
+            "  lua_pushinteger(L, st);",
+            "  lua_insert(L, -2);",
+            "  if (st == LUA_OK) lua_call(L, 0, 1);",
+            "  return 2;",
+            "}",
+            "static int f_loadbufferx(lua_State *L) {",
+            "  size_t n = 0;",
+            "  const char *s = luaL_checklstring(L, 1, &n);",
+            "  const char *name = luaL_optstring(L, 2, \"=chunk\");",
+            "  int st = luaL_loadbufferx(L, s, n, name, luaL_optstring(L, 3, \"t\"));",
+            "  lua_pushinteger(L, st);",
+            "  lua_insert(L, -2);",
+            "  if (st == LUA_OK) lua_call(L, 0, 1);",
+            "  return 2;",
+            "}",
+            "static int f_typeerror(lua_State *L) { return luaL_typeerror(L, 1, \"mytype\"); }",
+            "static int f_argerror(lua_State *L) { return luaL_argerror(L, 1, \"my msg\"); }",
+            "static int f_setmt(lua_State *L) {",
+            "  luaL_setmetatable(L, \"NatBox\");",
+            "  lua_pushboolean(L, luaL_testudata(L, 1, \"NatBox\") != NULL);",
+            "  return 2;",
+            "}",
+            "static int l_mod(lua_State *L) {",
+            "  lua_newtable(L);",
+            "  lua_pushstring(L, \"modv\"); lua_setfield(L, -2, \"k\");",
+            "  return 1;",
+            "}",
+            "static int f_requiref(lua_State *L) {",
+            "  luaL_requiref(L, luaL_checkstring(L, 1), l_mod, 1);",
+            "  lua_pushboolean(L, lua_type(L, -1) == LUA_TTABLE);",
+            "  return 2;",
+            "}",
+            "static int f_openlibs(lua_State *L) {",
+            "  luaL_openlibs(L);",
+            "  lua_pushboolean(L, lua_type(L, -1) != LUA_TNIL);",
+            "  return 1;",
+            "}",
+            "",
+            "static const luaL_Reg funcs[] = {",
+            "  {\"gettop\", f_gettop}, {\"settop\", f_settop}, {\"rotate\", f_rotate},",
+            "  {\"copy\", f_copy}, {\"insert\", f_insert}, {\"remove\", f_remove},",
+            "  {\"replace\", f_replace}, {\"checkstack\", f_checkstack},",
+            "  {\"pushlightuserdata\", f_pushlightuserdata}, {\"pushthread\", f_pushthread},",
+            "  {\"tointegerx\", f_tointegerx}, {\"tonumberx\", f_tonumberx},",
+            "  {\"tostringx\", f_tostringx}, {\"toboolean\", f_toboolean},",
+            "  {\"iscfunction\", f_iscfunction}, {\"sameptr\", f_sameptr},",
+            "  {\"compare\", f_compare}, {\"types\", f_types},",
+            "  {\"getset\", f_getset}, {\"setter\", f_setter}, {\"seti\", f_seti},",
+            "  {\"rawp\", f_rawp}, {\"glob\", f_glob}, {\"newtable\", f_newtable},",
+            "  {\"pcallk\", f_pcallk}, {\"callk\", f_callk},",
+            "  {\"checkany\", f_checkany}, {\"getmetafield\", f_getmetafield},",
+            "  {\"callmeta\", f_callmeta}, {\"getsubtable\", f_getsubtable},",
+            "  {\"tolstring\", f_tolstring}, {\"checkoption\", f_checkoption},",
+            "  {\"loadstring\", f_loadstring}, {\"loadbufferx\", f_loadbufferx},",
+            "  {\"typeerror\", f_typeerror}, {\"argerror\", f_argerror},",
+            "  {\"setmt\", f_setmt}, {\"requiref\", f_requiref}, {\"openlibs\", f_openlibs},",
+            "  {NULL, NULL}",
+            "};",
+            "",
+            "int luaopen_nat(lua_State *L) {",
+            "  luaL_newmetatable(L, \"NatBox\");",
+            "  lua_pop(L, 1);",
+            "  luaL_newlib(L, funcs);",
+            "  return 1;",
+            "}");
+
+    private static final String PRE = "local f = assert(package.loadlib([==[@SO@]==], "
+            + "\"luaopen_nat\"))\nlocal n = f()\n";
+
+    /**
+     * 参数网格。
+     * <p>
+     * 每行是一段脚本；{@code PRE} 会拼在前面。刻意让同一条 C 函数过多种类型——
+     * 「只试正常用法」漏掉的那些（缺参、浮点、字符串数字、userdata）才是真分歧
+     * 的藏身处。
+     */
+    private static final String[][] CASES = {
+        {"gettop / settop",
+            "print(n.gettop(), n.gettop(1, 2, 3))",
+            "print(n.settop(1, 9, 9), n.settop(3, 1, 2), n.settop(0))"},
+        {"rotate / copy / insert / remove / replace",
+            "print(n.rotate(1, 2, 3))",
+            "print(n.copy(7, 2, 3))",
+            "print(n.insert(1, 2, 3))",
+            "print(n.remove(2, 1, 2, 3))",
+            "print(n.replace(1, 9, 8))"},
+        {"checkstack",
+            "print(n.checkstack(0), n.checkstack(1), n.checkstack(100))"},
+        {"轻量 userdata",
+            "print(n.pushlightuserdata())"},
+        {"pushthread",
+            "local a, b, c = n.pushthread()",
+            "print(a, b, type(c))"},
+        {"tointegerx 网格",
+            "print(n.tointegerx(42))",
+            "print(n.tointegerx(42.0))",
+            "print(n.tointegerx(42.5))",
+            "print(n.tointegerx('42'))",
+            "print(n.tointegerx('42.0'))",
+            "print(n.tointegerx('abc'))",
+            "print(n.tointegerx(nil))",
+            "print(n.tointegerx(true))",
+            "print(n.tointegerx())"},
+        {"tonumberx 网格",
+            "print(n.tonumberx(42))",
+            "print(n.tonumberx(42.5))",
+            "print(n.tonumberx('42'))",
+            "print(n.tonumberx('42.5'))",
+            "print(n.tonumberx('abc'))",
+            "print(n.tonumberx(nil))",
+            "print(n.tonumberx(true))",
+            "print(n.tonumberx())"},
+        {"tostring / toboolean",
+            "print(n.tostringx(42))",
+            "print(n.tostringx('s'))",
+            "print(n.tostringx(nil))",
+            "print(n.tostringx(true))",
+            "print(n.toboolean(nil), n.toboolean(false), n.toboolean(0), n.toboolean(''))"},
+        {"iscfunction",
+            "print(n.iscfunction(print))",
+            "print(n.iscfunction(function() end))",
+            "print(n.iscfunction(1))"},
+        {"topointer 与 rawequal",
+            "local t = {}",
+            "print(n.sameptr(t, t))",
+            "print(n.sameptr(t, {}))",
+            "print(n.sameptr(1, 1))"},
+        {"compare 四种算子",
+            "print(n.compare(1, 2))",
+            "print(n.compare(2, 1))",
+            "print(n.compare(1, 1))",
+            "print(n.compare('a', 'b'))",
+            "print(pcall(n.compare, 1, '1'))",
+            "print(n.compare(nil, nil))"},
+        {"types 网格",
+            "print(n.types(1, 1.5, 's', true, nil, print, {}))",
+            "print(n.types())"},
+        {"gettable / rawget / geti / rawgeti",
+            "local t = {k = 'v', [3] = 'three'}",
+            "print(n.getset(t, 'k'))",
+            "print(n.getset(t, 'nope'))",
+            "local mt = setmetatable({}, {__index = function(_, k) return 'gen:' .. k end})",
+            "print(n.getset(mt, 'zz'))"},
+        {"settable / rawset / len",
+            "local t = {}",
+            "print(n.setter(t, 'k', 'v'), t.k, #t)",
+            "print(n.setter(t, 1, 'one'), t[1], #t)"},
+        {"seti / rawseti",
+            "local t = {}",
+            "n.seti(t, 2, 'x')",
+            "print(t[2], #t)",
+            "n.seti(t, 1, 'y')",
+            "print(t[1], #t)"},
+        {"rawgetp / rawsetp",
+            "local t = {}",
+            "print(n.rawp(t, 5))",
+            "print(n.rawp(t, 'z'))"},
+        {"getglobal / setglobal",
+            "print(n.glob('nope', 7), nope)",
+            "print(n.glob('print', 7))"},
+        {"createtable / newtable",
+            "local a, b, c = n.newtable()",
+            "print(type(a), b, c)"},
+        {"pcallk / callk",
+            "print(n.pcallk(function() return 'ok' end))",
+            "print(n.pcallk(function() error('in') end))",
+            "print(n.pcallk(print))",
+            "print(n.callk(function() return 'c' end))"},
+        {"luaL_checkany",
+            "print(n.checkany(1), n.checkany(nil))",
+            "print(pcall(n.checkany))"},
+        {"luaL_getmetafield",
+            "local t = setmetatable({}, {__index = 'I', __name = 'NM'})",
+            "print(n.getmetafield(t, '__index'))",
+            "print(n.getmetafield(t, '__name'))",
+            "print(n.getmetafield(t, 'nope'))",
+            "print(n.getmetafield(1, '__index'))"},
+        {"luaL_callmeta",
+            "local t = setmetatable({}, {__tostring = function() return 'TS' end})",
+            "print(n.callmeta(t, '__tostring'))",
+            "print(n.callmeta(t, 'nope'))",
+            "print(n.callmeta(1, '__tostring'))"},
+        {"luaL_getsubtable",
+            "local a, b = n.getsubtable('_LOADED')",
+            "print(b, type(a))",
+            "local c, d = n.getsubtable('brandnew')",
+            "print(d, type(c))"},
+        {"luaL_tolstring",
+            "print(n.tolstring(42))",
+            "print(n.tolstring('abc'))",
+            "print(n.tolstring(nil))",
+            "print(n.tolstring(true))",
+            "print(n.tolstring(1.5))",
+            "local t = setmetatable({}, {__tostring = function() return 'TS' end})",
+            "print(n.tolstring(t))"},
+        {"luaL_checkoption",
+            "print(n.checkoption('a'), n.checkoption('b'), n.checkoption('c'))",
+            "print(n.checkoption())",
+            "print(pcall(n.checkoption, 'z'))",
+            "print(pcall(n.checkoption, 1))"},
+        {"luaL_loadstring",
+            "print(n.loadstring('return 1 + 2'))",
+            "print(n.loadstring('return'))",
+            "print(n.loadstring('x = '))",
+            "print(n.loadstring('return 1, 2'))"},
+        {"luaL_loadbufferx",
+            "print(n.loadbufferx('return 7'))",
+            "print(n.loadbufferx('return 7', '@my'))",
+            "print(n.loadbufferx('return 7', '=my', 't'))",
+            "print(n.loadbufferx('return ..'))"},
+        {"luaL_typeerror / luaL_argerror",
+            "print(pcall(n.typeerror, 1))",
+            "print(pcall(n.typeerror, 's'))",
+            "print(pcall(n.argerror, 1))"},
+        {"luaL_setmetatable",
+            "local t = {}",
+            "print(n.setmt(t))"},
+        {"luaL_requiref",
+            "local m, istable = n.requiref('mymod')",
+            "print(istable, mymod.k, package.loaded.mymod == mymod)",
+            "local m2, it2 = n.requiref('mymod')",
+            "print(it2, m2 == mymod)"},
+        {"luaL_openlibs",
+            "print(n.openlibs())",
+            "print(type(print), type(string), type(package.loaded.string))"},
+    };
+
+    @TestFactory
+    List<DynamicTest> cApiMatchesReference() {
+        List<DynamicTest> tests = new ArrayList<>();
+        String path = fixture();
+        Assumptions.assumeTrue(path != null, "跳过 C API 用例：" + skipReason);
+        for (String[] c : CASES) {
+            StringBuilder src = new StringBuilder(PRE.replace("@SO@", path));
+            for (int i = 1; i < c.length; i++) {
+                src.append(c[i]).append('\n');
+            }
+            String script = src.toString();
+            tests.add(DynamicTest.dynamicTest("C API: " + c[0],
+                    () -> Diff.assertMatches(script)));
+        }
+        return tests;
+    }
+
+    private static synchronized String fixture() {
+        if (so != null) {
+            return so;
+        }
+        if (!NativeBridge.AVAILABLE) {
+            skipReason = "native 层没装起来: " + NativeBridge.LOAD_ERROR;
+            return null;
+        }
+        String cc = firstOf("cc", "gcc", "clang");
+        if (cc == null) {
+            skipReason = "PATH 里没有 C 编译器";
+            return null;
+        }
+        try {
+            File dir = new File("target/rt");
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                return null;
+            }
+            File c = new File(dir, "api.c");
+            File lib = new File(dir, "api.so");
+            Files.write(c.toPath(), C.getBytes(StandardCharsets.UTF_8));
+            List<List<String>> cmds = new ArrayList<>();
+            cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-undefined",
+                    "dynamic_lookup", "-I", "native/lua", "-o", lib.getPath(),
+                    c.getPath()));
+            cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-I", "native/lua",
+                    "-o", lib.getPath(), c.getPath()));
+            boolean ok = false;
+            for (List<String> cmd : cmds) {
+                Process p = new ProcessBuilder(cmd)
+                        .redirectErrorStream(true).start();
+                if (p.waitFor() == 0 && lib.isFile()) {
+                    ok = true;
+                    break;
+                }
+            }
+            if (!ok) {
+                skipReason = "编译扩展失败（" + cc + "）";
+            }
+            so = ok ? lib.getAbsolutePath() : null;
+        } catch (Exception e) {
+            skipReason = "编译扩展失败: " + e;
+            so = null;
+        }
+        return so;
+    }
+
+    private static String firstOf(String... names) {
+        for (String n : names) {
+            for (String d : System.getenv("PATH").split(File.pathSeparator)) {
+                if (new File(d, n).canExecute()) {
+                    return n;
+                }
+            }
+        }
+        return null;
+    }
+}

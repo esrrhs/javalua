@@ -80,6 +80,16 @@ jobs:
     # 绿的只是本地。而覆盖率门禁跟一致性测试绑在一起(没有参考二进制时
     # 一致性测试整类跳过,门禁跟着跳过),所以 -Djacoco.skip=true 一加,
     # 覆盖率这条线在 CI 上也是空的:两条最硬的闸门都形同虚设。
+    #
+    # luashim:C API 那层薄壳。编出来之后 .so 扩展才能在 Java 版里加载
+    # (package.loadlib 真的 dlopen)。这一步<b>故意不设 continue-on-error</b>:
+    # 编不出来时 NativeExtTest / NativeApiTest 会整类跳过,而「跳过」在报告里
+    # 和「跑过」长得一样——让 job 红掉才能发现 C 扩展这批闸门其实没在 CI 上跑。
+    - name: Build luashim (C API shim)
+      run: |
+        set -e
+        sh native/build.sh
+        find src/main/resources/native -type f
     - name: Run conformance tests
       env:
         LUA54_BIN: target/lua54/src/lua

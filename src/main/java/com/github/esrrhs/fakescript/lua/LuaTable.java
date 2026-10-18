@@ -294,7 +294,14 @@ public final class LuaTable {
      * {@link WeakRef#hash} 的注释）。
      */
     private static int objectHash(Object o) {
-        return (o instanceof WeakRef) ? ((WeakRef) o).hash : System.identityHashCode(o);
+        if (o instanceof WeakRef) {
+            return ((WeakRef) o).hash;
+        }
+        /*
+         * 轻量 userdata 里的 {@code Long} 是<b>指针值</b>，必须按值哈希，否则
+         * 和 {@code LuaValue.rawEqual} 那条判据对不上（相等却落进不同桶）。
+         */
+        return (o instanceof Long) ? o.hashCode() : System.identityHashCode(o);
     }
 
     /**

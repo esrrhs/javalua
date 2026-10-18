@@ -20,3 +20,7 @@ crash-*
 
 # 上游 code.lua / luac.lua 跑出来的字节码产物
 luac.out
+
+# luashim 的编译产物（native/build.sh 产出，按平台分目录）
+# 不入库：换台机器就是另一套二进制，CI 上由上面那个 build 步骤现编。
+src/main/resources/native/
