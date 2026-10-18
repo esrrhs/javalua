@@ -681,9 +681,23 @@ final class Api {
         return lua_tolstring(L, -1, len);
     }
 
-    @Generated
     static void luaL_traceback(long L, long L1, long msg, long level) {
-        throw unimplemented("luaL_traceback");
+        /*
+         * 与 {@code debug.traceback} / 未捕获错误的 {@code msghandler}
+         * <b>同一份 {@link DebugLib#traceback}</b>：三处只要有一处是自己拼的，
+         * 「{@code debug.traceback} 对的、C 扩展里 {@code luaL_traceback} 少一层」
+         * 这种分歧就查不出来。
+         * <p>
+         * {@code msg} 是 {@code const char*}，按字节取且<b>不再过
+         * {@code luaL_tolstring}</b>——C 版也是直接 {@code strlen(msg)} 用，
+         * 所以 {@code nil} 就是没有消息，不是字符串 "nil"。
+         */
+        LuaState S = st(L);
+        LuaState T = st(L1);
+        byte[] mb = NativeBridge.bytesAt(msg);
+        LuaString m = (mb == null) ? null : LuaString.of(mb);
+        pushVal(S, LuaValue.ofString(
+                DebugLib.traceback(S, (T == null) ? S : T, m, (int) level)));
     }
 
     static long luaL_typeerror(long L, long arg, long tname) {
@@ -963,19 +977,27 @@ final class Api {
         return Lua.TTABLE;
     }
 
-    @Generated
     static long lua_gethook(long L) {
-        throw unimplemented("lua_gethook");
+        /*
+         * 只认<b>本实现装进去的</b> C 钩子：脚本侧 {@code debug.sethook} 装的
+         * 是 Java 的 {@link LuaHook}，没有函数指针可还，交 0（= NULL）。
+         * C 版当然原样还那个指针，但这里「还 0」与「还一个假地址」之间
+         * 必须选前者——扩展拿到地址多半是去比较或去调。
+         */
+        LuaHook h = st(L).getHook();
+        return (h instanceof NativeHook) ? ((NativeHook) h).fn : 0;
     }
 
-    @Generated
     static long lua_gethookcount(long L) {
-        throw unimplemented("lua_gethookcount");
+        /*
+         * 是 {@code basehookcount}（周期），<b>不是还剩几条</b>——
+         * {@code debug.gethook()} 的第三个结果要的也是这个，两边必须同答。
+         */
+        return st(L).getHookCount();
     }
 
-    @Generated
     static long lua_gethookmask(long L) {
-        throw unimplemented("lua_gethookmask");
+        return st(L).getHookMask();
     }
 
     static long lua_geti(long L, long idx, long n) {
@@ -988,9 +1010,23 @@ final class Api {
         return t.isTable() ? Lua.TTABLE : t.baseType();
     }
 
-    @Generated
     static long lua_getinfo(long L, long what, long ar) {
-        throw unimplemented("lua_getinfo");
+        /*
+         * {@code what} 里带 {@code '>'} 时要先把栈顶那个函数弹掉（{@code getInfo}
+         * 内部会这么做），带 {@code 'f'} / {@code 'L'} 时又会往栈上推——
+         * 与 {@code debug.getinfo} 完全同一条路，所以直接复用
+         * {@link DebugLib#getInfo}。
+         */
+        LuaState S = st(L);
+        DebugLib.LuaDebug d = arOf(ar);
+        if (d == null) {
+            return 0; // 没先调 lua_getstack：C 里 ar->i_ci 是野的
+        }
+        byte[] wb = NativeBridge.bytesAt(what);
+        boolean ok = DebugLib.getInfo(S,
+                (wb == null) ? "" : new String(wb, java.nio.charset.StandardCharsets.ISO_8859_1), d);
+        fillDebug(ar, d);
+        return ok ? 1 : 0;
     }
 
     static long lua_getiuservalue(long L, long idx, long n) {
@@ -1016,9 +1052,19 @@ final class Api {
                 ? (LuaUserdata) v.o : null;
     }
 
-    @Generated
     static long lua_getlocal(long L, long ar, long n) {
-        throw unimplemented("lua_getlocal");
+        /*
+         * {@code ar == NULL} 是「查非活动函数」那一支：只看栈顶那个 Lua 函数
+         * 在<b>入口处</b>还活着的参数（{@code luaF_getlocalname(p, n, 0)}），
+         * 不压任何值。{@code ldblib.c} 的 {@code getlocal} 就是这么分的。
+         */
+        LuaState S = st(L);
+        DebugLib.LuaDebug d = (ar == 0) ? null : arOf(ar);
+        if (ar != 0 && d == null) {
+            return 0;
+        }
+        String name = DebugLib.getLocal(S, d, (int) n);
+        return (name == null) ? 0 : strToNative(name);
     }
 
     static long lua_getmetatable(long L, long objindex) {
@@ -1032,9 +1078,79 @@ final class Api {
         return 1;
     }
 
-    @Generated
+    /*
+     * {@code lua_Debug} 是 <b>C 栈上的结构体</b>，Java 这边只见得到一个地址。
+     * 而 {@code lua_getstack} 写进去的 {@code i_ci}（我们的
+     * {@link DebugLib.LuaDebug}）是个 Java 对象，塞不进那块内存。
+     * <p>
+     * 于是用一张「地址 → Java 侧状态」的表搭桥：{@code lua_getstack} 存，
+     * 紧接着的 {@code lua_getinfo} / {@code lua_getlocal} 取。C 的用法本来
+     * 就是「先 getstack 再 getinfo，同一个 {@code ar}」，一张表够用。
+     * <p>
+     * 表必须有上界：{@code ar} 常常是循环里的局部结构体，地址会被复用，
+     * 不复用的话跑一晚上就攒出几万个条目。{@code 64} 条是「同一个瞬间
+     * 最多同时有几个活的 {@code ar}」的宽裕估计，淘汰的是最久没用到的。
+     */
+    private static final int AR_CACHE_MAX = 64;
+
+    private static final java.util.LinkedHashMap<Long, DebugLib.LuaDebug> AR_CACHE =
+            new java.util.LinkedHashMap<Long, DebugLib.LuaDebug>(
+                    16, 0.75f, true) {
+                private static final long serialVersionUID = 1L;
+
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<Long, DebugLib.LuaDebug> e) {
+                    return size() > AR_CACHE_MAX;
+                }
+            };
+
+    private static synchronized DebugLib.LuaDebug arOf(long ptr) {
+        return AR_CACHE.get(ptr);
+    }
+
+    private static synchronized void arPut(long ptr, DebugLib.LuaDebug ar) {
+        AR_CACHE.put(ptr, ar);
+    }
+
+    /**
+     * 把 {@link DebugLib.LuaDebug} 的字段按 {@code luashim.c} 的
+     * {@code DBG_FIELD} 顺序写回 C 结构体。
+     * <p>
+     * 顺序与宽度是<b>两套代码之间的契约</b>：C 侧按 {@code offsetof} 落字段，
+     * 这里按下标给值，改任何一边都必须两边一起改。
+     */
+    static void fillDebug(long arPtr, DebugLib.LuaDebug ar) {
+        long[] v = new long[15];
+        v[0] = ar.event;
+        v[1] = strToNative(ar.name == null ? "" : ar.name);
+        v[2] = strToNative(ar.namewhat == null ? "" : ar.namewhat);
+        v[3] = strToNative(ar.what == null ? "" : ar.what);
+        LuaString src = (ar.source == null) ? LuaString.latin1("=?") : ar.source;
+        v[4] = NativeBridge.strToNative(src.bytes);
+        v[5] = src.length();
+        v[6] = ar.currentline;
+        v[7] = ar.linedefined;
+        v[8] = ar.lastlinedefined;
+        v[9] = ar.nups;
+        v[10] = ar.nparams;
+        v[11] = ar.isvararg ? 1 : 0;
+        v[12] = ar.istailcall ? 1 : 0;
+        v[13] = ar.ftransfer;
+        v[14] = ar.ntransfer;
+        NativeBridge.dbgFill(arPtr, v);
+        NativeBridge.dbgShortSrc(arPtr,
+                (ar.shortSrc == null) ? new byte[0] : ar.shortSrc.bytes);
+    }
+
     static long lua_getstack(long L, long level, long ar) {
-        throw unimplemented("lua_getstack");
+        LuaState S = st(L);
+        DebugLib.LuaDebug d = new DebugLib.LuaDebug();
+        if (!DebugLib.getStack(S, (int) level, d)) {
+            return 0;
+        }
+        arPut(ar, d);
+        return 1;
     }
 
     static long lua_gettable(long L, long idx) {
@@ -1059,9 +1175,21 @@ final class Api {
         return S.top - S.ci.func - 1;
     }
 
-    @Generated
     static long lua_getupvalue(long L, long funcindex, long n) {
-        throw unimplemented("lua_getupvalue");
+        /*
+         * 与 {@code debug.getupvalue} 同一条 {@code auxupvalue}：C 闭包给
+         * {@code ""}、Lua 闭包给真正的名字、没名字给 {@code "(no name)"}
+         * （不是 {@code "?"}——那是 {@code ldebug.c: upvalname} 的答法）。
+         */
+        LuaState S = st(L);
+        LuaValue f = val(S, (int) funcindex);
+        LuaValue[] v = new LuaValue[1];
+        String name = (f == null) ? null : DebugLib.auxUpValue(f, (int) n, v, null);
+        if (name == null) {
+            return 0;
+        }
+        pushVal(S, v[0]);
+        return strToNative(name);
     }
 
     static long lua_iscfunction(long L, long idx) {
@@ -1418,9 +1546,19 @@ final class Api {
         S.top -= 1;
     }
 
-    @Generated
     static void lua_sethook(long L, long func, long mask, long count) {
-        throw unimplemented("lua_sethook");
+        /*
+         * C 的钩子是 {@code void (*)(lua_State*, lua_Debug*)}，装进来得先套一层
+         * {@link LuaHook}。两端的桥是那块 {@code lua_Debug}：Java 侧填好字段
+         * （含 {@code event}），回调时把地址交给 C 函数——它读的正是
+         * {@code ar->event} / {@code ar->currentline} 这些。
+         * <p>
+         * 尺寸按 {@code sizeof(lua_Debug)} 现取，不写死：{@code LUA_IDSIZE}
+         * 与结尾那段私有区都可能随版本变，写死就是越界写。
+         */
+        LuaState S = st(L);
+        int m = (int) mask;
+        S.setHook((func == 0 || m == 0) ? null : new NativeHook(func), m, (int) count);
     }
 
     static void lua_seti(long L, long idx, long n) {
@@ -1443,9 +1581,14 @@ final class Api {
         return res;
     }
 
-    @Generated
     static long lua_setlocal(long L, long ar, long n) {
-        throw unimplemented("lua_setlocal");
+        LuaState S = st(L);
+        DebugLib.LuaDebug d = (ar == 0) ? null : arOf(ar);
+        if (d == null) {
+            return 0; // C 版 ar 为 NULL 时 luaG_findlocal 会解引用野指针
+        }
+        String name = DebugLib.setLocal(S, d, (int) n);
+        return (name == null) ? 0 : strToNative(name);
     }
 
     static long lua_setmetatable(long L, long objindex) {
@@ -1489,9 +1632,18 @@ final class Api {
         }
     }
 
-    @Generated
     static long lua_setupvalue(long L, long funcindex, long n) {
-        throw unimplemented("lua_setupvalue");
+        LuaState S = st(L);
+        LuaValue f = val(S, (int) funcindex);
+        LuaValue[] v = new LuaValue[1];
+        String name = (f == null) ? null : DebugLib.auxUpValue(f, (int) n, v, null);
+        if (name == null) {
+            return 0;
+        }
+        LuaValue src = new LuaValue(S.stack[S.top - 1]);
+        v[0].set(src);
+        S.top -= 1;
+        return strToNative(name);
     }
 
     @Generated
@@ -1727,14 +1879,47 @@ final class Api {
         return strToNative(Lua.typeName((int) tp));
     }
 
-    @Generated
     static long lua_upvalueid(long L, long fidx, long n) {
-        throw unimplemented("lua_upvalueid");
+        /*
+         * 返回的是「身份」：Lua 闭包给 {@link UpVal} 对象、C 闭包给那个
+         * {@link LuaValue} 槽——与 {@code debug.upvalueid} 同一个
+         * {@code ownerOut}，所以两个闭包共享 upvalue 时两边都相等。
+         * C 版交出去的是 {@code void*}，这里只能给一个稳定句柄：
+         * {@code NativeBridge#handle} 的下标，{@code != NULL} 与
+         * 「两个 id 相等」两种判断都还成立。
+         */
+        LuaState S = st(L);
+        LuaValue f = val(S, (int) fidx);
+        Object[] owner = new Object[1];
+        if (f == null || DebugLib.auxUpValue(f, (int) n, new LuaValue[1], owner) == null
+                || owner[0] == null) {
+            return 0;
+        }
+        return NativeBridge.handle(owner[0]);
     }
 
-    @Generated
     static void lua_upvaluejoin(long L, long fidx1, long n1, long fidx2, long n2) {
-        throw unimplemented("lua_upvaluejoin");
+        /*
+         * 只接 Lua 闭包：C 的 {@code getupvalref} 对 C 闭包返回的是
+         * {@code &f->upvalue[n-1]} 的地址，而 {@code *up1 = *up2} 换的是
+         * {@code UpVal*}——C 闭包没有 {@code UpVal}，{@code lua_upvalueid}
+         * 虽然给得出地址，join 这一步在 C 里也只有 Lua 闭包走得通
+         * （{@code ldblib.c} 也是先 {@code "Lua function expected"}）。
+         */
+        LuaState S = st(L);
+        LuaValue f1 = val(S, (int) fidx1);
+        LuaValue f2 = val(S, (int) fidx2);
+        Object[] o1 = new Object[1];
+        Object[] o2 = new Object[1];
+        if (f1 == null || f2 == null
+                || DebugLib.auxUpValue(f1, (int) n1, new LuaValue[1], o1) == null
+                || DebugLib.auxUpValue(f2, (int) n2, new LuaValue[1], o2) == null) {
+            return; // 越界：C 里是断言
+        }
+        if (f1.tt != Lua.VLIF || f2.tt != Lua.VLIF) {
+            return;
+        }
+        ((LClosure) f1.o).setUpVal((int) n1 - 1, (UpVal) o2[0]);
     }
 
     @Generated

@@ -367,6 +367,15 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_get32(JNIEnv *env,
     return p == 0 ? 0 : *((jint *)(intptr_t)p);
 }
 
+/** {@code sizeof(lua_Debug)}：Java 侧要给 C 的钩子分配一块，尺寸不能猜 */
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgSize(JNIEnv *env,
+        jclass cls) {
+    (void)env;
+    (void)cls;
+    return (jlong)sizeof(lua_Debug);
+}
+
 /*
  * 句柄换回 {@code lua_State*}。{@code lua_dump} 的 writer 第一个参数是
  * {@code lua_State*}，而 Java 侧手里只有下标——交 0 过去，那些会拿

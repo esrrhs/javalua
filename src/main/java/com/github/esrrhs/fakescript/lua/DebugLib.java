@@ -422,7 +422,7 @@ public final class DebugLib {
     }
 
     /** {@code lua_getlocal} */
-    private static String getLocal(LuaState L, LuaDebug ar, int n) {
+    static String getLocal(LuaState L, LuaDebug ar, int n) {
         if (ar == null) {
             // 查非活动函数：只看入口处还活着的参数
             LuaValue f = L.stack[L.top - 1];
@@ -441,7 +441,7 @@ public final class DebugLib {
     }
 
     /** {@code lua_setlocal} */
-    private static String setLocal(LuaState L, LuaDebug ar, int n) {
+    static String setLocal(LuaState L, LuaDebug ar, int n) {
         int[] pos = new int[1];
         String name = findLocal(L, ar.iCi, n, pos);
         if (name != null) {
@@ -454,7 +454,7 @@ public final class DebugLib {
     /* ==================== ldebug.c：upvalue ==================== */
 
     /** {@code auxupvalue}：返回名字，{@code valOut[0]} 是那个值的槽 */
-    private static String auxUpValue(LuaValue f, int n, LuaValue[] valOut, Object[] ownerOut) {
+    static String auxUpValue(LuaValue f, int n, LuaValue[] valOut, Object[] ownerOut) {
         if (f.tt == Lua.VCCL) {
             CClosure c = (CClosure) f.o;
             if (n <= 0 || n > c.upvalue.length) {
