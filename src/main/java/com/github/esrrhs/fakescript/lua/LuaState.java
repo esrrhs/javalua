@@ -1651,6 +1651,30 @@ public final class LuaState {
         }
         if (wanted == MULTRET) {
             wanted = nres;
+        } else if (wanted < MULTRET) {
+            /*
+             * {@code ldo.c: moveresults} 的 {@code default} 分支里那一句
+             * {@code if (hastocloseCfunc(wanted))}：这个 C 帧上有
+             * {@code lua_toclose} 标过的变量，<b>先关变量再搬结果</b>。
+             * <p>
+             * 「有 tbc」编码在 {@code nresults} 上（{@code -n-3}，恒
+             * {@code < LUA_MULTRET}），{@code Api#lua_toclose} 写的就是这个。
+             * 顺序与 C 一致：{@code CIST_CLSRET} 先挂上（{@code __close} 里
+             * yield 出去时，恢复路径 {@link #finishCcall} 靠它认出「这是关变量
+             * 时被打断的」），关完再摘；钩子在关完之后才报。
+             */
+            CallInfo c = ci;
+            c.clsret = true;
+            c.nres = nres;
+            closeUpvals(res, null, true);
+            c.clsret = false;
+            if (hookmask != 0) {
+                DebugLib.rethook(this, c, nres);
+            }
+            wanted = -wanted - 3; // decodeNresults
+            if (wanted == MULTRET) {
+                wanted = nres;
+            }
         }
         int firstresult = top - nres;
         if (nres > wanted) {
@@ -3379,14 +3403,38 @@ public final class LuaState {
      */
     public LuaString localNameAt(int n) {
         CallInfo c = ci;
-        if (c == null || !c.isLua || c.func >= stack.length) {
+        if (c == null || c.func >= stack.length) {
             return null;
         }
-        LuaValue f = stack[c.func];
-        if (f.tt != Lua.VLIF) {
+        LuaString name = null;
+        if (c.isLua) {
+            LuaValue f = stack[c.func];
+            if (f.tt == Lua.VLIF) {
+                name = ((LClosure) f.o).p.getLocalName(n,
+                        (c.savedpc > 0) ? c.savedpc - 1 : 0);
+            }
+        }
+        if (name == null) {
+            /*
+             * {@code ldebug.c: luaG_findlocal} 后半段：<b>没查到标准名字时还有
+             * 一个兜底</b>——只要 {@code n} 落在这一帧自己的栈区间里，就按帧的
+             * 种类给 {@code "(temporary)"} / {@code "(C temporary)"}；出了区间
+             * 才返回 NULL（{@code checkclosemth} 那时才用 {@code "?"}）。
+             * <p>
+             * 缺了这一支，从 C 函数里 {@code lua_toclose} 一个没有
+             * {@code __close} 的值时，参考实现报
+             * {@code variable '(C temporary)' got a non-closable value}，
+             * 本实现报 {@code variable '?'} —— 只有真从 C 侧标 tbc 变量才走得到
+             * （Lua 里的 {@code <close>} 一定有名字，永远不进这里）。
+             */
+            int base = c.func + 1;
+            int limit = top; // c == ci，与 C 的 (ci == L->ci) 分支同
+            if (n > 0 && limit - base >= n) {
+                return LuaString.latin1(c.isLua ? "(temporary)" : "(C temporary)");
+            }
             return null;
         }
-        return ((LClosure) f.o).p.getLocalName(n, (c.savedpc > 0) ? c.savedpc - 1 : 0);
+        return name;
     }
 
     private static String formatVarInfo(String kind, String name) {
