@@ -921,8 +921,13 @@ do
         end
     end
     -- rawset 的非法键
-    for _, k in ipairs({ nil, 0 / 0 }) do
-        go("RAWSET", function(t, kk) rawset(t, kk, 1) return rawlen(t) end, {}, k)
+    -- 这里<b>不能</b>用 ipairs：第一个元素就是 nil，ipairs 会当场截断，
+    -- NaN 那条一次也跑不到（第 47 条）。按下标手动取。
+    local RAWK = { [1] = "nil", [2] = "nan", [3] = "tbl", [4] = "bool" }
+    local RAWV = { [1] = nil, [2] = 0 / 0, [3] = {}, [4] = true }
+    for i = 1, 4 do
+        go("RAWSET", function(t, kk) rawset(t, kk, 1) return rawlen(t) end, {}, RAWV[i])
+        print("RAWSETK", RAWK[i])
     end
     go("RAWSETN", function() rawset({}, 1, 1) return "ok" end)
     go("RAWSETSTR", function() rawset({}, "a", 1) return "ok" end)
