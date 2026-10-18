@@ -841,8 +841,15 @@ class IoLibTest {
             if f == nil then return f, e, en end
             local r = {}
             r[#r + 1] = io.type(f)
-            local ok1, v1 = pcall(function() return f:read("l") end)
-            r[#r + 1] = tostring(ok1) .. "/" .. tostring(v1)
+            -- 追加 + 更新（a+ / a+b / a+bb）打开时的<b>位置在哪</b>是
+            -- implementation-defined：glibc 给 0，于是读得到内容；Apple libc 给
+            -- EOF，于是读出来是 nil。读这一步在这三种模式上不比（约定 #57）。
+            if m:sub(1, 1) == "a" and m:find("+", 1, true) then
+              r[#r + 1] = "skip"
+            else
+              local ok1, v1 = pcall(function() return f:read("l") end)
+              r[#r + 1] = tostring(ok1) .. "/" .. tostring(v1)
+            end
             -- 显式定位：把「读之后直接写」那条 UB 路径绕开
             local okp, vp, ep = pcall(function() return f:seek("set", 0) end)
             r[#r + 1] = tostring(okp) .. "/" .. tostring(vp) .. "/" .. tostring(ep)
@@ -927,14 +934,15 @@ class IoLibTest {
           f:close()
           return a
         end)
+        -- 打开瞬间的位置（p）不比：追加模式下它是 implementation-defined，
+        -- glibc 给 0、Apple libc 给 EOF（约定 #57）。只比写完定位后读回来的内容。
         probe("aplus", function()
           local f = assert(io.open(P, "a+"))
-          local p = f:seek("cur", 0)
           f:write("Z")
           f:seek("set", 0)
           local a = f:read("a")
           f:close()
-          return p, a
+          return a
         end)
 
         -- 标准流（seek 不比：见文件头第 2 条）
@@ -1217,7 +1225,9 @@ for _, v in ipairs({ false, true, 0, 1, -1, 1.5, "s", "", {},
                      "n", "a", "l", "L", 2 }) do add(v) end
 add(nil)
 local METHODS = { "flush", "lines", "read", "seek", "setvbuf", "write" }
-local MODES = { "r", "w", "a", "r+", "w+", "a+" }
+-- a+ 不进这张表：打开时的位置（0 还是 EOF）是 implementation-defined，
+-- glibc 与 Apple libc 相反，于是 read / lines 的每一步答案都相反（约定 #57）。
+local MODES = { "r", "w", "a", "r+", "w+" }
 
 for _, m in ipairs(MODES) do
     local f = io.open(P, m)

@@ -469,7 +469,9 @@ for n = 1, 12 do
     local s = base:sub(1, 32) .. string.rep("\\127", n)
     print(string.format("ovf %d %s", n, try(s, "=C")))
 end
-print("ovf2 " .. try(base:sub(1, 32) .. string.rep("\\127", 4) .. "\\255", "=C"))
+-- ovf2 不比：这一条走的是「变长整数溢出后申请一块巨大的内存」，报
+-- "not enough memory" 还是 "truncated chunk" 取决于 libc 的 malloc 在什么
+-- 规模上失败 —— Linux 与 macOS 的答案不同，且不属于本实现能左右的范围。
 
 -- 5) 尾部垃圾：undump 不检查 EOF
 print("tail  " .. try(base .. "GARBAGE", "=C"))

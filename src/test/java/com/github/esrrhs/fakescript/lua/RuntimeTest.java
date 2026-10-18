@@ -1159,12 +1159,13 @@ class RuntimeTest {
                 -- os.date / os.time / utf8 / tonumber 的边界
                 -- A) os.date 的每个转换说明符（UTC，固定时间戳，避免本地时区与当前时间）
                 local T = 1700000000
-                -- 注意：%z / %Z 不带 "!" —— C 的 strftime 读的是<b>进程全局时区</b>，不是
-                -- Lua 传进去的那个 tm；带 "!" 时两个 libc 给的答案相反（macOS 给本地偏移
-                -- +0800，glibc 给 +0000）。不带 "!" 时两边同一台机器，结果确定。
+                -- 注意：%z / %Z 整体不进这张表。带 "!" 时两个 libc 给的答案相反
+                -- （macOS 的 strftime 用全局 timezone 给本地偏移 +0800，glibc 用
+                -- tm_gmtoff 给 +0000 / GMT）；不带 "!" 时 %Z 是「时区名」，glibc 给
+                -- GMT、Apple libc 给 UTC —— 都差，都不是错（约定 #53）。
                 local SPECS = { "a", "A", "b", "B", "c", "C", "d", "D", "e", "F", "g", "G",
                                 "h", "H", "I", "j", "m", "M", "n", "p", "r", "R", "S", "t",
-                                "T", "u", "U", "V", "w", "W", "x", "X", "y", "Y", "%", "Z" }
+                                "T", "u", "U", "V", "w", "W", "x", "X", "y", "Y", "%" }
                 for i = 1, #SPECS do
                   print("A", SPECS[i], pcall(os.date, "!" .. SPECS[i], T))
                 end
@@ -1172,7 +1173,6 @@ class RuntimeTest {
                   print("A2", SPECS[i], pcall(os.date, "!%" .. SPECS[i], T))
                 end
                 print("A3", pcall(os.date, "%z", T))
-                print("A4", pcall(os.date, "%Z", T))
 
                 -- B) *t / !*t 整表
                 local ok, d = pcall(os.date, "!*t", T)
@@ -10702,7 +10702,9 @@ p("A07", io.open, "", "r")                              -- 空路径
 p("A08", io.open, D .. "f.txt", "rw")                   -- 非法模式
 p("A09", io.open, D .. "f.txt", "x")
 p("A10", io.open, "/etc", "w")                          -- 目录 + 写 -> EISDIR
-p("A11", io.open, "/dev/null", "w")
+-- A11 原来是 io.open("/dev/null", "w")：那是<b>设备文件</b>，行为由内核 + libc
+-- 定，Linux 与 macOS 不一样（而且 JVM 在这上面给出的 errno 也不跟着 C 走），
+-- 不进差分表。
 p("A12", io.open, "/etc/hosts", "a")                    -- 追加也要写权限
 p("A13", io.open, "/etc/hosts", "r+")
 
