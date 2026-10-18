@@ -391,7 +391,7 @@ public final class DebugLib {
             if (f.tt == Lua.VLIF) {
                 LuaString s = ((LClosure) f.o).p.getLocalName(n, currentPc(ci));
                 if (s != null) {
-                    name = s.toJavaString();
+                    name = s.toLatin1String();
                 }
             }
         }
@@ -430,7 +430,7 @@ public final class DebugLib {
                 return null;
             }
             LuaString s = ((LClosure) f.o).p.getLocalName(n, 0);
-            return (s == null) ? null : s.toJavaString();
+            return (s == null) ? null : s.toLatin1String();
         }
         int[] pos = new int[1];
         String name = findLocal(L, ar.iCi, n, pos);
@@ -492,7 +492,7 @@ public final class DebugLib {
              * {@code "(no name)"}，给 {@code "?"} 就过不去。
              */
             LuaString nm = (p.upvalues[n - 1] != null) ? p.upvalues[n - 1].name : null;
-            return (nm == null) ? "(no name)" : nm.toJavaString();
+            return (nm == null) ? "(no name)" : nm.toLatin1String();
         }
         return null;
     }
@@ -625,8 +625,8 @@ public final class DebugLib {
         }
         if (options.indexOf('n') >= 0) {
             t.set("name", (ar.name == null) ? LuaValue.ofNil()
-                    : LuaValue.ofString(LuaString.utf8(ar.name)));
-            t.set("namewhat", LuaValue.ofString(LuaString.utf8(ar.namewhat)));
+                    : LuaValue.ofString(LuaString.latin1(ar.name)));
+            t.set("namewhat", LuaValue.ofString(LuaString.latin1(ar.namewhat)));
         }
         if (options.indexOf('r') >= 0) {
             t.set("ftransfer", LuaValue.ofInteger(ar.ftransfer));
@@ -738,7 +738,7 @@ public final class DebugLib {
         }
         if (get) {
             L.push(new LuaValue(val[0]));
-            L.push(LuaValue.ofString(LuaString.utf8(name)));
+            L.push(LuaValue.ofString(LuaString.latin1(name)));
             // lua_insert(L, -(get+1))：名字挪到值下面，打印出来才是「名字 值」
             LuaValue nm = new LuaValue(L.stack[L.top - 1]);
             L.stack[L.top - 1].set(L.stack[L.top - 2]);
@@ -748,7 +748,7 @@ public final class DebugLib {
         LuaValue v = new LuaValue(L.stack[L.top - 1]);
         L.top--;
         val[0].set(v);
-        L.push(LuaValue.ofString(LuaString.utf8(name)));
+        L.push(LuaValue.ofString(LuaString.latin1(name)));
         return 1;
     }
 
@@ -1297,10 +1297,10 @@ public final class DebugLib {
          */
         String g = globalFuncName(L, ar);
         if (g != null) {
-            return LuaString.utf8("function '" + g + "'");
+            return LuaString.latin1("function '" + g + "'");
         }
         if (ar.namewhat != null && !ar.namewhat.isEmpty()) {
-            return LuaString.utf8(ar.namewhat + " '" + ar.name + "'");
+            return LuaString.latin1(ar.namewhat + " '" + ar.name + "'");
         }
         if ("main".equals(ar.what)) {
             return LuaString.latin1("main chunk");

@@ -910,7 +910,8 @@ public final class BaseLib {
     private static int loadFn(LuaState L) {
         LuaValue a = L.arg1(1);
         // checkmode 比的是 const char*：load(src, name, "t\0b") 的模式是 "t"
-        String mode = LuaAux.optString(L, 3, LuaString.latin1("bt")).toCString().toJavaString();
+        // mode 会原样拼进错误消息（mode is 'x'），Latin-1 往返才不丢字节
+        String mode = LuaAux.optString(L, 3, LuaString.latin1("bt")).toCString().toLatin1String();
         int env = L.isNoneArg(4) ? 0 : 4;
         // lua_tolstring：<b>数字也算字符串</b>，load(42) 编的是 "42"
         LuaString src = (a.isString() || a.isNumber()) ? LuaAux.asString(a) : null;
@@ -1030,7 +1031,7 @@ public final class BaseLib {
         LuaString fname = LuaAux.optString(L, 1, null);
         LuaString modeArg = LuaAux.optString(L, 2, null);
         // luaL_loadfilex 的 mode 是 NULL 时内部按 "bt" 处理
-        String mode = (modeArg == null) ? "bt" : modeArg.toCString().toJavaString();
+        String mode = (modeArg == null) ? "bt" : modeArg.toCString().toLatin1String();
         int env = L.isNoneArg(3) ? 0 : 3;
         if (fname == null) {
             // 无参：从 stdin 读。chunk 名是 "=stdin"

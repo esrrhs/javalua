@@ -114,6 +114,26 @@ public final class LuaString {
     }
 
     /**
+     * 按 Latin-1 逐字节解码，与 {@link #latin1} 互为逆运算。
+     * <p>
+     * 用在「名字要绕一圈 Java String 再拼回 Lua 字符串」的场合：varinfo 的字段名
+     * （{@code t["\xff"]} 里的常量）、元表的 {@code __name}、{@code require} 的
+     * 模块名、{@code argError} 反查出来的函数名。这些地方最终都要
+     * {@code LuaString.latin1} 编码回去，而用 UTF-8 解码会把 {@code 0xFF} 变成
+     * {@code U+FFFD} —— 于是要么内容被改写（编码成 3 字节 {@code EF BF BD}），
+     * 要么 {@code latin1} 直接抛 {@code IllegalArgumentException}
+     * （{@code U+FFFD > 0xFF}）。Latin-1 保证 {@code byte<->char} 在 0..255 上
+     * 无损往返，是这条链上唯一安全的中间表示。
+     */
+    public String toLatin1String() {
+        char[] c = new char[bytes.length];
+        for (int i = 0; i < bytes.length; i++) {
+            c[i] = (char) (bytes[i] & 0xFF);
+        }
+        return new String(c);
+    }
+
+    /**
      * 按 <b>C 字符串</b>语义截断到第一个 {@code \0}。
      * <p>
      * 移植时凡是 C 版把 {@code LuaString} 当作 {@code const char *} 用的地方
@@ -129,6 +149,27 @@ public final class LuaString {
             }
         }
         return this;
+    }
+
+    /**
+     * {@link #toCString} 的 <b>Java String</b> 版：把 Latin-1 中间表示的名字
+     * 按 C 字符串语义截断到第一个 {@code \0}。
+     * <p>
+     * 名字从字节串出发、经 {@link #toLatin1String} 变成 Java String、最后被拼进
+     * {@code "%s"} 一路的那些出口（{@code findfield} 反查出来的函数名、
+     * {@code luaO_chunkid} 的结果）都卡在这一步：C 那边 {@code %s} 读的是
+     * {@code const char *}，第一个 NUL 之后的内容根本看不见。实测
+     * {@code package.loaded["M\0"] = {["\0"] = f}} 之后 {@code debug.traceback()}
+     * 打印 {@code in function 'M'}，不是 {@code 'M<00>.<00>'}。
+     * <p>
+     * 高字节<b>不</b>动：只有 NUL 是 C 字符串的终止符。
+     */
+    public static String cutAtNul(String latin1) {
+        if (latin1 == null) {
+            return null;
+        }
+        int i = latin1.indexOf('\0');
+        return (i < 0) ? latin1 : latin1.substring(0, i);
     }
 
     @Override

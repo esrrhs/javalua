@@ -340,7 +340,7 @@ public final class LuaAux {
      * 失败时<b>总是三个值</b>——{@code io.open} 打不开文件时返回的就是
      * {@code nil, "xxx: No such file or directory", 2}。
      */
-    public static void fileResult(LuaState L, boolean ok, String fname, int en) {
+    public static void fileResult(LuaState L, boolean ok, LuaString fname, int en) {
         if (ok) {
             L.push(LuaValue.ofBoolean(true));
             return;
@@ -348,7 +348,9 @@ public final class LuaAux {
         L.pushNil();
         String msg = strError(en);
         if (fname != null) {
-            L.push(LuaValue.ofString(LuaString.latin1(fname + ": " + msg)));
+            // 文件名可以是任意字节：消息里那一段必须原样是字节，
+            // 不能绕 Java String（UTF-8 解码会把 0xFF 变成 U+FFFD）
+            L.push(LuaValue.ofString(fname.concat(LuaString.latin1(": " + msg))));
         } else {
             L.push(LuaValue.ofString(LuaString.latin1(msg)));
         }

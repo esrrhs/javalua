@@ -112,7 +112,8 @@ final class LuaTm {
         if (mt != null) {
             LuaValue nm = mt.get(LuaString.latin1("__name"));
             if (nm != null && nm.isString()) {
-                return nm.asString().toCString().toJavaString();
+                // Latin-1 往返：这个名字会走 luaG_runerror 的 %s 拼回 Lua 字符串
+                return nm.asString().toCString().toLatin1String();
             }
         }
         return v.typeName();
