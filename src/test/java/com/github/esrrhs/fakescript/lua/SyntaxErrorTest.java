@@ -695,4 +695,101 @@ print("END")
 
     private SyntaxErrorTest() {
     }
+
+    /**
+     * 语法错<b>补漏</b>（41 条）：既有
+     * {@link #parserErrorSitesMatchReference} 没点到的那几条。
+     * <p>
+     * 那边已经铺了 {@code \xZZ} / {@code \z} / {@code \\u{}} / {@code 0x1p} /
+     * {@code [==[abc} / {@code <close>} 重复 / const 赋值 / jumps into scope，
+     * 这边只补剩下的，逐条对过不重复。五组：
+     * <ul>
+     *   <li><b>属性</b>：{@code unknown attribute 'foo'}（大小写敏感，
+     *       {@code <CONST>} 一样不认）、{@code <close> <const>} 叠着写、
+     *       {@code for x <close> in ...}。</li>
+     *   <li><b>泛化的 {@code syntax error}</b>：{@code (x) = 1} 与
+     *       {@code f() = 1}（赋值目标不是变量）给的是不带 token 名的那句；
+     *       {@code a:b:1()} 才撞得到 {@code funcargs} 的
+     *       {@code default: "function arguments expected"} —— 从
+     *       {@code primaryexp} 那条路看过去它像是死代码，只有
+     *       <b>冒号之后再来一个冒号</b>才进得去。</li>
+     *   <li><b>长字符串 / 长注释</b>：三种「没写完」与
+     *       {@code invalid long string delimiter}。</li>
+     *   <li><b>字面量边角</b>：{@code malformed number near '1..2'}、
+     *       {@code invalid escape sequence}、{@code unfinished string}。</li>
+     *   <li><b>赋值目标不是变量</b>：{@code 1 = 2}、{@code local 1 = 2}、
+     *       {@code ::1::}。</li>
+     * </ul>
+     */
+    @Test
+    void syntaxErrorSitesSecondPassMatchesReference() {
+        Diff.assertMatches("""
+-- 语法错「补漏」：既有 parserErrorSitesMatchReference 没点到的那几条。
+-- 逐条对过：那边有 \\xZZ / \\z / \\u{} / 0x1p / [==[abc / <close> 重复 /
+-- const 赋值 / jumps into scope，这边只补剩下的。
+local function p(tag, s)
+  local ok, a, b = pcall(load, s, "=c")
+  if not ok then
+    print(tag, "THROW", tostring(a))
+  elseif a then
+    print(tag, "OK")
+  else
+    print(tag, tostring(b))
+  end
+end
+
+-- ① unknown attribute（属性名不是 const / close）
+p("A1", "local x <foo> = 1")
+p("A2", "local x <CONST> = 1")
+p("A3", "local x <> = 1")
+p("A4", "local x <close> <const> = nil")
+p("A5", "local x <const> <close> = 1")
+p("A6", "for x <close> in pairs({}) do end")
+p("A7", "for x <const> = 1, 2 do end")
+p("A8", "local x <close> = 1, 2")
+
+-- ② 泛化的 "syntax error"（lparser.c 里那句不带 token 名的话）
+p("S1", "f::")
+p("S2", "a.b::")
+p("S3", "f:")
+p("S4", "f:1()")
+p("S5", "a:b:1()")
+p("S6", "::")
+
+-- ③ 长字符串 / 长注释：三种「没写完」与「分隔符不合法」
+p("L1", "x = [[abc")
+p("L2", "x = [==[abc]=]")
+p("L3", "x = [=abc=]")
+p("L4", "x = [abc]")
+p("L5", "x = --[[abc")
+p("L6", "x = [[]]")
+p("L7", "x = [[]=]")
+p("L8", "x = --[==[")
+
+-- ④ 字面量的边角
+p("N1", "x = .")
+p("N2", "x = 1..2")
+p("N3", "x = 1e+")
+p("N4", "x = 1E-")
+p("N5", "x = 0x1p+")
+p("N6", 'x = "abc\\\\qdef"')
+p("N7", 'x = "\\\\8"')
+p("N8", 'x = "\\\\"')
+p("N9", "x = 'abc\\\\'")
+
+-- ⑤ 赋值目标不是变量 / 名字位置上是别的
+p("V1", "1 = 2")
+p("V2", "local 1 = 2")
+p("V3", "1, 2 = 3")
+p("V4", "(x) = 1")
+p("V5", "x.y = 1")
+p("V6", "x[1] = 1")
+p("V7", "f() = 1")
+p("V8", "local x.y = 1")
+p("V9", "::1::")
+
+print("END")
+
+                """);
+    }
 }
