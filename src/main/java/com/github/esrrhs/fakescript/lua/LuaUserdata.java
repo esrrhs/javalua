@@ -62,8 +62,7 @@ public final class LuaUserdata {
         if (tm == null || tm.isNil()) {
             return;
         }
-        gcSentinel = new GcSentinel(this, L.mainThread);
-        L.mainThread.registerFinalizable(this);
+        gcSentinel = new GcSentinel(this, L.mainThread, L.mainThread.registerFinalizable(this));
     }
 
     /**

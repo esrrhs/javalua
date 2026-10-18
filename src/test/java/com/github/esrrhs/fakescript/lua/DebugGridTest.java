@@ -94,7 +94,10 @@ local function esc(s)
     return c
   end))
 end
-local function norm(s) return (s:gsub("0x%x+", "PTR")) end
+-- 约定 #52/#120：NaN 的符号随 libc 变（glibc 打 "-nan"、Apple libc 打 "nan"），
+-- C99 把这份留作 unspecified。内容由 Diff.normalize 折平，可长度是在这里量的
+-- —— 不先折一次，同一行在 Linux 上就是 #4[nan]、在 macOS 上是 #3[nan]。
+local function norm(s) return (s:gsub("0x%x+", "PTR"):gsub("[%-%+]nan", "nan")) end
 local function show(v)
   local t = type(v)
   if t == "string" then

@@ -39,9 +39,18 @@ final class GcSentinel {
     /** 队列挂在主线程上：哨兵是在 {@code newThread} 之前还是之后创建的无从保证 */
     private final LuaState main;
 
-    GcSentinel(Object owner, LuaState main) {
+    /**
+     * 这个哨兵在 {@link LuaState#finalizables} 上的记录。
+     * <p>
+     * 带着它是为了在 {@code finalize} 里顺手把它交给主线程——弱引用被清之后
+     * 就再也认不出「是哪一条」，而「跑过没有」这份状态只记在记录上。
+     */
+    private final LuaState.GcRef ref;
+
+    GcSentinel(Object owner, LuaState main, LuaState.GcRef ref) {
         this.owner = owner;
         this.main = main;
+        this.ref = ref;
     }
 
     /**
@@ -54,6 +63,6 @@ final class GcSentinel {
     @Override
     @SuppressWarnings("deprecation")
     protected void finalize() {
-        main.enqueueFinalizer(owner);
+        main.enqueueFinalizer(owner, ref);
     }
 }
