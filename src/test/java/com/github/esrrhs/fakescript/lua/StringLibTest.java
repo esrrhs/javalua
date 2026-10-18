@@ -216,12 +216,14 @@ class StringLibTest {
             """,
 
             """
+            -- 「舍弃的第一位十六进制数字恰为 8」的平局用例不在这里：glibc 是
+            -- 就近舍入 + 平局取偶，Apple libc 在这一段根本不是就近舍入，两边
+            -- 答案不同；它们由 hexFloatPrecisionRoundingFollowsGlibc 钉住。
             print(("|%a|%A|%.2a|%010a|%-20a|%+#a|"):format(1.5, 1.5, 1.5, 1.5, 1.5, 1.5))
             print(("|%a|%a|%a|%a|"):format(0.0, -0.0, 1.0, 255.5))
-            print(("|%#a|%#a|%.0a|%.1a|"):format(1.0, 1.5, 1.5, 1.5))
-            print(("|%.0a|%.0a|%.0a|%.1a|"):format(1.75, 3.0, 1.5, 1.99))
-            print(("|%.0a|%.0a|%.1a|%.1a|%.2a|"):format(6.0, 12.0, 1.53125, 1.59375, 1.51953125))
-            print(("|%.0a|%.1a|"):format(-1.5, -1.53125))
+            print(("|%#a|%#a|%.1a|%.2a|"):format(1.0, 1.5, 1.5, 1.5))
+            print(("|%.0a|%.0a|%.0a|%.1a|"):format(1.75, 2.5, 4.5, 1.99))
+            print(("|%.1a|%.2a|%.2a|"):format(-1.5, -1.53125, 1.51953125))
             """,
 
             """
@@ -375,6 +377,80 @@ class StringLibTest {
         assertEquals("0x1p+1", quote(L, 2.0));
         assertEquals("-0x0p+0", quote(L, -0.0));
         L.close();
+    }
+
+    /**
+     * 带精度的 {@code %a}：<b>就近舍入、平局取偶</b>，且这一条只能靠读 glibc
+     * 源码钉，不能靠本机（Apple libc）的参考实现比。
+     * <p>
+     * 判据在 {@code stdio-common/printf_fphex.c}：
+     * <pre>
+     * bool more_bits = ((next_digit_value &amp; 7) != 0
+     *                   || precision + 1 &lt; numend - numstr);
+     * do_round_away = round_away (negative, last_digit_value &amp; 1,
+     *                             next_digit_value &gt;= 8, more_bits, mode);
+     * </pre>
+     * 而 {@code round_away} 在 {@code FE_TONEAREST} 下是
+     * {@code half_bit && (last_digit_odd || more_bits)}。拆开看：
+     * <ul>
+     *   <li>舍弃的第一位 {@code > 8}：{@code more_bits} 为真，进；</li>
+     *   <li>{@code < 8}：{@code half_bit} 为假，舍；</li>
+     *   <li>恰为 {@code 8} 且后面还有非零位：超过一半，进；</li>
+     *   <li>恰为 {@code 8} 且后面全零（<b>平局</b>）：看保留的最后一位的奇偶，
+     *       奇则进。{@code prec == 0} 时「保留的最后一位」是小数点左边那一位。</li>
+     * </ul>
+     * <p>
+     * <b>Apple libc 在这一段根本不是就近舍入</b>，错得可以量化：
+     * {@code ("%.4a"):format(0x1.500082p0)} 给 {@code 0x1.5000p+0}——舍弃的
+     * {@code 0x82} 明明大于半 {@code 0x80} 却舍了下去，而
+     * {@code 0x1.500081p0} 反倒进上来（它的判据成了「第二位舍弃数字的奇偶」）。
+     * 所以这些用例<b>不进差分表</b>，用普通断言钉住 glibc 的答案。
+     */
+    @Test
+    void hexFloatPrecisionRoundingFollowsGlibc() {
+        LuaState L = new LuaState();
+        LuaLibs.openAll(L);
+        // 平局：看保留的最后一位的奇偶
+        assertEquals("0x2p+0", fmt(L, "%.0a", 1.5));      // 保留的最后一位是整数位 1（奇）→ 进
+        assertEquals("0x2p-1", fmt(L, "%.0a", 0.75));     // 0x1.8p-1，同上
+        assertEquals("0x1.0p+0", fmt(L, "%.1a", 0x1.08p0)); // 0（偶）→ 舍
+        assertEquals("0x1.2p+0", fmt(L, "%.1a", 0x1.18p0)); // 1（奇）→ 进
+        assertEquals("0x1.2p+0", fmt(L, "%.1a", 0x1.28p0)); // 2（偶）→ 舍
+        assertEquals("0x1.fep+0", fmt(L, "%.2a", 0x1.fe8p0)); // e（偶）→ 舍
+        assertEquals("0x2.00p+0", fmt(L, "%.2a", 0x1.ff8p0)); // f（奇）→ 进，且连进位到整数位
+        assertEquals("0X2P+0", fmt(L, "%.0A", 1.5));
+        // 不到一半 / 超过一半：两边一致，但顺手钉住
+        assertEquals("0x1p+1", fmt(L, "%.0a", 2.5));      // 0x1.4：4 < 8
+        assertEquals("0x2p+1", fmt(L, "%.0a", 3.5));      // 0x1.c：c > 8
+        // 超过一半但第一位恰为 8 —— Apple libc 在这里是错的，glibc 一律进
+        assertEquals("0x1.5001p+0", fmt(L, "%.4a", 0x1.500081p0));
+        assertEquals("0x1.5001p+0", fmt(L, "%.4a", 0x1.500082p0));
+        assertEquals("0x1.7e43dp+996", fmt(L, "%.5a", 1e300));
+        // 次正规：glibc 保留机器编码，小数点左边是 0，不规格化
+        assertEquals("0x0.0000000000001p-1022", fmt(L, "%a", 5e-324));
+        assertEquals("0x0p-1022", fmt(L, "%.0a", 5e-324));
+        assertEquals("0x0p-1022", fmt(L, "%.0a", Math.pow(2, -1023)));
+        // inf / nan 不参与零填充：0 标志被忽略，宽度改用空格补
+        assertEquals("                 inf", fmtExpr(L, "%020.5a", "math.huge"));
+        assertEquals("                -inf", fmtExpr(L, "%020.5a", "-math.huge"));
+        assertEquals("                 nan", fmtExpr(L, "%020.5a", "0/0"));
+        L.close();
+    }
+
+    /** 跑 {@code return string.format(spec, x)}；{@code x} 用十六进制字面量传，保证精确 */
+    private static String fmt(LuaState L, String spec, double x) {
+        return fmtExpr(L, spec, Double.toHexString(x));
+    }
+
+    private static String fmtExpr(LuaState L, String spec, String expr) {
+        String src = "return string.format('" + spec + "', " + expr + ")";
+        int base = L.top;
+        L.pushClosure(L.load(src.getBytes(StandardCharsets.ISO_8859_1), "=f"));
+        LuaValue err = L.pcall(base, 1);
+        assertNull(err, "format script failed: " + src);
+        String r = L.stack[base].asString().toJavaString();
+        L.top = base;
+        return r;
     }
 
     /** 跑 {@code return string.format('%q', x)}；{@code x} 用十六进制字面量传，保证精确 */

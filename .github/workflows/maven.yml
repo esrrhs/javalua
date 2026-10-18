@@ -55,8 +55,12 @@ jobs:
     - name: Build fkdump (bytecode dumper)
       run: |
         set -e
-        gcc -O2 -I target/lua54/src -o target/lua54/src/fkdump \\
-          src/test/resources/fkdump.c target/lua54/src/liblua.a -lm
+        #
+        # 必须写成一行。YAML 的块标量(|)不处理反斜杠续行:写 "\\" 换行的话
+        # bash 收到的是两个字符,被当成一个名为 "\" 的输入文件,ld 报
+        # "cannot find \:" —— 这一步挂了,后面整个 conformance job 就静默地
+        # 再也没跑过(连续 8 次 push 全是这个错,一致性闸门形同虚设)。
+        gcc -O2 -I target/lua54/src -o target/lua54/src/fkdump src/test/resources/fkdump.c target/lua54/src/liblua.a -lm
         test -x target/lua54/src/fkdump
     #
     # 编译期差分的语料:上游自带的测试套件。这批脚本是 Lua 作者自己写的、

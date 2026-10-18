@@ -1330,7 +1330,14 @@ public final class StringLib {
         if (sp.left) {
             sb.append(lead);
             repeat(sb, ' ', pad);
-        } else if (sp.zero) {
+        } else if (sp.zero && !isSpecial(digits)) {
+            /*
+             * inf / nan 不参与零填充：C printf 把它们当「没有数字可言」，
+             * {@code 0} 标志被忽略，宽度改用<b>空格</b>补。
+             * {@code ("%020.5a"):format(math.huge)} 因此是 17 个空格加
+             * {@code inf}（共 20 列），而 {@code ("%020d"):format(42)} 照旧是
+             * {@code 00000000000000000042}——整数动词不受影响。
+             */
             sb.append(sign).append(prefix);
             repeat(sb, '0', pad);
             sb.append(upper ? digits.toUpperCase() : digits);
@@ -1557,50 +1564,80 @@ public final class StringLib {
     /**
      * {@code %a}：十六进制浮点。
      * <p>
-     * 形状是 {@code 0x1.<hex>p±dd}：整数位恒为 1（次正规数 Java 给出的是
-     * {@code 0x0.000...1p-1022}，要先左移成正规形式并相应减指数）。
-     * <p>
-     * <b>平局朝零舍入</b>，这一点是量出来的：{@code ("%.0a"):format(1.5)} 是
-     * {@code 0x1p+0} 而 {@code ("%.0a"):format(1.75)} 是 {@code 0x2p+0}——
-     * 0x1.8 恰好一半却舍下去，0x1.c 超过一半才进上来。写成常见的
-     * round-half-even 会在平局那批用例上全错。
+     * 形状是 {@code 0xh.<hex>p±dd}，指数不补两位（{@code p+0} 不是 {@code p+00}）。
      */
     private static void emitHexFloat(LuaAux.Buf out, Spec sp, double x, boolean upper) {
         boolean neg = isNeg(x);
         double ax = Math.abs(x);
-        String digits;
-        String prefix = "0x";
+        boolean special = Double.isInfinite(ax) || Double.isNaN(ax);
+        out.addAscii(assemble(sp, signOf(neg, sp), special ? "" : "0x",
+                hexFloatDigits(ax, sp), upper));
+    }
+
+    /**
+     * {@code %a} 的「尾数 + {@code p±dd}」部分，不含 {@code 0x} 前缀与符号。
+     * <p>
+     * {@code %q} 与 {@code %a} 在 C 里是<b>同一个转换</b>（约定 #16）：
+     * {@code quotefloat} 用的就是 {@code snprintf("%" LA_FRMLEN "a")}。
+     * 之前 {@code %q} 另写了一份直接吃 {@code Double.toHexString} 的实现，
+     * 于是和 {@code %a} 那条路径在次正规数上给出两种答案
+     * （{@code ("%q"):format(5e-324)} 与 {@code ("%a"):format(5e-324)} 不一致）。
+     * 合并到这一处之后两边同源。
+     */
+    private static String hexFloatDigits(double ax, Spec sp) {
         if (Double.isInfinite(ax) || Double.isNaN(ax)) {
-            digits = Double.isNaN(ax) ? "nan" : "inf";
-            prefix = "";
-        } else if (ax == 0) {
-            String frac = sp.hasPrec ? zeros(sp.prec) : "";
-            digits = "0" + (frac.isEmpty() ? "" : "." + frac) + "p" + signedHexExp(0);
-        } else {
-            String h = Double.toHexString(ax); // 形如 "0x1.8p0" / "0x0.0000000000001p-1022"
-            int pIdx = h.indexOf('p');
-            String mant = h.substring(2, pIdx);
-            int exp = Integer.parseInt(h.substring(pIdx + 1));
-            String all = mant.replace(".", "");
-            int k = 0;
-            while (k < all.length() && all.charAt(k) == '0') {
-                k++;
-            }
-            all = all.substring(k);
-            exp -= 4 * k; // 每个十六进制位是 4 个二进制位
-            String intPart = all.substring(0, 1);
-            String frac = all.substring(1);
-            if (sp.hasPrec) {
-                frac = roundFrac(intPart, frac, sp.prec);
-                intPart = frac.substring(0, frac.length() - sp.prec);
-                frac = frac.substring(frac.length() - sp.prec);
-            } else {
-                frac = stripZerosFrac(frac);
-            }
-            digits = intPart + ((frac.isEmpty() && !sp.hash) ? "" : "." + frac) + "p"
-                    + signedHexExp(exp);
+            return Double.isNaN(ax) ? "nan" : "inf";
         }
-        out.addAscii(assemble(sp, signOf(neg, sp), prefix, digits, upper));
+        if (ax == 0) {
+            String frac = sp.hasPrec ? zeros(sp.prec) : "";
+            return "0" + dotFrac(frac, sp) + "p" + signedHexExp(0);
+        }
+        /*
+         * 小数点左边那一位直接取自 {@code Double.toHexString}：正规数是
+         * {@code 1}，次正规数是 {@code 0}。
+         * <p>
+         * 这里<b>刻意不把次正规规格化</b>。C99 只规定「小数点左边恰好一位」，
+         * 并且「这个数字只在数次正规时为 0，其它情况取值由实现定义」——
+         * 次正规怎么写属于 <i>unspecified</i>，两个 libc 正好相反：
+         * glibc（CI 的 ubuntu）忠实于机器编码，{@code 5e-324} 给
+         * {@code 0x0.0000000000001p-1022}；Apple libc / musl 先规格化，给
+         * {@code 0x1p-1074}。取 glibc：CI 的一致性闸门才是主闸门（约定 #52）。
+         * <p>
+         * 之前这里有一段「剥掉前导 0 再减指数」的规格化逻辑，于是次正规被
+         * 规格化成了 Apple 那种写法，而 {@code %q} 走的另一份实现保留机器
+         * 编码——同一个 {@code %a} 转换在两处给出两种答案。删掉它之后两边同源，
+         * 且 {@link StringLibTest#subnormalQuoteFollowsGlibc} 钉的就是这份。
+         */
+        String h = Double.toHexString(ax); // 形如 "0x1.8p0" / "0x0.0000000000001p-1022"
+        int pIdx = h.indexOf('p');
+        String mant = h.substring(2, pIdx);
+        int exp = Integer.parseInt(h.substring(pIdx + 1));
+        int dot = mant.indexOf('.');
+        String intPart = (dot < 0) ? mant : mant.substring(0, dot);
+        String frac = (dot < 0) ? "" : mant.substring(dot + 1);
+        if (sp.hasPrec) {
+            frac = roundFrac(intPart, frac, sp.prec);
+            intPart = frac.substring(0, frac.length() - sp.prec);
+            frac = frac.substring(frac.length() - sp.prec);
+        } else {
+            frac = stripZerosFrac(frac);
+        }
+        return intPart + dotFrac(frac, sp) + "p" + signedHexExp(exp);
+    }
+
+    /**
+     * 小数点什么时候留。
+     * <p>
+     * C99：{@code #} 标志下 {@code a}/{@code A} 的结果<b>必须带小数点</b>，哪怕
+     * 后面一位数字都没有。实测（参考实现）：{@code ("%#a"):format(0.0)} 是
+     * {@code 0x0.p+0}、{@code ("%#a"):format(1.0)} 是 {@code 0x1.p+0}、
+     * {@code ("%#.0a"):format(1.0)} 是 {@code 0x1.p+0}，而去掉 {@code #} 之后
+     * 三种都是 {@code 0x0p+0} / {@code 0x1p+0} / {@code 0x1p+0}。
+     * 曾经只有非零分支照这条写，零值分支漏了 —— 于是
+     * {@code ("%#a"):format(0.0)} 给 {@code 0x0p+0}。
+     */
+    private static String dotFrac(String frac, Spec sp) {
+        return (frac.isEmpty() && !sp.hash) ? "" : "." + frac;
     }
 
     private static String zeros(int n) {
@@ -1617,7 +1654,32 @@ public final class StringLib {
         return frac.substring(0, end);
     }
 
-    /** 把 {@code intPart.frac} 舍到 {@code prec} 位十六进制小数；平局朝零。返回合并后的串 */
+    /**
+     * 把 {@code intPart.frac} 舍到 {@code prec} 位十六进制小数。返回合并后的串。
+     * <p>
+     * 判据逐字照抄 glibc 的 {@code stdio-common/printf_fphex.c}：
+     * <pre>
+     * bool more_bits = ((next_digit_value &amp; 7) != 0
+     *                   || precision + 1 &lt; numend - numstr);
+     * do_round_away = round_away (negative, last_digit_value &amp; 1,
+     *                             next_digit_value &gt;= 8, more_bits, mode);
+     * </pre>
+     * 而 {@code round_away} 在 {@code FE_TONEAREST} 下就是
+     * {@code half_bit && (last_digit_odd || more_bits)}——即
+     * <b>就近舍入、平局取偶</b>。
+     * <p>
+     * 平局（舍弃的第一位恰好是 {@code 8}、后面全是 0）时<b>看保留的最后一位
+     * 的奇偶</b>：{@code ("%.0a"):format(1.5)} 保留的最后一位是整数位 {@code 1}
+     * （奇），进位成 {@code 0x2p+0}；{@code ("%.1a"):format(0x1.08p0)} 保留的最
+     * 后一位是 {@code 0}（偶），不进位，给 {@code 0x1.0p+0}。
+     * <p>
+     * <b>Apple libc 在这里是错的</b>，错得可以量化：{@code ("%.4a")} 作用在
+     * {@code 0x1.500082p+0} 上给 {@code 0x1.5000p+0}——舍弃的 {@code 0x82}
+     * 明明大于半 {@code 0x80} 却舍了下去；而 {@code 0x1.500081p+0} 反倒进上来。
+     * 它的判据成了「第二位舍弃数字的奇偶」。这两条在 glibc 上都该进位。
+     * 所以带精度的 {@code %a} 里「舍弃的第一位恰为 8」的那一批是平台相关的，
+     * 不进差分表（同一族问题见 {@code subnormalQuoteFollowsGlibc}）。
+     */
     private static String roundFrac(String intPart, String frac, int prec) {
         if (frac.length() <= prec) {
             StringBuilder sb = new StringBuilder(intPart);
@@ -1625,18 +1687,20 @@ public final class StringLib {
             repeat(sb, '0', prec - frac.length());
             return sb.toString();
         }
-        boolean up = false;
-        int first = Character.digit(frac.charAt(prec), 16);
-        if (first > 8) {
-            up = true;
-        } else if (first == 8) {
+        int next = Character.digit(frac.charAt(prec), 16);
+        boolean moreBits = (next & 7) != 0;
+        if (!moreBits) {
             for (int i = prec + 1; i < frac.length(); i++) {
                 if (frac.charAt(i) != '0') {
-                    up = true;
+                    moreBits = true;
                     break;
                 }
             }
         }
+        /* prec == 0 时「保留的最后一位」是小数点左边那一位 */
+        int last = Character.digit((prec > 0) ? frac.charAt(prec - 1)
+                : intPart.charAt(0), 16);
+        boolean up = (next >= 8) && (moreBits || (last % 2 == 1));
         StringBuilder sb = new StringBuilder(intPart);
         sb.append(frac, 0, prec);
         if (up) {
@@ -1690,26 +1754,9 @@ public final class StringLib {
         if (isNeg(n)) {
             sb.append('-');
         }
-        double ax = Math.abs(n);
-        if (ax == 0) {
-            sb.append("0x0p+0");
-            return sb.toString();
-        }
-        String h = Double.toHexString(ax);
-        int pIdx = h.indexOf('p');
-        String mant = h.substring(2, pIdx);
-        int exp = Integer.parseInt(h.substring(pIdx + 1));
-        String frac = "";
-        int dot = mant.indexOf('.');
-        if (dot >= 0) {
-            frac = stripZerosFrac(mant.substring(dot + 1));
-            mant = mant.substring(0, dot);
-        }
-        sb.append("0x").append(mant);
-        if (!frac.isEmpty()) {
-            sb.append('.').append(frac);
-        }
-        sb.append('p').append(signedHexExp(exp));
+        // 与 %a 同源（约定 #16）：C 的 quotefloat 就是 snprintf("%a")，
+        // 无标志、无宽度、无精度。
+        sb.append("0x").append(hexFloatDigits(Math.abs(n), new Spec()));
         return sb.toString();
     }
 
