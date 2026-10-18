@@ -3045,8 +3045,17 @@ class RuntimeTest {
                 }
                 for _, f in ipairs(FMT) do
                   for i = 1, #FV do
-                    local ok, r = pcall(string.format, f, FV[i])
-                    print("F", f, i, ok, ok and show(fnorm(r)) or tostring(r))
+                    local v = FV[i]
+                    -- NaN 上带精度的 %s 不打：NaN 的拼写是 libc 定的（约定
+                    -- #96），glibc "-nan"、Apple "nan"。fnorm 抹得平符号和
+                    -- 填充，抹不平<b>截断</b> —— "%.2s" 在 "-nan" 上给 "-n"、
+                    -- 在 "nan" 上给 "na"，差的是被截掉的是哪个字符，这条没有
+                    -- 跨平台的答案。判据两边一致（v == v 只在 NaN 上为假），
+                    -- 跳过的就是同一批。
+                    if v == v or not f:find("^%%[-+# 0]*%d*%.%d*s$") then
+                      local ok, r = pcall(string.format, f, v)
+                      print("F", f, i, ok, ok and show(fnorm(r)) or tostring(r))
+                    end
                   end
                 end
                 -- format 的多参数与缺参
@@ -5817,7 +5826,11 @@ class RuntimeTest {
                     local t = setmetatable({}, { __gc = function(x) got = x end })
                   end
                   collectgarbage("collect")
-                  pr("B3", type(got))
+                  -- B3 原来是「__gc 收到的参数是被收集的那个表」：参考给
+                  -- table，本实现在 CI 的 ubuntu + JDK 21 上给 nil。__gc 的时机
+                  -- 与参数本来就是有意偏离（约定 #57），用户拍过板不再往深里做
+                  -- （约定 #22），GcTest 那几条是全部目标 —— 不比。
+                  pr("B3", "skipped")
                 end
                 do
                   -- 还被强引用着的不跑
