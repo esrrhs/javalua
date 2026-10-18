@@ -277,6 +277,19 @@ public final class LuaValue {
             return numberEqual(a, b);
         case Lua.TSTRING:
             return a.asString().equals(b.asString());
+        case Lua.TLIGHTUSERDATA:
+            /*
+             * 载荷是 {@code Long} 时它是<b>指针值</b>（来自 C 的 {@code void*}，
+             * 经 {@code lua_rawgetp} / {@code lua_pushlightuserdata} 进来）。
+             * C 比的是地址本身，所以两个装箱不同的 {@code Long} 也必须判等——
+             * 按 {@code a.o == b.o} 比的话，{@code lua_rawsetp} 写进去的键
+             * {@code lua_rawgetp} 永远取不回来。
+             * <p>
+             * 其余载荷（{@code debug.upvalueid} 给的 {@code UpVal}）走引用相等，
+             * 与原来一致。
+             */
+            return (a.o instanceof Long && b.o instanceof Long)
+                    ? a.o.equals(b.o) : a.o == b.o;
         default:
             return a.o == b.o; // 表/函数/userdata/线程：引用相等
         }

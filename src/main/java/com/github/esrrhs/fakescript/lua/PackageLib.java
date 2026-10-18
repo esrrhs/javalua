@@ -300,12 +300,39 @@ public final class PackageLib {
         return searchPath(L, name, LuaAux.asString(p).toLatin1String(), ".", dirsep);
     }
 
-    /* ==================== 动态库（兜底：一律失败） ==================== */
+    /* ==================== 动态库 ==================== */
 
-    /** {@code lookforfunc}：本实现没有动态库，永远是 {@code ERRLIB} + {@code DLMSG} */
+    /**
+     * {@code lookforfunc}：{@code dlopen} + {@code dlsym}，找到就把那个
+     * {@code lua_CFunction} 压栈。
+     * <p>
+     * 找不到的两种失败要分开报：{@code ERRLIB} 是库打不开（第三个返回值给
+     * {@code "open"}），{@code ERRFUNC} 是库里没这个符号（给 {@code "init"}）。
+     * <p>
+     * native 层不可用（{@link NativeBridge#AVAILABLE} 为 false）时退回原来的
+     * 兜底分支——不能因为装不上动态库就让整个引擎起不来。
+     */
     private static int lookForFunc(LuaState L, String path, String sym) {
-        L.push(LuaValue.ofString(LuaString.latin1(DLMSG)));
-        return ERRLIB;
+        if (!NativeBridge.AVAILABLE) {
+            L.push(LuaValue.ofString(LuaString.latin1(DLMSG)));
+            return ERRLIB;
+        }
+        long h = NativeBridge.dlopen(path, false);
+        if (h == 0) {
+            String e = NativeBridge.dlerror();
+            L.push(LuaValue.ofString(LuaString.latin1(
+                    e == null ? DLMSG : e)));
+            return ERRLIB;
+        }
+        long fn = NativeBridge.dlsym(h, sym);
+        if (fn == 0) {
+            String e = NativeBridge.dlerror();
+            L.push(LuaValue.ofString(LuaString.latin1(
+                    e == null ? "symbol not found: " + sym : e)));
+            return ERRFUNC;
+        }
+        L.push(LuaValue.ofFunction(new LuaNativeFunction(fn)));
+        return 0;
     }
 
     /** {@code loadfunc}：{@code a.b-c} 先试 {@code luaopen_a_b}，失败再试 {@code luaopen_c} */

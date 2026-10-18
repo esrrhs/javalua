@@ -506,6 +506,15 @@ public final class LuaState {
             tmName[i] = LuaString.latin1(Tm.EVENT_NAMES[i]);
         }
         if (main == null) {
+            /*
+             * {@code lstate.c: init_registry}：{@code luaH_resize(registry,
+             * LUA_RIDX_LAST, 0)} 之后挨个填 —— 下标 1 是<b>主线程</b>，下标 2 才
+             * 是全局表。差这一格不只是「少个字段」：{@code luaL_ref} 取新引用用
+             * 的是 {@code lua_rawlen(registry) + 1}，实测参考实现第一个引用是
+             * <b>4</b>，本实现给 1 —— 靠 {@code luaL_ref} 记句柄的扩展会拿错号。
+             * 而 {@code rawlen(registry)} 参考实现恒为 2，本实现原本是 0。
+             */
+            registry.set(1, LuaValue.ofThread(this)); // LUA_RIDX_MAINTHREAD
             registry.set(2, LuaValue.ofTable(globals)); // LUA_RIDX_GLOBALS
             globals.set("_G", LuaValue.ofTable(globals));
             /*
