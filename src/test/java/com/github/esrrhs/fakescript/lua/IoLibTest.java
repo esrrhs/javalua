@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -1145,4 +1146,280 @@ class IoLibTest {
         print(table.concat(out, "\\n"))
             """ };
 
+    /**
+     * 文件方法 × 打开模式 × 每种参数：1262 行矩阵。
+     * <p>
+     * 九块内容：①六个方法（{@code flush lines read seek setvbuf write}）× 六个打开
+     * 模式 × 21 种参数，外加「关掉之后再用」的第二遍；②{@code seek} 的<b>双参数</b>
+     * 矩阵 —— 单参数时第二个值是 option，负数压根到不了偏移这条路，所以第一块对
+     * 偏移是瞎的；③写完立刻定位；④{@code read} 的多格式 / 多参数 / {@code lines}
+     * 迭代；⑤{@code write} 的多参数；⑥目录句柄；⑦<b>另开一个句柄</b>去看
+     * {@code flush} 到底有没有把字节推出去；⑧{@code ungetc} 退回来的那个字节要能被
+     * 下一次 {@code read} 拿到；⑨{@code popen} 句柄的关闭（{@code closeRaw} 的
+     * {@code in} / {@code out} 两支）。
+     * <p>
+     * 咬出来的两个真分歧：
+     * <ul>
+     *   <li><b>{@code f:read(-1)}</b>：C 是 {@code size_t l = (size_t)luaL_checkinteger}，
+     *       负数转成天文数字后 {@code luaL_prepbuffsize} 分配失败，抛的是
+     *       {@code "not enough memory"}，不是整数越界。我们原来直接
+     *       {@code new byte[(int)n]}，是 {@code NegativeArraySizeException}——
+     *       一个漏出 {@code pcall} 的 Java 异常。</li>
+     *   <li><b>成功的 {@code fseek} 会丢掉 {@code ungetc} 退回来的字节</b>：
+     *       {@code f:read("n")} 在 {@code "three"} 上失败时把 {@code 't'} 退了回去，
+     *       接着 {@code f:seek("set",0)} 再 {@code f:read(3)} —— 参考给
+     *       {@code "1 2"}，我们给 {@code "t1 "}。</li>
+     * </ul>
+     * <p>
+     * 实测灵敏度（单点破坏后红几行）：{@code seek} 负位置不报 EINVAL 46、
+     * {@code read} 不判目录 整片崩、{@code append} 不回末尾 5、{@code flush} 不
+     * {@code flushW} 4、{@code seek} 不清 pushback 3、{@code seek} 目录基准恒 0 2、
+     * {@code write} 不特判 0 字节 1。<b>{@code tell} 里的 {@code +wlen} 是 0</b>
+     * —— {@code f:seek} 先 {@code flushW} 再 {@code tell}，缓冲恒为空，那一刀
+     * 观测不到，别当成已验证。⑧⑨两块是<b>只补覆盖、不产生红</b>的：去掉
+     * {@code done >= len} 那条短路、或者不关 {@code popen} 的 {@code in}，矩阵照样
+     * 全绿 —— 它们的作用是让 JaCoCo 少说两句谎，不是多钉一条判定。
+     */
+    @Test
+    void fileMethodGridMatchesReference() {
+        Diff.assertMatches("""
+-- 文件方法 × 打开模式 × 每种参数：顺着 getmetatable(io.stdout).__index 往下挖
+local function norm(e) return (tostring(e):gsub("0x%x+", "PTR")) end
+local function show(...)
+    local n = select('#', ...)
+    local t = {}
+    for i = 1, n do t[i] = norm(tostring((select(i, ...)))) end
+    return table.concat(t, ",")
+end
+local function s(tag, f, ...)
+    local r = table.pack(pcall(f, ...))
+    if not r[1] then
+        print(tag, norm(tostring(r[2])))
+    else
+        print(tag, "OK", show(table.unpack(r, 2, r.n)))
+    end
+end
+
+local P = "/tmp/fkio_fm.txt"
+os.remove(P)                     -- 开头先删一次：上一趟崩掉留下的残骸会翻盘
+do
+    local f = io.open(P, "w")
+    f:write("abc\\n")
+    f:close()
+end
+
+-- 第 1 项就是 nil，# 与 ipairs 会在第一格就停（踩过：只出 110 行）
+local VALS = {}
+local NV = 0
+local function add(v) NV = NV + 1 VALS[NV] = v end
+for _, v in ipairs({ false, true, 0, 1, -1, 1.5, "s", "", {},
+                     "set", "cur", "end", "full", "line", "no",
+                     "n", "a", "l", "L", 2 }) do add(v) end
+add(nil)
+local METHODS = { "flush", "lines", "read", "seek", "setvbuf", "write" }
+local MODES = { "r", "w", "a", "r+", "w+", "a+" }
+
+for _, m in ipairs(MODES) do
+    local f = io.open(P, m)
+    print("mode", m, io.type(f))
+    if f ~= nil then
+        for _, meth in ipairs(METHODS) do
+            s(m .. "|" .. meth .. "|a0", function() return f[meth](f) end)
+            for i = 1, NV do
+                local v = VALS[i]
+                s(m .. "|" .. meth .. "|" .. i, function() return f[meth](f, v) end)
+            end
+        end
+        -- 关掉之后再用：attempt to use a closed file
+        print(m .. "|close", f:close())
+        print(m .. "|type", io.type(f))
+        for _, meth in ipairs(METHODS) do
+            s(m .. "|closed|" .. meth, function() return f[meth](f) end)
+            s(m .. "|closed|" .. meth .. "|v", function() return f[meth](f, 1) end)
+        end
+        print(m .. "|close2", pcall(function() return f:close() end))
+    end
+end
+
+-- io.type 与 io.open 的返回值
+print("type_nil", io.type(nil))
+print("type_num", io.type(1))
+print("type_std", io.type(io.stdout))
+-- 打不开的文件：各模式
+print("open_dir", pcall(io.open, "/tmp", "r"))
+print("open_noent", pcall(io.open, "/tmp/fkio_no_such_file", "r"))
+print("open_badmode", pcall(io.open, P, "rw"))
+print("open_badmode2", pcall(io.open, P, ""))
+print("open_badmode3", pcall(io.open, P, "rb"))
+print("open_badmode4", pcall(io.open, P, "r+b"))
+
+
+-- ============ 第二块：seek 的双参数矩阵 ============
+-- 单参数时第二个值是 option，负数压根到不了偏移这条路
+local OFFS = { -2, -1, 0, 1, 3, 5, 100, 2^31, -2^31, 1.5, "0", "x" }
+for _, m in ipairs(MODES) do
+    local f = io.open(P, m)
+    if f ~= nil then
+        for _, w in ipairs({ "set", "cur", "end" }) do
+            for _, off in ipairs(OFFS) do
+                s(m .. "|sk2|" .. w .. "|" .. tostring(off), function() return f:seek(w, off) end)
+            end
+        end
+        f:close()
+    end
+end
+
+-- ============ 第三块：写完立刻定位（缓冲里的字节算不算位置） ============
+for _, m in ipairs({ "w", "a", "r+", "w+", "a+" }) do
+    local f = io.open(P, m)
+    if f ~= nil then
+        s(m .. "|w|seekcur0", function() f:write("hello") return f:seek("cur", 0) end)
+        s(m .. "|w|seekend0", function() f:write("hello") return f:seek("end", 0) end)
+        s(m .. "|w|seekset", function() f:write("hello") return f:seek("set") end)
+        s(m .. "|w|flush", function() f:write("hello") return f:flush() end)
+        s(m .. "|w|seekcur0b", function() f:write("hello") f:flush() return f:seek("cur", 0) end)
+        s(m .. "|w|reada", function() f:write("hello") f:flush() f:seek("set", 0) return f:read("a") end)
+        s(m .. "|w|readn", function() f:write("12") f:flush() f:seek("set", 0) return f:read("n") end)
+        f:close()
+    end
+end
+
+-- ============ 第四块：read 的多格式 / 多参数 / lines 迭代 ============
+do
+    local w = io.open(P, "w")
+    w:write("1 2\\nthree\\n")
+    w:close()
+    local f = io.open(P, "r")
+    if f then
+        s("rd|a", function() return f:read("a") end)
+        f:seek("set", 0)
+        s("rd|l", function() return f:read("l") end)
+        s("rd|L", function() return f:read("L") end)
+        f:seek("set", 0)
+        s("rd|n", function() return f:read("n") end)
+        s("rd|n2", function() return f:read("n") end)
+        s("rd|n3", function() return f:read("n") end)
+        f:seek("set", 0)
+        s("rd|num", function() return f:read(3) end)
+        s("rd|num0", function() return f:read(0) end)
+        s("rd|eof0", function() f:read("a") return f:read(0) end)
+        s("rd|multi", function() f:seek("set", 0) return f:read("l", "L", "a", 2) end)
+        s("rd|bad", function() return f:read("z") end)
+        s("rd|star", function() f:seek("set", 0) return f:read("*l") end)
+        s("rd|empt", function() return f:read("") end)
+        s("rd|lines", function() f:seek("set", 0) local t = {} for l in f:lines() do t[#t + 1] = l end return table.concat(t, "|") end)
+        s("rd|linesL", function() f:seek("set", 0) local t = {} for l in f:lines("L") do t[#t + 1] = l end return table.concat(t, "|") end)
+        s("rd|linesn", function() f:seek("set", 0) local t = {} for l in f:lines("n") do t[#t + 1] = tostring(l) end return table.concat(t, "|") end)
+        s("rd|lines3", function() f:seek("set", 0) local t = {} for l in f:lines(3) do t[#t + 1] = l end return table.concat(t, "|") end)
+        s("rd|linesbad", function() f:seek("set", 0) local ok, e = pcall(function() for l in f:lines("z") do end end) return ok, e end)
+        f:close()
+    end
+end
+
+-- ============ 第五块：write 的多参数 ============
+for _, m in ipairs({ "w", "a", "r+", "w+", "a+" }) do
+    local f = io.open(P, m)
+    if f then
+        s(m .. "|wr|multi", function() return f:write("a", 1, 2.5, "b") end)
+        s(m .. "|wr|num", function() return f:write(1) end)
+        s(m .. "|wr|bool", function() return f:write("a", true) end)
+        s(m .. "|wr|nil", function() return f:write("a", nil) end)
+        s(m .. "|wr|empty", function() return f:write("") end)
+        s(m .. "|wr|nada", function() return f:write() end)
+        f:close()
+    end
+end
+
+
+-- ============ 第六块：目录句柄 ============
+-- io.open 目录在两边都成功（C 的 fopen 不拦），真正现形的是读/定位/写
+local d = io.open("/tmp", "r")
+if d then
+    print("dir|type", io.type(d))
+    s("dir|reada", function() return d:read("a") end)
+    s("dir|readl", function() return d:read("l") end)
+    s("dir|readn", function() return d:read("n") end)
+    s("dir|read3", function() return d:read(3) end)
+    s("dir|read0", function() return d:read(0) end)
+    s("dir|seekcur0", function() return d:seek("cur", 0) end)
+    s("dir|seekset0", function() return d:seek("set", 0) end)
+    s("dir|seekneg", function() return d:seek("set", -1) end)
+    s("dir|seekcur1", function() return d:seek("cur", 1) end)
+    s("dir|seekcur7", function() return d:seek("cur", 7) end)
+    s("dir|seekneg2", function() return d:seek("cur", -1) end)
+    s("dir|flush", function() return d:flush() end)
+    s("dir|write", function() return d:write("x") end)
+    s("dir|setvbuf", function() return d:setvbuf("no") end)
+    s("dir|lines", function() local ok, e = pcall(function() for l in d:lines() do end end) return ok, e end)
+    s("dir|close", function() return d:close() end)
+    print("dir|type2", io.type(d))
+end
+
+
+-- ============ 第七块：另开一个句柄去看 flush 到底有没有把字节推出去 ============
+-- 只有这一个办法能看见 flush 里的 flushW：seek 自己也 flush，会把痕迹抹掉
+for _, m in ipairs({ "w", "a", "w+", "r+" }) do
+    local f = io.open(P, m)
+    if f then
+        f:write("hello")
+        s(m .. "|x|nof", function() return (io.open(P, "r")):read("a") end)
+        s(m .. "|x|fl", function() f:flush() return (io.open(P, "r")):read("a") end)
+        f:close()
+    end
+    local f2 = io.open(P, m)
+    if f2 then
+        f2:write("XY")
+        s(m .. "|x|nof2", function() return (io.open(P, "r")):read("a") end)
+        s(m .. "|x|sk", function() f2:seek("cur", 0) return (io.open(P, "r")):read("a") end)
+        f2:close()
+    end
+end
+
+
+-- ============ 第八块：ungetc 退回来的那个字节要能被下一次 read 拿到 ============
+do
+    local w = io.open(P, "w")
+    w:write("three\\n")
+    w:close()
+    local f = io.open(P, "r")
+    if f then
+        s("pb|n", function() return f:read("n") end)
+        s("pb|1", function() return f:read(1) end)
+        s("pb|1b", function() return f:read(1) end)
+        s("pb|1c", function() return f:read(1) end)
+        s("pb|rest", function() return f:read("a") end)
+        f:close()
+    end
+end
+
+-- ============ 第九块：popen 句柄也要真关（closeRaw 的 in / out 两支） ============
+do
+    local f = io.popen("echo hi", "r")
+    if f then
+        print("po|type", io.type(f))
+        s("po|reada", function() return f:read("a") end)
+        s("po|readl", function() return f:read("l") end)
+        s("po|seek", function() return f:seek("set", 0) end)
+        s("po|flush", function() return f:flush() end)
+        s("po|write", function() return f:write("x") end)
+        s("po|setvbuf", function() return f:setvbuf("full") end)
+        print("po|close", f:close())
+        print("po|type2", io.type(f))
+    end
+    local g = io.popen("cat > /dev/null", "w")
+    if g then
+        print("po2|type", io.type(g))
+        s("po2|write", function() return g:write("abc") end)
+        s("po2|read", function() return g:read("l") end)
+        s("po2|seek", function() return g:seek("cur", 0) end)
+        s("po2|flush", function() return g:flush() end)
+        print("po2|close", g:close())
+        print("po2|type2", io.type(g))
+    end
+end
+
+os.remove(P)
+print("done")
+            """);
+    }
 }

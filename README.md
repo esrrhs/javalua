@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 872 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 873 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2901,6 +2901,57 @@ cannot be observed from an error message: `TFORCALL` sits at the end of the loop
 body, the registers it touches are live locals inside the loop, and outside the
 loop they are always rewritten before anything reads them. It is transcribed
 verbatim from C; no case in 1032 lines reaches it, and that is a measured fact.
+
+### The file-method matrix: six methods × six modes × every argument kind
+
+`IoLib.LuaFile` was the least-covered class in the tree (0.758). The grid that
+targets it has nine blocks and prints **1262 lines**: the six file methods
+(`flush lines read seek setvbuf write`) over the six open modes over 21 argument
+values, then the same again on a *closed* handle; a **two-argument** `seek`
+matrix; write-then-seek; `read`'s multi-format forms and `lines` iteration;
+`write`'s multi-argument forms; a directory handle; a **second handle opened on
+the same path**; a failed `read("n")` followed by `read(1)`; and `popen`'s close.
+
+Two of those blocks exist because the obvious one is blind:
+
+* `f:seek(-1)` never reaches the offset code at all — argument 2 is the
+  *option*, so a number just means `invalid option`. Only `f:seek(w, off)`
+  exercises negative offsets, and it is worth **46 red lines**.
+* `seek` flushes the write buffer before reporting the position, so nothing
+  distinguishes a `flush()` that flushes from one that does not. Opening a
+  *second* handle and reading the file with it does: **4 red lines**.
+
+Two real divergences came out of it:
+
+* **`f:read(-1)` raised `NegativeArraySizeException`.** C writes
+  `size_t l = (size_t)luaL_checkinteger(L, n)` — a negative count becomes an
+  astronomical unsigned value, `luaL_prepbuffsize` fails to allocate, and
+  `resizebox` raises the ordinary Lua error `"not enough memory"`
+  (`false  not enough memory` under `pcall`). `new byte[(int) n]` is not the
+  translation of that. `read_chars` now reads in chunks until the stream is dry
+  or the count is met — which is closer to `fread` anyway, since `fread` keeps
+  going on a short read — and only refuses when the size is one no system could
+  allocate. The exact refusal boundary is platform-dependent (the reference
+  binary cuts off around 2^46 on macOS, elsewhere with overcommit), so it is
+  deliberately **not** in the differential table; the deterministic input is the
+  negative one.
+* **A successful `fseek` discards the `ungetc` pushback.** `f:read("n")`
+  failing on `"three"` pushes `'t'` back; the following `f:seek("set", 0)` then
+  `f:read(3)` gives `"1 2"` in the reference and `"t1 "` in ours until `seek`
+  cleared it.
+
+Measured sensitivity: `seek`'s negative-position `EINVAL` 46, `read`'s directory
+check *crashes the whole grid*, append not returning to EOF 5, `flush` not
+flushing the write buffer 4, `seek` not clearing the pushback 3, `seek`'s
+directory base 2, `write`'s zero-byte special case 1.
+
+And one honest zero: **`tell`'s `+ wlen` is 0** — `f:seek` calls `flushW` before
+`tell`, so the buffer is always empty there. Coverage went up; the branch is
+still unobserved. Blocks 8 and 9 are likewise coverage-only: removing the
+`done >= len` short-circuit, or not closing `popen`'s `in`, leaves the grid
+green. They exist so JaCoCo has less to lie about, not because they pin a
+behaviour — most of what is left uncovered in `LuaFile` is `IOException` catch
+blocks, which need fault injection, not more scripts.
 
 ---
 
