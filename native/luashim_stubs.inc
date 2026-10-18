@@ -343,11 +343,6 @@ LUA_API void (lua_len) (lua_State *L, int idx) {
 }
 
 /* lua.h */
-LUA_API lua_State * (lua_newstate) (lua_Alloc f, void *ud) {
-  return LUASHIM_STATE(luashim_call(ID_lua_newstate, (intptr_t)f, (intptr_t)ud, 0, 0, 0, 0, 0));
-}
-
-/* lua.h */
 LUA_API lua_State * (lua_newthread) (lua_State *L) {
   return LUASHIM_STATE(luashim_call(ID_lua_newthread, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0));
 }

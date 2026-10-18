@@ -43,6 +43,7 @@ HAND_WRITTEN = {
     "lua_yieldk",         # 要走 longjmp，不能在 C 里正常返回
     "lua_resume",         # int *nres 是出参，得在 C 侧写回
     "lua_getallocf",      # 交回去的必须是能直接调用的 C 函数指针
+    "lua_newstate",       # 接住 lua_Alloc / ud，换掉进程级那一份
     "lua_setallocf",
     "lua_load",           # lua_Reader 是 C 函数指针，只能在 C 侧喂
     "luaL_loadfilex",     # 整个照 lauxlib.c：BOM / '#' 首行 / 二进制重开

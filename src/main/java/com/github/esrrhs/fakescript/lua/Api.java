@@ -188,6 +188,22 @@ final class Api {
         return v == null ? Lua.TNONE : v.baseType();
     }
 
+    /*
+     * {@code lobject.h: #define ttype(o) (novariant(rawtt(o)))}
+     *
+     * <b>5.4.7 的 {@code ttype} 是剥掉变体的</b>（{@code novariant}，不是
+     * {@code withvariant}），和 {@code ttnov} 是同一个数：整数和浮点都答
+     * {@code 3}，表里不存在答 {@code 0}({@code LUA_TNIL})。
+     *
+     * 踩过一次：按 5.4.0 的印象以为 {@code ttype} 带变体（浮点 19），于是把
+     * getfield 系写成基础、gettable 系写成带变体。参考实测
+     * （{@code /tmp/ttypeprobe.c}）七个函数对 1.5 一律给 3，拆是拆错的。
+     * 要带变体的是 {@code ttypetag}，不是 {@code ttype}。
+     */
+    private static int ttype(LuaValue v) {
+        return v.baseType();
+    }
+
     /** {@code luaL_checkstack} 之外，所有「栈要长」的地方都过这里 */
     static void grow(LuaState L, int n) {
         L.ensureSlots(L.top + n);
@@ -829,9 +845,16 @@ final class Api {
         }
     }
 
-    @Generated
+    /*
+     * {@code lua_close}。
+     * <p>
+     * <b>有意偏离，别当 bug 修</b>：C 版会把整个 {@code lua_State} 连同所有对象
+     * 一起释放，本实现的内存归 JVM 管，没有「释放」这个动作可做。这里做的是
+     * <b>把线程复位到空</b>，于是之后再用它就是 C 里的 use-after-free（未定义）——
+     * 至少不会「关完了还能正常跑」，那才是真正的假象。
+     */
     static void lua_close(long L) {
-        throw unimplemented("lua_close");
+        st(L).reset();
     }
 
     @Generated
@@ -1040,7 +1063,16 @@ final class Api {
         S.stack[S.top].setNil();
         Vm.getTable(S, t, LuaValue.ofString(key), S.top);
         S.top++;
-        return t.isTable() ? Lua.TTABLE : t.baseType();
+        /*
+         * {@code lapi.c: auxgetstr} 的返回值是
+         * {@code ttype(s2v(L->top - 1))} —— <b>取到的那个值</b>的类型，
+         * 不是被查的那张表的。以前这里返回 {@code t} 的类型，于是
+         * {@code lua_getfield} 在表上恒给 {@code LUA_TTABLE}：扩展里拿返回值
+         * 判「这个字段在不在 / 是不是函数」的判断整个反过来
+         * （实测：新状态上 {@code lua_getglobal(L, "print")} 参考给
+         * {@code LUA_TFUNCTION}，本实现给 {@code LUA_TTABLE}）。
+         */
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_getglobal(long L, long name) {
@@ -1050,7 +1082,8 @@ final class Api {
         S.stack[S.top].setNil();
         Vm.getTable(S, LuaValue.ofTable(S.globals), LuaValue.ofString(key), S.top);
         S.top++;
-        return Lua.TTABLE;
+        // 同 lua_getfield：返回<b>取到的值</b>的类型
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_gethook(long L) {
@@ -1083,7 +1116,8 @@ final class Api {
         S.stack[S.top].setNil();
         Vm.getTable(S, t, LuaValue.ofInteger(n), S.top);
         S.top++;
-        return t.isTable() ? Lua.TTABLE : t.baseType();
+        // 同 lua_getfield：返回<b>取到的值</b>的类型，不是 {@code t} 的
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_getinfo(long L, long what, long ar) {
@@ -1243,7 +1277,7 @@ final class Api {
         grow(S, 1);
         Vm.getTable(S, t, k2, S.top);
         S.top++;
-        return t.isTable() ? Lua.TTABLE : t.baseType();
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_gettop(long L) {
@@ -1328,8 +1362,17 @@ final class Api {
     }
 
     @Generated
+    /*
+     * {@code lua_newstate}：起一个<b>全新的</b> Lua 状态。
+     * <p>
+     * 与 {@link #luaL_newstate} 的差别是<b>不开库</b>——C 版也是这样，
+     * {@code luaL_openlibs} 得调用方自己喊。
+     * <p>
+     * 分配器那两个参数由 {@code luashim.c} 的手写 stub 接住（它顺手把进程级那
+     * 份 {@code g_allocf} 也换掉，于是 {@code lua_getallocf} 能原样交回去）。
+     */
     static long lua_newstate(long f, long ud) {
-        throw unimplemented("lua_newstate");
+        return NativeBridge.handle(new LuaState());
     }
 
     static long lua_newthread(long L) {
@@ -1508,7 +1551,7 @@ final class Api {
         LuaValue r = t.isTable() ? rawSlot(t.asTable(), key) : LuaValue.ofNil();
         grow(S, 1);
         S.stack[S.top++].set(r == null ? LuaValue.ofNil() : r);
-        return t.isTable() ? Lua.TTABLE : t.baseType();
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_rawgeti(long L, long idx, long n) {
@@ -1517,7 +1560,7 @@ final class Api {
         LuaValue r = t.isTable() ? rawSlot(t.asTable(), LuaValue.ofInteger(n)) : LuaValue.ofNil();
         grow(S, 1);
         S.stack[S.top++].set(r == null ? LuaValue.ofNil() : r);
-        return t.isTable() ? Lua.TTABLE : t.baseType();
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_rawgetp(long L, long idx, long p) {
@@ -1533,7 +1576,7 @@ final class Api {
         LuaValue key = LuaValue.ofLightUserdata(Long.valueOf(p));
         LuaValue r = (t != null && t.isTable()) ? rawSlot(t.asTable(), key) : null;
         pushVal(S, (r == null) ? LuaValue.ofNil() : r);
-        return t.isTable() ? Lua.TTABLE : t.baseType();
+        return ttype(S.stack[S.top - 1]);
     }
 
     static long lua_rawlen(long L, long idx) {
@@ -1748,8 +1791,14 @@ final class Api {
     }
 
     @Generated
+    /*
+     * {@code lapi.c: lua_setwarnf}。三个取值在 {@link LuaState#setWarnf} 里写清楚了；
+     * 这里只强调一点：<b>{@code f == 0} 是「设成 NULL」而不是「恢复默认」</b>——
+     * C 里 {@code luaE_warning} 的判据是 {@code wf != NULL}，设成 NULL 之后
+     * 连 {@code warn("@on")} 都开不了开关。
+     */
     static void lua_setwarnf(long L, long f, long ud) {
-        throw unimplemented("lua_setwarnf");
+        st(L).setWarnf(f, ud);
     }
 
     static long lua_status(long L) {

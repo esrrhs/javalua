@@ -154,6 +154,25 @@ class GcTest {
             """,
 
             """
+            -- 收尾时又造一个带 __gc 的对象。
+            -- 这一条盯的不是「__gc 跑几次」（时机是<b>有意偏离</b>，约定 #57），
+            -- 而是<b>别崩</b>：{@code lua_close} 要用下标遍历 pending 列表，
+            -- 因为 __gc 里再 setmetatable 会往同一个列表里追加，
+            -- ArrayList 的迭代器当场抛 ConcurrentModificationException——
+            -- 那是 Java 自己的异常（约定 #4），会被误读成脚本报错。
+            -- C 那边是 while (g->tobefnz) GCTM(L)，新入队的接着跑，不炸。
+            local n = 0
+            local function mk()
+              n = n + 1
+              setmetatable({}, {__gc = function(o)
+                if n < 5 then mk() end
+              end})
+            end
+            mk()
+            print("ok", n)
+            """,
+
+            """
             -- 弱表与 __gc 同时用：__gc 照常会跑。
             -- 这里<b>不</b>断言弱表里那一项还在不在：参考实现里带终结器的对象在
             -- 终结器跑掉之前会被 mark 成活的，于是那一轮弱条目还在（实测 false）；
