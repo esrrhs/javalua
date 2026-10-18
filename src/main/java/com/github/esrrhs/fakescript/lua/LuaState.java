@@ -163,6 +163,15 @@ public final class LuaState {
     /** {@code lua_State.status} */
     int status = LUA_OK;
 
+    /**
+     * 协程<b>死掉时</b>的错误对象，给 {@code coroutine.close} 用。
+     * <p>
+     * C 不需要这个字段：它的错误对象在栈上占两格（理由见
+     * {@link #closeThreadValue(LuaState)}），{@code lua_xmove} 搬走一格还剩
+     * 一格。本实现只有一格，搬走就没了，只能在死的时候另存一份。
+     */
+    private LuaValue deadErr;
+
     /** {@code lua.h: LUA_GCGEN} —— 分代模式 */
     public static final int LUA_GCGEN = 10;
 
@@ -2066,6 +2075,13 @@ public final class LuaState {
         st = precover(st);
         if (st != LUA_OK && st != LUA_YIELD) {
             status = st; // 标记线程死亡，之后 resume 一律「cannot resume dead coroutine」
+            /*
+             * 记下错误对象本身，而不只是状态。
+             * {@code coroutine.close} 一个已死的协程要把它原样带回去
+             * （理由见 {@link #closeThreadValue(LuaState)}）：此时错误对象
+             * 已经被 {@code xmove} 搬走，栈上只剩陈值。
+             */
+            deadErr = (top > 0) ? new LuaValue(stack[top - 1]) : LuaValue.ofNil();
         }
         nresultsOut[0] = (st == LUA_YIELD) ? ci.nyield
                 : (top - (ci.func + 1));
@@ -2374,8 +2390,27 @@ public final class LuaState {
      *         {@link #xmove} 搬走）；没有错误返回 {@code null}
      */
     public LuaValue closeThreadValue(LuaState from) {
-        return closeThreadValue(from,
-                (top > 0) ? new LuaValue(stack[top - 1]) : LuaValue.ofNil());
+        /*
+         * 已死的协程要拿<b>当初那个错误对象</b>，而它不在栈上了。
+         * <p>
+         * C 版 {@code luaE_resetthread} 收尾那句是
+         * {@code luaD_seterrorobj(L, status, L->stack + 1)}，{@code default}
+         * 分支取 {@code L->top - 1}。它取得到，是因为 C 的错误对象在栈上是
+         * <b>连着两格</b>的：{@code lua_resume} 出错时 {@code luaD_seterrorobj}
+         * 把它拷到 {@code top}、{@code top++}，随后
+         * {@code lua_xmove(co, L, 1)} 只搬走上面那格、{@code co->top--}，
+         * 下面那格还是它。
+         * <p>
+         * 本实现的错误对象住在异常里，只压了一格，搬走就没了 ——
+         * {@code stack[top - 1]} 成了陈值。实测
+         * {@code coroutine.close} 一个因 {@code f()} 死掉的协程：
+         * 参考给 {@code false, "case.lua:8: table index is nil"}，
+         * 本实现给 {@code false, nil}（更糟的一次给的是排序比较用的
+         * {@code -1}）。所以死的时候把错误对象记下来。
+         */
+        LuaValue prev = (deadErr != null) ? deadErr
+                : ((top > 0) ? new LuaValue(stack[top - 1]) : LuaValue.ofNil());
+        return closeThreadValue(from, prev);
     }
 
     /**
@@ -2442,8 +2477,10 @@ public final class LuaState {
                 closeUpvals(1, errObj); // 从第 1 格起全部关掉
                 break;
             } catch (LuaError e) {
-                errObj = e.value; // 下一个 __close 看到的 err
-                err = e.value;    // 也是最终要交出去的那个
+                // 与 resume / precover 同：裸错误值的位置在这一层补
+                LuaValue v = errObjAt(e);
+                errObj = v; // 下一个 __close 看到的 err
+                err = v;    // 也是最终要交出去的那个
                 st = LUA_ERRRUN;
                 ci = baseCi;      // 与 C 版「恢复 old_ci 再重来」一致
             }

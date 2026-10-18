@@ -1035,4 +1035,84 @@ end
 print("END")
         """);
     }
+
+    /**
+     * 片八：剩下的几条<b>保护边界</b>（34 行，咬出第五、六处真分歧）。
+     * <p>
+     * 前四片修的都是「错误走到某个边界时该怎么装裱」。这一片把<b>剩下的边界</b>
+     * 挨个点名，同一批裸错误值逐个塞进去：
+     * <ul>
+     *   <li>{@code coroutine.close} 一个<b>挂起</b>的协程 —— {@code __close}
+     *       里抛 {@code table index is nil}：参考带位置，本实现不带
+     *       （{@code closeThreadValue} 的 {@code catch} 没补，已修）；</li>
+     *   <li>{@code coroutine.close} 一个<b>已死</b>的协程 —— 参考把当初那个
+     *       错误对象原样带回来（{@code false, "case.lua:8: ..."}），本实现给
+     *       {@code false, nil}。根因是 C 的错误对象在栈上是<b>连着两格</b>的
+     *       （{@code lua_resume} 出错时拷一份、{@code xmove} 只搬走上面那格），
+     *       本实现只有一格，搬走就没 —— 加 {@code deadErr} 另存一份；</li>
+     *   <li>{@code load} 的读函数里抛、{@code require} 的保护区里抛。</li>
+     * </ul>
+     */
+    @Test
+    void remainingProtectedBoundariesMatchReference() {
+        Diff.assertMatches("""
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+local CF = {
+  { "setnil", function() local t = {} t[nil] = 1 end },
+  { "setnan", function() local t = {} t[0/0] = 1 end },
+  { "idiv0",  function() return 1 // 0 end },
+  { "nomem",  function() return io.open("/dev/null"):read(-1) end },
+  { "err0",   function() error("E0", 0) end },
+  { "err1",   function() error("E1") end },
+  { "mem",    function() error("not enough memory", 0) end },
+  { "rt",     function() local t = nil return t.x end },
+}
+for i = 1, #CF do
+  local n, f = CF[i][1], CF[i][2]
+  -- coroutine.close：__close 里抛
+  P("close/" .. n, function()
+    local co = coroutine.create(function()
+      local x <close> = setmetatable({}, {__close = f})
+      coroutine.yield("Y")
+      return "b"
+    end)
+    local a = table.pack(coroutine.resume(co))
+    local c = table.pack(pcall(coroutine.close, co))
+    local d = table.pack(pcall(coroutine.close, co))
+    local out = tostring(a[1]) .. " " .. tostring(a[2]) .. " / close:"
+    for j = 1, c.n do out = out .. " " .. tostring(c[j]) end
+    out = out .. " / again:"
+    for j = 1, d.n do out = out .. " " .. tostring(d[j]) end
+    return out
+  end)
+  -- 已经死了的协程上 close
+  P("closedead/" .. n, function()
+    local co = coroutine.create(f)
+    coroutine.resume(co)
+    local r = table.pack(pcall(coroutine.close, co))
+    local out = ""
+    for j = 1, r.n do out = out .. " " .. tostring(r[j]) end
+    return out
+  end)
+  -- load 的读函数里抛
+  P("loadrd/" .. n, function()
+    local k = 0
+    local ok, e = pcall(load, function() k = k + 1 if k == 1 then return "return 1 " else f() end end, "=c")
+    return tostring(ok) .. " " .. tostring(e)
+  end)
+  -- require 的保护区里抛
+  P("preload/" .. n, function()
+    package.preload["zz" .. n] = f
+    local ok, e = pcall(require, "zz" .. n)
+    return tostring(ok) .. " " .. tostring(e)
+  end)
+end
+print("END")
+        """);
+    }
 }
