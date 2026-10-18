@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -648,4 +649,227 @@ class PackageLibTest {
         print(table.concat(out, "\\n"))
             """ };
 
+    /**
+     * <b>{@code require} 语义矩阵</b>（135 行）。
+     * <p>
+     * 判据全在 {@code loadlib.c: ll_require}，四句就说完：
+     * <pre>
+     * _LOADED[name] 为真 → 直接用（<b>只返回 1 个值</b>，没有 loader data）；
+     * 否则跑 loader，返回值非 nil 就写进 _LOADED；
+     * 跑完 _LOADED[name] 还是 nil 就用 {@code true} 顶上；
+     * 正常路径返回<b>两个</b>值：模块 + loader data。
+     * </pre>
+     * 九组：模块返回值的十种形状（含「什么都不返回」与「返回多个值」）
+     * 及其<b>第二次</b> {@code require}（走缓存，只给一个值）；模块自己往
+     * {@code package.loaded} 里写（写 {@code false} 会让它<b>下次重载</b>）；
+     * 外部预置 {@code package.loaded} 的三种值；模块报错（报错之后<b>没</b>写进
+     * 缓存，再 require 会再跑一遍）；{@code package.preload[name]} 不是函数；
+     * 名字带点的子模块；{@code require} 的参数错；{@code package.searchers}
+     * 全删 / 换成自定义 / 返回非函数 / 返回 {@code nil + 消息}；真去
+     * {@code target/rt/req/} 下找文件的 Lua 搜索器；{@code package.searchpath}
+     * 与 {@code package.config} / {@code loadlib}。
+     * <p>
+     * 两处<b>不比内容</b>：{@code package.loadlib} 的失败消息（约定 #54/#57：
+     * 没有 dlopen，只比「是不是字符串」），以及未捕获错误的
+     * {@code <程序名>: } 前缀（那是 {@code lua.c: report} 的行为，不是库的
+     * 语义 —— 所以 {@code W2} 必须包在 {@code pcall} 里）。
+     * <p>
+     * 一条分歧都没咬出来。留作回归网：{@code ll_require} 那四句的<b>顺序</b>一乱，
+     * 这里立刻红。
+     */
+    @Test
+    void requireSemanticsMatrixMatchesReference() {
+        Diff.assertMatches("""
+-- require / package 语义矩阵。
+-- 判据全在 lbaselib... loadlib.c: ll_require：
+--   _LOADED[name] 为真就直接用；否则跑 loader，返回值非 nil 就写进 _LOADED；
+--   跑完还是 nil 就用 true 顶上。返回值是<b>两个</b>：模块 + loader data。
+-- 注意 5.4 没有「哨兵」，所以循环 require 是<b>真递归</b>（不是报循环依赖）。
+local function sh(v)
+  local t = type(v)
+  if t == "string" then return "s[" .. v .. "]" end
+  return tostring(v)
+end
+local function pr(tag, ...)
+  local n = select("#", ...)
+  local out = { tag }
+  for i = 1, n do out[#out + 1] = sh((select(i, ...))) end
+  print(table.concat(out, " | "))
+end
+local D = "target/rt/req/"   -- 临时目录，两边同一个 cwd
+
+-- 1) 模块返回值的各种形状
+local shapes = {
+  { "nil",   "return nil" },
+  { "none",  "" },
+  { "false", "return false" },
+  { "true",  "return true" },
+  { "zero",  "return 0" },
+  { "empty", "return ''" },
+  { "tbl",   "return {v=1}" },
+  { "multi", "return 1, 2, 3" },
+  { "fn",    "return function() end" },
+  { "self",  "return package.loaded['rq_1']" },
+}
+for i = 1, #shapes do
+  local tag, body = shapes[i][1], shapes[i][2]
+  package.preload["rq_" .. tag] = load(body, "=rq_" .. tag)
+  local m, ld = require("rq_" .. tag)
+  pr("S" .. i, tag, type(m), sh(m), sh(ld), type(package.loaded["rq_" .. tag]))
+  -- 第二次：走缓存
+  local m2, ld2 = require("rq_" .. tag)
+  pr("S" .. i .. "b", type(m2), sh(m2), sh(ld2))
+end
+
+-- 2) 模块自己往 package.loaded 里写
+do
+  package.preload["rq_self"] = function(name)
+    package.loaded["rq_self"] = { written = name }
+    return nil
+  end
+  local m, ld = require("rq_self")
+  pr("W1", type(m), sh(m), sh(ld), type(package.loaded["rq_self"]))
+  -- 必须包 pcall：未捕获的错误由 lua.c: report 打 "<程序名>: " 前缀，那是
+  -- 解释器（不是库）的行为，比对的是库语义。
+  pr("W2", pcall(function() return require("rq_self").written end))
+end
+do
+  -- 写了 false：require 下次见到假值，会<b>重新加载</b>
+  package.preload["rq_false"] = function()
+    package.loaded["rq_false"] = false
+    return { n = 1 }
+  end
+  local a = require("rq_false").n
+  local b = require("rq_false").n
+  pr("W3", a, b, package.loaded["rq_false"])
+end
+do
+  -- 外部预置 package.loaded
+  package.loaded["rq_pre"] = { pre = true }
+  pr("W4", require("rq_pre").pre)
+  package.loaded["rq_pre2"] = false
+  package.preload["rq_pre2"] = function() return { reloaded = 1 } end
+  pr("W5", type(require("rq_pre2")))
+  package.loaded["rq_pre3"] = nil
+  package.preload["rq_pre3"] = function() return { fresh = 1 } end
+  pr("W6", type(require("rq_pre3")))
+end
+
+-- 3) 模块里报错 / 非函数 loader / loader 返回 nil
+do
+  package.preload["rq_err"] = function() error("mod-boom") end
+  pr("E1", pcall(require, "rq_err"))
+  pr("E2", package.loaded["rq_err"])
+  pr("E3", pcall(require, "rq_err"))  -- 报错之后没写进缓存，会再跑一次
+end
+do
+  package.preload["rq_notfn"] = 5
+  pr("E4", pcall(require, "rq_notfn"))
+end
+do
+  -- 名字带点的子模块
+  package.preload["rq.sub"] = function(n) return { n = n } end
+  pr("E5", require("rq.sub").n)
+end
+
+-- 4) require 的参数错
+pr("P1", pcall(require))
+pr("P2", pcall(require, nil))
+pr("P3", pcall(require, 5))
+pr("P4", pcall(require, true))
+pr("P5", pcall(require, {}))
+pr("P6", pcall(require, "x", "y"))
+pr("P7", pcall(require, "a\\0b"))
+pr("P8", pcall(require, "no_such_module_zzz_qqq"))
+
+-- 5) searchers：全删 / 插到最前 / 返回非函数
+do
+  local saved = package.searchers
+  package.searchers = {}
+  pr("H1", pcall(require, "no_such_zzz"))
+  package.searchers = { function(n) return load("return {from=1}") end }
+  pr("H2", require("any_name_zz").from)
+  package.searchers = { function(n) return 5 end }
+  pr("H3", pcall(require, "any_name_zz2"))
+  package.searchers = { function(n) return nil, "no way" end }
+  pr("H4", pcall(require, "any_name_zz3"))
+  package.searchers = saved
+end
+
+-- 6) 文件搜索器（Lua 搜索器）：真去 target/rt/req/ 下找
+do
+  local dir = D
+  os.execute("mkdir -p " .. dir)
+  local function put(name, body)
+    local f = assert(io.open(dir .. name .. ".lua", "w"))
+    f:write(body)
+    f:close()
+  end
+  put("fm1", "return {v=11}")
+  put("fm2", "local t = {...} return {n=#t, a=t[1]}")
+  put("fm3", "error('file-boom')")
+  put("fm4", "return nil")
+  local oldpath = package.path
+  package.path = dir .. "?.lua;" .. oldpath
+  pr("F1", require("fm1").v)
+  local m2, ld2 = require("fm1")
+  pr("F2", m2.v, type(ld2))
+  pr("F3", require("fm2").n, require("fm2").a)
+  pr("F4", pcall(require, "fm3"))
+  pr("F5", type(require("fm4")))
+  pr("F6", pcall(require, "no_such_file_zzz"))
+  package.path = oldpath
+end
+
+-- 7) package.searchpath
+do
+  local dir = D
+  pr("Q1", package.searchpath("fm1", dir .. "?.lua"))
+  pr("Q2", pcall(package.searchpath, "zzz", dir .. "?.lua"))
+  pr("Q3", pcall(package.searchpath, "fm1", dir .. "?.lua", ".", "-"))
+  pr("Q4", pcall(package.searchpath))
+  pr("Q5", pcall(package.searchpath, "a"))
+  pr("Q6", pcall(package.searchpath, "a", 5))
+  pr("Q7", pcall(package.searchpath, 5, "a"))
+  pr("Q8", pcall(package.searchpath, "a", "b", 5))
+  pr("Q9", pcall(package.searchpath, "a", "b", ".", 5))
+  pr("Q10", package.searchpath("fm1", dir .. "?.lua;" .. dir .. "?/init.lua"))
+end
+
+-- 8) package.config / cpath / loadlib
+pr("C1", (package.config:gsub("\\n", "<N>")))
+pr("C2", type(package.cpath))
+pr("C3", select("#", package.loadlib("no_such_lib_zzz", "luaopen_x")))
+pr("C4", type(select(1, package.loadlib("no_such_lib_zzz", "luaopen_x"))))
+-- 约定 #54/#57：loadlib 的失败消息是「在哪一步失败」，dlopen 的文本随平台变，
+-- 本实现没有 dlopen —— 只比「是不是字符串」。
+pr("C5", type(select(2, package.loadlib("no_such_lib_zzz", "luaopen_x"))))
+pr("C6", pcall(package.loadlib))
+pr("C7", pcall(package.loadlib, "a"))
+do
+  -- loadlib 的第二个参数会被 luaL_checkstring 转成字符串（5 → "5"）
+  local ok, a, b, c = pcall(package.loadlib, "a", 5)
+  pr("C8", ok, type(a), type(b), type(c))
+end
+pr("C9", type(package.preload), type(package.loaded), type(package.searchers))
+pr("C10", #package.searchers)
+
+-- 9) 循环 require：5.4 没有哨兵，是真递归（栈溢出由 pcall 兜住）
+do
+  local n = 0
+  package.preload["cyc_a"] = function()
+    n = n + 1
+    if n > 200 then error("deep-stop") end
+    return require("cyc_b")
+  end
+  package.preload["cyc_b"] = function() return require("cyc_a") end
+  local ok, e = pcall(require, "cyc_a")
+  pr("X1", ok, type(e))
+  pr("X2", n > 1)
+end
+
+print("END")
+
+                """);
+    }
 }

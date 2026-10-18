@@ -10703,7 +10703,15 @@ local function p(tag, f, ...)
     end
 end
 
-os.execute("rm -rf au_tmp && mkdir -p au_tmp/d au_tmp/e")
+-- 清理的两条规矩：
+-- ① <b>不要串在一条 && 上</b>：清理一旦没成（只读目录、权限不够、或者宿主
+--    环境在 rm 上挂了别的东西），建目录也跟着不做，整个用例就假红。
+--    建目录那一步必须是独立的、幂等的（mkdir -p）。
+-- ② <b>清理的输出不进断言</b>：这条用例测的是 errno，而某些宿主环境会给
+--    rm 套一层包装、往 stdout/stderr 上打自己的话（内容还带随调用次数变的
+--    计数）。那类输出两边拿到的是两份，逐字节比必然假红。
+os.execute("rm -rf au_tmp >/dev/null 2>&1")
+os.execute("mkdir -p au_tmp/d au_tmp/e")
 local w = io.open(D .. "f.txt", "w")
 w:write("f")
 w:close()
@@ -10768,7 +10776,8 @@ p("C09", os.remove, "/etc")                             -- 权限 -> EPERM
 os.execute("mkdir -p au_tmp/ro && touch au_tmp/ro/x && chmod 555 au_tmp/ro")
 p("C10", os.remove, D .. "ro/x")                        -- 目录只读 -> EACCES
 
-os.execute("chmod -R u+w au_tmp && rm -rf au_tmp")
+os.execute("chmod -R u+w au_tmp >/dev/null 2>&1")
+os.execute("rm -rf au_tmp >/dev/null 2>&1")
         """);
     }
 
