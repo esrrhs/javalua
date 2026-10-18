@@ -92,7 +92,8 @@ local function show(v)
   if t == "string" then
     -- 约定 #42：地址先归一再量长度。C 的 %p 与 JVM 的哈希位数不同，
     -- 先取 # 会把这份无关差别算进断言里。
-    local s = v:gsub("0x%x+", "PTR")
+    -- 约定 #52/#120：NaN 的符号随 libc 变，长度得先折平再量（同上）。
+    local s = v:gsub("0x%x+", "PTR"):gsub("[%-%+]nan", "nan")
     return "#" .. #s .. "[" .. esc(s) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end
@@ -310,7 +311,8 @@ end
 local function show(v)
   local t = type(v)
   if t == "string" then
-    local s = v:gsub("0x%x+", "PTR")
+    -- 约定 #52/#120：NaN 的符号随 libc 变，长度得先折平再量（同上）。
+    local s = v:gsub("0x%x+", "PTR"):gsub("[%-%+]nan", "nan")
     return "#" .. #s .. "[" .. esc(s) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end
@@ -470,7 +472,9 @@ end
 local function show(v)
   local t = type(v)
   if t == "string" then
-    return "#" .. #v .. "[" .. (v:gsub("[\\r\\n]", "?")) .. "]"
+    -- 约定 #52/#120：NaN 的符号随 libc 变，长度得先折平再量（同上）。
+    local s = v:gsub("[%-%+]nan", "nan")
+    return "#" .. #s .. "[" .. (s:gsub("[\\r\\n]", "?")) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end
     return "f" .. tostring(v)
@@ -1150,7 +1154,10 @@ local function show(v)
   if t == "string" then
     -- 只截掉「文件名:行号:」这一段的<b>行号</b>以外的部分？不：位置本身就是
     -- 被测对象，原样留着。只把路径压成同一长度，免得改一行就整片红。
-    return "#" .. #v .. "[" .. esc(v) .. "]"
+    -- 约定 #52/#120：NaN 的符号随 libc 变（glibc "-nan"、Apple libc "nan"），
+    -- 内容由 Diff.normalize 折平，可长度在这里量，不先折就会把 4 与 3 写进断言。
+    local s = v:gsub("[%-%+]nan", "nan")
+    return "#" .. #s .. "[" .. esc(s) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end
     return "f" .. tostring(v)

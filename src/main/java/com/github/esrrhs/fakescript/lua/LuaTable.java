@@ -1161,8 +1161,7 @@ public final class LuaTable {
         if (tm == null || tm.isNil()) {
             return false;
         }
-        gcSentinel = new GcSentinel(this, L.mainThread);
-        L.mainThread.registerFinalizable(this);
+        gcSentinel = new GcSentinel(this, L.mainThread, L.mainThread.registerFinalizable(this));
         return true;
     }
 

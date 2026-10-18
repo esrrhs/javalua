@@ -601,32 +601,67 @@ public final class LuaState {
     /* ==================== __gc ==================== */
 
     /**
-     * 所有挂过 {@code __gc} 的表，弱引用。
+     * 一个「登记过 {@code __gc} 的对象」的记录。
      * <p>
-     * 只用于 {@link #close}：C 版 {@code lua_close} 会<b>不管还活不活</b>把清单上
-     * 的终结器全跑一遍（{@code callallpendingfinalizers}），所以退出时不能只看
-     * 「已经不可达的那些」。
+     * <b>为什么不是一条裸 {@code WeakReference}。</b>收集一轮之后要能回答
+     * 「还有没有已死却还没跑 {@code __gc} 的」——见
+     * {@link #collectAndRunFinalizers} 里那场与 JVM 终结线程的竞态。弱引用被清
+     * 之后 {@code get()} 就恒为 {@code null}（哪怕对象已被 {@code finalize}
+     * 复活），所以「跑过没有」这份状态必须记在引用<b>外面</b>，也就必须有这个
+     * 小对象。
      */
-    private final List<WeakReference<Object>> finalizables = new ArrayList<>();
+    static final class GcRef {
+
+        /** 指向可终结对象本身；被清 == 对象对 JVM 已经不可达 */
+        final WeakReference<Object> ref;
+
+        /**
+         * {@link GcSentinel#finalize} 复活对象时挂上来，跑完 {@code __gc} 立刻丢。
+         * <p>
+         * 这一条强引用就是「复活」的落点：它只在入队到排空这半程存在，排空后
+         * 置回 {@code null}，对象随即可以真正被收回。
+         */
+        Object owner;
+
+        /** 已经跑过一次 {@code __gc}；跑过就不会再跑（与 C 的 {@code gcDone} 同义） */
+        boolean done;
+
+        GcRef(Object t) {
+            ref = new WeakReference<>(t);
+        }
+    }
 
     /**
-     * 已经不可达、等着跑 {@code __gc} 的表。
+     * 所有挂过 {@code __gc} 的对象。
+     * <p>
+     * 两个用处：{@link #close} 要<b>不管还活不活</b>把清单上的终结器全跑一遍
+     * （C 版 {@code lua_close} 的 {@code callallpendingfinalizers}）；
+     * {@link #collectAndRunFinalizers} 要靠它判断「这轮收集之后还有没有漏掉的」。
+     */
+    private final List<GcRef> finalizables = new ArrayList<>();
+
+    /**
+     * 已经不可达、等着跑 {@code __gc} 的对象。
      * <p>
      * 由 {@link GcSentinel#finalize} 从 <b>JVM 终结线程</b>填进来，只能在 Lua 线程
      * 上排空，所以下面的存取都要锁。
      */
-    private final List<Object> pendingFinalizers = new ArrayList<>();
+    private final List<GcRef> pendingFinalizers = new ArrayList<>();
 
-    void registerFinalizable(Object t) {
+    /** 登记一个可终结对象；返回它的记录，交给 {@link GcSentinel} 带着 */
+    GcRef registerFinalizable(Object t) {
+        GcRef r = new GcRef(t);
         synchronized (finalizables) {
-            finalizables.add(new WeakReference<>(t));
+            finalizables.add(r);
         }
+        return r;
     }
 
-    /** {@link GcSentinel#finalize} 用：把表拽回可达集合并排队 */
-    void enqueueFinalizer(Object t) {
+    /** {@link GcSentinel#finalize} 用：把对象拽回可达集合并排队 */
+    void enqueueFinalizer(Object t, GcRef r) {
+        r.owner = t;
         synchronized (pendingFinalizers) {
-            pendingFinalizers.add(t);
+            pendingFinalizers.add(r);
         }
         gcPending = true;
     }
@@ -640,15 +675,40 @@ public final class LuaState {
      */
     void drainFinalizers(LuaState L) {
         while (true) {
-            Object t;
+            GcRef r;
             synchronized (pendingFinalizers) {
                 if (pendingFinalizers.isEmpty()) {
                     return;
                 }
-                t = pendingFinalizers.remove(pendingFinalizers.size() - 1);
+                r = pendingFinalizers.remove(pendingFinalizers.size() - 1);
             }
+            Object t = r.owner;
+            r.owner = null;
+            r.done = true;
             runGc(L, t);
         }
+    }
+
+    /**
+     * 还有没有「已经不可达、却还没跑 {@code __gc}」的对象。
+     * <p>
+     * 顺手把已经跑过的记录摘掉：{@code finalizables} 只增不减的话，长寿程序里
+     * 它就是一条只进不出的队列。跑过的对象不会再跑第二次（{@code gcDone}），
+     * 摘掉没有副作用。
+     */
+    private boolean pruneAndHasDeadFinalizables() {
+        boolean dead = false;
+        synchronized (finalizables) {
+            for (int i = finalizables.size() - 1; i >= 0; i--) {
+                GcRef r = finalizables.get(i);
+                if (r.done) {
+                    finalizables.remove(i);
+                } else if (r.ref.get() == null) {
+                    dead = true;
+                }
+            }
+        }
+        return dead;
     }
 
     /* ==================== 自动收集：luaC_checkGC 的等价物 ==================== */
@@ -719,23 +779,74 @@ public final class LuaState {
              * 调用覆盖为止，于是 {@code repeat until name} 永远出不来。
              */
             L.clearDeadStackSlices();
+            m.collectAndRunFinalizers(L);
+            return;
+        }
+        m.runPendingFinalizers(L);
+    }
+
+    /** 一轮「请求收集 + 催终结」之后最多再试几轮 */
+    private static final int GC_FINALIZE_ROUNDS = 8;
+
+    /** 再试的总时长上限。收集一轮本身就要几毫秒，这个上限只是兜底 */
+    private static final long GC_FINALIZE_WAIT_NS = 200_000_000L;
+
+    /**
+     * 一次「完整收集」：请求 GC → 催终结 → 在 Lua 线程上跑 {@code __gc}。
+     * <p>
+     * <b>为什么要循环。</b>{@code System.gc()} 只是把不可达对象挂到 JVM 的
+     * <i>pending</i> 链上，真正调 {@code finalize} 的是 {@code ReferenceHandler}
+     * 与 {@code Finalizer} 两条 JVM 线程——<b>异步</b>。而
+     * {@code System.runFinalization()} 只排空「已经入队」的那批：要是
+     * {@code ReferenceHandler} 还没把 pending 转过来，这一轮就是空的，
+     * 一个 {@code __gc} 都换不来。
+     * <p>
+     * 实测（约定 #120）：本地 200 轮「20 个带 {@code __gc} 的表 + collect」
+     * 里有 1 轮拿到 0；CI 的 ubuntu + JDK 21 上时序更紧，<b>轮轮为 0</b>——
+     * 就是这条 {@code RuntimeTest} 断言 {@code B2 true 20} 却拿到
+     * {@code false 0} 的由来。所以每轮结束问一次「还有已死未终结的吗」
+     * （{@link #pruneAndHasDeadFinalizables}），有就再要一轮。
+     * <p>
+     * 退出条件因此是<b>收敛</b>的：对象一跑完 {@code __gc} 就从清单上摘掉，
+     * 还活着的对象不算「已死」，所以正常情况一轮就出去；只有真撞上那场竞态
+     * 才多走一两轮。
+     */
+    void collectAndRunFinalizers(LuaState L) {
+        long deadline = System.nanoTime() + GC_FINALIZE_WAIT_NS;
+        for (int round = 0; round < GC_FINALIZE_ROUNDS; round++) {
             System.gc();
-            /*
-             * {@code gc()} 返回时终结线程未必已经跑完，不催这一下的话哨兵
-             * 还没入队我们就往下走了——那样一次 {@code System.gc()} 换不来
-             * 任何 {@code __gc}，外层的 {@code repeat until} 就永远出不来。
-             */
             System.runFinalization();
+            runPendingFinalizers(L);
+            if (!pruneAndHasDeadFinalizables()) {
+                return;
+            }
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                return;
+            }
+            try {
+                Thread.sleep(Math.min(2, left / 1_000_000 + 1));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
-        m.inGc = true;
+    }
+
+    /** 排空待终结队列；重入保护与 {@code gcPending} 的复位都收在这里 */
+    private void runPendingFinalizers(LuaState L) {
+        if (inGc) {
+            return;
+        }
+        inGc = true;
         try {
-            m.drainFinalizers(L);
+            drainFinalizers(L);
         } finally {
-            m.inGc = false;
+            inGc = false;
         }
-        synchronized (m.pendingFinalizers) {
-            if (m.pendingFinalizers.isEmpty()) {
-                m.gcPending = false;
+        synchronized (pendingFinalizers) {
+            if (pendingFinalizers.isEmpty()) {
+                gcPending = false;
             }
         }
     }
@@ -765,9 +876,10 @@ public final class LuaState {
      */
     public void close() {
         synchronized (finalizables) {
-            for (WeakReference<Object> r : finalizables) {
-                Object t = r.get();
-                if (t != null) {
+            for (GcRef r : finalizables) {
+                Object t = r.ref.get();
+                if (t != null && !r.done) {
+                    r.done = true;
                     runGc(this, t);
                 }
             }

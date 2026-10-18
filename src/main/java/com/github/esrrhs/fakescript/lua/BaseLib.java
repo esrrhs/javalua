@@ -906,14 +906,11 @@ public final class BaseLib {
          */
     private static void doCollect(LuaState L) {
         L.clearDeadStackSlices();
-        System.gc();
         /*
-         * 光 gc 不够：不可达对象的 {@code finalize} 是由 JVM 的终结线程跑的，
-         * 不主动催一下，哨兵还没入队我们就往下走了。{@code runFinalization} 会
-         * 尽量把队列排干，之后才能排空待终结队列。
+         * 请求 GC、催终结、跑 __gc 三件事的循环都在里面：System.gc() 与 JVM
+         * 的终结线程之间是异步的（见 LuaState#collectAndRunFinalizers）。
          */
-        System.runFinalization();
-        L.mainThread.drainFinalizers(L);
+        L.mainThread.collectAndRunFinalizers(L);
         LuaTable.gcGeneration++;
     }
 
