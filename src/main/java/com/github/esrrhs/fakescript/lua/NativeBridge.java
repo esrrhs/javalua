@@ -171,6 +171,9 @@ public final class NativeBridge {
 
     static native void dbgShortSrc(long ar, byte[] b);
 
+    /** {@code sizeof(lua_Debug)}：Java 侧要给 C 的钩子造一块 */
+    static native long dbgSize();
+
     /* ==================== 句柄 ==================== */
 
     /** {@code lua_State*} 在 C 侧只是个下标；这里把下标换回 {@link LuaState} */
