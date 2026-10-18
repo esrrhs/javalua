@@ -26,7 +26,9 @@ import java.io.File;
  *       不是整数时 {@code luaL_len} 那句 {@code object length is not an integer}；
  *       协程状态机的六种错；{@code select} 的 {@code index out of range}、
  *       受保护元表；{@code string.pack} 的畸形格式；{@code io} 的非法模式与格式；
- *       {@code debug} 的越界层号与 upvalue 下标。</li>
+ *       {@code debug} 的越界层号与 upvalue 下标；末尾一组是「内存错误 ×
+ *       协程边界」（{@code wrap} 重新抛出 / {@code resume} 返回值 /
+ *       {@code close} 返回值 / 带 {@code <close>} 变量时谁顶掉谁）。</li>
  *   <li><b>片二：报错里的函数名 × 全库函数 × 八种调用写法 × 两组装参</b>。
  *       {@code luaL_argerror} 的名字是 {@code ldebug.c: funcnamefromcall}
  *       从<b>调用者那一帧</b>反推的：常量键取成员得键名、局部别名得变量名、
@@ -48,7 +50,17 @@ import java.io.File;
  *       同一个值。以前 {@code setFn} 每次新建一层包装，两份就不相等了。</li>
  *   <li>文件句柄元表的 {@code __gc} 与 {@code __close} 同理，参考实现里
  *       也是同一个值。</li>
+ *   <li>{@code coroutine.wrap} 给<b>内存错误</b>也补了位置前缀。
+ *       {@code lcorolib.c: luaB_auxwrap} 的判据是
+ *       {@code stat != LUA_ERRMEM && lua_type(L,-1) == LUA_TSTRING}，
+ *       而且 {@code stat} 取的是 {@code lua_closethread} 的<b>返回值</b>
+ *       （{@code __close} 抛了错就变 {@code LUA_ERRRUN}，那种是要补的）。
+ *       这是<b>协程第二遍</b>咬出来的：{@code f:read(-1)} 在主线程上怎么跑
+ *       都对，塞进 {@code coroutine.wrap} 就多出 {@code case.lua:40: }。</li>
  * </ol>
+ * <p>
+ * 除了协程状态机那一组（它自己就在摆弄协程，再包一层语义就变了），
+ * 片一每组都跑了<b>协程第二遍</b>（约定 #9.4）；第 5 条就是这么来的。
  * <p>
  * <b>有一档没法比，只能剔除</b>：{@code math.atan}/{@code math.atan2} 在
  * 「推不出名字、要走 {@code findfield} 按值反查」的写法下是<b>掷硬币</b> ——
@@ -99,6 +111,24 @@ local function go(tag, f)
     print(table.concat(out, " "))
 end
 
+
+--[[
+  协程第二遍（约定 #9.4）：除了「协程状态机」那一组（它自己就在摆弄协程，
+  再包一层语义就变了），其余每组都塞进 coroutine.wrap 再跑一遍。
+  盯的是「同一条报错在协程里位置/名字会不会变」。
+]]
+local NOCO = { "^yield", "^resume", "^close" }
+local function isCo(tag)
+    for _, p in ipairs(NOCO) do if tag:find(p) == 1 then return false end end
+    return true
+end
+local function go2(tag, f)
+    go(tag, f)
+    if isCo(tag) then
+        go("co." .. tag, function() return coroutine.wrap(f)() end)
+    end
+end
+
 print("BEGIN")
 
 -- ① string.rep 的上限。判据是 l + lsep > MAXSIZE / n（MAXSIZE 是无符号 2^64-1），
@@ -123,12 +153,12 @@ for _, e1 in ipairs(REPN) do
     end
 end
 -- rep 的错参数
-go("rep.noarg", function() return string.rep() end)
-go("rep.nonn", function() return string.rep("a", "3") end)
-go("rep.niln", function() return string.rep("a", nil) end)
-go("rep.float", function() return string.rep("a", 2.5) end)
-go("rep.floatok", function() return string.rep("ab", 2.0) end)
-go("rep.num", function() return string.rep(12, 2) end)
+go2("rep.noarg", function() return string.rep() end)
+go2("rep.nonn", function() return string.rep("a", "3") end)
+go2("rep.niln", function() return string.rep("a", nil) end)
+go2("rep.float", function() return string.rep("a", 2.5) end)
+go2("rep.floatok", function() return string.rep("ab", 2.0) end)
+go2("rep.num", function() return string.rep(12, 2) end)
 
 -- ② utf8 的边界
 local US = { { "", "" }, { "a", "a" }, { "acc", "ábc" }, { "bad", "\\xff\\xfe" },
@@ -161,113 +191,113 @@ local CHARS = { 0, 0x7F, 0x80, 0x7FF, 0x800, 0xFFFF, 0x10000, 0x10FFFF, 0x110000
 for _, v in ipairs(CHARS) do
     go("uchar.i" .. tostring(v), function() return #utf8.char(v) end)
 end
-go("uchar.f1.5", function() return #utf8.char(1.5) end)
-go("uchar.f2", function() return #utf8.char(2.0) end)
-go("uchar.s65", function() return #utf8.char("65") end)
-go("uchar.sabc", function() return #utf8.char("abc") end)
-go("uchar.bool", function() return #utf8.char(true) end)
-go("uchar.tbl", function() return #utf8.char({}) end)
-go("uchar.nil", function() return #utf8.char(nil) end)
-go("uchar.many", function() return #utf8.char(65, 66, 67) end)
-go("ucp.none", function() return utf8.codepoint("abc") end)
-go("ucp.none2", function() return utf8.codepoint("abc", 2) end)
-go("ucp.nonstr", function() return utf8.codepoint(123, 1) end)
+go2("uchar.f1.5", function() return #utf8.char(1.5) end)
+go2("uchar.f2", function() return #utf8.char(2.0) end)
+go2("uchar.s65", function() return #utf8.char("65") end)
+go2("uchar.sabc", function() return #utf8.char("abc") end)
+go2("uchar.bool", function() return #utf8.char(true) end)
+go2("uchar.tbl", function() return #utf8.char({}) end)
+go2("uchar.nil", function() return #utf8.char(nil) end)
+go2("uchar.many", function() return #utf8.char(65, 66, 67) end)
+go2("ucp.none", function() return utf8.codepoint("abc") end)
+go2("ucp.none2", function() return utf8.codepoint("abc", 2) end)
+go2("ucp.nonstr", function() return utf8.codepoint(123, 1) end)
 
 
 -- ③ table 的上限与错参
 local T = { 1, 2, 3, 4, 5 }
-go("move.neg", function() return table.move(T, math.mininteger, -1, 1) end)
-go("move.wrap", function() return table.move(T, 1, 10, math.maxinteger) end)
-go("move.wrap2", function() return table.move(T, 1, 3, math.maxinteger - 1) end)
-go("move.f1", function() return table.move(T, 1.5, 2, 1) end)
-go("move.f2", function() return table.move(T, 1, 2.5, 1) end)
-go("move.f3", function() return table.move(T, 1, 3, 1.5) end)
-go("move.f4", function() return table.move(T, 1, 3, 2.0) end)
-go("move.a1", function() return table.move(T, 1) end)
-go("move.nonstr", function() return table.move(1, 1, 2, 1) end)
-go("unpack.neg", function() return table.unpack({}, math.mininteger, -1) end)
-go("unpack.huge", function() return table.unpack({}, 1, math.maxinteger) end)
-go("unpack.huge2", function() return table.unpack({}, math.mininteger, math.maxinteger) end)
-go("unpack.f1", function() return table.unpack({}, 1.5, 2) end)
-go("unpack.f2", function() return table.unpack({}, 1, 2.5) end)
-go("unpack.ok", function() return table.unpack({ 1, 2, 3 }, 1.0, 3.0) end)
-go("unpack.nonstr", function() return table.unpack(1, 1, 2) end)
-go("insert.pos0", function() return table.insert({}, 0, 1) end)
-go("insert.pos2", function() return table.insert({}, 2, 1) end)
-go("insert.pos-1", function() return table.insert({}, -1, 1) end)
-go("insert.posmax", function() return table.insert({}, math.maxinteger, 1) end)
-go("insert.4", function() return table.insert({}, 1, 2, 3) end)
-go("insert.f", function() return table.insert({}, 1.5, 1) end)
-go("insert.f2", function() return table.insert({}, 2.0, 1) end)
-go("remove.pos0", function() return table.remove({}, 0) end)
-go("remove.pos2", function() return table.remove({}, 2) end)
-go("remove.posmax", function() return table.remove({}, math.maxinteger) end)
-go("remove.f", function() return table.remove({}, 1.5) end)
-go("remove.ok", function() return table.remove({ 7, 8 }, 2.0) end)
+go2("move.neg", function() return table.move(T, math.mininteger, -1, 1) end)
+go2("move.wrap", function() return table.move(T, 1, 10, math.maxinteger) end)
+go2("move.wrap2", function() return table.move(T, 1, 3, math.maxinteger - 1) end)
+go2("move.f1", function() return table.move(T, 1.5, 2, 1) end)
+go2("move.f2", function() return table.move(T, 1, 2.5, 1) end)
+go2("move.f3", function() return table.move(T, 1, 3, 1.5) end)
+go2("move.f4", function() return table.move(T, 1, 3, 2.0) end)
+go2("move.a1", function() return table.move(T, 1) end)
+go2("move.nonstr", function() return table.move(1, 1, 2, 1) end)
+go2("unpack.neg", function() return table.unpack({}, math.mininteger, -1) end)
+go2("unpack.huge", function() return table.unpack({}, 1, math.maxinteger) end)
+go2("unpack.huge2", function() return table.unpack({}, math.mininteger, math.maxinteger) end)
+go2("unpack.f1", function() return table.unpack({}, 1.5, 2) end)
+go2("unpack.f2", function() return table.unpack({}, 1, 2.5) end)
+go2("unpack.ok", function() return table.unpack({ 1, 2, 3 }, 1.0, 3.0) end)
+go2("unpack.nonstr", function() return table.unpack(1, 1, 2) end)
+go2("insert.pos0", function() return table.insert({}, 0, 1) end)
+go2("insert.pos2", function() return table.insert({}, 2, 1) end)
+go2("insert.pos-1", function() return table.insert({}, -1, 1) end)
+go2("insert.posmax", function() return table.insert({}, math.maxinteger, 1) end)
+go2("insert.4", function() return table.insert({}, 1, 2, 3) end)
+go2("insert.f", function() return table.insert({}, 1.5, 1) end)
+go2("insert.f2", function() return table.insert({}, 2.0, 1) end)
+go2("remove.pos0", function() return table.remove({}, 0) end)
+go2("remove.pos2", function() return table.remove({}, 2) end)
+go2("remove.posmax", function() return table.remove({}, math.maxinteger) end)
+go2("remove.f", function() return table.remove({}, 1.5) end)
+go2("remove.ok", function() return table.remove({ 7, 8 }, 2.0) end)
 -- __len 不是整数：table.concat / insert / remove 都过 luaL_len
 local function lenmt(f) return setmetatable({}, { __len = f }) end
-go("concat.len.frac", function() return table.concat(lenmt(function() return 1.5 end)) end)
-go("concat.len.str", function() return table.concat(lenmt(function() return "abc" end)) end)
-go("concat.len.str3", function() return table.concat(lenmt(function() return "3" end)) end)
-go("concat.len.f2", function() return table.concat(lenmt(function() return 2.0 end)) end)
-go("concat.len.bool", function() return table.concat(lenmt(function() return true end)) end)
-go("concat.len.tbl", function() return table.concat(lenmt(function() return {} end)) end)
-go("insert.len.frac", function() return table.insert(lenmt(function() return 1.5 end), 9) end)
-go("remove.len.frac", function() return table.remove(lenmt(function() return 1.5 end)) end)
-go("sort.nonstr", function() return table.sort(1) end)
-go("sort.badcmp", function() return table.sort({ 3, 1, 2 }, 1) end)
+go2("concat.len.frac", function() return table.concat(lenmt(function() return 1.5 end)) end)
+go2("concat.len.str", function() return table.concat(lenmt(function() return "abc" end)) end)
+go2("concat.len.str3", function() return table.concat(lenmt(function() return "3" end)) end)
+go2("concat.len.f2", function() return table.concat(lenmt(function() return 2.0 end)) end)
+go2("concat.len.bool", function() return table.concat(lenmt(function() return true end)) end)
+go2("concat.len.tbl", function() return table.concat(lenmt(function() return {} end)) end)
+go2("insert.len.frac", function() return table.insert(lenmt(function() return 1.5 end), 9) end)
+go2("remove.len.frac", function() return table.remove(lenmt(function() return 1.5 end)) end)
+go2("sort.nonstr", function() return table.sort(1) end)
+go2("sort.badcmp", function() return table.sort({ 3, 1, 2 }, 1) end)
 
 -- ④ 协程的状态机
-go("yield.main", function() return coroutine.yield(1) end)
+go2("yield.main", function() return coroutine.yield(1) end)
 local dead = coroutine.create(function() return 1 end)
 coroutine.resume(dead)
-go("resume.dead", function() return coroutine.resume(dead) end)
+go2("resume.dead", function() return coroutine.resume(dead) end)
 local err = coroutine.create(function() error("x") end)
 coroutine.resume(err)
-go("resume.dead2", function() return coroutine.resume(err) end)
+go2("resume.dead2", function() return coroutine.resume(err) end)
 local self1
 self1 = coroutine.create(function() return coroutine.resume(self1) end)
-go("resume.self", function() return coroutine.resume(self1) end)
+go2("resume.self", function() return coroutine.resume(self1) end)
 local self2
 self2 = coroutine.create(function()
     table.sort({ 3, 1, 2 }, function(a, b) return select(2, coroutine.resume(self2)) and a < b or a < b end)
     return "after"
 end)
-go("resume.normal", function() return coroutine.resume(self2) end)
-go("close.main", function() return coroutine.close(coroutine.running()) end)
-go("close.num", function() return coroutine.close(1) end)
+go2("resume.normal", function() return coroutine.resume(self2) end)
+go2("close.main", function() return coroutine.close(coroutine.running()) end)
+go2("close.num", function() return coroutine.close(1) end)
 local co4 = coroutine.create(function() coroutine.yield() end)
 coroutine.resume(co4)
-go("close.ok", function() return coroutine.close(co4) end)
-go("close.dead", function() return coroutine.close(co4) end)
+go2("close.ok", function() return coroutine.close(co4) end)
+go2("close.dead", function() return coroutine.close(co4) end)
 
 -- ⑤ 基础库：select / rawlen / 受保护的元表
-go("select.2", function() return select(2) end)
-go("select.0", function() return select(0) end)
-go("select.0b", function() return select(0, 1) end)
-go("select.-1", function() return select(-1) end)
-go("select.-1b", function() return select(-1, 7) end)
-go("select.1", function() return select(1, 10) end)
-go("select.hash", function() return select("#", 1, 2, 3) end)
-go("select.hash0", function() return select("#") end)
-go("select.f", function() return select(1.5, 1) end)
-go("select.f2", function() return select(2.0, 1, 2) end)
-go("rawlen.num", function() return rawlen(1) end)
-go("rawlen.bool", function() return rawlen(true) end)
-go("rawlen.str", function() return rawlen("abc") end)
-go("rawlen.tbl", function() return rawlen({ 1, 2 }) end)
-go("rawlen.ud", function() return rawlen(io.stdout) end)
+go2("select.2", function() return select(2) end)
+go2("select.0", function() return select(0) end)
+go2("select.0b", function() return select(0, 1) end)
+go2("select.-1", function() return select(-1) end)
+go2("select.-1b", function() return select(-1, 7) end)
+go2("select.1", function() return select(1, 10) end)
+go2("select.hash", function() return select("#", 1, 2, 3) end)
+go2("select.hash0", function() return select("#") end)
+go2("select.f", function() return select(1.5, 1) end)
+go2("select.f2", function() return select(2.0, 1, 2) end)
+go2("rawlen.num", function() return rawlen(1) end)
+go2("rawlen.bool", function() return rawlen(true) end)
+go2("rawlen.str", function() return rawlen("abc") end)
+go2("rawlen.tbl", function() return rawlen({ 1, 2 }) end)
+go2("rawlen.ud", function() return rawlen(io.stdout) end)
 local prot = setmetatable({}, { __metatable = "protected" })
-go("setmt.prot", function() return setmetatable(prot, {}) end)
-go("setmt.prot2", function() return setmetatable(prot, nil) end)
-go("getmt.prot", function() return getmetatable(prot) end)
-go("setmt.num", function() return setmetatable({}, 1) end)
-go("setmt.num1", function() return setmetatable(1, {}) end)
-go("setmt.str", function() return setmetatable("x", {}) end)
-go("rawequal.mt", function() return rawequal(1, 1) end)
-go("rawget.num", function() return rawget(1, 1) end)
-go("rawset.num", function() return rawset(1, 1, 1) end)
-go("next.nonstr", function() return next(1) end)
+go2("setmt.prot", function() return setmetatable(prot, {}) end)
+go2("setmt.prot2", function() return setmetatable(prot, nil) end)
+go2("getmt.prot", function() return getmetatable(prot) end)
+go2("setmt.num", function() return setmetatable({}, 1) end)
+go2("setmt.num1", function() return setmetatable(1, {}) end)
+go2("setmt.str", function() return setmetatable("x", {}) end)
+go2("rawequal.mt", function() return rawequal(1, 1) end)
+go2("rawget.num", function() return rawget(1, 1) end)
+go2("rawset.num", function() return rawset(1, 1, 1) end)
+go2("next.nonstr", function() return next(1) end)
 
 -- ⑥ string.pack 的畸形格式与越界值
 local PK = {
@@ -283,56 +313,135 @@ for _, e in ipairs(PK) do
     go("pack." .. e[1] .. "." .. tostring(e[2]),
        function() return (string.pack(e[1], e[2])) end)
 end
-go("pack.none", function() return (string.pack()) end)
-go("pack.nofmt", function() return (string.pack(nil, 1)) end)
-go("unpack.short", function() return string.unpack("i", "x") end)
-go("unpack.short2", function() return string.unpack("i8", "xy") end)
-go("unpack.bad", function() return string.unpack("!", "x") end)
-go("unpack.z", function() return string.unpack("z", "ab") end)
-go("unpack.c", function() return string.unpack("c3", "ab") end)
-go("unpack.nofmt", function() return string.unpack(nil, "x") end)
-go("packsize.bad", function() return string.packsize("!") end)
-go("packsize.none", function() return string.packsize() end)
+go2("pack.none", function() return (string.pack()) end)
+go2("pack.nofmt", function() return (string.pack(nil, 1)) end)
+go2("unpack.short", function() return string.unpack("i", "x") end)
+go2("unpack.short2", function() return string.unpack("i8", "xy") end)
+go2("unpack.bad", function() return string.unpack("!", "x") end)
+go2("unpack.z", function() return string.unpack("z", "ab") end)
+go2("unpack.c", function() return string.unpack("c3", "ab") end)
+go2("unpack.nofmt", function() return string.unpack(nil, "x") end)
+go2("packsize.bad", function() return string.packsize("!") end)
+go2("packsize.none", function() return string.packsize() end)
 
 -- ⑦ io 的非法格式与模式（只撞开不成功的那几档，不落真实文件）
-go("open.mode", function() return io.open("target/rt/nope.txt", "q") end)
-go("open.mode2", function() return io.open("target/rt/nope.txt", "rw+") end)
-go("open.mode3", function() return io.open("target/rt/nope.txt", "") end)
-go("open.mode4", function() return io.open("target/rt/nope.txt", "rb+") end)
-go("open.mode5", function() return io.open("target/rt/nope.txt", 1) end)
+go2("open.mode", function() return io.open("target/rt/nope.txt", "q") end)
+go2("open.mode2", function() return io.open("target/rt/nope.txt", "rw+") end)
+go2("open.mode3", function() return io.open("target/rt/nope.txt", "") end)
+go2("open.mode4", function() return io.open("target/rt/nope.txt", "rb+") end)
+go2("open.mode5", function() return io.open("target/rt/nope.txt", 1) end)
 local tmp = "target/rt/lim_in.txt"
 os.remove(tmp)
 local w = assert(io.open(tmp, "w"))
 w:write("1 2\\nthree\\n")
 w:close()
 local f = assert(io.open(tmp, "r"))
-go("read.fmt", function() return f:read("q") end)
-go("read.fmt2", function() return f:read("a", "l", "q") end)
-go("read.fmt3", function() return f:read(1, "q") end)
-go("read.neg", function() return f:read(-1) end)
-go("read.zero", function() return f:read(0) end)
-go("read.many", function() local r = { pcall(f.read, f, "l", "l", "l", "l") } return r[1] end)
+go2("read.fmt", function() return f:read("q") end)
+go2("read.fmt2", function() return f:read("a", "l", "q") end)
+go2("read.fmt3", function() return f:read(1, "q") end)
+go2("read.neg", function() return f:read(-1) end)
+go2("read.zero", function() return f:read(0) end)
+go2("read.many", function() local r = { pcall(f.read, f, "l", "l", "l", "l") } return r[1] end)
 f:close()
 os.remove(tmp)
 
 -- ⑧ debug 的越界层号与 upvalue 下标
-go("getlocal.lvl", function() return debug.getlocal(100, 1) end)
-go("getlocal.lvl0", function() return debug.getlocal(0, 1) end)
-go("getlocal.lvlneg", function() return debug.getlocal(-1, 1) end)
-go("setlocal.lvl", function() return debug.setlocal(100, 1, 1) end)
-go("getinfo.lvl", function() return debug.getinfo(100) end)
-go("getinfo.lvl2", function() return debug.getinfo(100, "n") end)
-go("getinfo.0", function() return (debug.getinfo(0, "n")).name end)
-go("setupvalue.idx", function() return debug.setupvalue(print, 99, 1) end)
-go("setupvalue.idx0", function() return debug.setupvalue(print, 0, 1) end)
-go("getupvalue.idx", function() return debug.getupvalue(print, 0) end)
-go("getupvalue.idx2", function() return debug.getupvalue(print, 99) end)
-go("getupvalue.num", function() return debug.getupvalue(1, 1) end)
-go("traceback.lvl", function() return debug.traceback("m", 100) end)
-go("traceback.lvl0", function() return (debug.traceback("m", 0)):sub(1, 1) end)
-go("sethook.bad", function() return debug.sethook(1, "crl") end)
-go("sethook.badm", function() return debug.sethook(function() end, "z") end)
-go("sethook.cnt", function() return debug.sethook(function() end, "", 0) end)
+go2("getlocal.lvl", function() return debug.getlocal(100, 1) end)
+go2("getlocal.lvl0", function() return debug.getlocal(0, 1) end)
+go2("getlocal.lvlneg", function() return debug.getlocal(-1, 1) end)
+go2("setlocal.lvl", function() return debug.setlocal(100, 1, 1) end)
+go2("getinfo.lvl", function() return debug.getinfo(100) end)
+go2("getinfo.lvl2", function() return debug.getinfo(100, "n") end)
+go2("getinfo.0", function() return (debug.getinfo(0, "n")).name end)
+go2("setupvalue.idx", function() return debug.setupvalue(print, 99, 1) end)
+go2("setupvalue.idx0", function() return debug.setupvalue(print, 0, 1) end)
+go2("getupvalue.idx", function() return debug.getupvalue(print, 0) end)
+go2("getupvalue.idx2", function() return debug.getupvalue(print, 99) end)
+go2("getupvalue.num", function() return debug.getupvalue(1, 1) end)
+go2("traceback.lvl", function() return debug.traceback("m", 100) end)
+go2("traceback.lvl0", function() return (debug.traceback("m", 0)):sub(1, 1) end)
+go2("sethook.bad", function() return debug.sethook(1, "crl") end)
+go2("sethook.badm", function() return debug.sethook(function() end, "z") end)
+go2("sethook.cnt", function() return debug.sethook(function() end, "", 0) end)
+
+
+
+--[[
+  ⑧之二：内存错误穿过协程边界。
+  内存错误（LUA_ERRMEM）在任何边界都<b>不补位置、不过错误处理函数</b>（#108）。
+  协程这边有三处会碰到它：wrap 的重新抛出（lcorolib 里 stat != LUA_ERRMEM 那半句）、
+  resume 的返回值、coroutine.close 的返回值。以前 wrap 那条漏了，
+  f:read(-1) 在协程里被套上了位置前缀 —— 就是这一组抓到的。
+]]
+local function memf(lvl) return function() error("not enough memory", lvl) end end
+for _, lvl in ipairs { 0, 1, 2 } do
+    go2("mem.wrap." .. lvl, function()
+        return coroutine.wrap(memf(lvl))()
+    end)
+    go2("mem.resume." .. lvl, function()
+        local co = coroutine.create(memf(lvl))
+        return select(2, coroutine.resume(co))
+    end)
+    go2("mem.after." .. lvl, function()
+        local co = coroutine.create(memf(lvl))
+        local ok, e = coroutine.resume(co)
+        return ok, e, coroutine.status(co)
+    end)
+    go2("mem.closed." .. lvl, function()
+        local co = coroutine.create(memf(lvl))
+        coroutine.resume(co)
+        return coroutine.close(co)
+    end)
+    go2("mem.xpcall." .. lvl, function()
+        return coroutine.wrap(function()
+            return xpcall(memf(lvl), function(m) return "H:" .. tostring(m) end)
+        end)()
+    end)
+end
+-- 协程因内存错误死掉、同时有 <close> 变量：__close 抛的错会顶掉内存错误
+go2("mem.tbc", function()
+    local co = coroutine.create(function()
+        local x <close> = setmetatable({}, { __close = function(_, err) return err end })
+        error("not enough memory", 0)
+    end)
+    return select(2, coroutine.resume(co))
+end)
+go2("mem.tbcerr", function()
+    local co = coroutine.create(function()
+        local x <close> = setmetatable({}, { __close = function(_, err) error("inclose") end })
+        error("not enough memory", 0)
+    end)
+    return select(2, coroutine.resume(co))
+end)
+go2("mem.wraptbcerr", function()
+    return coroutine.wrap(function()
+        local x <close> = setmetatable({}, { __close = function(_, err) error("inclose") end })
+        error("not enough memory", 0)
+    end)()
+end)
+-- 真去撞一次内存错误：f:read(-1)（C 里是 resizebox 失败）
+local tmp2 = "target/rt/lim_in2.txt"
+os.remove(tmp2)
+local w2 = assert(io.open(tmp2, "w"))
+w2:write("abc")
+w2:close()
+go2("mem.read.wrap", function()
+    local f2 = assert(io.open(tmp2, "r"))
+    return coroutine.wrap(function() return f2:read(-1) end)()
+end)
+go2("mem.read.resume", function()
+    local f2 = assert(io.open(tmp2, "r"))
+    local co = coroutine.create(function() return f2:read(-1) end)
+    return select(2, coroutine.resume(co))
+end)
+go2("mem.read.wrapclose", function()
+    local f2 = assert(io.open(tmp2, "r"))
+    return coroutine.wrap(function()
+        local x <close> = setmetatable({}, { __close = function() return end })
+        return f2:read(-1)
+    end)()
+end)
+os.remove(tmp2)
 
                 """);
     }
@@ -378,6 +487,7 @@ local SKIP = {
     ["os.setlocale"] = 1,    -- 全局 locale
     ["math.randomseed"] = 1, -- 改随机种子
     ["debug.sethook"] = 1,   -- 装钩子
+    ["debug.debug"] = 1,     -- 进交互式 REPL，往 stdout 打 lua_debug> 提示符、读 stdin
     --[[
       math.atan2 与 math.atan 在参考实现里是<b>同一个函数</b>（C 把同一个
       math_atan 挂在两个名字下），所以 luaL_argerror 那个回退名字
@@ -469,6 +579,18 @@ for _, ag in ipairs(ARGS) do
                 go("nm." .. nm .. "." .. ag[1] .. "." .. fm[1], function()
                     local f = assert(load(src, "=L"))
                     return f()
+                end)
+                --[[
+                  协程第二遍（约定 #9.4）：同一批语料塞进 coroutine.wrap 再跑。
+                  取名要看 ci->previous，而协程里「上一帧」跟主线程不一样；
+                  位置前缀走 luaL_where(L,1) 也不一样。两边外层用 wrap 包一层
+                  就能同时盯住这两种差别。
+                ]]
+                go("co." .. nm .. "." .. ag[1] .. "." .. fm[1], function()
+                    local w = coroutine.wrap(function()
+                        return assert(load(src, "=L"))()
+                    end)
+                    return w()
                 end)
                 end
             end
