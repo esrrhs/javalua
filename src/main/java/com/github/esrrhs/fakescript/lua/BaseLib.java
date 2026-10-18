@@ -834,15 +834,26 @@ public final class BaseLib {
             return 1;
         case 5: // "setpause"
         case 6: { // "setstepmul"
+            /*
+             * {@code luaL_optinteger(L, 2, 0)} 的默认值 <b>0 也是要写进去的</b>：
+             * {@code lua_gc} 对这两个选项是 {@code setgcparam(p, data)}
+             * <b>无条件</b>赋值。所以 {@code collectgarbage("setpause")}
+             * （不传第二个参数）报的是上一次的值，同时把 pause 清成 0——
+             * 实测参考实现：
+             * <pre>
+             * collectgarbage("setpause")       --&gt; 200   （并把 pause 设成 0）
+             * collectgarbage("setpause", 100)  --&gt; 0
+             * collectgarbage("setpause")       --&gt; 100
+             * </pre>
+             * 本实现以前写的是 {@code if (v != 0)}，三条全错。
+             */
             LuaState m = L.mainThread;
-            int old = (o == 5) ? m.gcPause : m.gcStepMul;
-            long v = LuaAux.optInteger(L, 2, 0);
-            if (v != 0) {
-                if (o == 5) {
-                    m.gcPause = (int) v;
-                } else {
-                    m.gcStepMul = (int) v;
-                }
+            int old = (o == 5) ? m.gcPause() : m.gcStepMul();
+            int v = (int) LuaAux.optInteger(L, 2, 0);
+            if (o == 5) {
+                m.setGcPause(v);
+            } else {
+                m.setGcStepMul(v);
             }
             L.push(LuaValue.ofInteger(old));
             return 1;
@@ -904,7 +915,15 @@ public final class BaseLib {
          * （{@code for i = 1, 5 do t[i] = {i} end} 之后 {@code {5}} 还留在
          * 寄存器里，而 {@code top} 只到调用参数处），于是弱表清不掉它。
          */
-    private static void doCollect(LuaState L) {
+    /**
+     * @see #collectgarbage
+     *      <p>
+     *      包内可见是因为 {@code C API} 的 {@code lua_gc(L, LUA_GCCOLLECT)}
+     *      走的是同一条路——两条路必须做同一件事，否则「脚本里
+     *      {@code collectgarbage("collect")} 与 .so 里 {@code lua_gc}
+     *      效果不同」这种分歧就查不出来了。
+     */
+    static void doCollect(LuaState L) {
         L.clearDeadStackSlices();
         /*
          * 请求 GC、催终结、跑 __gc 三件事的循环都在里面：System.gc() 与 JVM
@@ -991,7 +1010,14 @@ public final class BaseLib {
         return e;
     }
 
-    private static LuaError loadZio(LuaState L, Zio z, byte[] chunkname, String mode) {
+    /**
+     * @see #loadBuffer
+     *      <p>
+     *      包内可见是因为 {@code C API} 的 {@code lua_load} /
+     *      {@code luaL_loadbufferx} 也要走它——{@code mode} 那两档
+     *      （{@code attempt to load a X chunk}）只有一份实现才对得上。
+     */
+    static LuaError loadZio(LuaState L, Zio z, byte[] chunkname, String mode) {
         /*
          * 整段都必须在 try 里，<b>包括最前面那次窥探</b>。读函数是惰性的，
          * 第一个字节就要调它一次；而读函数里的错误（返回了非字符串、或自己

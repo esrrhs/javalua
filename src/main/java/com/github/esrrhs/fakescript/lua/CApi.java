@@ -17,7 +17,6 @@ package com.github.esrrhs.fakescript.lua;
  *       {@code longjmp} 出去，Java 这侧只负责把错误值准备好。</li>
  * </ul>
  */
-@Generated
 final class CApi {
 
     private CApi() {

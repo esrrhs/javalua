@@ -24,6 +24,16 @@ public final class LuaUserdata {
     public final Object data;
 
     /**
+     * {@code lua_newuserdatauv} 的第 2 个参数：紧跟在载荷后面的用户值数组。
+     * <p>
+     * C 的 {@code Udata} 是「元表 + 用户值数组 + 字节载荷」连在一起的一块内存，
+     * {@code lua_getiuservalue / lua_setiuservalue} 按 {@code 1..nuvalue} 访问。
+     * 这里退化成 {@code LuaValue[]}：{@code nuvalue == 0} 时为 {@code null}，
+     * 与 C 里「数组长度为 0」等价（越界访问给 {@code LUA_TNONE} / 0）。
+     */
+    public final LuaValue[] userValues;
+
+    /**
      * 元表；{@code null} 表示没有。
      * <p>
      * 注意与「已关闭」无关：文件句柄的关闭标记在载荷自己身上。
@@ -31,8 +41,21 @@ public final class LuaUserdata {
     public LuaTable metatable;
 
     public LuaUserdata(Object data) {
+        this(data, 0);
+    }
+
+    public LuaUserdata(Object data, int nuvalue) {
         LuaState.chargeGc();
         this.data = data;
+        if (nuvalue > 0) {
+            LuaValue[] uv = new LuaValue[nuvalue];
+            for (int i = 0; i < nuvalue; i++) {
+                uv[i] = new LuaValue();
+            }
+            this.userValues = uv;
+        } else {
+            this.userValues = null;
+        }
     }
 
     /** 取 {@link LuaValue} 里的 userdata 载荷；调用方已确认是 userdata */

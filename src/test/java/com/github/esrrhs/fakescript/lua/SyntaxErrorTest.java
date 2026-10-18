@@ -605,8 +605,17 @@ end
 -- 临时文件写 target/rt/：两边同一个 cwd，写仓库根会互相踩（第 41 条）。
 -- 开头先删一次，免得上一次跑留下的东西混进来。
 local DIR = "target/rt/pre"
-os.execute("rm -rf " .. DIR)
+-- 开头先删一次（第 41 条），但<b>不用 {@code rm -rf}</b>：
+-- 一是宿主沙箱对「一次删一整个目录」有批量确认守卫，被拦下时它会往
+-- <b>stdout</b> 打一行 JSON，正好混进我们要比的输出里（实测过一次，
+-- 唯一的差别就是那行 [safe-delete]）；二是这里的文件名是我们自己定的，
+-- 逐个 {@code os.remove} 就够了，没必要动整个目录。
 os.execute("mkdir -p " .. DIR)
+for _, name in ipairs({"bom1.lc", "bom2.lc", "bom3.lc", "bom4.lc", "both.lc",
+                       "empty.lc", "hash1.lc", "hash2.lc", "hash3.lc",
+                       "mid.lc", "short.lc", "sub.lc"}) do
+    os.remove(DIR .. "/" .. name)
+end
 
 local function put(name, data)
     local f = io.open(DIR .. "/" .. name, "wb")

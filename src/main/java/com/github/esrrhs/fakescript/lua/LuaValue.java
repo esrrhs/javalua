@@ -100,8 +100,20 @@ public final class LuaValue {
      * （见 {@link LuaUserdata} 的类注释）。取回载荷用 {@link LuaUserdata#dataOf}。
      */
     public static LuaValue ofUserdata(Object o) {
+        return o instanceof LuaUserdata ? ofUserdata((LuaUserdata) o)
+                : ofUserdata(new LuaUserdata(o));
+    }
+
+    /**
+     * 直接拿一个 {@link LuaUserdata} 当载荷，<b>不再套一层</b>。
+     * <p>
+     * {@code lua_newuserdatauv} 必须走这条：{@link LuaUserdata#userValues}
+     * 建在它自己身上，再包一层的话外面那层 {@code nuvalue} 恒为 0，
+     * {@code lua_getiuservalue} 就永远答 {@code LUA_TNONE}。
+     */
+    public static LuaValue ofUserdata(LuaUserdata ud) {
         LuaValue v = new LuaValue();
-        v.setObject(Lua.VUSERDATA, new LuaUserdata(o));
+        v.setObject(Lua.VUSERDATA, ud);
         return v;
     }
 

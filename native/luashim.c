@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <pthread.h>
 #include <dlfcn.h>
 
@@ -366,6 +367,19 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_get32(JNIEnv *env,
     return p == 0 ? 0 : *((jint *)(intptr_t)p);
 }
 
+/*
+ * 句柄换回 {@code lua_State*}。{@code lua_dump} 的 writer 第一个参数是
+ * {@code lua_State*}，而 Java 侧手里只有下标——交 0 过去，那些会拿
+ * {@code L} 去调别的 {@code lua_*} 的 writer 就当场崩了。
+ */
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_statePtr(JNIEnv *env,
+        jclass cls, jlong idx) {
+    (void)env;
+    (void)cls;
+    return (jlong)(intptr_t)slot_ptr(idx);
+}
+
 /** 回调任意 C 函数指针：reader / writer / hook / alloc / 续体都走这一条 */
 JNIEXPORT jlong JNICALL
 Java_com_github_esrrhs_fakescript_lua_NativeBridge_callPtr(JNIEnv *env,
@@ -506,6 +520,162 @@ LUALIB_API const char *(luaL_gsub) (lua_State *L, const char *s,
     return lua_tostring(L, -1);
 }
 
+/* ---- lua_load / luaL_loadfilex：reader 是 C 函数指针，只能在 C 侧喂 ---- */
+/*
+ * 读函数得在 C 侧调：它是 {@code const char *(*)(lua_State*, void*, size_t*)}，
+ * 出参 {@code size_t*} 要写 C 内存。若让 Java 去调，不但得凭空造一块
+ * {@code size_t} 的落脚点，还要让 longjmp 跨过一层 JNI 帧——跨不得。
+ * 于是这里把源<b>整段读进一块缓冲</b>再交给 Java 的
+ * {@code luaL_loadbufferx}。
+ *
+ * 「整段读」与 C 版的「边读边编」在这里等价：{@code luaD_protectedparser}
+ * 无论如何都要把流读到 EOF 才返回结果，读函数的调用次序也完全一致。
+ */
+LUA_API int (lua_load) (lua_State *L, lua_Reader reader, void *dt,
+        const char *chunkname, const char *mode) {
+    size_t cap = 1024;
+    size_t n = 0;
+    char *buf;
+    int r;
+    if (reader == NULL) {
+        return LUA_ERRSYNTAX;
+    }
+    buf = (char *)malloc(cap);
+    if (buf == NULL) {
+        return LUA_ERRMEM;
+    }
+    for (;;) {
+        size_t sz = 0;
+        const char *p = reader(L, dt, &sz);
+        if (p == NULL || sz == 0) {
+            break; /* EOF：读函数返回 NULL 或长度 0 都算结束 */
+        }
+        while (n + sz > cap) {
+            char *nb;
+            cap *= 2;
+            nb = (char *)realloc(buf, cap);
+            if (nb == NULL) {
+                free(buf);
+                return LUA_ERRMEM;
+            }
+            buf = nb;
+        }
+        memcpy(buf + n, p, sz);
+        n += sz;
+    }
+    r = (int)luashim_call(ID_luaL_loadbufferx, LUASHIM_HANDLE(L),
+            (intptr_t)buf, (jlong)n, (intptr_t)chunkname, (intptr_t)mode, 0, 0.0);
+    free(buf);
+    return r;
+}
+
+/* 下面四个是 lauxlib.c 里 luaL_loadfilex 的零件，照抄——BOM、'#' 首行、
+ * 二进制重开这三件事都在这里，少一件都会让某个真实文件加载出错 */
+typedef struct LoadF {
+    int n;              /* 预读的字符数 */
+    FILE *f;            /* 正在读的文件 */
+    char buff[BUFSIZ];  /* 读块缓冲 */
+} LoadF;
+
+static const char *getF (lua_State *L, void *ud, size_t *size) {
+    LoadF *lf = (LoadF *)ud;
+    (void)L;
+    if (lf->n > 0) {          /* 有预读的字符？ */
+        *size = lf->n;        /* 先交出去 */
+        lf->n = 0;
+    }
+    else {                    /* 从文件读一块 */
+        if (feof(lf->f)) {
+            return NULL;      /* 见 lauxlib 的注释：避免多等一次输入 */
+        }
+        *size = fread(lf->buff, 1, sizeof(lf->buff), lf->f);
+    }
+    return lf->buff;
+}
+
+static int skipBOM (FILE *f) {
+    int c = getc(f);
+    if (c == 0xEF && getc(f) == 0xBB && getc(f) == 0xBF) {
+        return getc(f);
+    }
+    return c;
+}
+
+static int skipcomment (FILE *f, int *cp) {
+    int c = *cp = skipBOM(f);
+    if (c == '#') {  /* 首行是注释（Unix 可执行脚本）？ */
+        do {
+            c = getc(f);
+        } while (c != EOF && c != '\n');
+        *cp = getc(f);  /* 注释之后那个字符 */
+        return 1;
+    }
+    return 0;
+}
+
+static int errfile (lua_State *L, const char *what, int fnameindex) {
+    int err = errno;
+    const char *filename = lua_tostring(L, fnameindex) + 1;
+    if (err != 0) {
+        lua_pushfstring(L, "cannot %s %s: %s", what, filename, strerror(err));
+    }
+    else {
+        lua_pushfstring(L, "cannot %s %s", what, filename);
+    }
+    lua_remove(L, fnameindex);
+    return LUA_ERRFILE;
+}
+
+LUALIB_API int (luaL_loadfilex) (lua_State *L, const char *filename,
+        const char *mode) {
+    LoadF lf;
+    int status, readstatus;
+    int c;
+    int fnameindex = lua_gettop(L) + 1;  /* 文件名在栈上的位置 */
+    if (filename == NULL) {
+        lua_pushliteral(L, "=stdin");
+        lf.f = stdin;
+    }
+    else {
+        lua_pushfstring(L, "@%s", filename);
+        errno = 0;
+        lf.f = fopen(filename, "r");
+        if (lf.f == NULL) {
+            return errfile(L, "open", fnameindex);
+        }
+    }
+    lf.n = 0;
+    if (skipcomment(lf.f, &c)) {  /* 读开头那一小段 */
+        lf.buff[lf.n++] = '\n';   /* 补一个换行，好让行号不错位 */
+    }
+    if (c == LUA_SIGNATURE[0]) {  /* 二进制文件？ */
+        lf.n = 0;                 /* 可能补进去的换行去掉 */
+        if (filename) {           /* 真文件才需要以二进制重开 */
+            errno = 0;
+            lf.f = freopen(filename, "rb", lf.f);
+            if (lf.f == NULL) {
+                return errfile(L, "reopen", fnameindex);
+            }
+            skipcomment(lf.f, &c);  /* 重新读开头 */
+        }
+    }
+    if (c != EOF) {
+        lf.buff[lf.n++] = (char)c;  /* 第一个有效字符 */
+    }
+    errno = 0;
+    status = lua_load(L, getF, &lf, lua_tostring(L, -1), mode);
+    readstatus = ferror(lf.f);
+    if (filename) {
+        fclose(lf.f);  /* 出错也要关 */
+    }
+    if (readstatus) {
+        lua_settop(L, fnameindex);  /* 丢掉 lua_load 的结果 */
+        return errfile(L, "read", fnameindex);
+    }
+    lua_remove(L, fnameindex);
+    return status;
+}
+
 LUALIB_API int (luaL_checkoption) (lua_State *L, int arg, const char *def,
         const char *const lst[]) {
     size_t total = 0;
@@ -600,8 +770,24 @@ LUALIB_API void (luaL_addstring) (luaL_Buffer *B, const char *s) {
     luaL_addlstring(B, s, strlen(s));
 }
 
+/*
+ * 照 lauxlib.c：lua_tolstring 取栈顶那个值的字节，追加进缓冲，再弹掉。
+ * 整个在 C 侧做完——Java 侧拿不到 luaL_Buffer 的三个字段（b、size、n），
+ * 硬要在 Java 里做就得按固定 offset 去改 C 栈上的结构体，那比这里多一整层
+ * 脆弱的偏移假设。
+ *
+ * 用的是 lua_tolstring 而不是 luaL_tolstring：**不认 __tostring**。给表调它
+ * 会追加空（lua_tolstring 返回 NULL、长度 0），与参考一致——别"顺手"改成认
+ * 元方法，那会把 table 变成 "table: 0x..." 写进结果串。
+ */
 LUALIB_API void (luaL_addvalue) (luaL_Buffer *B) {
-    luashim_call(ID_luaL_addvalue, LUASHIM_HANDLE(B->L), (intptr_t)B, 0, 0, 0, 0, 0.0);
+    lua_State *L = B->L;
+    size_t len = 0;
+    const char *s = lua_tolstring(L, -1, &len);
+    if (s != NULL) {
+        luaL_addlstring(B, s, len);
+    }
+    lua_pop(L, 1);
 }
 
 LUALIB_API void (luaL_pushresult) (luaL_Buffer *B) {

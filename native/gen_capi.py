@@ -41,6 +41,8 @@ HAND_WRITTEN = {
     "luaL_setfuncs",      # const luaL_Reg *，要在 C 侧走数组
     "luaL_gsub",          # 整个用 luaL_Buffer 在 C 侧做完，不进 Java
     "lua_yieldk",         # 要走 longjmp，不能在 C 里正常返回
+    "lua_load",           # lua_Reader 是 C 函数指针，只能在 C 侧喂
+    "luaL_loadfilex",     # 整个照 lauxlib.c：BOM / '#' 首行 / 二进制重开
     "luaL_buffinit", "luaL_buffinitsize", "luaL_prepbuffsize",
     "luaL_addlstring", "luaL_addstring", "luaL_addvalue",
     "luaL_pushresult", "luaL_pushresultsize",
@@ -53,9 +55,11 @@ NEVER_RETURNS = {"lua_error", "luaL_error", "luaL_argerror", "luaL_typeerror"}
 # 在 luashim.c 里用别的 lua_* 拼出来的，Java 这侧的桩永远不会被调到。
 # 桩体写成明确的「C 侧实现」，而不是 unimplemented——后者会让人以为还欠着。
 C_ONLY = {
-    "luaL_addlstring", "luaL_addstring", "luaL_buffinit", "luaL_buffinitsize",
+    "luaL_addlstring", "luaL_addstring", "luaL_addvalue",
+    "luaL_buffinit", "luaL_buffinitsize",
     "luaL_prepbuffsize", "luaL_pushresult", "luaL_pushresultsize",
     "luaL_gsub", "luaL_setfuncs", "lua_pushfstring", "lua_pushvfstring",
+    "lua_load", "luaL_loadfilex",
 }
 
 # C 侧手写的符号可能要传比声明里更多的东西：luaL_checkoption 把
