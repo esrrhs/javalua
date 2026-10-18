@@ -102,7 +102,16 @@ public final class IoLib {
     private static void createMeta(LuaState L) {
         LuaTable mt = LuaAux.newMetatable(L, FILE_HANDLE);
         LuaAux.setFn(mt, "__gc", IoLib::fGc);
-        LuaAux.setFn(mt, "__close", IoLib::fGc);
+        /*
+         * {@code __close} 与 {@code __gc} 必须是<b>同一个值</b>（C 里
+         * {@code {"__gc", f_gc}} 与 {@code {"__close", f_gc}} 挂的是同一个函数
+         * 指针，无 upvalue 时压的是轻 C 函数），所以
+         * {@code getmetatable(io.stdout).__gc == getmetatable(io.stdout).__close}
+         * 在参考实现里是 <b>true</b>。{@code setFn} 每次新建一层包装，两次调用
+         * 就是两个值；这里直接把 {@code __gc} 那个值搬过来。
+         * 与 {@code math.atan/atan2} 是同一件事（见 MathLib 的注册）。
+         */
+        mt.set("__close", mt.get(LuaString.latin1("__gc")));
         LuaAux.setFn(mt, "__tostring", IoLib::fTostring);
         LuaTable meth = new LuaTable();
         LuaAux.setFn(meth, "read", IoLib::fRead);

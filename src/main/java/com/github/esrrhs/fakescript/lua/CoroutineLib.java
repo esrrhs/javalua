@@ -56,12 +56,20 @@ public final class CoroutineLib {
      * {@code nil}。曾经直接拿 {@code L.arg(0)} 的 {@code typeName()}，
      * 于是 {@code coroutine.status()} 报 {@code got nil}，参考实现报
      * {@code got no value}。
+     * <p>
+     * <b>函数名不写死。</b>以前这里拼的是 {@code 'coroutine.X'}，与参考实现
+     * 差一格：{@code luaL_argexpected} 最终落到 {@code luaL_argerror}，名字由
+     * <b>调用者那一帧</b>反推（{@code ldebug.c: funcnamefromcall}），
+     * 所以 {@code coroutine.close(1)} 报 {@code 'close'}，
+     * 取了别名 {@code local f = coroutine.create} 再调报 {@code 'f'}。
+     * 只在「调不回来名字」时才退到 {@code pushglobalfuncname} 的
+     * {@code coroutine.X}。{@link LuaState#argError} 就是这条路，
+     * 其余库都走它，这里没理由单开一份。
      */
-    private static LuaState getco(LuaState L, String fname) {
+    private static LuaState getco(LuaState L) {
         LuaValue v = L.arg(0);
         if (L.isNoneArg(1) || v.tt != Lua.VTHREAD) {
-            throw L.libError("bad argument #1 to 'coroutine." + fname + "' (thread expected, got "
-                    + L.argTypeName(1) + ")");
+            throw L.argError(1, "thread expected, got " + L.argTypeName(1));
         }
         return v.asThread();
     }
@@ -102,7 +110,7 @@ public final class CoroutineLib {
 
     /** {@code luaB_coresume} */
     private static int coresume(LuaState L) {
-        LuaState co = getco(L, "resume");
+        LuaState co = getco(L);
         int r = auxresume(L, co, L.argCount() - 1);
         if (r < 0) {
             L.push(LuaValue.ofBoolean(false));
@@ -175,27 +183,26 @@ public final class CoroutineLib {
 
     /** {@code luaB_cocreate} */
     private static int cocreate(LuaState L) {
-        createCo(L, "coroutine.create");
+        createCo(L);
         return 1;
     }
 
     /**
      * {@code create} 与 {@code wrap} 的公共部分。
      * <p>
-     * 报错里的函数名要由调用方给：{@code wrap} 内部调的就是
-     * {@code luaB_cocreate}，但参考实现报的是
-     * {@code bad argument #1 to 'coroutine.wrap'}——因为 C 版的名字是从
-     * 「这一帧是被谁调用的」倒推的，而 cocreate 是被 cowrap 直接调的，
-     * 倒推出来的名字是最外层那个 Lua 看得见的名字。
+     * 名字同样交给 {@link LuaState#argError}：实测
+     * {@code coroutine.wrap(1)} 与 {@code coroutine.create(1)} 参考实现报的
+     * 都是<b>短名</b>（{@code 'wrap'} / {@code 'create'}），哪怕是
+     * {@code wrap} 内部再去调 {@code create} 那一次也不是全名。以前这里把
+     * 全名写死，两种写法都差一格。
      */
-    private static void createCo(LuaState L, String fname) {
+    private static void createCo(LuaState L) {
         LuaValue f = L.arg(0);
         if (L.isNoneArg(1) || !f.isFunction()) {
             /*
              * 同样是 {@code luaL_argexpected}：缺参报 {@code got no value}。
              */
-            throw L.libError("bad argument #1 to '" + fname + "' (function expected, got "
-                    + L.argTypeName(1) + ")");
+            throw L.argError(1, "function expected, got " + L.argTypeName(1));
         }
         LuaState nl = L.newThread();
         L.push(LuaValue.ofThread(nl)); // 这个才是 create 的返回值
@@ -210,7 +217,7 @@ public final class CoroutineLib {
 
     /** {@code luaB_cowrap} */
     private static int cowrap(LuaState L) {
-        createCo(L, "coroutine.wrap"); // 栈顶现在是新协程
+        createCo(L); // 栈顶现在是新协程
         LuaValue co = new LuaValue(L.stack[L.top - 1]);
         CClosure cl = new CClosure(CoroutineLib::auxwrap, 1);
         cl.upvalue[0] = co;
@@ -244,14 +251,14 @@ public final class CoroutineLib {
 
     /** {@code luaB_costatus} */
     private static int costatus(LuaState L) {
-        LuaState co = getco(L, "status");
+        LuaState co = getco(L);
         L.push(LuaValue.ofString(LuaString.latin1(STAT_NAME[auxStatus(L, co)])));
         return 1;
     }
 
     /** {@code luaB_yieldable} */
     private static int yieldable(LuaState L) {
-        LuaState co = (L.argCount() == 0 || L.arg(0).isNone()) ? L : getco(L, "isyieldable");
+        LuaState co = (L.argCount() == 0 || L.arg(0).isNone()) ? L : getco(L);
         L.push(LuaValue.ofBoolean(co.isYieldable()));
         return 1;
     }
@@ -265,7 +272,7 @@ public final class CoroutineLib {
 
     /** {@code luaB_close} */
     private static int coclose(LuaState L) {
-        LuaState co = getco(L, "close");
+        LuaState co = getco(L);
         int status = auxStatus(L, co);
         switch (status) {
         case COS_DEAD:
