@@ -164,6 +164,20 @@ public final class OsLib {
         return v.isNil() ? -1 : (v.toBoolean() ? 1 : 0);
     }
 
+    /** {@link #setAllFields(LuaState, LuaValue, Calendar, boolean)} 的纯算术版 */
+    private static void setAllFields(LuaState L, LuaValue t, long sec) {
+        long[] c = epochToCivil(sec);
+        setField(L, t, "year", LuaValue.ofInteger(c[0]));
+        setField(L, t, "month", LuaValue.ofInteger(c[1]));
+        setField(L, t, "day", LuaValue.ofInteger(c[2]));
+        setField(L, t, "hour", LuaValue.ofInteger(c[3]));
+        setField(L, t, "min", LuaValue.ofInteger(c[4]));
+        setField(L, t, "sec", LuaValue.ofInteger(c[5]));
+        setField(L, t, "yday", LuaValue.ofInteger(c[7]));
+        setField(L, t, "wday", LuaValue.ofInteger(c[6]));
+        setField(L, t, "isdst", LuaValue.ofBoolean(false));
+    }
+
     /** {@code setallfields}：{@code isdst} 只在已知时才写（{@code tm_isdst < 0} 不写） */
     private static void setAllFields(LuaState L, LuaValue t, Calendar c, boolean utc) {
         TimeZone tz = utc ? UTC : TimeZone.getDefault();
@@ -544,19 +558,27 @@ public final class OsLib {
         int isdst = getBoolField(L, t, "isdst");
 
         TimeZone tz = TimeZone.getDefault();
+        long year = (long) tmYear + 1900;
         // 先把这六个字段当成 UTC 算出一个「纯本地时刻」，再按偏移量折回 epoch
-        GregorianCalendar u = newCal(UTC);
-        u.clear();
-        u.set(tmYear + 1900, tmMon, tmDay, tmHour, tmMin, tmSec);
-        long asUtcMs = u.getTimeInMillis();
+        // tmMon 是 0 起（Calendar 的规矩），{@code civilToEpoch} 收的是 1 起的月份
+        long asUtcSec = civilToEpoch(year, tmMon + 1, tmDay, tmHour, tmMin, tmSec);
 
-        long ms;
+        long sec;
         if (isdst < 0) {
-            // 自动判定：交给 Calendar，它会按当时生效的规则挑偏移量
-            GregorianCalendar c = newCal(tz);
-            c.clear();
-            c.set(tmYear + 1900, tmMon, tmDay, tmHour, tmMin, tmSec);
-            ms = c.getTimeInMillis();
+            /*
+             * 自动判定：交给 Calendar，它会按当时生效的规则挑偏移量。
+             * 但 Calendar 存的是<b>毫秒</b>，年份一大就溢出（见
+             * {@link #civilToEpoch}），所以撑不住的年份退成「只有原始偏移」——
+             * 那种年份本来也不存在任何夏令时规则。
+             */
+            if (year > 9999 || year < -9999) {
+                sec = asUtcSec - tz.getRawOffset() / 1000;
+            } else {
+                GregorianCalendar c = newCal(tz);
+                c.clear();
+                c.set((int) year, tmMon, tmDay, tmHour, tmMin, tmSec);
+                sec = c.getTimeInMillis() / 1000;
+            }
         } else {
             long dst = tz.getDSTSavings();
             if (dst == 0) {
@@ -564,17 +586,67 @@ public final class OsLib {
                 // 仍然照惯例挪一小时（实测如此）
                 dst = 3600000L;
             }
-            ms = asUtcMs - tz.getRawOffset() - (isdst == 1 ? dst : 0);
+            sec = asUtcSec - tz.getRawOffset() / 1000 - (isdst == 1 ? dst / 1000 : 0);
         }
 
-        long sec = ms / 1000;
         Calendar out = tm(sec, false);
-        if (out == null || sec == -1) {
+        if (out != null) {
+            setAllFields(L, t, out, false); // mktime 之后字段被正规化并回写
+        } else {
+            /*
+             * Calendar 存毫秒，{@code |sec|} 一大就装不下（{@link #MAX_SEC}）。但 C 的
+             * {@code time_t} 是 64 位，这一档 mktime 照样给得出结果——所以这里
+             * <b>不能</b>跟着报 badTime，改用纯算术回写。
+             */
+            setAllFields(L, t, sec);
+        }
+        if (sec == -1) {
             throw badTime(L);
         }
-        setAllFields(L, t, out, false); // mktime 之后字段被正规化并回写
         L.push(LuaValue.ofInteger(sec));
         return 1;
+    }
+
+    /**
+     * 前推格里历的 civil → epoch 秒（Howard Hinnant 的算法，全程 {@code long}）。
+     * <p>
+     * 为什么要另写一份而不继续用 {@link GregorianCalendar}：{@code Calendar} 存的是
+     * <b>毫秒</b>，年份到 {@code 2^31} 那一档 {@code getTimeInMillis()} 直接溢出、
+     * 折回一个莫名其妙的负数。实测 {@code os.time{year=2147483647}} 参考实现给
+     * {@code 67767976201968000}，我们原来给 {@code -6019000092870206}；而
+     * {@code 67767976201968000} 正好等于 {@code 86400 * days_from_civil} 减时区
+     * 偏移——<b>纯算术</b>，两边 libc 都一样。
+     */
+    private static long civilToEpoch(long y, long m, long d, long h, long mi, long s) {
+        long mm = m - 1; // 0..11 之外的月份先折进年份
+        long yy = y + Math.floorDiv(mm, 12);
+        long m0 = Math.floorMod(mm, 12) + 1; // 回到 1..12
+        long ya = yy - ((m0 <= 2) ? 1 : 0);
+        long era = Math.floorDiv(ya, 400);
+        long yoe = ya - era * 400; // [0, 399]
+        long doy = (153 * (m0 + ((m0 > 2) ? -3 : 9)) + 2) / 5 + d - 1;
+        long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        long days = era * 146097 + doe - 719468;
+        return days * 86400 + h * 3600 + mi * 60 + s;
+    }
+
+    /** {@link #civilToEpoch} 的逆；返回 {year, month, day, hour, min, sec, wday, yday} */
+    private static long[] epochToCivil(long sec) {
+        long days = Math.floorDiv(sec, 86400L);
+        long rem = Math.floorMod(sec, 86400L);
+        long z = days + 719468;
+        long era = Math.floorDiv(z, 146097);
+        long doe = z - era * 146097; // [0, 146096]
+        long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
+        long y = yoe + era * 400;
+        long doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+        long mp = (5 * doy + 2) / 153; // [0, 11]
+        long d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+        long m = mp + ((mp < 10) ? 3 : -9); // [1, 12]
+        y += (m <= 2) ? 1 : 0;
+        long wday = Math.floorMod(days + 4, 7) + 1; // 1970-01-01 是周四；Lua 的 wday 1=周日
+        long yday = days - civilToEpoch(y, 1, 1, 0, 0, 0) / 86400 + 1;
+        return new long[] { y, m, d, rem / 3600, (rem / 60) % 60, rem % 60, wday, yday };
     }
 
     /* ==================== 其余 ==================== */

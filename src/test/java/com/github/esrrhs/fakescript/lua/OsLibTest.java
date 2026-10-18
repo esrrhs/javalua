@@ -589,4 +589,217 @@ class OsLibTest {
                 print("done")
                 """);
     }
+    /**
+     * {@code os.time} / {@code os.date} 网格：1152 行。
+     * <p>
+     * 这两个函数<b>被「库函数 × 错误参数」那张网格排除过</b>——无参时读时钟。但带上
+     * 显式参数就是确定性的，于是那张网格留下的一整片没人看。这里补上：
+     * {@code os.time} 的七个字段 × 23 种值、缺字段的默认值（{@code hour} 默认 12，
+     * {@code year/month/day} 没有默认）、{@code setallfields} 回写归一后的字段、
+     * {@code os.date} 的 60 种格式 × 15 个时间戳、{@code os.difftime}、
+     * {@code os.getenv}、{@code os.setlocale}。
+     * <p>
+     * 咬出来一个真分歧：<b>{@code os.time{year=2147483647}} 给的是垃圾</b>。参考实现
+     * 给 {@code 67767976201968000}，我们给 {@code -6019000092870206}。原因是
+     * {@code GregorianCalendar} 存的是<b>毫秒</b>，这种年份 {@code getTimeInMillis()}
+     * 直接溢出折回负数。改成 {@link OsLib#civilToEpoch}（前推格里历的纯 {@code long}
+     * 算术）之后两边一致——而 {@code 67767976201968000} 正好是
+     * {@code 86400 * days_from_civil} 减时区偏移，<b>纯算术</b>，两边 libc 都一样。
+     * <p>
+     * 两处不进表，是量出来的不是猜的：
+     * <ul>
+     *   <li><b>1900 年以前</b>：Apple libc 的 {@code mktime} 拒绝（实测 {@code year=1900}
+     *       成、{@code 1899} 不成），glibc 不拒绝。两边各自推导谁也不算对，所以
+     *       探针里这一档直接打 {@code SKIP}。</li>
+     *   <li><b>{@code os.time(nil)} / {@code os.time()}</b>：走
+     *       {@code lua_isnoneornil}，读的是时钟。</li>
+     * </ul>
+     * <p>
+     * 实测灵敏度：转换符报错文案 54、{@code civilToEpoch} 的月份基准（{@code tmMon}
+     * 是 0 起）29、{@code isdst} 恒为 0 / {@code isdst=1} 不挪一小时 24、
+     * {@code setAllFields} 的字段名 22、退回 {@code Calendar}（溢出）3。
+     * <b>{@code os.date} 的 {@code MAX_SEC} 挡是 0</b>：{@code 2^60} 在放宽前后都落在
+     * 挡外，那一刀这条网格照不到。
+     */
+    @Test
+    void timeAndDateGridMatchesReference() {
+        Diff.assertMatches("""
+
+-- os.time / os.date 矩阵：这两个函数被「库函数 × 错误参数」网格排除过
+-- （无参时读时钟），但带上显式参数就是确定性的
+local function norm(e) return (tostring(e):gsub("0x%x+", "PTR")) end
+local function ttbl(t)
+    if type(t) ~= "table" then return tostring(t) end
+    local ks = { "year", "month", "day", "hour", "min", "sec", "wday", "yday", "isdst" }
+    local out = {}
+    for _, k in ipairs(ks) do out[#out + 1] = k .. "=" .. tostring(t[k]) end
+    return "{" .. table.concat(out, ",") .. "}"
+end
+local function show(...)
+    local n = select('#', ...)
+    local t = {}
+    for i = 1, n do
+        local v = (select(i, ...))
+        t[i] = type(v) == "table" and ttbl(v) or norm(tostring(v))
+    end
+    return table.concat(t, ",")
+end
+local function s(tag, f, ...)
+    local r = table.pack(pcall(f, ...))
+    if not r[1] then
+        print(tag, norm(tostring(r[2])))
+    else
+        print(tag, "OK", show(table.unpack(r, 2, r.n)))
+    end
+end
+
+-- ---------- os.time：每个字段 × 每种值 ----------
+local BASE = { year = 1970, month = 1, day = 1, hour = 0, min = 0, sec = 0 }
+local NAMES = { "year", "month", "day", "hour", "min", "sec", "isdst" }
+local VALS = { false, true, 0, 1, -1, 1970, 2000, 12, 13, 31, 32, 59, 60, 61,
+               1.5, 2.0, "1", "x", {}, -2147483648, 2147483647, 2 ^ 31, 2 ^ 40 }
+local NV = #VALS
+
+-- Apple libc 的 mktime 拒绝 1900 年以前（实测：year=1900 成、1899 不成），
+-- glibc 不拒绝。落到这一档的输入两边各自推导、谁也不算对，所以不进差分表。
+-- 判据只挑「过了 getfield 那一关、但算出来的日期远早于 1900」的那些值：
+-- out-of-bound 的（getfield 先报错）和 1.5 这种（报 not an integer）都要留着。
+local function mktimeRefuses(n, v)
+    if n ~= "year" and n ~= "day" and n ~= "hour" and n ~= "min" and n ~= "sec" then
+        return false
+    end
+    local num = tonumber(v)
+    if num == nil or num % 1 ~= 0 then return false end
+    -- year 的 -2147483648 会先被 getfield 判成 out-of-bound，mktime 根本没跑到
+    if n == "year" and num <= -2147483648 then return false end
+    if n == "year" then return num < 1900 end
+    if n == "day" then return 1970 + num / 365.25 < 1900 end
+    if n == "hour" then return 1970 + num / 8766 < 1900 end
+    if n == "min" then return 1970 + num / 525960 < 1900 end
+    if n == "sec" then return 1970 + num / 31557600 < 1900 end
+    return false
+end
+
+for _, n in ipairs(NAMES) do
+    for i = 1, NV do
+        local v = VALS[i]
+        local tag = "t|" .. n .. "|" .. i
+        if mktimeRefuses(n, v) then
+            print(tag, "SKIP")
+        else
+            s(tag, function()
+                local t = {}
+                for k, bv in pairs(BASE) do t[k] = bv end
+                t[n] = v
+                return os.time(t)
+            end)
+        end
+    end
+end
+
+-- ---------- os.time：缺字段（year/month/day 没有默认值） ----------
+s("t|miss|year", function() return os.time({ month = 1, day = 1 }) end)
+s("t|miss|month", function() return os.time({ year = 1970, day = 1 }) end)
+s("t|miss|day", function() return os.time({ year = 1970, month = 1 }) end)
+s("t|miss|all", function() return os.time({}) end)
+s("t|def", function() return os.time({ year = 1970, month = 1, day = 1 }) end)
+s("t|def2", function() return os.time({ year = 2000, month = 6, day = 15 }) end)
+s("t|isdst|nil", function() return os.time({ year = 1970, month = 1, day = 1, isdst = nil }) end)
+s("t|isdst|false", function() return os.time({ year = 1970, month = 1, day = 1, isdst = false }) end)
+s("t|isdst|zero", function() return os.time({ year = 1970, month = 1, day = 1, isdst = 0 }) end)
+s("t|isdst|true", function() return os.time({ year = 1970, month = 1, day = 1, isdst = true }) end)
+
+-- ---------- os.time：非表 / 多余参数 ----------
+-- os.time(nil) 与 os.time() 走 lua_isnoneornil，读的是时钟，不进差分表
+s("t|arg|num", function() return os.time(0) end)
+s("t|arg|str", function() return os.time("x") end)
+s("t|arg|bool", function() return os.time(true) end)
+s("t|arg|extra", function() return os.time({ year = 1970, month = 1, day = 1 }, 5) end)
+s("t|arg|strnum", function() return os.time({ year = "1970", month = 1, day = 1 }) end)
+s("t|arg|floatint", function() return os.time({ year = 1970.0, month = 1, day = 1 }) end)
+
+-- ---------- os.time：表被改写（setallfields 的归一） ----------
+s("t|norm|over", function()
+    local t = { year = 2000, month = 13, day = 40, hour = 25, min = 61, sec = 61 }
+    local r = os.time(t)
+    return r, ttbl(t)
+end)
+s("t|norm|neg", function()
+    local t = { year = 1969, month = 0, day = 0, hour = -1, min = -1, sec = -1 }
+    local r = os.time(t)
+    return r, ttbl(t)
+end)
+s("t|norm|extra", function()
+    local t = { year = 1970, month = 1, day = 1, zzz = 1 }
+    local r = os.time(t)
+    return r, ttbl(t), t.zzz
+end)
+
+-- ---------- os.time：结果表示不出来 ----------
+s("t|big|1", function() return os.time({ year = 2 ^ 40 }) end)
+s("t|big|2", function() return os.time({ year = -2 ^ 40 }) end)
+s("t|big|3", function() return os.time({ year = 1970, month = 1, day = 1, sec = 2 ^ 40 }) end)
+s("t|big|4", function() return os.time({ year = 2147483647, month = 1, day = 1 }) end)
+
+-- ---------- os.date：格式 × 时间 ----------
+local FMT = {
+    "%c", "%a", "%A", "%b", "%B", "%d", "%H", "%I", "%j", "%m", "%M", "%p",
+    "%S", "%U", "%w", "%W", "%x", "%X", "%y", "%Y", "%%",
+    "%e", "%F", "%g", "%G", "%h", "%n", "%r", "%R", "%t", "%T", "%u", "%V",
+    "%z", "%Z",
+    "%Ec", "%EC", "%Ex", "%EY", "%Od", "%OH", "%OI", "%Om", "%OS", "%Ou", "%Oy",
+    "%Q", "%", "%E", "%O", "%Ey", "%v", "%%%",
+    "", "plain", "a%db", "%Y-%m-%d %H:%M:%S", "*t", "!*t", "!%c", "!%Y",
+}
+local TIMES = { 0, 1, -1, 1000000000, 2147483647, -2147483648, 2 ^ 31, 2 ^ 32,
+                2 ^ 40, 2 ^ 60, -2 ^ 60, 1.5, 0.5, 1e300, -1e300 }
+local NT = #TIMES
+for _, f in ipairs(FMT) do
+    for i = 1, NT do
+        local tv = TIMES[i]
+        s("d|" .. f .. "|" .. i, function() return os.date(f, tv) end)
+    end
+end
+
+-- ---------- os.date：格式与时间这两个参数本身 ----------
+s("d|arg|nilfmt", function() return os.date(nil, 0) end)
+s("d|arg|numfmt", function() return os.date(1, 0) end)
+s("d|arg|boolfmt", function() return os.date(true, 0) end)
+s("d|arg|tblfmt", function() return os.date({}, 0) end)
+s("d|arg|nostime", function() return os.date("%Y", nil) end)
+s("d|arg|strtime", function() return os.date("%Y", "0") end)
+s("d|arg|booltime", function() return os.date("%Y", true) end)
+s("d|arg|nul", function() return os.date("*t\\0x", 0) end)
+s("d|arg|fmtnul", function() return os.date("%c\\0junk", 0) end)
+
+-- ---------- os.difftime ----------
+local D = { 0, 1, -1, 1000000000, 1.5, "1", true, {}, 2 ^ 40 }
+for i = 1, #D do
+    s("df|" .. i, function() return os.difftime(D[i], 0) end)
+    s("df|0|" .. i, function() return os.difftime(0, D[i]) end)
+end
+s("df|none", function() return os.difftime(0) end)
+s("df|one", function() return os.difftime() end)
+s("df|three", function() return os.difftime(10, 3, 1) end)
+
+-- ---------- os.getenv ----------
+s("env|none", function() return os.getenv("FK_NO_SUCH_ENV_VAR_XYZ") end)
+s("env|bad", function() return os.getenv() end)
+s("env|num", function() return os.getenv(1) end)
+s("env|bool", function() return os.getenv(true) end)
+s("env|nul", function() return os.getenv("FK_X\\0Y") end)
+
+-- ---------- os.setlocale（放最后：它会改后面 os.date 的输出） ----------
+s("loc|get", function() return os.setlocale() end)
+s("loc|c", function() return os.setlocale("C") end)
+s("loc|get2", function() return os.setlocale() end)
+s("loc|bad", function() return os.setlocale("no_such_locale_xyz") end)
+s("loc|cat", function() return os.setlocale("C", "all") end)
+s("loc|badcat", function() return os.setlocale("C", "zzz") end)
+s("loc|num", function() return os.setlocale(1) end)
+s("loc|restore", function() return os.setlocale("C") end)
+
+print("done")
+            """);
+    }
 }
