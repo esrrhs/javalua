@@ -173,8 +173,20 @@ public final class MathLib {
         setFn(m, "sqrt", MathLib::sqrt);
         setFn(m, "tan", MathLib::tan);
         setFn(m, "type", MathLib::type);
-        // LUA_COMPAT_MATHLIB：参考实现默认编进去的兼容函数
-        setFn(m, "atan2", MathLib::atan);
+        /*
+         * LUA_COMPAT_MATHLIB：参考实现默认编进去的兼容函数。
+         * <p>
+         * {@code atan2} 必须和 {@code atan} 是<b>同一个值</b>：C 里
+         * {@code {"atan", math_atan}} 与 {@code {"atan2", math_atan}} 挂的是同一个
+         * 函数指针，而 {@code lua_pushcclosure} 在 upvalue 数为 0 时压的是
+         * <b>轻 C 函数</b>（{@code setfvalue}，值就是指针本身，不另建闭包），
+         * 所以 {@code math.atan == math.atan2} 在参考实现里是 <b>true</b>。
+         * 以前这里也是 {@code MathLib::atan}，但 {@code setFn} 每次新建一个
+         * {@code LuaValue} 包一层，两个名字各包一份 —— {@code ==} 就成 false 了，
+         * 连带着 {@code luaL_argerror} 的那个回退名字（{@code findfield} 在
+         * {@code _LOADED} 里按值反查）也会查错人。
+         */
+        m.set("atan2", m.get(LuaString.latin1("atan")));
         setFn(m, "cosh", MathLib::cosh);
         setFn(m, "sinh", MathLib::sinh);
         setFn(m, "tanh", MathLib::tanh);

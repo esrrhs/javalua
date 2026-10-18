@@ -247,11 +247,19 @@ public final class BaseLib {
         return (r == null || r.isNil()) ? null : r;
     }
 
-    /** {@code luaB_tonumber} */
+    /**
+     * {@code luaB_tonumber}。
+     * <p>
+     * 无参那句是 {@code luaL_checkany(L, 1)}，落点是
+     * {@code luaL_argerror(L, 1, "value expected")}，函数名同样<b>由调用者那一帧
+     * 反推</b>：{@code local f = tonumber; f()} 参考实现报 {@code 'f'}，不是
+     * {@code 'tonumber'}。以前这里把全名写死，与
+     * {@code coroutine} 那六个函数是同一个错（见 {@link CoroutineLib#getco}）。
+     */
     private static int tonumber(LuaState L) {
         int n = L.argCount();
         if (n == 0) {
-            throw L.libError("bad argument #1 to 'tonumber' (value expected)");
+            throw L.argError(1, "value expected");
         }
         LuaValue v = L.arg(0);
         if (n == 1 || L.arg(1).isNil()) {
