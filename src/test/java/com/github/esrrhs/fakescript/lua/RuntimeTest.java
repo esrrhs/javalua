@@ -2954,12 +2954,12 @@ class RuntimeTest {
                   -- "nan"，同样 width=10，前者补 6 个空格、后者补 7 个 ——
                   -- 抹平符号之后长度就差一格，不是「宽度算错了」。只比
                   -- 「填的是空格、内容是 nan、填在哪一侧」。
-                  local lead, nan, trail = s:match("^(%s*)([-+]?[nN][aA][nN])(%s*)$")
-                  if nan then
-                    local function p(x) return (#x > 0) and "<PAD>" or "" end
-                    return p(lead) .. nan:gsub("^[-+]", "") .. p(trail)
-                  end
-                  return s
+                  -- 「nan 前后那两段空格」分别压，不要写成 ^(%s*)(nan)(%s*)$
+                  -- 的整串匹配 —— 那样漏掉后面还跟着东西的形状（"%-10.2f|"
+                  -- 的哨兵 "|" 就让第一版整片没归上）。
+                  local t = s:gsub("(%s+)([-+]?[nN][aA][nN])", "<PAD>%2")
+                  t = t:gsub("([-+]?[nN][aA][nN])(%s+)", "%1<PAD>")
+                  return (t:gsub("[-+]nan", "nan"):gsub("[-+]NAN", "NAN"))
                 end
                 local function show(s)
                   -- 带 \\0 和非法 UTF-8 的字符串直接 print 会难读，转成十六进制再打
@@ -10723,7 +10723,15 @@ p("A13", io.open, "/etc/hosts", "r+")
 
 -- B. os.rename：C 的 rename 有一张形状表，Java 的 Files.move 只对上一半
 p("B01", os.rename, D .. "f.txt", D .. "g.txt")         -- 文件 -> 已存在的文件：替换
-p("B02", os.rename, D .. "g.txt", D .. "d")             -- 文件 -> 非空目录：EISDIR
+-- 类型冲突那一支只比「失败了」：errno 是<b>内核</b>定的，不由 POSIX 统一 ——
+-- macOS 给 "Is a directory" 21，Linux 的「文件 -> 非空目录」给
+-- "Directory not empty" 39。两边都是各自内核的答案（约定 #98）。
+--（文件 -> 空目录 两支一致，走普通的 p。）
+local function px(tag, f, ...)
+    local r = table.pack(pcall(f, ...))
+    print(string.format("%s %s [%d] %s", tag, tostring(r[1]), r.n, tostring(r[2])))
+end
+px("B02", os.rename, D .. "g.txt", D .. "d")            -- 文件 -> 非空目录
 p("B03", os.rename, D .. "g.txt", D .. "e")             -- 文件 -> 空目录：EISDIR
 p("B04", os.rename, D .. "d", D .. "e")                 -- 目录 -> 空目录：替换
 p("B05", os.rename, D .. "nosuch_a", D .. "nosuch_b")   -- 源不存在

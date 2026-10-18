@@ -104,11 +104,13 @@ local function show(v)
     -- （"%20.5a":format(0/0) 参考给 19 列、我们给 20 列）。
     -- 所以带填充的 nan 连「填了几个空格」一起让出去，只比「填的是空格、
     -- 内容是 nan、填在哪一侧」。inf 不受影响：两边都是 3 个字符。
-    local lead, nan, trail = s:match("^(%s*)([%-%+]?[nN][aA][nN])(%s*)$")
-    if nan then
-      local function p(x) return (#x > 0) and "<PAD>" or "" end
-      s = p(lead) .. nan:gsub("^[%-%+]", "") .. p(trail)
-    end
+    -- 第一版写成 ^(%s*)(nan)(%s*)$ 的<b>整串</b>匹配，漏掉两种形状：
+    -- 结果后面还跟着别的字（"%-10.2f|" 的哨兵 "|"、"(0/0) -> nan" 这种
+    -- 前后带东西的）。改成「nan 前后那两段空格」分别压 —— 只要是贴着 nan
+    -- 的连续空格就压成一个 <PAD>，在哪一侧照样看得出来。
+    s = s:gsub("(%s+)([%-%+]?[nN][aA][nN])", "<PAD>%2")
+    s = s:gsub("([%-%+]?[nN][aA][nN])(%s+)", "%1<PAD>")
+    s = s:gsub("[%-%+]nan", "nan"):gsub("[%-%+]NAN", "NAN")
     return "#" .. #s .. "[" .. esc(s) .. "]"
   elseif t == "number" then
     if math.type(v) == "integer" then return "i" .. tostring(v) end

@@ -787,16 +787,18 @@ public final class OsLib {
         String from = LuaAux.checkString(L, 1).toCString().toJavaString();
         String to = LuaAux.checkString(L, 2).toCString().toJavaString();
         /*
-         * C 的 rename 有一张形状表，Java 的 Files.move 只对上了一半 ——
-         * 实测（参考二进制）逐条量过：
-         *   源不存在            -> nil, "No such file or directory", 2
-         *   文件 -> 已存在的目录 -> nil, "Is a directory", 21
-         *   目录 -> 已存在的文件 -> nil, "Not a directory", 20
-         *   目录 -> 空目录       -> true（替换）
-         *   目录 -> 非空目录     -> nil, "Directory not empty", ENOTEMPTY
-         *   文件 -> 已存在的文件 -> true（替换）
-         * 之前一律走不带 REPLACE_EXISTING 的 Files.move，于是「目标已存在」全报
-         * EEXIST，而 C 是会替换的；EISDIR / ENOTDIR 两个形状更是根本没判。
+         * 目标与源<b>类型冲突</b>的那两个形状必须<b>自己先拦下来</b>：Java 的
+         * {@code Files.move} 比 C 的 {@code rename(2)} 宽松得多 ——「文件改名到
+         * 目录上」「目录改名到文件上」它都<b>成功</b>（前者是把文件挪进那个目录），
+         * 而 C 一律失败。不拦就是「参考给 nil、我们给 true」这种最坏的分歧。
+         * <p>
+         * 但拦下来之后 errno 报哪个，**是内核定的，不由 POSIX 统一**：
+         * macOS 给 {@code Is a directory, 21} / {@code Not a directory, 20}，
+         * Linux 的 {@code os.rename(文件, 非空目录)} 给
+         * {@code Directory not empty, 39}。两边都是各自内核的答案，都不是错
+         * —— 所以差分用例只比「它失败了」，不比失败成哪个 errno（约定 #98）。
+         * 试过撤掉这道预检、一律交给 {@code errnoOf} 反查，结果更糟：Java 根本
+         * 不报错，直接成功。
          */
         if (from.isEmpty() || to.isEmpty()) {
             LuaAux.fileResult(L, false, null, 2); // ENOENT
@@ -808,7 +810,7 @@ public final class OsLib {
         if (!sf.exists()) {
             en = 2; // ENOENT
         } else if (sf.isFile() && df.isDirectory()) {
-            en = 21; // EISDIR
+            en = 21; // EISDIR（Linux 上是 ENOTEMPTY，见上）
         } else if (sf.isDirectory() && df.isFile()) {
             en = 20; // ENOTDIR
         }

@@ -336,6 +336,17 @@ class OsLibTest {
           if not r[1] then s = s .. " ERR " .. d(r[2]) end
           out[#out + 1] = s
         end
+        -- 类型冲突的 rename（文件 -> 目录、目录 -> 文件）只比「失败了」。
+        -- errno 是<b>内核</b>定的，不由 POSIX 统一：macOS 给
+        -- "Is a directory" 21 / "Not a directory" 20，Linux 的
+        -- os.rename(文件, 非空目录) 给 "Directory not empty" 39。两边都是各自
+        -- 内核的答案（约定 #98），连消息带 errno 一起归掉 —— 但仍然比「它
+        -- 失败了、给了三元组」，这一条是跨平台的。
+        local function probe_xdir(name, f, ...)
+          local r = table.pack(pcall(f, ...))
+          out[#out + 1] = name .. " ok=" .. tostring(r[1]) .. " [" .. r.n .. "] "
+            .. d(r[2]) .. " " .. type(r[3]) .. " " .. type(r[4])
+        end
 
         local D = "/tmp/fkerm"
         os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
@@ -381,7 +392,7 @@ class OsLibTest {
         end)
         put(D .. "/c")
         os.execute("mkdir -p " .. D .. "/d")
-        probe("rn_file_over_dir", os.rename, D .. "/c", D .. "/d")     -- EISDIR / ENOTDIR?
+        probe_xdir("rn_file_over_dir", os.rename, D .. "/c", D .. "/d")
         put(D .. "/e")
         os.execute("mkdir -p " .. D .. "/f/g")
         probe("rn_dir_over_fulldir", os.rename, D .. "/f", D .. "/d")  -- ENOTEMPTY(39)
@@ -392,7 +403,7 @@ class OsLibTest {
         probe("rn_nil", os.rename, nil, nil)
         probe("rn_num", os.rename, 42, 43)
         probe("rn_empty", os.rename, "", "")
-        probe("rn_dir_to_file", function()
+        probe_xdir("rn_dir_to_file", function()
           os.execute("mkdir -p " .. D .. "/dd")
           put(D .. "/ff")
           return os.rename(D .. "/dd", D .. "/ff")
