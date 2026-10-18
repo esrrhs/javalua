@@ -1100,7 +1100,23 @@ class FuzzTest {
          * 这两条路都值得走一走。
          */
         private String strAtom() {
-            return chance(70) ? SUBJECTS[pick(SUBJECTS.length)] : atom();
+            if (chance(70)) {
+                return SUBJECTS[pick(SUBJECTS.length)];
+            }
+            /*
+             * 需要<b>字符串</b>的地方不喂 {@code (0/0)}：NaN 的符号是 libc 定的
+             * （约定 #96），glibc 给 {@code -nan}、Apple libc 给 {@code nan}，
+             * 于是「这个字符串有几个字符」两边就差一个 —— {@code gsub} 的第二
+             * 个返回值（匹配次数）因此是 4 对 3，而数字是补不回来的（归一化
+             * 只够得着字面，够不着长度，约定 #104）。
+             */
+            for (int i = 0; i < 8; i++) {
+                String a = atom();
+                if (!a.equals("(0/0)")) {
+                    return a;
+                }
+            }
+            return "'s0'";
         }
 
         private String atom() {

@@ -1350,7 +1350,15 @@ probe("mv_ok", os.rename, D .. "/r1.txt", D .. "/r2.txt")
 probe("mv_missing", os.rename, D .. "/nope1", D .. "/nope2")
 probe("mv_dir", os.rename, D, D .. "/r3")
 probe("mv_self", os.rename, D .. "/r2.txt", D .. "/r2.txt")
-probe("mv_into_dir", os.rename, D .. "/r2.txt", D)
+-- 类型冲突的 rename 只比「失败了」：errno 是<b>内核</b>定的，不由 POSIX 统一
+-- —— macOS 给 "Is a directory" 21，Linux 的「文件 -> 非空目录」给
+-- "Directory not empty" 39。两边都是各自内核的答案（约定 #98），连消息带
+-- errno 一起归掉，但仍然比「它失败了、给了三元组」。
+local function probe_xdir(name, ...)
+  local r = table.pack(pcall(os.rename, ...))
+  out[#out + 1] = name .. " ok=" .. tostring(r[1]) .. " [" .. r.n .. "] " .. show(r[2])
+end
+probe_xdir("mv_into_dir", D .. "/r2.txt", D)
 
 -- ⑧ io.open 的失败 errno
 print("== io.open 失败 ==")
