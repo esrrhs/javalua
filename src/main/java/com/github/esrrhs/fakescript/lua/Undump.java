@@ -2,6 +2,7 @@ package com.github.esrrhs.fakescript.lua;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * 读预编译 chunk —— 对应 {@code lundump.c}。
@@ -60,6 +61,22 @@ public final class Undump {
 
     /** {@code LUAI_MAXSHORTLEN} */
     private static final int MAXSHORTLEN = 40;
+
+    /**
+     * 长字符串声明长度的上限（128 TiB）。
+     * <p>
+     * 走到长字符串分支时，C 是 {@code luaS_createlngstrobj(L, size)} 整块 malloc：
+     * 成了就接着读、读到流末尾报 {@code truncated chunk}；失败就抛
+     * {@code LUA_ERRMEM}，消息是 {@code globalState} 里写死的那份
+     * {@code "not enough memory"}（<b>不带位置前缀</b>）。
+     * <p>
+     * 「成不成」取决于机器内存与过量提交策略，不是 Lua 的语义，所以这里只能
+     * 取一个定值。取 128 TiB 的理由是两头都够远：正常 chunk 里不会有一条上百
+     * TB 的字符串常量，而这么大的申请在任何机器上都会失败，于是这一档能
+     * 与参考实现对齐。夹在中间的那一档（十几 GB 到上百 TB，取决于内存）
+     * <b>观测不到</b>，不进差分表。
+     */
+    private static final long MAX_LONG_STRING = 1L << 47;
 
     /* ---------- LoadState ---------- */
 
@@ -124,7 +141,16 @@ public final class Undump {
         limit >>>= 7;
         do {
             b = loadByte(S);
-            if (x >= limit) {
+            /*
+             * C 里 {@code x} 和 {@code limit} 都是 {@code size_t}，这个
+             * {@code x >= limit} 是<b>无符号</b>比较。这里必须用
+             * {@code compareUnsigned}：变长整数被一堆 {@code 0x00} 顶到第 10
+             * 组时会跨过 {@code 2^63}、折成负数，有符号比较就<b>认不出溢出</b>
+             * ——于是继续往下读，最终报 truncated chunk，而参考实现报
+             * integer overflow。这是第 14 条（C 的 {@code unsigned} 一律按
+             * 无符号处理）的第四例，前三例是 tunpack / checkStack / sort 枢轴。
+             */
+            if (Long.compareUnsigned(x, limit) >= 0) {
                 error(S, "integer overflow");
             }
             x = (x << 7) | (b & 0x7f);
@@ -184,7 +210,8 @@ public final class Undump {
         }
         size--; // 存的是 len+1，好让 0 表示「没有」
         LuaString ts;
-        if (size <= MAXSHORTLEN) {
+        // 同上：C 的 size 是 size_t，这个比较也是无符号的
+        if (Long.compareUnsigned(size, MAXSHORTLEN) <= 0) {
             byte[] buff = new byte[(int) size];
             if (size > 0) {
                 loadBlock(S, buff, 0, (int) size);
@@ -192,15 +219,17 @@ public final class Undump {
             ts = LuaString.of(buff);
         } else {
             /*
-             * 长字符串<b>不能按声明的长度预分配</b>：畸形 chunk 可以声明
-             * {@code 2^35} 字节，而 {@code new byte[2^35]} 在 Java 里不存在——
-             * 但 C 那边 malloc 34GB 是成功的，于是它接着逐字节读，读到流末尾
-             * 报 {@code truncated chunk}。
+             * 声明的长度越过 {@link #MAX_LONG_STRING} 时，C 那头的 malloc
+             * 必然失败，于是报 {@code nil, "not enough memory"}；这里照做
+             * ——注意消息<b>不带位置前缀</b>，与参考实现一致。
              * <p>
-             * 所以这里不预分配，改成<b>边读边攒</b>：攒多少取决于流里实际有
-             * 多少字节，而不是声明了多少；流一尽，{@code loadBlock} 就报
-             * truncated chunk，与参考实现逐字节对上。
+             * 没越线就<b>边读边攒</b>：攒多少只看流里真有多少，而不是声明了
+             * 多少（声明值来自不可信输入，真拿去预分配会 OOM）；流一尽照样由
+             * {@code loadBlock} 报 truncated chunk。
              */
+            if (Long.compareUnsigned(size, MAX_LONG_STRING) > 0) {
+                throw new LuaError(LuaValue.ofString(LuaString.latin1("not enough memory")));
+            }
             ByteArrayOutputStream acc = new ByteArrayOutputStream();
             byte[] block = new byte[8192];
             for (long left = size; left > 0;) {
@@ -226,6 +255,39 @@ public final class Undump {
         return st;
     }
 
+    /* ---------- 惰性增长 ---------- */
+
+    /**
+     * 下面几段都要「按流里声明的个数建数组」。畸形 chunk 可以声明 20 亿个
+     * upvalue / 常量 / 指令，而 C 那头的 {@code luaM_reallocvectorchecked}
+     * 是整块 malloc —— Linux/macOS 有过量提交，这种 malloc 往往<b>成功</b>
+     * （只虚占地址空间，真正触碰的只有流里那几十个字节），于是接着读、读到流
+     * 末尾报 {@code truncated chunk}。
+     * <p>
+     * Java 里 {@code new X[2000000000]} 是<b>真的</b>要那么多堆，抛的是
+     * {@code OutOfMemoryError}——{@code Error} 不是 {@code LuaError}，会穿过
+     * {@code pcall} 把宿主进程整个掀掉（第 4 条）。实测就是这样炸的：把源名
+     * 长度那个变长整数改坏，参考给 {@code nil, "not enough memory"}，我们直接
+     * OOM 崩。
+     * <p>
+     * 所以一律改成<b>按需增长</b>：实际占用只跟流里真有的字节成正比，正好等于
+     * C 真正触碰到的那些页；流一尽照样由 {@code loadBlock} 报
+     * {@code truncated chunk}，与参考实现一致。
+     */
+    private static final int MIN_CAP = 8;
+
+    /** 从 {@code cur} 起翻倍，返回能装下 {@code want} 个元素的容量。 */
+    private static int grown(int cur, int want) {
+        int c = cur <= 0 ? MIN_CAP : cur;
+        while (c < want) {
+            if (c >= (Integer.MAX_VALUE >> 1)) {
+                return want; // 到头了：够一个是一个，剩下的交给 loadBlock 报错
+            }
+            c <<= 1;
+        }
+        return c;
+    }
+
     /* ---------- 各段 ---------- */
 
     /**
@@ -248,10 +310,13 @@ public final class Undump {
      */
     private static void loadCode(LoadState S, Proto f) {
         int n = loadInt(S);
-        f.code = new int[Math.max(n, 0)];
+        f.code = new int[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizecode = n;
         byte[] b = new byte[SIZE_INSTRUCTION];
         for (int i = 0; i < n; i++) {
+            if (i >= f.code.length) {
+                f.code = Arrays.copyOf(f.code, grown(f.code.length, i + 1));
+            }
             loadBlock(S, b, 0, SIZE_INSTRUCTION);
             int v = 0;
             for (int k = SIZE_INSTRUCTION - 1; k >= 0; k--) { // 小端
@@ -259,17 +324,23 @@ public final class Undump {
             }
             f.code[i] = v;
         }
+        if (f.code.length != n) {
+            f.code = Arrays.copyOf(f.code, Math.max(n, 0));
+        }
     }
 
     private static void loadConstants(LoadState S, Proto f) {
         int n = loadInt(S);
-        f.k = new LuaValue[Math.max(n, 0)];
+        f.k = new LuaValue[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizek = n;
+        // 建一个、立刻解析一个。分成「先铺 nil」「再解析」两趟的话，
+        // 第一趟不读流，畸形计数会直接把堆吃光（实测 OOM）。
         for (int i = 0; i < n; i++) {
-            f.k[i] = LuaValue.ofNil();
-        }
-        for (int i = 0; i < n; i++) {
-            LuaValue o = f.k[i];
+            if (i >= f.k.length) {
+                f.k = Arrays.copyOf(f.k, grown(f.k.length, i + 1));
+            }
+            LuaValue o = LuaValue.ofNil();
+            f.k[i] = o;
             int t = loadByte(S);
             switch (t) {
             case Lua.VNIL:
@@ -302,57 +373,104 @@ public final class Undump {
                 break;
             }
         }
+        if (f.k.length != n) {
+            f.k = Arrays.copyOf(f.k, Math.max(n, 0));
+        }
     }
 
     private static void loadProtos(LoadState S, Proto f) {
         int n = loadInt(S);
-        f.p = new Proto[Math.max(n, 0)];
+        f.p = new Proto[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizep = n;
+        /*
+         * C 是先整块 malloc n 个指针、再逐个加载；这里把两步合一，
+         * 「建一个、立刻加载一个」。声明的个数不可信，但流里的字节数可信——
+         * 所以按需建既能对上 C 的结果（读到流末尾报 truncated chunk），
+         * 又不会为一个畸形数字去要几十 GB 堆。
+         */
         for (int i = 0; i < n; i++) {
+            if (i >= f.p.length) {
+                f.p = Arrays.copyOf(f.p, grown(f.p.length, i + 1));
+            }
             f.p[i] = new Proto();
-        }
-        for (int i = 0; i < n; i++) {
             loadFunction(S, f.p[i], f.source);
+        }
+        if (f.p.length != n) {
+            f.p = Arrays.copyOf(f.p, Math.max(n, 0));
         }
     }
 
     private static void loadUpvalues(LoadState S, Proto f) {
         int n = loadInt(S);
-        f.upvalues = new Proto.Upvaldesc[Math.max(n, 0)];
+        f.upvalues = new Proto.Upvaldesc[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizeupvalues = n;
+        // 同上：建一个、读一个，别先照声明的个数全铺开
         for (int i = 0; i < n; i++) {
-            f.upvalues[i] = new Proto.Upvaldesc();
+            if (i >= f.upvalues.length) {
+                f.upvalues = Arrays.copyOf(f.upvalues, grown(f.upvalues.length, i + 1));
+            }
+            Proto.Upvaldesc u = new Proto.Upvaldesc();
+            u.instack = loadByte(S) != 0;
+            u.idx = loadByte(S);
+            u.kind = loadByte(S);
+            f.upvalues[i] = u;
         }
-        for (int i = 0; i < n; i++) {
-            f.upvalues[i].instack = loadByte(S) != 0;
-            f.upvalues[i].idx = loadByte(S);
-            f.upvalues[i].kind = loadByte(S);
+        if (f.upvalues.length != n) {
+            f.upvalues = Arrays.copyOf(f.upvalues, Math.max(n, 0));
         }
     }
 
     private static void loadDebug(LoadState S, Proto f) {
         int n = loadInt(S);
-        f.lineinfo = new byte[Math.max(n, 0)];
+        f.lineinfo = new byte[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizelineinfo = n;
-        loadBlock(S, f.lineinfo, 0, n);
+        /*
+         * 行号表是<b>整块</b> loadBlock 的，不像上面那几段可以「读一个建一个」。
+         * 所以换成 8192 一块地攒——声明的长度不可信，攒多少只看流里真有多少；
+         * 流一尽同样报 truncated chunk。
+         */
+        int li = 0;
+        byte[] lblk = new byte[8192];
+        for (long left = n; left > 0;) {
+            int k = (int) Math.min(left, lblk.length);
+            loadBlock(S, lblk, 0, k);
+            if (li + k > f.lineinfo.length) {
+                f.lineinfo = Arrays.copyOf(f.lineinfo, grown(f.lineinfo.length, li + k));
+            }
+            System.arraycopy(lblk, 0, f.lineinfo, li, k);
+            li += k;
+            left -= k;
+        }
         n = loadInt(S);
-        f.abslineinfo = new Proto.AbsLineInfo[Math.max(n, 0)];
+        f.abslineinfo = new Proto.AbsLineInfo[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizeabslineinfo = n;
         for (int i = 0; i < n; i++) {
             int pc = loadInt(S);
             int line = loadInt(S);
+            if (i >= f.abslineinfo.length) {
+                f.abslineinfo = Arrays.copyOf(f.abslineinfo, grown(f.abslineinfo.length, i + 1));
+            }
             f.abslineinfo[i] = new Proto.AbsLineInfo(pc, line);
         }
-        n = loadInt(S);
-        f.locvars = new Proto.LocVar[Math.max(n, 0)];
-        f.sizelocvars = n;
-        for (int i = 0; i < n; i++) {
-            f.locvars[i] = new Proto.LocVar();
+        if (f.abslineinfo.length != n) {
+            f.abslineinfo = Arrays.copyOf(f.abslineinfo, Math.max(n, 0));
         }
+        n = loadInt(S);
+        f.locvars = new Proto.LocVar[Math.min(Math.max(n, 0), MIN_CAP)];
+        f.sizelocvars = n;
+        // 同样合成一趟：先建 LocVar 再立刻解析，别分两趟
         for (int i = 0; i < n; i++) {
-            f.locvars[i].varname = loadStringN(S, f);
-            f.locvars[i].startpc = loadInt(S);
-            f.locvars[i].endpc = loadInt(S);
+            if (i >= f.locvars.length) {
+                f.locvars = Arrays.copyOf(f.locvars, grown(f.locvars.length, i + 1));
+            }
+            Proto.LocVar v = new Proto.LocVar();
+            f.locvars[i] = v;
+            v.varname = loadStringN(S, f);
+            v.startpc = loadInt(S);
+            v.endpc = loadInt(S);
+        }
+        if (f.locvars.length != n) {
+            f.locvars = Arrays.copyOf(f.locvars, Math.max(n, 0));
         }
         n = loadInt(S);
         if (n != 0) { // 有调试信息就必须给出全部 upvalue 名
