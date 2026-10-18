@@ -159,6 +159,9 @@ public final class NativeBridge {
 
     static native int get32(long p);
 
+    /** 句柄换回 {@code lua_State*}：给那些要把 {@code L} 交回 C 的回调用 */
+    static native long statePtr(long handle);
+
     /** 回调任意 C 函数指针：reader / writer / hook / alloc / 续体都走这条 */
     static native long callPtr(long fn, long a0, long a1, long a2, long a3);
 

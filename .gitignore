@@ -21,6 +21,11 @@ crash-*
 # 上游 code.lua / luac.lua 跑出来的字节码产物
 luac.out
 
+# 测试自己造的临时目录（io/os 的用例要真的在磁盘上建目录、改权限）。
+# 以前误入过库里，于是每次跑完测试工作树都是脏的——用例开头那句
+# `rm -rf au_tmp` 把受版本控制的文件删了。
+au_tmp/
+
 # luashim 的编译产物（native/build.sh 产出，按平台分目录）
 # 不入库：换台机器就是另一套二进制，CI 上由上面那个 build 步骤现编。
 src/main/resources/native/

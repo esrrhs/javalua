@@ -89,11 +89,6 @@ LUALIB_API int (luaL_loadbufferx) (lua_State *L, const char *buff, size_t sz, co
 }
 
 /* lauxlib.h */
-LUALIB_API int (luaL_loadfilex) (lua_State *L, const char *filename, const char *mode) {
-  return (int)luashim_call(ID_luaL_loadfilex, LUASHIM_HANDLE(L), (intptr_t)filename, (intptr_t)mode, 0, 0, 0, 0);
-}
-
-/* lauxlib.h */
 LUALIB_API int (luaL_loadstring) (lua_State *L, const char *s) {
   return (int)luashim_call(ID_luaL_loadstring, LUASHIM_HANDLE(L), (intptr_t)s, 0, 0, 0, 0, 0);
 }
@@ -350,11 +345,6 @@ LUA_API int (lua_isyieldable) (lua_State *L) {
 /* lua.h */
 LUA_API void (lua_len) (lua_State *L, int idx) {
   luashim_call(ID_lua_len, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API int (lua_load) (lua_State *L, lua_Reader reader, void *dt, const char *chunkname, const char *mode) {
-  return (int)luashim_call(ID_lua_load, LUASHIM_HANDLE(L), (intptr_t)reader, (intptr_t)dt, (intptr_t)chunkname, (intptr_t)mode, 0, 0);
 }
 
 /* lua.h */

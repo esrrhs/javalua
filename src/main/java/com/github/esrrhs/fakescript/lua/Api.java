@@ -86,25 +86,32 @@ final class Api {
      * 直接 NPE——实测 {@code luaL_loadbufferx(L, s, n, NULL, "t")} 在参考实现上
      * 是合法调用。
      */
-    private static long loadBytes(long L, byte[] src, byte[] chunkName) {
+    private static long loadBytes(long L, byte[] src, byte[] chunkName, String mode) {
         LuaState S = st(L);
-        try {
-            LClosure cl = S.load(new Zio(src),
-                    (chunkName == null) ? new byte[] {'?'} : chunkName);
-            pushVal(S, LuaValue.ofClosure(cl));
-            return 0; // LUA_OK
-        } catch (Throwable t) {
-            LuaString m = (t instanceof LuaError)
-                    ? LuaAux.asString(((LuaError) t).value)
-                    : LuaString.latin1(String.valueOf(t.getMessage()));
-            pushVal(S, LuaValue.ofString(m));
-            /*
-             * {@code lua.h: LUA_ERRSYNTAX} 是 <b>3</b>，不是 2。{@code lua_load}
-             * 的返回值 C 扩展是拿去和 {@code LUA_OK / LUA_ERRSYNTAX} 比的，
-             * 给 2 会被当成别的失败档。
-             */
-            return 3; // LUA_ERRSYNTAX
+        /*
+         * 走 {@link BaseLib#loadZio} 而不是自己再写一份：{@code mode} 那两档
+         * 报错、二进制 chunk 的识别、以及「读函数里的错误不抛而是变成返回值」
+         * 三件事都在里面。这里绕开它自己解析，{@code luaL_loadbufferx(s, n,
+         * "=x", "b")} 就会静默成功——而参考实现给的是
+         * {@code nil, "attempt to load a text chunk (mode is 'b')"}。
+         * <p>
+         * {@code mode == null} 是 {@code luaL_loadstring} 与
+         * {@code luaL_loadbufferx} 的默认档：C 的 {@code checkmode} 对
+         * {@code NULL} 一律放行，等价于 {@code "bt"}。
+         */
+        LuaError err = BaseLib.loadZio(S, new Zio(src),
+                (chunkName == null) ? new byte[] {'?'} : chunkName,
+                (mode == null) ? "bt" : mode);
+        if (err == null) {
+            return 0; // LUA_OK，闭包已在栈顶
         }
+        pushVal(S, (err.value == null) ? LuaValue.ofNil() : err.value);
+        /*
+         * {@code lua.h: LUA_ERRSYNTAX} 是 <b>3</b>，不是 2。{@code lua_load}
+         * 的返回值 C 扩展是拿去和 {@code LUA_OK / LUA_ERRSYNTAX} 比的，
+         * 给 2 会被当成别的失败档。
+         */
+        return 3; // LUA_ERRSYNTAX
     }
 
     /** {@code lua_rotate} 用的原地翻转 */
@@ -224,7 +231,7 @@ final class Api {
 
     @Generated
     static void luaL_addvalue(long B) {
-        throw unimplemented("luaL_addvalue");
+        throw new IllegalStateException("luaL_addvalue 在 luashim.c 里用别的 lua_* 拼出来，不进 Java");
     }
 
     static long luaL_argerror(long L, long arg, long extramsg) {
@@ -451,12 +458,14 @@ final class Api {
         byte[] src = (buff == 0 || sz <= 0) ? new byte[0]
                 : NativeBridge.bytesAtN(buff, (int) sz);
         byte[] cn = (name == 0) ? null : NativeBridge.bytesAt(name);
-        return loadBytes(L, src, cn);
+        byte[] md = (mode == 0) ? null : NativeBridge.bytesAt(mode);
+        return loadBytes(L, src, cn,
+                (md == null) ? null : new String(md, java.nio.charset.StandardCharsets.ISO_8859_1));
     }
 
     @Generated
     static long luaL_loadfilex(long L, long filename, long mode) {
-        throw unimplemented("luaL_loadfilex");
+        throw new IllegalStateException("luaL_loadfilex 在 luashim.c 里用别的 lua_* 拼出来，不进 Java");
     }
 
     static long luaL_loadstring(long L, long s) {
@@ -467,7 +476,12 @@ final class Api {
          * 这段前缀整个丢掉。
          */
         byte[] b = NativeBridge.bytesAt(s);
-        return loadBytes(L, b, b);
+        /*
+         * chunk 名就是源码本身（{@code luaL_loadstring} 里的
+         * {@code luaL_loadbufferx(L, s, strlen(s), s, NULL)}），
+         * mode 传 NULL = 全部放行。
+         */
+        return loadBytes(L, b, b, null);
     }
 
     static long luaL_newmetatable(long L, long tname) {
@@ -503,7 +517,23 @@ final class Api {
     static long luaL_optlstring(long L, long arg, long def, long l) {
         LuaState S = st(L);
         if (S.isNoneArg((int) arg) || S.arg1((int) arg).isNil()) {
-            byte[] b = (def == 0) ? new byte[0] : NativeBridge.bytesAt(def);
+            /*
+             * {@code def == NULL} 必须原样交回 <b>NULL（0）</b>，不能退化成
+             * {@code ""}。差别是可观测的：{@code luaL_optstring(L, n, NULL)}
+             * 最典型的用处就是给 {@code lua_load} / {@code luaL_loadfilex} 传
+             * {@code mode}，而 {@code checkmode} 对 {@code NULL} 一律放行、
+             * 对 {@code ""} 却会报
+             * {@code attempt to load a text chunk (mode is '')}。
+             * 长度参数同步写 0（{@code lauxlib.c} 里 {@code def} 为 NULL 时
+             * {@code *len} 也是 0）。
+             */
+            if (def == 0) {
+                if (l != 0) {
+                    NativeBridge.put64(l, 0);
+                }
+                return 0;
+            }
+            byte[] b = NativeBridge.bytesAt(def);
             if (l != 0) {
                 NativeBridge.put64(l, b.length);
             }
@@ -686,9 +716,39 @@ final class Api {
         return (i > 0 || i <= REGISTRY) ? i : (S.top - S.ci.func) + i;
     }
 
-    @Generated
     static void lua_arith(long L, long op) {
-        throw unimplemented("lua_arith");
+        /*
+         * {@code lapi.c: lua_arith}：一元运算（{@code UNM} / {@code BNOT}）
+         * 先在栈顶<b>复制一份操作数</b>，之后就与二元同形——结果一律落在
+         * {@code top - 2}，再把 {@code top} 收一格。
+         * <p>
+         * 注意 {@code top - 2} 与第一个操作数是<b>同一个槽</b>：两个操作数先取
+         * 引用再算，别在算之前把槽清了（与 {@link #lua_gettable} 同一个坑）。
+         */
+        LuaState S = st(L);
+        int o = (int) op;
+        if (o == Arith.OP_UNM || o == Arith.OP_BNOT) {
+            grow(S, 1);
+            S.stack[S.top].set(S.stack[S.top - 1]);
+            S.top++;
+        }
+        LuaValue p1 = S.stack[S.top - 2];
+        LuaValue p2 = S.stack[S.top - 1];
+        LuaValue res = Arith.rawArith(S, o, p1, p2);
+        if (res == null) {
+            /*
+             * {@code luaO_arith} → {@code luaT_trybinTM}：元方法事件号是
+             * {@code (op - LUA_OPADD) + TM_ADD}，而 {@code LUA_OPADD == 0}，
+             * 所以就是 {@code op + TM_ADD}——{@code UNM}
+             * （12）落到 {@code TM_UNM}（18）、{@code BNOT}（13）落到
+             * {@code TM_BNOT}（19），与 {@code lobject.h} 的 {@code ORDER TM}
+             * 顺序一致。
+             */
+            LuaTm.tryBinTm(S, p1, p2, S.top - 2, o + Tm.TM_ADD);
+        } else {
+            S.stack[S.top - 2].set(res);
+        }
+        S.top -= 1;
     }
 
     @Generated
@@ -758,19 +818,123 @@ final class Api {
         pushVal(S, LuaValue.ofTable(new LuaTable((int) narr, (int) nrec)));
     }
 
-    @Generated
     static long lua_dump(long L, long writer, long data, long strip) {
-        throw unimplemented("lua_dump");
+        /*
+         * {@code lapi.c: lua_dump}：只对 <b>Lua 函数</b>做，别的（含 C 函数）
+         * 一律返回 <b>1</b> 表示「不是我该干的」。判据是 {@code isLfunction}，
+         * 也就是 {@link Lua#VLIF}，不是「能不能调用」。
+         * <p>
+         * 字节交给 writer 走 {@code strToNative} 的环形缓冲：dump 出来的是
+         * 二进制、中间有 {@code \0}，但长度是我们自己知道的，C 侧按
+         * {@code sz} 取就不会被截断。
+         * <p>
+         * <b>只调 writer 一次</b>：C 版 {@code luaU_dump} 是分块的（一个串、
+         * 一段指令各一次）。写得很规矩的 writer 两种都吃；返回值取 writer
+         * 自己的（非 0 即失败）——{@code string.dump} 那条路是另一份实现，
+         * 这里不复用。
+         */
+        LuaState S = st(L);
+        LuaValue v = S.stack[S.top - 1];
+        if (v.tt != Lua.VLIF) {
+            return 1;
+        }
+        byte[] b = Dump.dumpBytes(((LClosure) v.o).p, strip != 0);
+        long p = NativeBridge.strToNative(b);
+        long r = NativeBridge.callPtr(writer,
+                NativeBridge.statePtr(L), p, b.length, data);
+        /*
+         * writer 声明的是 {@code int}，而 {@code callPtr} 取的是
+         * {@code jlong}。arm64 上返回 {@code int} 只保证低 32 位有意义，
+         * 高 32 位是未定义的——这里必须截断，否则 {@code return 0} 的 writer
+         * 可能被读成一个巨大的正数。
+         */
+        return (int) r;
     }
 
-    @Generated
     static long lua_error(long L) {
-        throw unimplemented("lua_error");
+        LuaState S = st(L);
+        /*
+         * {@code lapi.c: lua_error} 干两件事：取栈顶那个值当错误对象，然后
+         * {@code luaG_errormsg}。<b>位置是 {@code luaL_error} 自己用
+         * {@code luaL_where} 拼好的</b>，{@code lua_error} 一律不加——所以
+         * 这里 {@code where} 给 {@code ""}（「已定稿」），保保护边界别再补一次。
+         * <p>
+         * 唯一的特判是内存错误：错误对象<b>恰好</b>是驻留短串
+         * {@code "not enough memory"} 时，C 走 {@code luaM_error} 而不是
+         * {@code luaG_errormsg}。可观测——{@code LUA_ERRMEM} 这一档
+         * {@code xpcall} 的处理器<b>接不到</b>（见 {@link LuaState#errorAt}）。
+         */
+        LuaValue v = new LuaValue(S.stack[S.top - 1]);
+        LuaError e = new LuaError(v, "");
+        e.errMem = LuaState.isMemErr(v);
+        throw e;
     }
 
-    @Generated
     static long lua_gc(long L, long what, long a2) {
-        throw unimplemented("lua_gc");
+        /*
+         * {@code lapi.c: lua_gc} 与 {@code lbaselib.c: luaB_collectgarbage}
+         * 是<b>同一份状态</b>的两张脸——{@link BaseLib#collectgarbage} 里的
+         * 注释全适用于这里（尤其是「{@code count} 一律报 0」那条：报任何具体
+         * 数字都是谎报）。这里照 {@code lua.h} 的 {@code LUA_GC*} 常量逐档映射。
+         * <p>
+         * 只丢了一样东西：{@code LUA_GCGEN} 的 {@code majormul} 与
+         * {@code LUA_GCINC} 的 {@code stepmul}/{@code stepsize}。变参在 C 侧
+         * 是打包进槽位的，而生成器只给变参函数留了三个槽（{@code L}、
+         * {@code what}、第一个变参），多出来的进不来。丢的是「调节量」——
+         * 我们本来也不按它调（没有分代收集器可调），返回值 {@code res}
+         * 只取决于切之前的模式，照样算得对。
+         */
+        LuaState S = st(L);
+        LuaState m = S.mainThread;
+        int w = (int) what;
+        switch (w) {
+        case 0: // LUA_GCSTOP
+            m.gcRunning = false;
+            return 0;
+        case 1: // LUA_GCRESTART
+            m.gcRunning = true;
+            return 0;
+        case 2: // LUA_GCCOLLECT
+            BaseLib.doCollect(S);
+            return 0;
+        case 3: // LUA_GCCOUNT —— KB，本实现恒 0
+        case 4: // LUA_GCCOUNTB —— 余数字节，同上
+            return 0;
+        case 5: // LUA_GCSTEP
+            /*
+             * 返回 1 = 「一个收集周期刚跑完」。{@code collectgarbage("step")}
+             * 就是拿这个 1 去推 {@code true} 的，所以这里必须给 1，
+             * 否则 {@code lua_gc} 与 {@code collectgarbage} 两条路自相矛盾。
+             */
+            BaseLib.doCollect(S);
+            return 1;
+        case 6: { // LUA_GCSETPAUSE —— setgcparam 无条件赋值，见 BaseLib#collectgarbage
+            int old = m.gcPause();
+            m.setGcPause((int) a2);
+            return old;
+        }
+        case 7: { // LUA_GCSETSTEPMUL
+            int old = m.gcStepMul();
+            m.setGcStepMul((int) a2);
+            return old;
+        }
+        case 9: // LUA_GCISRUNNING
+            return m.gcRunning ? 1 : 0;
+        case 10: // LUA_GCGEN
+        case 11: { // LUA_GCINC
+            /*
+             * {@code res} 是<b>切换前</b>的模式码（{@code LUA_GCGEN} /
+             * {@code LUA_GCINC}），不是 {@code collectgarbage} 那个字符串。
+             * 判据照 {@code isdecGCmodegen}——见 {@link LuaState#gcLastAtomic}。
+             */
+            boolean prevGen = (m.gcKind == LuaState.LUA_GCGEN) || m.gcLastAtomic;
+            m.gcKind = (w == 10) ? LuaState.LUA_GCGEN : LuaState.LUA_GCINC;
+            m.gcLastAtomic = false;
+            return prevGen ? 10 : 11;
+        }
+        default:
+            return -1; // 无效选项
+        }
     }
 
     @Generated
@@ -829,9 +993,27 @@ final class Api {
         throw unimplemented("lua_getinfo");
     }
 
-    @Generated
     static long lua_getiuservalue(long L, long idx, long n) {
-        throw unimplemented("lua_getiuservalue");
+        LuaState S = st(L);
+        LuaValue v = val(S, (int) idx);
+        LuaUserdata ud = udata(v);
+        /*
+         * 越界（含 {@code nuvalue == 0}）时 C 是<b>推一个 nil 并返回
+         * {@code LUA_TNONE}</b>，不是什么都不推 —— 栈高一格这点差别，
+         * 扩展里「{@code if (lua_getiuservalue(... ) != LUA_TNONE)}」就反了。
+         */
+        if (ud == null || ud.userValues == null || n <= 0 || n > ud.userValues.length) {
+            pushVal(S, LuaValue.ofNil());
+            return Lua.TNONE;
+        }
+        pushVal(S, ud.userValues[(int) n - 1]);
+        return ud.userValues[(int) n - 1].baseType();
+    }
+
+    /** 取完整 userdata；不是就给 {@code null}（C 的 {@code api_check} 是断言） */
+    private static LuaUserdata udata(LuaValue v) {
+        return (v != null && v.baseType() == Lua.TUSERDATA)
+                ? (LuaUserdata) v.o : null;
     }
 
     @Generated
@@ -918,9 +1100,13 @@ final class Api {
         return (v.baseType() == Lua.TUSERDATA || v.tt == Lua.TLIGHTUSERDATA) ? 1 : 0;
     }
 
-    @Generated
     static long lua_isyieldable(long L) {
-        throw unimplemented("lua_isyieldable");
+        /*
+         * {@code ldo.c: yieldable(L)} 就是 {@code L->nNy == 0}：每进一层不可
+         * yield 的 C 帧就 +1。主线程恒为 1（{@code lua_newstate} 里的
+         * {@code incnny}），所以「能不能 yield」和「在不在协程里」是同一件事。
+         */
+        return ((L == 0) ? false : st(L).isYieldable()) ? 1 : 0;
     }
 
     static void lua_len(long L, long idx) {
@@ -934,7 +1120,7 @@ final class Api {
 
     @Generated
     static long lua_load(long L, long reader, long dt, long chunkname, long mode) {
-        throw unimplemented("lua_load");
+        throw new IllegalStateException("lua_load 在 luashim.c 里用别的 lua_* 拼出来，不进 Java");
     }
 
     @Generated
@@ -942,24 +1128,30 @@ final class Api {
         throw unimplemented("lua_newstate");
     }
 
-    @Generated
     static long lua_newthread(long L) {
-        throw unimplemented("lua_newthread");
+        LuaState S = st(L);
+        LuaState co = S.newThread();
+        pushVal(S, LuaValue.ofThread(co));
+        return NativeBridge.handle(co);
     }
 
     static long lua_newuserdatauv(long L, long sz, long nuvalue) {
         LuaState S = st(L);
         NativeMemory m = new NativeMemory(NativeBridge.alloc(sz), sz);
         /*
-         * 载荷就是 {@code m} 本身——{@code LuaValue.ofUserdata} 会再包一层
-         * {@link LuaUserdata}（元表挂在那层上）。之前这里先
-         * {@code new LuaUserdata(m)} 再交给 {@code ofUserdata}，等于套了两层，
-         * 于是 {@code lua_touserdata} 取到的 {@code data} 是个
+         * 载荷就是 {@code m} 本身（元表、用户值挂在 {@link LuaUserdata} 那层上）。
+         * 这里<b>必须走 {@code ofUserdata(LuaUserdata)} 那条重载</b>：
+         * 之前先 {@code new LuaUserdata(m)} 再交给 {@code ofUserdata(Object)}，
+         * 等于套了两层，于是 {@code lua_touserdata} 取到的 {@code data} 是个
          * {@link LuaUserdata} 而不是 {@link NativeMemory}，一律给 0 ——
          * {@code luaL_checkudata} 因此连自己刚建出来的 userdata 都不认
          * （报 {@code NatBox expected, got NatBox}）。
+         * 今天 {@code ofUserdata(Object)} 对 {@link LuaUserdata} 参数直接转发，
+         * 所以两层写法也能跑；但用户值数组仍然只建在里面那层上，外面那层
+         * {@code nuvalue} 恒为 0，{@code lua_getiuservalue} 永远答
+         * {@code LUA_TNONE}——这是个「能跑但全错」的坑，留着注释别再踩回去。
          */
-        pushVal(S, LuaValue.ofUserdata(m));
+        pushVal(S, LuaValue.ofUserdata(new LuaUserdata(m, (int) nuvalue)));
         return m.ptr;
     }
 
@@ -1239,9 +1431,16 @@ final class Api {
         S.top -= 1;
     }
 
-    @Generated
     static long lua_setiuservalue(long L, long idx, long n) {
-        throw unimplemented("lua_setiuservalue");
+        LuaState S = st(L);
+        int res = 0;
+        LuaUserdata ud = udata(val(S, (int) idx));
+        if (ud != null && ud.userValues != null && n >= 1 && n <= ud.userValues.length) {
+            ud.userValues[(int) n - 1].set(S.stack[S.top - 1]);
+            res = 1;
+        }
+        S.top -= 1; // 无论成不成都要弹掉那个值
+        return res;
     }
 
     @Generated
@@ -1300,14 +1499,37 @@ final class Api {
         throw unimplemented("lua_setwarnf");
     }
 
-    @Generated
     static long lua_status(long L) {
-        throw unimplemented("lua_status");
+        return (L == 0) ? 0 : st(L).getStatus();
     }
 
-    @Generated
     static long lua_stringtonumber(long L, long s) {
-        throw unimplemented("lua_stringtonumber");
+        /*
+         * {@code lapi.c: lua_stringtonumber} = {@code luaO_str2num} + 压栈，
+         * 返回 <b>{@code strlen(s) + 1}</b>。
+         * <p>
+         * 那个 {@code +1} 不是笔误：{@code l_str2int} / {@code l_str2dloc}
+         * 返回的是<b>结尾那个 {@code '\0'} 的地址</b>，{@code luaO_str2num}
+         * 再写 {@code (e - s) + 1}。三个内部调用点
+         * （{@code luaB_tonumber}、{@code l_strlib}、{@code liolib} 的
+         * {@code readnum}）一律比 {@code == len + 1}，也就是「整串都得是数字」——
+         * 所以 {@code lua_stringtonumber("42abc")} 是 <b>0</b>（{@code tonumber
+         * ("42abc")} 给 nil 就是这么来的），不是「认出 42 返回 2」。
+         * <p>
+         * 本实现 {@link Numeral#str2num} 本来就要求整串吃完（词法分析要的是
+         * 这个语义），正好对上；C 版那句 {@code *s != '\0'} 的判据也一致。
+         */
+        LuaState S = st(L);
+        byte[] b = NativeBridge.bytesAt(s);
+        if (b == null) {
+            return 0;
+        }
+        LuaValue v = Numeral.str2num(new String(b, java.nio.charset.StandardCharsets.ISO_8859_1));
+        if (v == null) {
+            return 0;
+        }
+        pushVal(S, v);
+        return b.length + 1;
     }
 
     static long lua_toboolean(long L, long idx) {
@@ -1520,9 +1742,14 @@ final class Api {
         throw unimplemented("lua_version");
     }
 
-    @Generated
     static void lua_warning(long L, long msg, long tocont) {
-        throw unimplemented("lua_warning");
+        /*
+         * {@code lapi.c: lua_warning} 是 {@code luaE_warning} 的一层薄壳，
+         * 与 {@code warn} 内建（{@link BaseLib#warn}）
+         * <b>同一条路</b>——{@code warn("@on")} 那套开关在这里照样生效。
+         * 消息是 {@code const char*}，按字节取，别走 Java String。
+         */
+        st(L).warning(LuaString.of(NativeBridge.bytesAt(msg)), tocont != 0);
     }
 
     static void lua_xmove(long from, long to, long n) {
