@@ -121,6 +121,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+                <configuration>
+                    <!--
+                      给每一条用例设一个 3 分钟的全局超时。
+                      见过一次才知道多必要：一致性闸门曾经<b>卡死 18 分钟</b>
+                      （后来证明是基础设施偶发，重跑就好），而 GitHub 只能等到
+                      job 超时（默认 6 小时）才给结论 —— 期间<b>日志一行都取不到</b>
+                      （gh 要等 job 结束才有日志），于是既不知道是哪条、也不知道
+                      卡在哪。设了超时之后它会变成一条 FAILURE，带着线程栈指名
+                      是哪条用例。3 分钟对本仓库够了：最慢的 FuzzTest 本机 20 秒。
+                    -->
+                    <systemPropertyVariables>
+                        <junit.jupiter.execution.timeout.default>180s</junit.jupiter.execution.timeout.default>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>

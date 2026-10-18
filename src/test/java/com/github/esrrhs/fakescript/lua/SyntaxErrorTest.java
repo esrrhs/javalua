@@ -306,6 +306,270 @@ print("END")
                 """);
     }
 
+    /**
+     * 顺着 {@code lparser.c} / {@code llex.c} 的<b>每一个报错点</b>点名打。
+     * <p>
+     * 与上面那条网格的分工：那条是「把合法程序砍短 / 删字符 / 换字符」——
+     * 覆盖面靠数量；这条是<b>照着 C 源码里的 {@code throw} 一行一行点</b>，
+     * 保证每个 {@code syntaxerror} / {@code semerror} 的调用点都有人走过。
+     * JaCoCo 显示 {@code Parser} 有 24 行没走到，清一色是这些点。
+     * <p>
+     * 点到的点：{@code "%s expected"}、{@code "%s expected (to close %s at
+     * line %d)"}、{@code errorlimit} 的三种 {@code what}（局部变量 200 /
+     * upvalue 255 / 构造式项数）、{@code attempt to assign to const variable}、
+     * {@code unknown attribute}、{@code multiple to-be-closed variables}、
+     * {@code cannot use '...' outside a vararg function}、{@code <name> or
+     * '...' expected}、{@code function arguments expected}、
+     * {@code '=' or 'in' expected}、{@code <goto> ... jumps into the scope of
+     * local}、{@code no visible label}、{@code label already defined}、
+     * lexer 的 {@code unfinished string} / {@code malformed number} /
+     * {@code hexadecimal digit expected}，以及 {@code C stack overflow}。
+     * <p>
+     * 两处写法上的坑：
+     * <ul>
+     *   <li><b>chunk 名统一用 {@code "=c"}</b>：{@code load(字符串)} 默认把
+     *       源码塞进 {@code [string "..."]}，几十条用例的消息就成了几十倍噪声；</li>
+     *   <li><b>必须包 {@code pcall}</b>：C 栈溢出是<b>抛出</b>不是返回（约定
+     *       #27）。不包的话那一条带着回溯把脚本打断，而回溯里的文件名两边
+     *       不一样（约定 #37）。</li>
+     * </ul>
+     * {@code control structure too long} 与「构造式项数」两个上限要到
+     * {@code MAX_INT} 才触发，打不出来，如实记为不可达（约定 #30）。
+     */
+    @Test
+    void parserErrorSitesMatchReference() {
+        Diff.assertMatches("""
+-- 语法错误全矩阵：顺着 lparser.c / llex.c / lcode.c 的每一个报错点写
+-- 起因：JaCoCo 里 Parser 有 24 行没走到，几乎全是 throw syntaxError ——
+-- 也就是「错误消息与原话」这一片从来没被系统扫过。SyntaxErrorTest 只有 2 条。
+--
+-- chunk 名统一用 "=c"（load 的第二个参数）：默认的 "[string \\"...\\"]" 会把
+-- 源码塞进消息里，几十条用例的消息就成了几十倍的噪声。
+-- 必须包 pcall：C 栈溢出是<b>抛出</b>而不是返回（约定 #27）。不包的话那
+-- 一条会带着回溯把脚本打断，而回溯里的文件名两边不一样（约定 #37）。
+local function p(tag, s)
+  local ok, a, b = pcall(load, s, "=c")
+  if not ok then
+    print(tag, "THROW", tostring(a))
+  elseif a then
+    print(tag, "OK")
+  else
+    print(tag, tostring(b))
+  end
+end
+
+-- ① "%s expected"：同一个 token 在不同位置上的报错（error_expected）
+print("== 缺 token ==")
+local miss = {
+  "if x then", "if x then y=1", "if x then y=1 else", "if x then y=1 elseif",
+  "while x do", "while x do y=1",
+  "for i=1,2 do", "for i=1,2", "for i", "for i in", "for i in x do", "for",
+  "repeat", "repeat x=1",
+  "do", "do x=1",
+  "function", "function f", "function f(", "function f(a", "function f(a,",
+  "function f(a,b", "function f()", "function f() x=1",
+  "local", "local a", "local a =", "local a,", "local function",
+  "local function f(", "return 1 2",
+  "x =", "x = 1 +", "x = (", "x = (1", "x = {", "x = {1", "x = {1,", "x = t[",
+  "x = t[1", "x = f(", "x = f(1", "x = f(1,", "x = a.", "x = a:", "x = a:b",
+  "x = -", "x = #", "x = not", "x = 1 and", "x = 1 or", "x = 1 ..",
+  "goto", "::", "::a", "::a::", "break",
+  ";", "x", "x = 1;", "", " ", "\\n",
+}
+for i, s in ipairs(miss) do p("M" .. i, s) end
+
+-- ② "%s expected (to close %s at line %d)"：跨行的 check_match
+print("== 跨行闭合 ==")
+local spread = {
+  "if x then\\n\\nend",
+  "if x then\\n\\n\\nelse\\nend",
+  "while x do\\n\\n\\nend",
+  "for i=1,2 do\\n\\n\\nend",
+  "do\\n\\n\\nend",
+  "function f()\\n\\n\\nend",
+  "repeat\\n\\n\\nuntil x",
+  "x = function()\\n\\n\\nend",
+  "x = (\\n\\n\\n1)",
+  "x = {\\n\\n\\n1}",
+  "x = t[\\n\\n\\n1]",
+  "x = f(\\n\\n\\n1)",
+  "if x then\\ny=1\\nelseif z then\\n\\nelse\\nend",
+  "if x\\nthen\\nend",
+  "while x\\ndo\\nend",
+}
+for i, s in ipairs(spread) do p("S" .. i, s) end
+
+-- ③ errorlimit："too many %s (limit is %d) in %s"
+print("== 上限 ==")
+do
+  -- 局部变量 200：主 chunk 与函数里的 where 不一样
+  local a = {}
+  for i = 1, 201 do a[i] = "v" .. i end
+  p("L1", "local " .. table.concat(a, ","))
+  p("L2", "local " .. table.concat(a, ",", 1, 200))
+  p("L3", "function f()\\nlocal " .. table.concat(a, ",") .. "\\nend")
+  p("L4", "do\\nlocal " .. table.concat(a, ",") .. "\\nend")
+end
+do
+  -- upvalue 255
+  local a = {}
+  for i = 1, 256 do a[i] = "u" .. i end
+  local outer = "local " .. table.concat(a, ",", 1, 256) .. "\\n"
+  local use = {}
+  for i = 1, 256 do use[i] = "u" .. i end
+  p("U1", outer .. "function f() return " .. table.concat(use, "+") .. " end")
+end
+do
+  -- 函数实参上限？以及 return 的个数
+  local a = {}
+  for i = 1, 300 do a[i] = "1" end
+  p("A1", "f(" .. table.concat(a, ",") .. ")")
+  p("A2", "return " .. table.concat(a, ","))
+end
+
+-- ④ const / close 属性
+print("== 属性 ==")
+p("C1", "local x <const> = 1\\nx = 2")
+p("C2", "local x <const> = 1\\nx = 2\\nlocal y = x")
+p("C3", "local x <foo> = 1")
+p("C4", "local x <const> = 1")
+p("C5", "local x <close> = nil")
+p("C6", "local x <close>, y <close> = nil, nil")
+p("C7", "local x <close> = nil, y <close> = nil")
+p("C8", "function f() local x <const> = 1 x = 2 end")
+p("C9", "local x <const> = 1 local x = 2")
+p("C10", "for i <const> = 1, 2 do end")
+p("C11", "for i <close> = 1, 2 do end")
+p("C12", "local x <const>")
+p("C13", "local x <>")
+p("C14", "local x <const")
+
+-- ⑤ vararg
+print("== vararg ==")
+p("V1", "function f() return ... end")
+p("V2", "function f() local x = ... end")
+p("V3", "local function f() return ... end")
+p("V4", "return ...")
+p("V5", "local x = ...")
+p("V6", "function f(...) return ... end")
+p("V7", "do return ... end")
+p("V8", "function f() x = ... end")
+p("V9", "x = function() return ... end")
+p("V10", "function f(a, ...) return ..., a end")
+
+-- ⑥ goto / label
+print("== goto ==")
+p("G1", "goto x")
+p("G2", "goto x\\n::x::")
+p("G3", "::x:: goto x")
+p("G4", "do local y = 1 goto x ::x:: end")
+p("G5", "for i=1,2 do goto x end ::x::")
+p("G6", "goto x\\n::y::")
+p("G7", "::x::\\n::x::")
+p("G8", "goto continue\\n::continue::")
+p("G9", "while true do goto x ::y:: end")
+p("G10", "goto")
+
+-- ⑦ lexer 的报错
+print("== lexer ==")
+-- 全部写成常规引号：嵌套的 [[ ]] 会让<b>本探针自己</b>先编不过
+local lex = {
+  "'abc", '"abc', 'x = "abc', 'x = [[abc',
+  'x = [==[abc]', 'x = [==[abc]]', 'x = [[abc]]=',
+  'x = [ [ 1 ] ]',
+  "0x", "0xg", "x = 0x", "x = 0x.", "x = 0x.1p", "x = 0x1p",
+  "1e", "x = 1e", "x = 1e+", "x = .", "x = 1..2", "x = 0xa",
+  'x = "\\\\xZZ"', 'x = "\\\\x1"', 'x = "\\\\xff"', 'x = "\\\\z"',
+  'x = "\\\\u{}"', 'x = "\\\\u{110000}"', 'x = "\\\\u{41}"', 'x = "\\\\u{1100000}"',
+  "$", "x = $", "x = 1 $ 2", "x = @", "x = `", "x = ?",
+  "--[==[", "--", "--[", "x = 1 --[[\\n",
+  "x = 'a\\\\", 'x = "a\\nb"', 'x = "a\\\\\\nb"',
+  "x = 0777", "x = 1_000", "x = 1e999",
+  "\\\\", "x = \\\\", "1abc", "x = 0b101", "x = 1e309",
+}
+for i, s in ipairs(lex) do p("X" .. i, s) end
+
+-- ⑧ 方法调用后跟的不是参数列表："function arguments expected"
+print("== 调用形状 ==")
+p("F1", "x = a:b 5")
+p("F2", "x = a:b\\n5")
+p("F3", "x = a:b =")
+p("F4", "x = a:b;")
+p("F5", "x = a:b end")
+p("F6", "a:b()")
+p("F7", "a:b{}")
+p("F8", [[a:b"c"]])
+p("F9", "a:b[[c]]")
+p("F10", "a:b(1)(2)")
+
+-- ⑨ "'=' or 'in' expected" 与 "<name> or '...' expected"
+print("== for / 形参 ==")
+p("N1", "for i do end")
+p("N2", "for i, do end")
+p("N3", "for 1=1,2 do end")
+p("N4", "for i.j=1,2 do end")
+p("N5", "function f(1) end")
+p("N6", "function f(a, 1) end")
+p("N7", "function f(a.b) end")
+p("N8", "function f(..., a) end")
+p("N9", "function f(a, ..., b) end")
+p("N10", "for i=1,2,3,4 do end")
+
+-- ⑩ 语句层面接不上的东西
+print("== 语句 ==")
+local stmt = {
+  "y=1 z", "y=1 (", "y=1 )", "y=1 }", "y=1 ]", "y=1 ,",
+  "y=1 .", "y=1 :", "y=1 =", "y=1 <", "y=1 >", "y=1 *",
+  "y = 1 then", "y = 1 do", "y = 1 end", "y = 1 else",
+  "y = 1 elseif", "y = 1 until", "y = 1 in", "y = 1 local",
+  "return", "return return", "return 1 return 2",
+  "::a:: ::a::", "break break", ";", ";;", "; ;",
+}
+for i, s in ipairs(stmt) do p("T" .. i, s) end
+
+-- ⑪ "<goto x> at line N jumps into the scope of local 'y'"（jumpscopeerror）
+print("== goto 跨局部变量作用域 ==")
+p("J1", "do goto x local y = 1 ::x:: end")
+p("J2", "do goto x local y ::x:: end")
+p("J3", "while true do goto x local y = 1 ::x:: end")
+p("J4", "for i=1,2 do goto x local y = 1 ::x:: end")
+p("J5", "do local y = 1 goto x end ::x::")
+p("J6", "function f() goto x local y = 1 ::x:: end")
+p("J7", "do goto x local y <const> = 1 ::x:: end")
+p("J8", "do goto x local y <close> = nil ::x:: end")
+p("J9", "do do goto x local y = 1 ::x:: end end")
+p("J10", "repeat goto x local y = 1 ::x:: until true")
+
+-- ⑫ upvalue 上限 255：一层套一层，内层的 upvalue 能超过 255
+print("== upvalue 上限 ==")
+do
+  local a, b, use = {}, {}, {}
+  for i = 1, 200 do
+    a[i] = "a" .. i
+    b[i] = "b" .. i
+    use[#use + 1] = "a" .. i
+    use[#use + 1] = "b" .. i
+  end
+  local src = "local " .. table.concat(a, ",") .. "\\n"
+      .. "local function f()\\n"
+      .. "local " .. table.concat(b, ",") .. "\\n"
+      .. "local function g() return " .. table.concat(use, "+") .. " end\\n"
+      .. "return g\\nend"
+  p("P1", src)
+end
+
+-- ⑬ C stack overflow：语法分析器的层数上限（约定 #26，参考恒 197）
+print("== 层数 ==")
+for _, n in ipairs({ 100, 190, 200, 210, 300 }) do
+  p("D" .. n, string.rep("do ", n) .. string.rep(" end", n))
+  p("B" .. n, string.rep("(", n) .. "1" .. string.rep(")", n))
+  p("T" .. n, string.rep("{", n) .. string.rep("}", n))
+end
+
+print("DONE")
+                """);
+    }
+
     /** 源码前导：BOM 与 "#!" 行（只有 loadfile 走） */
     @Test
     void sourcePreambleMatchesReference() {

@@ -850,6 +850,9 @@ public final class IoLib {
         return t;
     }
 
+    /** {@code pclose} 等转发线程的上限（毫秒），理由见 {@link #ioPclose} */
+    private static final long PUMP_JOIN_MS = 2000;
+
     /** {@code io_pclose} */
     private static int ioPclose(LuaState L) {
         LuaFile p = toLStream(L);
@@ -880,11 +883,19 @@ public final class IoLib {
          * join 不会久等。不等的话 {@code popen} 的最后几行输出可能还没落到
          * {@code L.out} / {@code L.err} 上，比对就时好时坏：C 那边是 fd 直接
          * 写的，{@code pclose} 返回时早就写完了。
+         * <p>
+         * <b>但 join 必须有上限。</b>C 的 {@code pclose} 只 {@code waitpid}
+         * 那一个子进程，因为没被接管的那两条流是<b>继承来的 fd</b>，孙进程
+         * 拿着也无所谓；而这边是<b>管道</b> —— {@code io.popen("sleep 60 & echo hi")}
+         * 这种会把写端留给一个活着的孙进程，{@code waitFor} 早返回了，转发线程
+         * 却永远读不到 EOF，无上限的 join 就把 {@code f:close()} 卡死。
+         * 设一个 2 秒的上限：正常情况下子进程一退出、管道里那点数据瞬间就抽
+         * 干了；抽不干的只可能是「还有别人握着写端」，那种情况下等也没用。
          */
         if (p.pumps != null) {
             for (Thread t : p.pumps) {
                 try {
-                    t.join();
+                    t.join(PUMP_JOIN_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
