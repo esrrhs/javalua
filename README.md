@@ -207,7 +207,7 @@ files whose output is deterministic (`api`, `bitwise`, `calls`, `closure`,
 **byte for byte**. Five more (`cstack`, `gc`, `literals`, `locals`,
 `constructs`) print things that vary with the implementation or with a random
 seed, so they are only asserted to run to completion and print `OK` — the reason
-for each is listed under *Phase 10* below. 873 tests green, JaCoCo line coverage
+for each is listed under *Phase 10* below. 874 tests green, JaCoCo line coverage
 0.96 against a 0.95 gate. (The upstream-suite gate needs `LUA54_TESTS` or
 `target/lua54-tests`; without a test directory that whole class **skips itself**,
 so a green run on a machine without it is 25 tests weaker than it looks.)
@@ -2952,6 +2952,37 @@ still unobserved. Blocks 8 and 9 are likewise coverage-only: removing the
 green. They exist so JaCoCo has less to lie about, not because they pin a
 behaviour — most of what is left uncovered in `LuaFile` is `IOException` catch
 blocks, which need fault injection, not more scripts.
+
+### The `os.time` / `os.date` grid: the two functions the argument grid had to skip
+
+`os.time` and `os.date` were **blacklisted** from the library-argument grid because
+with no arguments they read the clock. With explicit arguments they are perfectly
+deterministic, so an entire area went unwatched. This grid is **1152 lines**:
+seven `os.time` fields × 23 values, the missing-field defaults (`hour` defaults to
+12, `year`/`month`/`day` have **no** default), `setallfields` writing the
+normalised fields back into the caller's table, 60 `os.date` formats × 15
+timestamps, `os.difftime`, `os.getenv`, `os.setlocale`.
+
+It found one real divergence: **`os.time{year=2147483647}` returned garbage.**
+The reference gives `67767976201968000`; we gave `-6019000092870206`. The cause
+is that `GregorianCalendar` holds **milliseconds**, so at that magnitude
+`getTimeInMillis()` overflows and wraps to a negative number. It now goes through
+`OsLib.civilToEpoch` (proleptic-Gregorian arithmetic in plain `long`), and the two
+agree — and `67767976201968000` is exactly `86400 * days_from_civil` minus the
+zone offset, i.e. **pure arithmetic**, so both libcs produce it.
+
+Two things are measured as out of scope rather than guessed at:
+
+* **Anything before 1900.** Apple libc's `mktime` refuses it (measured: `year =
+  1900` works, `1899` does not); glibc does not. Neither implementation is "right",
+  so the probe prints `SKIP` for that band.
+* **`os.time(nil)` / `os.time()`** — `lua_isnoneornil` means the clock.
+
+Measured sensitivity: the conversion-specifier error text 54, `civilToEpoch`'s
+month base (`tmMon` is 0-based) 29, `isdst` always 0 / `isdst = 1` not shifting
+an hour 24, `setAllFields`'s field names 22, falling back to `Calendar` (overflow)
+3. And one honest zero: **`os.date`'s `MAX_SEC` guard is 0** — `2^60` falls outside
+it either way, so this grid cannot see that line.
 
 ---
 
