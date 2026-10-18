@@ -1115,4 +1115,241 @@ end
 print("END")
         """);
     }
+
+    /**
+     * 片九：运行时错误 x 三种帧上下文，大网格（191 行）。
+     * <p>
+     * 与片五（{@code cframe}）同一条思路，只是把语料从 23 条扩到 63 条：
+     * {@code luaG_callerror} / {@code luaG_typeerror} / {@code luaG_concaterror}
+     * / {@code luaG_opinterror} / {@code luaG_ordererror} / {@code luaG_forerror}
+     * 全族，加上 {@code ltable.c} 的索引与 {@code next}、{@code table.sort}
+     * 无比较函数那条 C 帧路径、以及一批 {@code luaL_error} 的参数错。
+     * <p>
+     * <b>这一片一条分歧都没咬出来</b>（除已在片五修掉的 {@code next}）。但它是
+     * 「同一条消息在不同帧里位置不一样」这一族最宽的一张网，留着当回归网：
+     * 位置相关的改动动过之后它是最先红的。
+     */
+    @Test
+    void runtimeErrorPositionWideGridMatchesReference() {
+        Diff.assertMatches("""
+-- 运行时错误消息 x 三种帧上下文 的大网格
+-- 起因：「invalid key to 'next'」那条咬出来的是一类 bug —— 同一条消息在
+-- Lua 帧里有位置、在 C 帧里没有。C 的判据是 luaG_runerror 里的 isLua(ci)，
+-- 只看当前帧；而 luaL_error 走 luaL_where(L,1) 回跳一层。本实现把两者混了。
+-- 这一片把能想到的运行时错误全铺一遍，各放进三种上下文，看哪条消息的位置随帧变。
+--
+--   L = 直接在 Lua 帧里触发
+--   G = 在 gsub 的 Lua 回调里触发（ci 仍是 Lua，但上面压着 C 帧）
+--   C = 由 C 函数自己触发（ci 是 C 帧）
+
+local function esc(s)
+  return (s:gsub("[^ -~]", function(c) return "<" .. c:byte() .. ">" end))
+end
+local function show(v)
+  local t = type(v)
+  if t == "string" then
+    -- 只截掉「文件名:行号:」这一段的<b>行号</b>以外的部分？不：位置本身就是
+    -- 被测对象，原样留着。只把路径压成同一长度，免得改一行就整片红。
+    return "#" .. #v .. "[" .. esc(v) .. "]"
+  elseif t == "number" then
+    if math.type(v) == "integer" then return "i" .. tostring(v) end
+    return "f" .. tostring(v)
+  elseif t == "nil" or t == "boolean" then
+    return tostring(v)
+  end
+  local ok, s = pcall(tostring, v)
+  if not ok or type(s) ~= "string" then return t .. "(<notostring>)" end
+  return t .. "(" .. (s:gsub("0x%x+", "PTR")) .. ")"
+end
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. show(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+
+local E = {
+  -- luaG_callerror：call 一个不可调的值
+  { "callnil",    function() local f = nil return f() end },
+  { "callnum",    function() local f = 42 return f() end },
+  { "calltbl",    function() local f = {} return f() end },
+  { "callstr",    function() local f = "s" return f() end },
+  { "callbool",   function() local f = true return f() end },
+  -- luaG_typeerror：index / arithmetic / length
+  { "idxnil",     function() local t = nil return t.x end },
+  { "idxnum",     function() local t = 5 return t.x end },
+  { "idxbool",    function() local t = true return t.x end },
+  { "len",        function() return #nil end },
+  { "lenbool",    function() return #true end },
+  { "arith",      function() return {} + 1 end },
+  { "arith2",     function() return 1 - {} end },
+  { "unm",        function() return -{} end },
+  { "band",       function() return {} & 1 end },
+  { "shift",      function() return {} << 1 end },
+  -- luaG_concaterror
+  { "conc",       function() return {} .. "x" end },
+  { "conc2",      function() return "x" .. {} end },
+  { "conc3",      function() return nil .. "x" end },
+  -- luaG_opinterror：整数除法 / 取模 的除零，以及「没有整数表示」
+  { "idiv0",      function() return 1 // 0 end },
+  { "mod0",       function() return 1 % 0 end },
+  { "fdiv0",      function() return 1.0 // 0 end },
+  { "fmod0",      function() return 1.0 % 0 end },
+  { "idiv0u",     function() return -1 // -1 end },
+  -- luaG_ordererror
+  { "lt",         function() return {} < {} end },
+  { "le",         function() return {} <= {} end },
+  { "ltn",        function() return 1 < "a" end },
+  { "ltn2",       function() return "a" < 1 end },
+  -- luaG_forerror
+  { "forinit",    function() for i = "a", 2 do end end },
+  { "forlimit",   function() for i = 1, "a" do end end },
+  { "forstep",    function() for i = 1, 2, "a" do end end },
+  -- ltable.c：索引与 next
+  { "setnil",     function() local t = {} t[nil] = 1 end },
+  { "setnan",     function() local t = {} t[0/0] = 1 end },
+  { "getnil",     function() local t = {} return t[nil] end },
+  { "nextbad",    function() return next({}, 1) end },
+  { "nextbad2",   function() return next({1,2,3}, "k") end },
+  { "nextbad3",   function() return next({1,2,3}, 99) end },
+  { "rawsetnil",  function() return rawset({}, nil, 1) end },
+  { "rawsetnan",  function() return rawset({}, 0/0, 1) end },
+  -- C 函数自己做的比较（table.sort 无比较函数）
+  { "sortlt",     function() local t = {1,"a"} table.sort(t) return t end },
+  { "sortle",     function() local t = {{},{}} table.sort(t) return t end },
+  { "sortnan",    function() local t = {1,0/0,2} table.sort(t) return t end },
+  -- 库函数的参数错（luaL_error 那一族，位置应当来自调用者）
+  { "repfrac",    function() return ("x"):rep(1.5) end },
+  { "fmtfrac",    function() return string.format("%d", 1.5) end },
+  { "subfrac",    function() return ("x"):sub(1.5) end },
+  { "selectnil",  function() return select(nil) end },
+  { "unpackbig",  function() return table.unpack({}, 1, 1e18) end },
+  { "concattbl",  function() return table.concat({{}}) end },
+  { "insnil",     function() local t = {} for i = 1, 3 do t[i] = nil end return table.insert(t, 1, 2, 3) end },
+  { "remfrac",    function() local t = {1,2,3} return table.remove(t, 1.5) end },
+  { "floorstr",   function() return math.floor("abc") end },
+  { "maxnan",     function() return math.max(1, 0/0) end },
+  { "tostrerr",   function() return print(setmetatable({}, {__tostring = function() return {} end})) end },
+  { "setmt",      function() return setmetatable({}, 5) end },
+  { "getmtstr",   function() return getmetatable(5) end },
+  { "loadmode",   function() return load("x", "=c", "z") end },
+  { "loadbin",    function() return load("\\27bad", "=c", "t") end },
+  -- yield 的两条
+  { "yieldout",   function() return coroutine.yield() end },
+  -- 元方法缺失
+  { "indexmiss",  function() return ({}).x.y end },
+  { "newidx",     function() local t = setmetatable({}, {}) t.x = 1 return t end },
+  { "callmtmiss", function() return (setmetatable({}, {}))() end },
+  { "eqmt",       function() return setmetatable({}, {__eq = 5}) == setmetatable({}, {__eq = 5}) end },
+  -- userdata
+  { "udlen",      function() return #io.stdout end },
+  { "udidx",      function() return io.stdout.x end },
+}
+
+for i = 1, #E do
+  local n, f = E[i][1], E[i][2]
+  P("L/" .. n, f)
+  P("G/" .. n, function() return ("x"):gsub("x", f) end)
+  P("C/" .. n, function() return pcall(f) end)
+end
+print("END")
+        """);
+    }
+
+    /**
+     * 片十：<b>库函数的错</b> x 四种协程帧（152 行）。
+     * <p>
+     * 库函数的错走 {@code luaL_where(L, 1)}（<b>回跳一层到调用者</b>），与
+     * {@code luaG_runerror}（只看当前帧 {@code isLua(ci)}）是两套判据。
+     * 协程把调用链的头部换成了另一套东西（{@code resume} 的 C 帧、
+     * {@code wrap} 的续体），所以这一片把同一批库函数错分别放进：主线程 /
+     * 协程体顶层 / 协程里再套一层函数 / {@code coroutine.wrap} /
+     * 协程里的 {@code gsub} 回调。
+     * <p>
+     * 一条分歧都没咬出来 —— 但同样留作回归网：位置的两套判据一旦混用，
+     * 这里是除片五之外最容易红的地方。
+     */
+    @Test
+    void libraryErrorPositionByCoroutineFrameMatchesReference() {
+        Diff.assertMatches("""
+-- 库函数的错 x 四种帧：位置取自 luaL_where(L, 1)（回跳一层到调用者）。
+-- 协程体的<b>顶层</b>是一层特殊的帧（base_ci，currentline 为 -1），
+-- luaL_where 会据此给不出位置 —— 与主线程顶层完全不同。这一片就是为这个。
+local function P(tag, fn)
+  local r = table.pack(pcall(fn))
+  local out = tag
+  for i = 1, r.n do out = out .. " | " .. tostring(r[i]) end
+  print(out .. " | n=" .. r.n)
+end
+local E = {
+  { "rep",     function() return ("x"):rep(1.5) end },
+  { "repnil",  function() return ("x"):rep(nil) end },
+  { "fmt",     function() return string.format("%d", {}) end },
+  { "sub",     function() return ("x"):sub("a") end },
+  { "sel",     function() return select(nil) end },
+  { "sel2",    function() return select(0) end },
+  { "unpack",  function() return table.unpack({}, 1, 1e18) end },
+  { "concat",  function() return table.concat({{}}) end },
+  { "insert",  function() local t = {} t[1]=1 t[2]=2 t[3]=3 return table.insert(t, 1, 2, 3) end },
+  { "remove",  function() local t = {1,2,3} return table.remove(t, 1.5) end },
+  { "floor",   function() return math.floor("abc") end },
+  { "maxnil",  function() return math.max() end },
+  { "tonum",   function() return tonumber() end },
+  { "setmt",   function() return setmetatable({}, 5) end },
+  { "rawsetn", function() return rawset({}, nil, 1) end },
+  { "ipairs",  function() for _ in ipairs(nil) do end end },
+  { "nextnt",  function() return next(nil) end },
+  { "osdate",  function() return os.date("%Q") end },
+  { "ostime",  function() return os.time({}) end },
+  { "ioread",  function() return io.open("/dev/null"):read(-1) end },
+  { "iolines", function() return io.lines("/nope/nope")() end },
+  { "utfchar", function() return utf8.char(-1) end },
+  { "strpack", function() return string.pack("!", 1) end },
+  { "tmovef",  function() return table.move({}, 1, 2, 1.5) end },
+  { "err0",    function() error("E0", 0) end },
+  { "err1",    function() error("E1") end },
+  { "err2",    function() error("E2", 2) end },
+  { "err3",    function() error("E3", 3) end },
+  { "assert",  function() return assert(false) end },
+  { "rt",      function() local t = nil return t.x end },
+}
+for i = 1, #E do
+  local n, f = E[i][1], E[i][2]
+  P("L/" .. n, f)
+  -- 协程体的顶层
+  P("co/" .. n, function()
+    local co = coroutine.create(f)
+    local r = table.pack(coroutine.resume(co))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o
+  end)
+  -- 协程里再套一层函数（顶层之下）
+  P("cof/" .. n, function()
+    local co = coroutine.create(function() return f() end)
+    local r = table.pack(coroutine.resume(co))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o
+  end)
+  -- coroutine.wrap（错误从 wrap 出来的函数上抛）
+  P("wrap/" .. n, function()
+    local w = coroutine.wrap(f)
+    local r = table.pack(pcall(w))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o
+  end)
+  -- 协程里的 gsub 回调（上面压着一层 C 帧）
+  P("cog/" .. n, function()
+    local co = coroutine.create(function() return ("x"):gsub("x", f) end)
+    local r = table.pack(coroutine.resume(co))
+    local o = ""
+    for j = 1, r.n do o = o .. " | " .. tostring(r[j]) end
+    return o
+  end)
+end
+print("END")
+        """);
+    }
 }
