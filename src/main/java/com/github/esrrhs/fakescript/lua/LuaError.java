@@ -54,6 +54,34 @@ public class LuaError extends RuntimeException {
      */
     public boolean errErr;
 
+    /**
+     * {@code LUA_ERRMEM}：<b>内存错误</b>，由 {@code lapi.c: lua_error} 特判出来。
+     * <p>
+     * C 版那两行看着不起眼，却是<b>唯一一个「按错误值的内容决定错误种类」</b>
+     * 的地方：
+     * <pre>
+     * if (ttisshrstring(errobj) &amp;&amp; eqshrstr(tsvalue(errobj), G(L)-&gt;memerrmsg))
+     *   luaM_error(L);      // LUA_ERRMEM：直跳
+     * else
+     *   luaG_errormsg(L);   // LUA_ERRRUN：先过 L-&gt;errfunc
+     * </pre>
+     * 也就是<b>错误对象是不是「{@code not enough memory} 这个驻留短串」</b>
+     * 决定了走哪条路——判的是<b>同一个串对象</b>（短串全局唯一），不是内容。
+     * 两条路唯一的外部差别是<b>过不过消息处理函数</b>：
+     * {@code luaM_error} 不进 {@code luaG_errormsg}，于是 {@code xpcall} 的
+     * 处理器<b>接不到</b>内存错误。
+     * <p>
+     * 实测（{@code H} 是处理函数）：
+     * <pre>
+     * xpcall(function() error("not enough memory", 0) end, H)  -&gt;  false  not enough memory
+     * xpcall(function() error("not enough memory", 1) end, H)  -&gt;  false  H:case.lua:8: not enough memory
+     * xpcall(function() return io.open("/dev/null"):read(-1) end, H) -&gt; false  not enough memory
+     * </pre>
+     * 第二行带上了位置前缀，拼出来的串<b>不再是</b>那个驻留串，于是退化成普通
+     * 错误——「位置」这个看似无关的差别把错误种类换了。
+     */
+    public boolean errMem;
+
     public LuaError(LuaValue value) {
         super(value == null ? "nil" : value.toString(), null, false, false);
         this.value = value;

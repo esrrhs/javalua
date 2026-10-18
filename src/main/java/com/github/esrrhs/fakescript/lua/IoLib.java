@@ -1099,7 +1099,15 @@ public final class IoLib {
      */
     private static boolean readChars(LuaState L, LuaFile f, long n) {
         if (n < 0 || n > MAX_READ_ALLOC) {
-            throw new LuaError(LuaValue.ofString(LuaString.latin1("not enough memory")));
+            /*
+             * C 那边是 {@code resizebox} 里 {@code lua_pushliteral +
+             * lua_error}，而 {@code lua_error} 认出这是内存错误消息，于是走
+             * {@code luaM_error}（{@code LUA_ERRMEM}）——
+             * {@code xpcall} 的处理函数<b>接不到</b>。
+             */
+            LuaError e = new LuaError(LuaValue.ofString(LuaString.latin1("not enough memory")));
+            e.errMem = true;
+            throw e;
         }
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[CHUNK];

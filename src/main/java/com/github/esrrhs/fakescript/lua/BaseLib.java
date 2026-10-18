@@ -427,7 +427,21 @@ public final class BaseLib {
         try {
             kv = t.asTable().next(k);
         } catch (IllegalArgumentException e) {
-            throw L.libError("invalid key to 'next'");
+            /*
+             * 必须是 {@link LuaState#runError} 而不是 {@link LuaState#libError}。
+             * <p>
+             * C 里这句话在 {@code ltable.c: findindex}，是
+             * {@code luaG_runerror} 而不是 {@code luaL_error} —— 前者只在
+             * {@code isLua(ci)} 时才加位置，而跑到这儿 {@code ci} 是
+             * {@code luaB_next} 这个 <b>C 帧</b>，于是<b>永远没有位置</b>。
+             * {@code libError} 走的是 {@code luaL_where(L, 1)}，会往回跳一层
+             * 拿到调用者的行号，于是凭空多出 {@code case.lua:N:}（约定 #8 那句
+             * 「库函数一律 libError」在这里不成立——这条消息的源头不在库代码里）。
+             * <p>
+             * 实测：{@code next({}, 1)} 参考给 {@code invalid key to 'next'}，
+             * 本实现给 {@code case.lua:12: invalid key to 'next'}。
+             */
+            throw L.runError("invalid key to 'next'");
         }
         if (kv == null) {
             L.pushNil();

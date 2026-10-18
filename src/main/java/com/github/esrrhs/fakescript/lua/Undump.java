@@ -231,7 +231,11 @@ public final class Undump {
              * {@code loadBlock} 报 truncated chunk。
              */
             if (Long.compareUnsigned(size, MAX_LONG_STRING) > 0) {
-                throw new LuaError(LuaValue.ofString(LuaString.latin1("not enough memory")));
+                // 同上：C 的 malloc 失败是 luaM_error（LUA_ERRMEM），不是普通错误
+                LuaError e = new LuaError(
+                        LuaValue.ofString(LuaString.latin1("not enough memory")));
+                e.errMem = true;
+                throw e;
             }
             ByteArrayOutputStream acc = new ByteArrayOutputStream();
             byte[] block = new byte[8192];
