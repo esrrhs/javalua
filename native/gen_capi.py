@@ -82,8 +82,11 @@ FN_PTR_TYPES = {"lua_CFunction", "lua_KFunction", "lua_Alloc", "lua_Hook",
 # 64 位整数 typedef：同上，打包成 jint 就高位尽失
 WIDE_TYPES = {"lua_Integer", "lua_Unsigned", "size_t", "lua_KContext"}
 
+# LUAMOD_API 是十个 luaopen_* 用的那一个：它们声明在 lualib.h 里但不是
+# LUALIB_API，漏了它就整整十个导出符号缺席 —— 只有把 nm liblua.a 的导出
+# 符号与我们 dylib 的对撞才看得见（光看「头文件里有没有」看不出来）。
 decl_re = re.compile(
-    r"^(?P<api>LUA_API|LUALIB_API)\s+"
+    r"^(?P<api>LUA_API|LUALIB_API|LUAMOD_API)\s+"
     r"(?P<ret>.*?)\(\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\((?P<args>.*)\)\s*;",
     re.S)
 
@@ -166,6 +169,7 @@ def extract():
                         for t, n in ARG_OVERRIDE[name]]
             funcs.append({
                 "header": h,
+                "api": m.group("api"),
                 "name": name,
                 "ret": norm(m.group("ret")),
                 "args": args,
@@ -191,7 +195,9 @@ def check_against_real_lib(funcs):
     syms = set()
     for line in out.splitlines():
         f = line.split()
-        if len(f) >= 3 and re.match(r"^_lua(_[a-z0-9]|L_)", f[2]):
+        # lua_* / luaL_* / luaopen_* 三类；写成 `lua.` 会把 luaopen_* 全漏掉，
+        # 于是生成器反而报告「我们多出十个」，把真正该看的方向指反了。
+        if len(f) >= 3 and re.match(r"^_lua(_[a-z0-9]|L_|open_)", f[2]):
             syms.add(f[2][1:])
     mine = {f["name"] for f in funcs} | {"lua_ident"}
     miss = sorted(syms - mine)
@@ -293,9 +299,10 @@ def main():
                 body.append("  luashim_throw();")
                 if ret != "void":
                     body.append("  return 0;")
+            api = f["api"]
             fp.write("\n/* %s */\n%s %s (%s) (%s) {\n%s\n}\n" % (
                 f["header"],
-                "LUALIB_API" if f["header"] != "lua.h" else "LUA_API",
+                api,
                 ret, name,
                 ", ".join(decl_of(a) for a in args) or "void",
                 "\n".join(body)))

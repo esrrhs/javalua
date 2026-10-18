@@ -616,3 +616,53 @@ LUA_API void (lua_xmove) (lua_State *from, lua_State *to, int n) {
 LUALIB_API void (luaL_openlibs) (lua_State *L) {
   luashim_call(ID_luaL_openlibs, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
 }
+
+/* lualib.h */
+LUAMOD_API int (luaopen_base) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_base, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_coroutine) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_coroutine, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_debug) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_debug, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_io) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_io, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_math) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_math, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_os) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_os, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_package) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_package, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_string) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_string, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_table) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_table, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_utf8) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_utf8, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}

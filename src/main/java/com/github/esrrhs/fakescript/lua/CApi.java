@@ -367,6 +367,26 @@ final class CApi {
         case 143: /* luaL_openlibs */
             Api.luaL_openlibs(a0);
             return 0;
+        case 144: /* luaopen_base */
+            return Api.luaopen_base(a0);
+        case 145: /* luaopen_coroutine */
+            return Api.luaopen_coroutine(a0);
+        case 146: /* luaopen_debug */
+            return Api.luaopen_debug(a0);
+        case 147: /* luaopen_io */
+            return Api.luaopen_io(a0);
+        case 148: /* luaopen_math */
+            return Api.luaopen_math(a0);
+        case 149: /* luaopen_os */
+            return Api.luaopen_os(a0);
+        case 150: /* luaopen_package */
+            return Api.luaopen_package(a0);
+        case 151: /* luaopen_string */
+            return Api.luaopen_string(a0);
+        case 152: /* luaopen_table */
+            return Api.luaopen_table(a0);
+        case 153: /* luaopen_utf8 */
+            return Api.luaopen_utf8(a0);
         default:
             throw unimplemented("id=" + id);
         }

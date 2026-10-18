@@ -818,6 +818,47 @@ public final class OsLib {
             LuaAux.fileResult(L, false, null, en);
             return 3;
         }
+        /*
+         * POSIX 的 {@code rename(x, x)}：<b>成功且什么都不做</b>。
+         * 交给 {@code Files.move} 会变成「把目标当已存在项先删再挪」，
+         * 而源和目标又是同一个——实测那样做会把目录自己删掉。
+         * 判同一文件用 {@code Files.isSameFile} 而不是比字符串路径：
+         * {@code "au_tmp/e"} 与 {@code "au_tmp/./e"} 是同一个东西。
+         */
+        try {
+            if (df.exists() && Files.isSameFile(sf.toPath(), df.toPath())) {
+                L.push(LuaValue.ofBoolean(true));
+                return 1;
+            }
+        } catch (IOException ignored) {
+            // 判不出来就照下面的路走
+        }
+        /*
+         * 目录 → 目录：POSIX 要求目标<b>是空目录</b>（否则 ENOTEMPTY）。
+         * <p>
+         * 这一段必须自己扛，不能交给 {@code Files.move(..., REPLACE_EXISTING)}：
+         * 它在这个形状上<b>时好时坏</b>：目标明明是空目录，却有时候抛
+         * {@code DirectoryNotEmptyException}，报出来就成了
+         * {@code Directory not empty | 66}，而 C 那边稳稳成功。
+         * 全量跑里约 1/7 会红，单独重跑又一连十几次全绿，是典型的「赌 Java」。
+         * 这里按 POSIX 来：目标空就先摘掉再挪，不空就自己报 66。
+         */
+        if (df.isDirectory()) {
+            String[] kids = df.list();
+            if (kids == null || kids.length > 0) {
+                LuaAux.fileResult(L, false, null, 66); // ENOTEMPTY
+                return 3;
+            }
+            try {
+                Files.delete(df.toPath());
+                Files.move(sf.toPath(), df.toPath());
+                L.push(LuaValue.ofBoolean(true));
+                return 1;
+            } catch (IOException | RuntimeException e) {
+                LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
+                return 3;
+            }
+        }
         try {
             Files.move(sf.toPath(), df.toPath(),
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);

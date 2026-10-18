@@ -147,6 +147,16 @@ enum {
   ID_lua_xmove = 141,
   ID_lua_yieldk = 142,
   ID_luaL_openlibs = 143,
-  LUASHIM_ID_COUNT = 144
+  ID_luaopen_base = 144,
+  ID_luaopen_coroutine = 145,
+  ID_luaopen_debug = 146,
+  ID_luaopen_io = 147,
+  ID_luaopen_math = 148,
+  ID_luaopen_os = 149,
+  ID_luaopen_package = 150,
+  ID_luaopen_string = 151,
+  ID_luaopen_table = 152,
+  ID_luaopen_utf8 = 153,
+  LUASHIM_ID_COUNT = 154
 };
 #endif
