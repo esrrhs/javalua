@@ -2949,7 +2949,17 @@ class RuntimeTest {
                 -- 符号再比。注意这里是把 nan 的前导符号全部抹掉，不是只抹 "+"
                 -- —— glibc 的默认分支给的就是 "-nan"。
                 local function fnorm(s)
-                  return (s:gsub("^[-+ ]nan$", "nan"):gsub("^[-+ ]NAN$", "NAN"))
+                  -- 带填充的 nan 要连「填了几个空格」一起让出去：glibc 填的
+                  -- 是 4 个字符的 "-nan"、Apple libc 填的是 3 个字符的
+                  -- "nan"，同样 width=10，前者补 6 个空格、后者补 7 个 ——
+                  -- 抹平符号之后长度就差一格，不是「宽度算错了」。只比
+                  -- 「填的是空格、内容是 nan、填在哪一侧」。
+                  local lead, nan, trail = s:match("^(%s*)([-+]?[nN][aA][nN])(%s*)$")
+                  if nan then
+                    local function p(x) return (#x > 0) and "<PAD>" or "" end
+                    return p(lead) .. nan:gsub("^[-+]", "") .. p(trail)
+                  end
+                  return s
                 end
                 local function show(s)
                   -- 带 \\0 和非法 UTF-8 的字符串直接 print 会难读，转成十六进制再打

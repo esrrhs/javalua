@@ -52,6 +52,7 @@ class IoLibTest {
         add(tests, "proc", PROC);
         add(tests, "mode", MODE);
         add(tests, "gaps", GAPS);
+        add(tests, "errpath", ERRPATH);
         return tests;
     }
 
@@ -635,8 +636,9 @@ class IoLibTest {
      */
     private static final String[] PROC = {
             """
-            -- 所有子进程的输出/错误都在命令里重定向掉：继承来的 stdout/stderr 不进
-            -- 本实现的捕获缓冲（Java 子进程继承的是 JVM 的真 stderr），两边对不齐
+            -- 这一片刻意把子进程的输出/错误都在命令里重定向掉：它只关心「读到了
+            -- 什么、退出码是多少」。继承来的 stdout/stderr 怎么落另有 errpath 段
+            -- （那边是能对的 —— 本实现把它们转到了 L.out / L.err，正是捕获缓冲）。
             local out = {}
             local function c(tag, f, ...)
               local r = table.pack(pcall(f, ...))
@@ -1155,6 +1157,216 @@ class IoLibTest {
             """ };
 
     /**
+     * io 的<b>出错路径</b>：管道上的 {@code seek}、错模式的 EBADF、
+     * {@code popen} 子进程的流继承、{@code os.remove} / {@code os.rename} 的 errno。
+     * <p>
+     * 起因是覆盖率报告里 {@code IoLib} 有 54 行没走到，几乎全是
+     * {@code catch (IOException)} —— 也就是「真出 I/O 错时给什么 errno」这一片
+     * 从来没被扫过。顺着缺口点名咬出了三个真分歧：
+     * <ul>
+     *   <li><b>{@code io.open(不存在的文件, "r+") 必须失败</b>。C 的
+     *       {@code fopen("r+")} 走 {@code open(path, O_RDWR)}，<b>没带
+     *       {@code O_CREAT}</b>；Java 的 {@code RandomAccessFile(f, "rw")}
+     *       一定会建。修法是先用只读模式探一次存在性（{@code "r"} 模式本身
+     *       不创建），errno 照旧交给 {@code errnoOf} 反查；用
+     *       {@code File.exists()} 会把「父目录不可搜索」的 EACCES 错报成
+     *       ENOENT。</li>
+     *   <li><b>{@code popen} 只接管一条流，其余继承</b>。读模式接管子进程的
+     *       {@code stdout}，写模式接管它的 {@code stdin}，<b>另外两条要原样
+     *       落到 lua 的 stdout / stderr</b>。Java 的 {@code ProcessBuilder}
+     *       默认三条全接成管道，于是全被吞掉；更糟的是读模式下子进程的
+     *       {@code stdin} 也是管道且没人关 —— {@code io.popen("cat", "r")}
+     *       会一直等下去。</li>
+     *   <li>上面那条还顺带决定了<b>转发线程要 {@code join}</b>：不 join 的话
+     *       子进程的最后几行可能还没落进捕获缓冲，比对时好时坏。</li>
+     * </ul>
+     * <p>
+     * 一处探针写法上的坑：<b>文件句柄上没有 {@code tell} 方法</b>（只有
+     * {@code seek}），写 {@code f.tell} 得到的是
+     * {@code attempt to call a nil value} —— 那是探针写错，不是实现的行为。
+     */
+    private static final String[] ERRPATH = {"""
+-- io 的「出错路径」探针：管道上的 seek/tell、错的打开模式、popen/tempfile 的
+-- errno、close 的三元组。起因是覆盖率报告里 IoLib 有 54 行没走到，几乎全是
+-- catch (IOException) —— 也就是「真出 I/O 错时给什么 errno」这一片从来没扫过。
+local D = "target/rt"
+os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
+
+local function put(name, body)
+  local f = assert(io.open(D .. "/" .. name, "wb"))
+  f:write(body)
+  f:close()
+end
+put("a.txt", "line1\\nline2\\nline3\\n")
+put("empty.txt", "")
+
+local function show(v)
+  local t = type(v)
+  if t == "nil" then return "nil" end
+  if t == "boolean" then return tostring(v) end
+  if t == "number" then return math.type(v) .. ":" .. tostring(v) end
+  if t == "string" then return string.format("q(%d)[%s]", #v, v) end
+  return t
+end
+local function probe(name, f, ...)
+  local r = table.pack(pcall(f, ...))
+  local s = name .. " [" .. r.n .. "]"
+  for i = 2, r.n do s = s .. " " .. show(r[i]) end
+  if not r[1] then s = s .. " ERR " .. show(r[2]) end
+  print(s)
+end
+
+-- ① 管道上的 seek / tell：C 的 fseek/ftell 在管道上给 ESPIPE(29)
+--    io.popen 出来的句柄不是 RandomAccessFile，走的是 raf == null 那条路
+print("== 管道 seek/tell ==")
+local pr = io.popen("echo hello", "r")
+if pr then
+  print("R1", pr:read("a"))
+  probe("R.seek_set", pr.seek, pr, "set", 0)
+  probe("R.seek_cur", pr.seek, pr, "cur", 0)
+  probe("R.seek_end", pr.seek, pr, "end", 0)
+  probe("R.tell", pr.tell, pr)
+  probe("R.lines", pr.lines, pr)
+  probe("R.read_a2", pr.read, pr, "a")
+  probe("R.close", pr.close, pr)
+end
+
+print("== 管道 write 侧 ==")
+local pw = io.popen("cat > " .. D .. "/pw.out", "w")
+if pw then
+  probe("W.write", pw.write, pw, "xyz\\n")
+  probe("W.seek", pw.seek, pw, "set", 0)
+  probe("W.tell", pw.tell, pw)
+  probe("W.flush", pw.flush, pw)
+  probe("W.read", pw.read, pw, "a")
+  probe("W.close", pw.close, pw)
+end
+do
+  local f = io.open(D .. "/pw.out", "rb")
+  print("W.result", f and f:read("a") or "NOFILE")
+  if f then f:close() end
+end
+
+-- ② 错模式：只读文件上写、只写文件上读（EBADF 9）
+--    f 上没有 tell 方法（seek("cur",0) 才是），用 f.tell 会得到
+--    "attempt to call a nil value" —— 那是探针写错，不是实现的行为
+print("== 错模式 ==")
+local function modes()
+  for _, m in ipairs({ "r", "w", "a", "r+", "w+", "a+" }) do
+    local f, msg, en = io.open(D .. "/m.txt", m)
+    if f then
+      probe(m .. ".read1", f.read, f, 1)
+      probe(m .. ".read0", f.read, f, 0)
+      probe(m .. ".write_empty", f.write, f, "")
+      probe(m .. ".write_x", f.write, f, "x")
+      probe(m .. ".seek", f.seek, f, "set", 0)
+      probe(m .. ".seekcur", f.seek, f, "cur", 0)
+      probe(m .. ".flush", f.flush, f)
+      probe(m .. ".lines", f.lines, f)
+      probe(m .. ".close", f.close, f)
+    else
+      -- 打不开时连消息和 errno 一起比：r+ 在文件不存在时必须失败
+      print(m .. " OPENFAIL " .. show(msg) .. " " .. show(en))
+    end
+    os.remove(D .. "/m.txt")
+  end
+end
+put("m.txt", "abc")
+modes()
+
+-- ②之二 文件<b>不存在</b>时逐个模式开一遍：C 的 fopen 只有 r / r+ 要求文件在
+print("== 不存在的文件 × 各模式 ==")
+for _, m in ipairs({ "r", "w", "a", "r+", "w+", "a+", "rb", "r+b", "wb", "ab" }) do
+  local f, msg, en = io.open(D .. "/gone_" .. m, m)
+  if f then
+    print("gone " .. m .. " OK")
+    f:close()
+  else
+    -- 消息里的路径含模式名，两边一样；errno 才是要钉的
+    print("gone " .. m .. " FAIL " .. show(en))
+  end
+  os.remove(D .. "/gone_" .. m)
+end
+
+-- ③ popen 的退出状态三元组
+print("== popen 退出状态 ==")
+for _, cmd in ipairs({ "true", "false", "exit 7", "exit 255" }) do
+  local p = io.popen(cmd, "r")
+  if p then
+    probe("exit[" .. cmd .. "]", p.close, p)
+  end
+end
+probe("popen_badmode", io.popen, "true", "x")
+probe("popen_nocmd", io.popen)
+probe("popen_noname", io.popen, nil)
+-- 42 会被 sh 当成命令名，子进程的 stderr 是继承的 —— 不 close 就等不到它，
+-- 那行 "command not found" 出不出是竞态。必须 close 才确定。
+local pn = io.popen(42)
+if pn then probe("popen_num_close", pn.close, pn) end
+
+-- ④ tmpfile / close 的 errno
+print("== tmpfile ==")
+local tf = io.tmpfile()
+if tf then
+  probe("tf.write", tf.write, tf, "hello")
+  probe("tf.seek0", tf.seek, tf, "set", 0)
+  probe("tf.read", tf.read, tf, "a")
+  probe("tf.close", tf.close, tf)
+end
+probe("tmpfile_arg", io.tmpfile, "x")
+
+-- ⑤ 关掉的句柄再操作
+print("== 已关句柄 ==")
+local f = io.open(D .. "/a.txt", "r")
+f:close()
+probe("closed.read", f.read, f, "a")
+probe("closed.write", f.write, f, "a")
+probe("closed.seek", f.seek, f, "set", 0)
+probe("closed.close", f.close, f)
+probe("closed.lines", f.lines, f)
+probe("closed_tostring", tostring, f)
+
+-- ⑥ io.lines 的三种调用形状（无参 / nil / 文件名）
+print("== io.lines 形状 ==")
+probe("lines_nil", io.lines, nil)
+probe("lines_file_argc", function()
+  local r = table.pack(io.lines(D .. "/a.txt"))
+  return r.n, type(r[1]), type(r[2]), type(r[3]), type(r[4])
+end)
+probe("lines_noarg", function() return select("#", io.lines()) end)
+probe("lines_missing", io.lines, D .. "/nope.txt")
+
+-- ⑦ os.remove / os.rename 的 errno
+print("== os.remove/rename errno ==")
+probe("rm_missing", os.remove, D .. "/nope.txt")
+probe("rm_dir", os.remove, D)
+probe("rm_file", os.remove, D .. "/empty.txt")
+probe("rm_noname", os.remove)
+probe("rm_num", os.remove, 42)
+os.execute("mkdir -p " .. D .. "/nonempty && touch " .. D .. "/nonempty/x")
+probe("rm_nonempty", os.remove, D .. "/nonempty")
+put("r1.txt", "a")
+probe("mv_ok", os.rename, D .. "/r1.txt", D .. "/r2.txt")
+probe("mv_missing", os.rename, D .. "/nope1", D .. "/nope2")
+probe("mv_dir", os.rename, D, D .. "/r3")
+probe("mv_self", os.rename, D .. "/r2.txt", D .. "/r2.txt")
+probe("mv_into_dir", os.rename, D .. "/r2.txt", D)
+
+-- ⑧ io.open 的失败 errno
+print("== io.open 失败 ==")
+probe("open_missing", io.open, D .. "/nope.txt", "r")
+probe("open_nodir", io.open, D .. "/nodir/x", "w")
+probe("open_badmode", io.open, D .. "/a.txt", "q")
+probe("open_nomode", io.open, D .. "/a.txt")
+probe("open_nilname", io.open, nil, "r")
+probe("open_num", io.open, 42, "r")
+probe("open_dir_w", io.open, D, "w")
+probe("open_dir_r", io.open, D, "r")
+
+print("DONE")
+            """ };
+
+    /**
      * 文件方法 × 打开模式 × 每种参数：1262 行矩阵。
      * <p>
      * 九块内容：①六个方法（{@code flush lines read seek setvbuf write}）× 六个打开
@@ -1188,6 +1400,51 @@ class IoLibTest {
      * {@code done >= len} 那条短路、或者不关 {@code popen} 的 {@code in}，矩阵照样
      * 全绿 —— 它们的作用是让 JaCoCo 少说两句谎，不是多钉一条判定。
      */
+    /**
+     * {@code io.lines()} <b>一个参数都不给</b>的那条分支 —— 它读的是
+     * {@code io.input} 指向的默认输入，所以必须喂 stdin 才走得到。
+     * <p>
+     * 覆盖率报告里 {@code IoLib} 的 {@code ioLines} 有两行（「一个参数都没有」
+     * 那支）一直是白的：以前所有 {@code io.lines} 用例要么给文件名、要么显式给
+     * {@code nil}，两条走的都是另一支。
+     * <p>
+     * 顺带钉两件事：{@code io.input(f)} 换掉默认输入之后 {@code io.lines()}
+     * 读的是<b>那个文件</b>而不是 stdin；以及不带 {@code "l"} 时
+     * {@code io.read} 的默认格式。
+     */
+    @Test
+    void defaultInputLinesMatchesReference() {
+        String src = """
+                local out = {}
+                local function say(s) out[#out + 1] = s end
+                -- ① 无参 io.lines() 读默认输入（= stdin）
+                local n = 0
+                for l in io.lines() do n = n + 1 say("A" .. n .. " [" .. l .. "]") end
+                say("A n=" .. n)
+                -- ② io.read 的几种默认/显式格式
+                say("B " .. tostring(io.read()))
+                say("C " .. tostring(io.read("l")))
+                say("D " .. tostring(io.read("n")))
+                say("E " .. tostring(io.read("a")))
+                say("F " .. tostring(select('#', io.read("l", "l"))))
+                -- ③ 换掉默认输入之后，无参 io.lines() 读的是那个文件
+                local p = "target/rt/lines_in.txt"
+                os.remove(p)
+                local f = assert(io.open(p, "w"))
+                f:write("f1\\nf2\\nf3\\n")
+                f:close()
+                io.input(p)
+                for l in io.lines() do say("G [" .. l .. "]") end
+                say("H " .. tostring(io.read("l")))
+                io.input(io.stdin)
+                os.remove(p)
+                print(table.concat(out, "\\n"))
+                """;
+        Diff.assertMatchesWithStdin(src, "s1\ns2\n42\nrest\n");
+        Diff.assertMatchesWithStdin(src, "");
+        Diff.assertMatchesWithStdin(src, "only-one-line\n");
+    }
+
     @Test
     void fileMethodGridMatchesReference() {
         Diff.assertMatches("""
