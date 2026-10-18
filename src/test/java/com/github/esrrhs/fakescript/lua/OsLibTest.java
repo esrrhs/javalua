@@ -815,4 +815,136 @@ s("loc|restore", function() return os.setlocale("C") end)
 print("done")
             """);
     }
+
+    /**
+     * 片三：<b>{@code os.date} 的格式符全网格</b>（306 行，本地时区那一半）。
+     * <p>
+     * 起因是覆盖率：{@code OsLib#emit} 的 {@code default} 分支（未知转换符 →
+     * 原样吐 {@code %} + 字符）一条都没跑到。挖下去才发现那条分支<b>进不去</b>——
+     * Lua 5.4 的 {@code loslib.c: checkoption} 先把格式串按 {@code OPTIONS}
+     * 逐个对，对不上就直接抛
+     * {@code bad argument #1 to 'os.date' (invalid conversion specifier '%XX')}，
+     * 而且报错里带的是<b>从 {@code %} 起剩下的全部</b>（{@code "%QQ"} 报
+     * {@code '%QQ'}）。能进 {@code emit} 的都是 {@code OPTIONS} 里的，所以
+     * {@code default} 是死代码 —— 约定 #30：如实记成不可达，不去假装覆盖。
+     * <p>
+     * 与 {@link #timeAndDateGridMatchesReference}（走 {@code !} 的 UTC 路径）
+     * 互补，这一片铺的是<b>本地时区</b>那一半，外加几件那边没碰的：
+     * <ul>
+     *   <li>94 个可打印字符逐个当格式符 —— 绝大多数要报错，正好把
+     *       {@code invalid conversion specifier} 那一路全撞一遍；</li>
+     *   <li>{@code E} / {@code O} 修饰 76 组（C locale 下与基础转换符等价，
+     *       取第二个字符）；</li>
+     *   <li>{@code %-d} / {@code %_d} / {@code %^d} / {@code %#d} 这类
+     *       glibc 的填充写法（全都不认，照样报 {@code invalid}）；</li>
+     *   <li>五个时刻 × 14 个常用转换符；五个时刻里的闰日、年初、年末、
+     *       epoch 都是容易算错周的档。</li>
+     * </ul>
+     * <p>
+     * 不比的三处：无参 {@code os.date} 的<b>内容</b>（两个进程跑在不同秒上，
+     * 只比类型）、返回表的<b>地址</b>（只比类型）、以及 {@code !%z} /
+     * {@code !%Z}（约定 #53）。
+     */
+    @Test
+    void dateSpecifierSweepMatchesReference() {
+        Diff.assertMatches("""
+-- os.date 格式符全网格：每个可打印字符都当一次格式符，再叠加 E/O 修饰。
+-- 起因：覆盖率显示 emit() 的 default 分支（未知格式符 → 原样 "%"+字符）没被执行过。
+-- 而 C 的 os.date 是直接调系统 strftime —— glibc 认 %E/%O 修饰（%EY 给年份），
+-- 本实现走 default 会给出 "%E" + 字面 'Y'。这一片就是为这个。
+local function pr(tag, ...)
+  print(tag, ...)
+end
+
+-- 固定时间，免得跨秒跑出两种结果。用 os.time 反查再喂回去，两边一致。
+local t0 = os.time({ year = 2026, month = 3, day = 5, hour = 4, min = 6, sec = 7 })
+-- 再选几个「有说法」的时刻：闰日、年初、年末、1970 前
+local times = {
+  t0,
+  os.time({ year = 2024, month = 2, day = 29, hour = 23, min = 59, sec = 59 }),
+  os.time({ year = 2000, month = 1, day = 1, hour = 0, min = 0, sec = 0 }),
+  os.time({ year = 1999, month = 12, day = 31, hour = 12, min = 0, sec = 0 }),
+  os.time({ year = 1970, month = 1, day = 1, hour = 0, min = 0, sec = 0 }),
+}
+
+-- 1) 单字符格式符：所有可打印 ASCII
+for b = 33, 126 do
+  local c = string.char(b)
+  local ok, r = pcall(os.date, "%" .. c, times[1])
+  pr("S" .. b, ok, tostring(r))
+end
+
+-- 2) E/O 修饰：glibc 认的那一批
+local mods = { "E", "O" }
+local specs = "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%+"
+for mi = 1, #mods do
+  for si = 1, #specs do
+    local s = "%" .. mods[mi] .. specs:sub(si, si)
+    local ok, r = pcall(os.date, s, times[1])
+    pr("M" .. mods[mi] .. si, ok, tostring(r))
+  end
+end
+
+-- 3) 组合串与宽度/标志：%-d %_d %0d 这些 glibc 认的填充写法
+local fills = { "%-d", "%_d", "%0d", "%^d", "%#d", "%1d", "%12d", "%012d", "%.3d" }
+for i = 1, #fills do
+  local ok, r = pcall(os.date, fills[i], times[1])
+  pr("F" .. i, ok, tostring(r))
+end
+
+-- 4) 各时刻 x 常用格式符
+local common = { "c", "x", "X", "I", "p", "j", "U", "W", "w", "s", "G", "V", "u", "C" }
+for ti = 1, #times do
+  for i = 1, #common do
+    local ok, r = pcall(os.date, "%" .. common[i], times[ti])
+    pr("T" .. ti .. "_" .. i, ok, tostring(r))
+  end
+end
+
+-- 5) 杂项：空串、裸百分号、末尾孤立百分号、格式不是字符串、第二个参数不是表
+pr("Z1", pcall(os.date, "", times[1]))
+pr("Z2", pcall(os.date, "%%", times[1]))
+pr("Z3", pcall(os.date, "abc%", times[1]))
+pr("Z4", pcall(os.date, "%"))
+-- Z5/Z6 不比内容：os.date() 不带参数是「当前时间」，两次进程跑在不同秒上就假红
+pr("Z5", type(os.date()))
+pr("Z6", type(os.date(nil)))
+pr("Z7", pcall(os.date, 5))
+pr("Z8", pcall(os.date, true))
+pr("Z9", pcall(os.date, "%Y", "x"))
+pr("Z10", pcall(os.date, "%Y", 5))
+pr("Z11", pcall(os.date, "%Y", {}))
+-- 返回表那几档只比类型：地址归一（0x%x+ → PTR）能抹平，但没必要赌
+pr("Z12", type(os.date("*t")))
+pr("Z13", type(os.date("*t", times[1])))
+pr("Z14", type(os.date("!*t", times[1])))
+pr("Z15", type(os.date("*t", 0)))
+pr("Z16", select("#", os.date("*t", times[1])))
+do
+  local t = os.date("*t", times[1])
+  local ks = { "year", "month", "day", "hour", "min", "sec", "wday", "yday", "isdst" }
+  local out = {}
+  for i = 1, #ks do out[#out + 1] = ks[i] .. "=" .. tostring(t[ks[i]]) end
+  pr("Z17", table.concat(out, ","))
+end
+-- 6) UTC（前缀 "!"）：约定 #53 只避开 %z/%Z，其余在 UTC 下都是定值
+local utcspec = "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyY%"
+for si = 1, #utcspec do
+  local s = "!%" .. utcspec:sub(si, si)
+  local ok, r = pcall(os.date, s, times[1])
+  pr("U" .. si, ok, tostring(r))
+end
+-- UTC 下的 *t
+do
+  local t = os.date("!*t", times[1])
+  local ks = { "year", "month", "day", "hour", "min", "sec", "wday", "yday", "isdst" }
+  local out = {}
+  for i = 1, #ks do out[#out + 1] = ks[i] .. "=" .. tostring(t[ks[i]]) end
+  pr("U99", table.concat(out, ","))
+end
+
+print("END")
+
+                """);
+    }
 }
