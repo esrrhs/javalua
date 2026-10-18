@@ -49,6 +49,20 @@ public final class IoLib {
     /** {@code LUAL_BUFFERSIZE}，只用于 {@code setvbuf} 的默认参数 */
     private static final int LUAL_BUFFERSIZE = 8192;
 
+    /** {@code read_chars} 分块读用的块大小 */
+    private static final int CHUNK = 8192;
+
+    /**
+     * {@code read_chars} 放弃分配的上限。
+     * <p>
+     * 真值是平台相关的：macOS 上参考实现二分出来在 {@code 2^46} 附近断
+     * （{@code 70368740245501} 还能成、{@code 70368740507645} 就不行），
+     * Linux 有过量提交、边界又不一样。所以这个数<b>不进差分用例</b>，
+     * 它只管「明显大到谁都分配不出来」的那一档；唯一确定性的输入是
+     * 负数（C 里转 {@code size_t} 之后必然是天文数字）。
+     */
+    private static final long MAX_READ_ALLOC = 1L << 46;
+
     /* ==================== 注册 ==================== */
 
     public static void open(LuaState L) {
@@ -391,6 +405,13 @@ public final class IoLib {
                     errno = 22; // EINVAL
                     return -1;
                 }
+                /*
+                 * 成功的 {@code fseek} 会<b>丢掉 ungetc 退回来的那个字节</b>。
+                 * 实测的分歧：{@code f:read("n")} 在 "three" 上失败时把 't' 退了回去，
+                 * 随后 {@code f:seek("set",0)} 再 {@code f:read(3)} —— 参考给
+                 * {@code "1 2"}，我们给 {@code "t1 "}。
+                 */
+                pushback = -1;
                 raf.seek(pos);
                 return raf.getFilePointer();
             } catch (IOException e) {
@@ -919,12 +940,37 @@ public final class IoLib {
         L.push(LuaValue.ofString(L.newString(b, 0, b.length)));
     }
 
-    /** {@code read_chars} */
+    /**
+     * {@code read_chars}。
+     * <p>
+     * C 里 {@code g_read} 写的是 {@code size_t l = (size_t)luaL_checkinteger(L, n)}：
+     * <b>负数按无符号解释成一个天文数字</b>，随后 {@code luaL_prepbuffsize} 去
+     * 预分配这么大一块，{@code resizebox} 分配失败抛 {@code "not enough memory"}。
+     * 实测 {@code f:read(-1)} 在参考实现上就是 {@code false  not enough memory}，
+     * 而不是什么整数越界。
+     * <p>
+     * 所以这里<b>不预分配 {@code n} 个字节</b>，改成循环读到「流干」或「够数」为止
+     * ——这也更贴近 {@code fread}：短读时 C 会继续读到 {@code n} 或 EOF。只有大得
+     * 任何系统都分配不出来时才抛内存错。
+     */
     private static boolean readChars(LuaState L, LuaFile f, long n) {
-        byte[] buf = new byte[(int) n];
-        int nr = f.read(buf, 0, buf.length);
-        L.push(LuaValue.ofString(L.newString(buf, 0, Math.max(nr, 0))));
-        return nr > 0;
+        if (n < 0 || n > MAX_READ_ALLOC) {
+            throw new LuaError(LuaValue.ofString(LuaString.latin1("not enough memory")));
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[CHUNK];
+        long left = n;
+        while (left > 0) {
+            int nr = f.read(buf, 0, (int) Math.min(left, CHUNK));
+            if (nr <= 0) {
+                break;
+            }
+            bos.write(buf, 0, nr);
+            left -= nr;
+        }
+        byte[] b = bos.toByteArray();
+        L.push(LuaValue.ofString(L.newString(b, 0, b.length)));
+        return b.length > 0;
     }
 
     /**
