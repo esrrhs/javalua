@@ -1190,7 +1190,11 @@ class IoLibTest {
 -- errno、close 的三元组。起因是覆盖率报告里 IoLib 有 54 行没走到，几乎全是
 -- catch (IOException) —— 也就是「真出 I/O 错时给什么 errno」这一片从来没扫过。
 local D = "target/rt"
-os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
+-- 与 RuntimeTest 的 errno 用例同理：清理与建目录不串在一条 && 上，
+-- 清理没成也照样建（mkdir -p 幂等），否则整片假红；清理的输出不进断言
+-- （宿主环境可能给 rm 套一层会说话的包装）。
+os.execute("rm -rf " .. D .. " >/dev/null 2>&1")
+os.execute("mkdir -p " .. D)
 
 local function put(name, body)
   local f = assert(io.open(D .. "/" .. name, "wb"))
