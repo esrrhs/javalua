@@ -835,8 +835,28 @@ final class Api {
     }
 
     @Generated
+    /*
+     * {@code lapi.c: lua_closeslot}：把某个槽上刚标记的 tbc 变量<b>当场关掉</b>，
+     * 然后把它置 nil。
+     * <p>
+     * {@code luaF_close(L, level, CLOSEKTOP, 0)} 的最后一个参数是 {@code 0}——
+     * <b>{@code __close} 里不许 yield</b>（{@code lua_toclose} 那条路的
+     * {@code moveresults} 传的是 1，允许）。所以这里 {@code forceYy} 取 false。
+     */
     static void lua_closeslot(long L, long idx) {
-        throw unimplemented("lua_closeslot");
+        LuaState S = st(L);
+        int level = stackIdx(S, (int) idx);
+        S.closeUpvals(level, null, false);
+        S.stack[level].setNil();
+    }
+
+    /** {@code index2stack}：与 {@link #val} 同一套换算，只是要有越界保护 */
+    private static int stackIdx(LuaState L, int idx) {
+        int p = idx > 0 ? L.ci.func + idx : L.top + idx;
+        if (p < 0 || p >= L.top) {
+            throw new IllegalArgumentException("bad stack index " + idx);
+        }
+        return p;
     }
 
     /*
@@ -1797,8 +1817,22 @@ final class Api {
     }
 
     @Generated
+    /*
+     * {@code lapi.c: lua_toclose}：把一个栈槽标成 to-be-closed，等这个 <b>C
+     * 函数返回时</b>关掉。
+     * <p>
+     * 「本函数有待关闭变量」在 C 里编码在 {@code ci->nresults} 上：
+     * {@code codeNresults(n) = -n - 3}，于是任何 {@code n} 编码后都
+     * {@code < LUA_MULTRET}，{@code hastocloseCfunc} 一眼能认出来，
+     * {@code decodeNresults} 又能还原。本实现不另开一个 boolean —— 那会让
+     * {@code moveresults} 里「先关变量还是先报返回钩子」的顺序失去依据。
+     */
     static void lua_toclose(long L, long idx) {
-        throw unimplemented("lua_toclose");
+        LuaState S = st(L);
+        S.newTbcUpval(stackIdx(S, (int) idx));
+        if (S.ci.nresults >= LuaState.MULTRET) {
+            S.ci.nresults = -S.ci.nresults - 3;
+        }
     }
 
     /**

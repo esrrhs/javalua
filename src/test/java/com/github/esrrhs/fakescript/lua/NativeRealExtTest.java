@@ -123,6 +123,41 @@ final class NativeRealExtTest {
                     "print(pcall(n.decode))",
                     "print(pcall(n.encode, {[1] = function() end}))"},
             }),
+        /*
+         * luafilesystem：跟上面两个不一样的一类——它把 <b>C 的 errno 原文</b>
+         * 经 {@code luaL_argerror} 报出来（{@code "No such file or directory"}，
+         * 而且第二个返回值就是 errno 数字），还用带 {@code __gc} 的 userdata
+         * 包 {@code DIR*}。这两条都是只跑真扩展才会走到的路。
+         */
+        new Ext("LFS_SRC", "lfs",
+            new String[]{"src/lfs.c"},
+            new String[][]{
+                {"装进来",
+                    "print(type(n), type(n.attributes), type(n.dir))"},
+                {"建目录 / 取属性",
+                    "local d = 'target/rt/lfsd'",
+                    "os.remove(d .. '/t.txt')",
+                    "n.rmdir(d)",
+                    "print(n.mkdir(d))",
+                    "print(n.attributes(d).mode)",
+                    "local f = io.open(d .. '/t.txt', 'w')",
+                    "f:write('abc') f:close()",
+                    "print(n.attributes(d .. '/t.txt').size)"},
+                {"目录迭代",
+                    "local d = 'target/rt/lfsd'",
+                    "local names = {}",
+                    "for x in n.dir(d) do names[#names + 1] = x end",
+                    "table.sort(names)",
+                    "print(table.concat(names, ','))"},
+                {"errno 走 luaL_argerror",
+                    "print(n.attributes('target/rt/lfsd/nope'))",
+                    "print(n.attributes('target/rt/lfsd/t.txt/nope'))"},
+                {"错误路径",
+                    "print(pcall(n.attributes))",
+                    "print(pcall(n.attributes, 1))",
+                    "print(pcall(n.dir, 'target/rt/lfsd/nope'))",
+                    "print(type(n.currentdir()))"},
+            }),
     };
 
     private static String skipReason = "";
