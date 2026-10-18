@@ -381,6 +381,39 @@ public final class LuaState {
     private int warnState = WARN_OFF;
 
     /**
+     * {@code G(L)->warnf}：{@code lua_setwarnf} 装进来的函数指针。
+     * <p>
+     * 三个取值要分清，因为 {@code luaE_warning} 的判据是
+     * {@code wf != NULL}：
+     * <ul>
+     *   <li>{@code 0}：没装过，走 {@code lauxlib} 那套内置状态机
+     *       （{@code luaL_newstate} 装的是 {@code warnfoff}）；</li>
+     *   <li>{@code -1}：<b>被显式设成了 NULL</b>，所有警告一律丢弃，
+     *       连 {@code "@on"} 都不认；</li>
+     *   <li>其余：C 函数指针，消息原样交给它（<b>不经过</b> {@code "@on"} 那套）。</li>
+     * </ul>
+     */
+    private long warnFn = 0;
+
+    /** {@code G(L)->ud_warn} */
+    private long warnUd = 0;
+
+    /**
+     * {@code lua_setwarnf}：{@code f == 0} 表示 NULL，不是「恢复默认」。
+     * <p>
+     * 与 {@link #warning} 一样走 {@link #mainThread} 转一道：
+     * {@code G(L)->warnf} 是整个 Lua 状态一份，协程里设的主线程也要生效。
+     */
+    void setWarnf(long f, long ud) {
+        if (mainThread != this) {
+            mainThread.setWarnf(f, ud);
+            return;
+        }
+        warnFn = (f == 0) ? -1 : f;
+        warnUd = ud;
+    }
+
+    /**
      * {@code G(L)->panic}：{@code lua_atpanic} 存的函数指针。
      * <p>
      * 真 Lua 在「错误逃出所有保护区」时调它、调完 {@code abort()}。本实现的错误
@@ -441,6 +474,18 @@ public final class LuaState {
             return;
         }
         LuaString s = msg.toCString();
+        /*
+         * {@code luaE_warning}：{@code G(L)->warnf} 被换掉之后，消息<b>原样</b>
+         * 交给它，不再过 {@code warnfoff} 那套 @{@code "@on"} 状态机。设成 NULL
+         * 则一个字都不出（连控制消息也不认）。
+         */
+        if (warnFn == -1) {
+            return;
+        }
+        if (warnFn != 0) {
+            NativeBridge.invokeWarn(warnFn, warnUd, s.bytes, tocont);
+            return;
+        }
         switch (warnState) {
         case WARN_OFF:
             // warnfoff：只查控制消息，其余一律丢弃
@@ -950,7 +995,26 @@ public final class LuaState {
      */
     public void close() {
         synchronized (finalizables) {
-            for (GcRef r : finalizables) {
+            /*
+             * 必须用<b>下标</b>而不是迭代器：{@code __gc} 里再
+             * {@code setmetatable} 一次，就会往同一个 {@code finalizables}
+             * 里追加，{@code ArrayList} 的迭代器下一次 {@code next()} 立刻抛
+             * {@code ConcurrentModificationException}——实测脚本
+             * <pre>
+             * local function mk()
+             *   setmetatable({}, {__gc = function() mk() end})
+             * end
+             * mk()
+             * </pre>
+             * 参考实现安静退出，本实现崩在 {@code lua_close} 里，
+             * 而且这是 <b>Java 自己的异常</b>（约定 #4），不是脚本报错。
+             * <p>
+             * C 那边是 {@code while (g->tobefnz) GCTM(L);} —— 收尾时新入队的
+             * 一样会被跑到，所以这里也一路跑到底；{@code r.done} 保证同一个
+             * 对象只跑一次，不会自己绕死自己。
+             */
+            for (int i = 0; i < finalizables.size(); i++) {
+                GcRef r = finalizables.get(i);
                 Object t = r.ref.get();
                 if (t != null && !r.done) {
                     r.done = true;
@@ -3156,21 +3220,51 @@ public final class LuaState {
      * 两者是不同的错误文本，混掉就会在 {@code pcall(f)} 这类用例上对不上。
      */
     LuaValue arg1(int arg) {
-        int idx = ci.func + arg; // 1 起：arg=1 → func+1 是第一个参数
-        if (idx >= top) {
-            return LuaValue.ofNil(); // 仅用于取值，配合下面的 isNone 判断
-        }
-        return stack[idx];
+        LuaValue v = argRaw(arg);
+        return v == null ? LuaValue.ofNil() : v; // 仅用于取值，配合下面的 isNone 判断
     }
 
-    /** {@code lua_isnone}：第 {@code arg} 个参数（1 起）根本没传？ */
+    /**
+     * {@code lua_isnone}：第 {@code arg} 个参数根本没传？
+     * <p>
+     * 与 {@link #arg1} 必须走<b>同一套</b>下标换算，见下面 {@code argRaw} 的注释。
+     */
     boolean isNoneArg(int arg) {
-        return ci.func + arg >= top;
+        return argRaw(arg) == null;
     }
 
     /** {@code luaL_typename}：越界是 {@code no value} */
     String argTypeName(int arg) {
-        return isNoneArg(arg) ? "no value" : stack[ci.func + arg].typeName();
+        LuaValue v = argRaw(arg);
+        return v == null ? "no value" : v.typeName();
+    }
+
+    /*
+     * 下标换算是 {@code lapi.c: index2value} 的那一套，<b>不是</b>「参数永远是
+     * 1 起的正数」。
+     *
+     * 踩过一次：这里原先只有 {@code ci.func + arg}。本实现的库函数用下来一直
+     * 没问题，因为它们确实只传 1、2、3……；但 {@code luaL_checkinteger} /
+     * {@code luaL_checknumber} 是 <b>C 扩展</b>的入口，扩展想传什么下标就传什么。
+     * luabitop 的 {@code barg(L, -1)} 一路用的是负下标，于是
+     * {@code ci.func - 1} 指到函数槽<b>前面</b>那一格去了——取出来是上一帧的
+     * 字符串，报出
+     * {@code bad argument #-1 to '?' (number expected, got string)}，
+     * 而参考实现安静地取到刚压进去的那个数，{@code require("bit")} 直接成功。
+     * 四个 bit 用例全红在这一个下标上。
+     *
+     * C 那边：{@code idx > 0 -> ci->func + idx}（越界给 nilvalue），
+     * {@code idx < 0 -> L->top + idx}，还有 registry 与 upvalue 两个伪下标。
+     */
+    private LuaValue argRaw(int arg) {
+        if (arg == Api.REGISTRY) {
+            return LuaValue.ofTable(registry);
+        }
+        if (arg < Api.REGISTRY) {
+            return upvalue(Api.REGISTRY - arg - 1);
+        }
+        int p = arg > 0 ? ci.func + arg : top + arg;
+        return (p >= 0 && p < top) ? stack[p] : null;
     }
 
     /**
@@ -3182,7 +3276,9 @@ public final class LuaState {
      * {@code bad argument #2 to 'setmetatable' (nil or table expected, got no value)}。
      */
     int argBaseType(int arg) {
-        return isNoneArg(arg) ? Lua.TNONE : stack[ci.func + arg].baseType();
+        // 同 argRaw：负下标要按 top + arg 算
+        LuaValue v = argRaw(arg);
+        return v == null ? Lua.TNONE : v.baseType();
     }
 
     /**
@@ -3194,7 +3290,15 @@ public final class LuaState {
     public LuaError typeArgError(int arg, String tname) {
         String typeArg;
         if (!isNoneArg(arg)) {
-            LuaValue v = stack[ci.func + arg];
+            /*
+             * 用 {@code argRaw} 而不是 {@code stack[ci.func + arg]}：
+             * 负下标要按 {@code top + arg} 算，这里原先那行是
+             * {@code argRaw} 修好之后<b>剩下的唯一一处</b>硬写下标的——
+             * 于是 {@code luaL_checkinteger(L, -1)} 报出来的类型名取自
+             * 函数槽<b>前面</b>那一格（实测给 {@code got boolean}，参考给
+             * {@code got string}）。下标换算只能有一处，见 {@code argRaw}。
+             */
+            LuaValue v = argRaw(arg);
             /*
              * 走 LuaTm.objTypeName，不要在这里自己取 __name：C 这边
              * luaL_typeerror 用的就是 luaT_objtypename，于是「只有表与 userdata

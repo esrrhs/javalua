@@ -245,6 +245,51 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_takePending(JNIEnv *env,
     return r;
 }
 
+/*
+ * 把警告消息交给 {@code lua_WarnFunction}。
+ * <p>
+ * 消息是一次性的：回调同步跑完就返回，所以给一块栈上的缓冲足够；
+ * 超长才落到堆上。
+ */
+JNIEXPORT void JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeWarn(JNIEnv *env,
+        jclass cls, jlong fn, jlong ud, jbyteArray b, jboolean tocont) {
+    char small[512];
+    char *buf = small;
+    jsize n;
+    jbyte *tmp;
+    void (*f)(void *, const char *, int);
+    (void)cls;
+    if (fn == 0 || b == NULL) {
+        return;
+    }
+    n = (*env)->GetArrayLength(env, b);
+    if (n < 0) {
+        return;
+    }
+    if ((size_t)n + 1 > sizeof(small)) {
+        buf = (char *)malloc((size_t)n + 1);
+        if (buf == NULL) {
+            return;
+        }
+    }
+    tmp = (*env)->GetByteArrayElements(env, b, NULL);
+    if (tmp == NULL) {
+        if (buf != small) {
+            free(buf);
+        }
+        return;
+    }
+    memcpy(buf, tmp, (size_t)n);
+    buf[n] = '\0';
+    (*env)->ReleaseByteArrayElements(env, b, tmp, JNI_ABORT);
+    f = (void (*)(void *, const char *, int))(intptr_t)fn;
+    f((void *)(intptr_t)ud, buf, tocont ? 1 : 0);
+    if (buf != small) {
+        free(buf);
+    }
+}
+
 /** 把本库提升进全局命名空间：System.load 用的是 RTLD_LOCAL，不提升扩展就找不到 */
 JNIEXPORT jlong JNICALL
 Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlopen(JNIEnv *env,
@@ -919,6 +964,22 @@ static void *luashim_allocf(void *ud, void *ptr, size_t osize, size_t nsize) {
 
 static lua_Alloc g_allocf = luashim_allocf;
 static void *g_allocud = NULL;
+
+/*
+ * {@code lua_newstate} 的分配器参数在 C 侧接住：Java 那头只管起状态，而
+ * {@code g->frealloc} / {@code g->ud} 得真的换掉，否则 {@code lua_getallocf}
+ * 交回去的还是默认那个，调用方换分配器的效果就丢了。
+ */
+LUA_API lua_State *(lua_newstate) (lua_Alloc f, void *ud) {
+    jlong h = luashim_call(ID_lua_newstate, (intptr_t)f, (intptr_t)ud,
+            0, 0, 0, 0, 0.0);
+    if (h == 0) {
+        return NULL;
+    }
+    g_allocf = (f != NULL) ? f : luashim_allocf;
+    g_allocud = ud;
+    return LUASHIM_STATE(h);
+}
 
 LUA_API lua_Alloc (lua_getallocf) (lua_State *L, void **ud) {
     (void)L;

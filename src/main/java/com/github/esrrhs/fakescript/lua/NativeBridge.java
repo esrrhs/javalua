@@ -150,6 +150,12 @@ public final class NativeBridge {
      */
     static native long defaultPanic();
 
+    /**
+     * 把警告消息交给 C 的 {@code lua_WarnFunction}：
+     * {@code void (*)(void *ud, const char *msg, int tocont)}。
+     */
+    static native void invokeWarn(long fn, long ud, byte[] msg, boolean tocont);
+
     /** 取回 C 侧接住的 Java 异常（{@code lua_error} 那一跳的载荷） */
     static native Throwable takePending();
 
