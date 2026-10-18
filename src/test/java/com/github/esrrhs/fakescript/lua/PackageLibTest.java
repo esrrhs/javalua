@@ -585,7 +585,29 @@ class PackageLibTest {
         probe("ll_onearg", package.loadlib, "/tmp/nope.so")
         probe("ll_nil", package.loadlib, nil, "x")
         probe("ll_num", package.loadlib, 42, "x")
-        probe("ll_empty", package.loadlib, "", "")
+        -- ll_empty 是唯一要单独走的：三元组第三个值（「在哪一步失败」）落在
+        -- ERRLIB 上时给 LIB_FAIL（POSIX 有 dlopen 是 "open"，没有的是
+        -- "absent"），落在 ERRFUNC 上时给 "init"。而<b>空路径</b>是分水岭：
+        -- glibc 的 dlopen("") 是「打开主程序」—— 它<b>成功</b>，于是往下走到
+        -- dlsym("") 失败，给 "init"；macOS 的 dlopen("") 直接失败，给 "open"；
+        -- 本实现没有 dlopen，也给 "open"。三个答案分属三个 loader，不是 Lua
+        -- 的语义差 —— 只比「这个三元组在不在、第三个是不是字符串」。
+        -- 其余 ll_* 两边都停在 ERRLIB，"open" 照比（它同时钉住 LIB_FAIL 不是
+        -- "absent"）。
+        local function probe_llnowhere(name, ...)
+          local r = table.pack(pcall(package.loadlib, ...))
+          local s = name .. " [" .. r.n .. "]"
+          for i = 2, r.n do
+            local v = r[i]
+            if i == 4 and (v == "open" or v == "init" or v == "absent") then
+              v = "<WHERE>"
+            end
+            s = s .. " " .. d0(v)
+          end
+          if not r[1] then s = s .. " ERR " .. d0(r[2]) end
+          out[#out + 1] = s
+        end
+        probe_llnowhere("ll_empty", "", "")
 
         -- 3. searchpath 的模板边界：以分隔符结尾、只有分隔符、连续分隔符
         local P = D .. "/hit.lua"
