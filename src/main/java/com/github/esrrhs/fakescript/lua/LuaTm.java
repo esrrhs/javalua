@@ -176,6 +176,18 @@ final class LuaTm {
      * 结果先落在 {@code func} 位置（因为 {@code poscall} 会把第一个结果搬到
      * {@code ci.func}），再拷到 {@code resIdx}。这两步不能合并：{@code resIdx}
      * 是调用方寄存器，可能就在被覆盖的范围内。
+     * <p>
+     * <b>能不能 yield 要看当前帧</b>：C 版这两句
+     * <pre>
+     * if (isLuacode(L-&gt;ci)) luaD_call(L, func, 1);
+     * else luaD_callnoyield(L, func, 1);
+     * </pre>
+     * 意思是「元方法只有在被 Lua 代码触发时才可以 yield」。少了这一刀，
+     * 从 C 函数（比如 {@code string.gsub} 查表做替换）触发的元方法里 yield
+     * 会一路穿过那个 C 帧；而那个帧<b>没注册续体</b>，恢复时
+     * {@code finishCcall} 拿到 {@code k == null} —— Java 里是 NPE，
+     * C 里是段错误。参考实现报的是干净的
+     * {@code attempt to yield across a C-call boundary}，且能被 pcall 接住。
      */
     static void callTmRes(LuaState L, LuaValue f, LuaValue p1, LuaValue p2, int resIdx) {
         int func = L.top;
@@ -184,7 +196,7 @@ final class LuaTm {
         L.stack[func + 1].set(p1);
         L.stack[func + 2].set(p2);
         L.top = func + 3;
-        L.call(func, 1);
+        L.callTmMightYield(func, 1);
         L.stack[resIdx].set(L.stack[--L.top]);
     }
 
