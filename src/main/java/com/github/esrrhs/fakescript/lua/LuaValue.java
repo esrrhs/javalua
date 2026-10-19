@@ -16,6 +16,24 @@ package com.github.esrrhs.fakescript.lua;
  */
 public final class LuaValue {
 
+    /**
+     * 小整数缓存：-128 到 256，共 385 个值。
+     * <p>
+     * Lua 脚本里大量使用小整数（数组索引、计数器、布尔替代值等），
+     * 缓存后可以避免重复分配，显著降低 GC 压力。
+     */
+    private static final int INTEGER_CACHE_MIN = -128;
+    private static final int INTEGER_CACHE_MAX = 256;
+    private static final LuaValue[] INTEGER_CACHE = new LuaValue[INTEGER_CACHE_MAX - INTEGER_CACHE_MIN + 1];
+
+    static {
+        for (int i = INTEGER_CACHE_MIN; i <= INTEGER_CACHE_MAX; i++) {
+            LuaValue v = new LuaValue();
+            v.setInteger(i);
+            INTEGER_CACHE[i - INTEGER_CACHE_MIN] = v;
+        }
+    }
+
     /** 完整标签（含变体），见 {@link Lua} */
     public int tt = Lua.TNIL;
 
@@ -49,6 +67,9 @@ public final class LuaValue {
     }
 
     public static LuaValue ofInteger(long x) {
+        if (x >= INTEGER_CACHE_MIN && x <= INTEGER_CACHE_MAX) {
+            return INTEGER_CACHE[(int)(x - INTEGER_CACHE_MIN)];
+        }
         LuaValue v = new LuaValue();
         v.setInteger(x);
         return v;
