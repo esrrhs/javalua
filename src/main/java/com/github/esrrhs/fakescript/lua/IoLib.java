@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * io 库 —— 对应 {@code liolib.c}。
@@ -37,6 +38,35 @@ import java.nio.charset.StandardCharsets;
 public final class IoLib {
 
     private IoLib() {
+    }
+
+    /**
+     * {@code luaL_Stream*} -> {@code LuaFile} 的反查表。
+     * <p>
+     * C 扩展 {@code luaL_checkudata(L, idx, "FILE*")} 拿到的是 {@code luaL_Stream*}
+     * （一块 native 内存），而 Java 侧的 I/O 逻辑需要对应的 {@code LuaFile} 对象。
+     * 这个表就是两边的桥梁。
+     * <p>
+     * 条目在 {@link #freeStream} 时移除（文件关闭），残余条目随 JVM 退出回收。
+     */
+    private static final ConcurrentHashMap<Long, LuaFile> FILE_MAP =
+            new ConcurrentHashMap<>();
+
+    /** 分配 {@code luaL_Stream} 结构，写入 FILE* 和 closef 占位，注册到 FILE_MAP */
+    private static long allocStream(long filePtr, LuaFile f) {
+        long sp = NativeBridge.cNewLuaLStream(filePtr, 0);
+        if (sp != 0) {
+            FILE_MAP.put(sp, f);
+        }
+        return sp;
+    }
+
+    /** 释放 {@code luaL_Stream} 结构，从 FILE_MAP 移除 */
+    private static void freeStream(long sp) {
+        if (sp != 0) {
+            FILE_MAP.remove(sp);
+            NativeBridge.free(sp);
+        }
     }
 
     /** {@code LUA_FILEHANDLE} */
@@ -127,20 +157,14 @@ public final class IoLib {
     private static void createStdFile(LuaState L, LuaTable io, LuaFile f, String key,
                                       String fname) {
         LuaValue v = newFileValue(L, f, IoLib::ioNoclose);
+        // 标准流也分配 C FILE*，让 C 扩展能拿到真实的 stdin/stdout/stderr
+        int which = f.stdIn ? 0 : (f.stdErr ? 2 : 1);
+        f.filePtr = NativeBridge.cStdStream(which);
+        fillStream(f);
         if (key != null) {
             L.registry.set(key, v);
         }
         io.set(fname, v);
-        /*
-         * {@code liolib.c: createstdfile} 最后那句
-         * {@code lua_setfield(L, -2, fname)} 是<b>弹栈</b>的。
-         * <p>
-         * 少了这一步，开库之后主线程栈上就永久压着三个 FILE*（stdin/stdout/
-         * stderr）——栈顶凭空高 3 格。这不只是「多占三格」：{@code top} 之上的
-         * 槽对脚本是看不见的，但递归深度是按 {@code top} 算的，于是同样的
-         * {@code LUAI_MAXSTACK} 少递归三层。上游 {@code errors.lua} 打印的
-         * 「expected stack overflow after N calls」正是对着这个数断言的。
-         */
         L.pop(1);
     }
 
@@ -156,6 +180,27 @@ public final class IoLib {
      * {@code closef == null} 就是 C 的 {@code isclosed}。
      */
     static final class LuaFile {
+
+        /** C 侧的 {@code FILE*}；0 表示未打开或已关闭 */
+        long filePtr;
+
+        /**
+         * C 侧的 {@code luaL_Stream*}（16 字节：FILE* + closef）。
+         * <p>
+         * 文件句柄 userdata 的载荷就是这块 native 内存——C 扩展
+         * {@code luaL_checkudata(L, idx, "FILE*")} 拿到的就是它，cast 成
+         * {@code luaL_Stream*} 后直接访问 {@code ->f} 和 {@code ->closef}。
+         */
+        long streamPtr;
+
+        /**
+         * 持有 {@code streamPtr} 对应的 native 内存块，防止 GC 提前释放。
+         * <p>
+         * {@code NativeMemory} 的 Cleaner 会在自身被回收时 {@code free(streamPtr)}。
+         * 只要 {@code LuaFile} 活着（被 Lua 状态引用），{@code mem} 就不可达，
+         * native 内存就不会被回收。
+         */
+        NativeMemory mem;
 
         RandomAccessFile raf;
         InputStream in;
@@ -237,6 +282,16 @@ public final class IoLib {
         /** 行缓冲模式下，缓冲区大小（由 setvbuf 的第三个参数指定） */
         int bufSize = WBUF_CAP;
 
+        /**
+         * 是否走 C FILE* 做 I/O。
+         * <p>
+         * 只有「有 filePtr 且不是标准流且不是目录」的文件走 C 路径。
+         * 标准流走 Java 的 L.out/L.err（测试要捕获输出）；目录走 Java 模拟。
+         */
+        boolean isCFile() {
+            return filePtr != 0 && !stdIn && !stdOut && !stdErr && !dir;
+        }
+
         /** 把写缓冲落盘；{@code raf == null} 时是空操作 */
         private boolean flushW() {
             if (raf == null || wlen == 0) {
@@ -281,10 +336,21 @@ public final class IoLib {
             }
             if (dir) {
                 err = true;
-                errno = 21; // EISDIR：目录读不出来，但打开是成功的
+                errno = 21; // EISDIR
                 return -1;
             }
-            flushW(); // C 要求输出与输入之间必须有 fflush 或定位操作
+            if (isCFile()) {
+                int c = NativeBridge.cFgetc(filePtr);
+                if (c < 0 && NativeBridge.cFeof(filePtr) != 0) {
+                    return -1;
+                }
+                if (c < 0) {
+                    err = true;
+                    errno = lastErrno();
+                }
+                return c;
+            }
+            flushW();
             try {
                 return raf != null ? raf.read() : inStream().read();
             } catch (IOException e) {
@@ -320,6 +386,18 @@ public final class IoLib {
                 errno = 21; // EISDIR
                 return done;
             }
+            if (isCFile()) {
+                int r = NativeBridge.cFread(filePtr, b, off + done, len - done);
+                if (r <= 0 && NativeBridge.cFeof(filePtr) != 0) {
+                    return done;
+                }
+                if (r < 0) {
+                    err = true;
+                    errno = lastErrno();
+                    return done;
+                }
+                return done + r;
+            }
             flushW();
             try {
                 int r = (raf != null) ? raf.read(b, off + done, len - done)
@@ -337,24 +415,17 @@ public final class IoLib {
             if (len <= 0) {
                 return;
             }
-            /*
-             * 与 {@code fwrite} 一致：<b>写 0 个字节一定成功，而且不碰文件描述符</b>。
-             * {@code liolib.c: g_write} 对字符串走的是
-             * {@code fwrite(s, sizeof(char), l, f) == l}，{@code l == 0} 时
-             * {@code fwrite} 返回 0、等于 {@code l}、算成功。所以往<b>只读</b>文件
-             * 写空串在参考实现里是成功的 —— {@code f:write("")} 照样把文件本身
-             * 返回来，而不是报 {@code Bad file descriptor}。
-             * <p>
-             * 早先这里先判 {@code !writable} 再看长度，于是空串也跟着报 EBADF。
-             * 判据是实测的：{@code io.open(f):write("")} 参考给 1 个返回值（文件
-             * 自己），{@code f:write("a")} 才给 3 个（nil, msg, errno）。
-             * <p>
-             * 注意 {@link #read} 那边本来就是先 {@code done >= len} 再判
-             * {@code !readable}，所以读 0 字节从来没踩到这个 —— 写这边漏了同一刀。
-             */
             if (!writable) {
                 err = true;
                 errno = 9; // EBADF
+                return;
+            }
+            if (isCFile()) {
+                int w = NativeBridge.cFwrite(filePtr, b, off, len);
+                if (w < len) {
+                    err = true;
+                    errno = lastErrno();
+                }
                 return;
             }
             try {
@@ -402,12 +473,7 @@ public final class IoLib {
         /** {@code l_fseek}：成功返回新位置，-1 表示失败（管道会失败） */
         long seek(long offset, int whence) {
             if (dir) {
-                /*
-                 * 目录 fd 上的 lseek 是允许的，位置照算；长度按 0 看。
-                 * 真实目录的 SEEK_END 给出的是目录自身的大小（本机 64），
-                 * 那是文件系统定的、不比 —— 见用例 javadoc。
-                 */
-                long base = (whence == 1) ? dirPos : 0; // 仅 SEEK_CUR 从当前位置起算
+                long base = (whence == 1) ? dirPos : 0;
                 long pos = base + offset;
                 if (pos < 0) {
                     err = true;
@@ -416,6 +482,16 @@ public final class IoLib {
                 }
                 dirPos = pos;
                 return pos;
+            }
+            if (isCFile()) {
+                pushback = -1;
+                int r = NativeBridge.cFseek(filePtr, offset, whence);
+                if (r != 0) {
+                    err = true;
+                    errno = lastErrno();
+                    return -1;
+                }
+                return NativeBridge.cFtell(filePtr);
             }
             if (raf == null) {
                 err = true;
@@ -436,27 +512,12 @@ public final class IoLib {
                     base = raf.length();
                     break;
                 }
-                /*
-                 * 负的<b>目标位置</b>是 {@code EINVAL}(22)，不是随便一个 IO 错。
-                 * C 的 {@code fseek} 在 {@code SEEK_SET} / {@code CUR} / {@code END}
-                 * 三种起点上都是这个判据——实测参考实现三种都给
-                 * {@code nil, "Invalid argument", 22}，而 Java 的
-                 * {@code RandomAccessFile.seek} 抛的是 "Negative seek offset"，
-                 * 落到 {@code errnoOf} 的兜底分支上就成了 {@code EIO}(5)。
-                 * 往 EOF <b>之后</b>定位是允许的（返回新位置，不报错），别一起拦了。
-                 */
                 long pos = base + offset;
                 if (pos < 0) {
                     err = true;
                     errno = 22; // EINVAL
                     return -1;
                 }
-                /*
-                 * 成功的 {@code fseek} 会<b>丢掉 ungetc 退回来的那个字节</b>。
-                 * 实测的分歧：{@code f:read("n")} 在 "three" 上失败时把 't' 退了回去，
-                 * 随后 {@code f:seek("set",0)} 再 {@code f:read(3)} —— 参考给
-                 * {@code "1 2"}，我们给 {@code "t1 "}。
-                 */
                 pushback = -1;
                 raf.seek(pos);
                 return raf.getFilePointer();
@@ -470,7 +531,10 @@ public final class IoLib {
         /** {@code l_ftell} */
         long tell() {
             if (dir) {
-                return dirPos; // 目录 fd 上的 ftell 是允许的
+                return dirPos;
+            }
+            if (isCFile()) {
+                return NativeBridge.cFtell(filePtr);
             }
             if (raf == null) {
                 err = true;
@@ -478,7 +542,6 @@ public final class IoLib {
                 return -1;
             }
             try {
-                // 缓冲里那几个字节也算在逻辑位置上：C 的 ftell 给的也是这个
                 return raf.getFilePointer() + wlen;
             } catch (IOException e) {
                 err = true;
@@ -490,7 +553,9 @@ public final class IoLib {
         /** {@code fflush} */
         void flush() {
             try {
-                if (raf != null) {
+                if (isCFile()) {
+                    NativeBridge.cFflush(filePtr);
+                } else if (raf != null) {
                     flushW();
                     raf.getFD().sync();
                 } else if (writable) {
@@ -505,6 +570,17 @@ public final class IoLib {
         /** 真正关掉底层资源 */
         void closeRaw() {
             try {
+                if (filePtr != 0) {
+                    NativeBridge.cFclose(filePtr);
+                    filePtr = 0;
+                }
+                /*
+                 * 不要从 FILE_MAP 里移除：关掉之后再用要报
+                 * "attempt to use a closed file"，不是 "FILE* expected, got FILE*"。
+                 * 留着条目，fileAt 才能找到这个 LuaFile，方法里才能判 closef==null
+                 * 给出正确的关闭错误。FILE_MAP 跟着 LuaFile 的 GC 一起清理
+                 * （streamPtr 还在 NativeMemory 里，NativeMemory 跟着 userdata 走）。
+                 */
                 if (raf != null) {
                     flushW();
                     raf.close();
@@ -533,6 +609,32 @@ public final class IoLib {
         return f;
     }
 
+    /**
+     * 给 LuaFile 分配 C 侧的 {@code luaL_Stream} 结构和 {@code NativeMemory} 包装。
+     * <p>
+     * 调用后 {@code f.streamPtr} 指向有效的 {@code luaL_Stream}，{@code f.mem}
+     * 持有对应的 {@code NativeMemory}（防止 GC 提前释放）。
+     * <p>
+     * 必须在 {@code f.filePtr} 已经设好之后调用。
+     */
+    private static void ensureStream(LuaFile f) {
+        long sp = allocStream(f.filePtr, f);
+        f.streamPtr = sp;
+        f.mem = new NativeMemory(sp, FILE_UDATA_LEN);
+    }
+
+    /**
+     * 把已分配的 {@code luaL_Stream} 写入真实的 FILE*。
+     * <p>
+     * {@code newPreFileValue} 已经分配了 native 内存和注册了 FILE_MAP，
+     * 但 FILE* 当时还是 0。文件打开成功后调这个把 FILE* 写进去。
+     */
+    private static void fillStream(LuaFile f) {
+        if (f.streamPtr != 0 && f.filePtr != 0) {
+            NativeBridge.put64(f.streamPtr, f.filePtr);
+        }
+    }
+
         /**
      * 文件句柄 userdata 的长度：参考里 {@code lua_rawlen(io.stdout)} 给
      * <b>16</b>，那是 {@code sizeof(LStream)}（{@code FILE*} +
@@ -540,9 +642,19 @@ public final class IoLib {
      */
     private static final int FILE_UDATA_LEN = 16;
 
-    /** {@code newprefile} 的建值部分：userdata + 命名元表，closef 留空 */
+    /**
+     * {@code newprefile} 的建值部分：分配 native 内存（给 C 扩展的 {@code luaL_Stream}
+     * 占位）+ 命名元表。{@code streamPtr} 和 FILE* 稍后由 {@code openInto} 填入。
+     * <p>
+     * 如果打开失败，调用方负责释放这块 native 内存（{@code f.mem} 可达时 GC 也会收）。
+     */
     private static LuaValue newPreFileValue(LuaState L, LuaFile f) {
-        L.push(LuaValue.ofUserdata(f, FILE_UDATA_LEN));
+        long sp = NativeBridge.cNewLuaLStream(0, 0);
+        NativeMemory m = new NativeMemory(sp, FILE_UDATA_LEN);
+        f.streamPtr = sp;
+        f.mem = m;
+        FILE_MAP.put(sp, f);
+        L.push(LuaValue.ofUserdata(new LuaUserdata(m, 0, FILE_UDATA_LEN)));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         return new LuaValue(L.stack[L.top - 1]);
     }
@@ -561,9 +673,40 @@ public final class IoLib {
 
     /* ==================== 句柄查询 ==================== */
 
+    /**
+     * 从栈上参数取出 LuaFile。
+     * <p>
+     * userdata 的 {@code data} 是 {@code NativeMemory}（给 C 扩展的
+     * {@code luaL_Stream*}），Java 侧通过 FILE_MAP 反查到 {@code LuaFile}。
+     */
+    private static LuaFile fileAt(LuaState L, int arg) {
+        LuaValue v = L.arg1(arg);
+        return fileOfValue(v);
+    }
+
+    /** 从 LuaValue（文件句柄 userdata）反查 LuaFile */
+    private static LuaFile fileOfValue(LuaValue v) {
+        if (v == null || v.baseType() != Lua.TUSERDATA) {
+            return null;
+        }
+        Object d = ((LuaUserdata) v.o).data;
+        if (d instanceof NativeMemory) {
+            long sp = ((NativeMemory) d).ptr;
+            LuaFile f = FILE_MAP.get(sp);
+            if (f != null) {
+                return f;
+            }
+        }
+        return null;
+    }
+
     /** {@code tolstream}：必须是文件句柄，否则报错 */
     private static LuaFile toLStream(LuaState L) {
-        return (LuaFile) LuaAux.checkUdata(L, 1, FILE_HANDLE);
+        LuaFile f = fileAt(L, 1);
+        if (f == null) {
+            throw L.typeArgError(1, FILE_HANDLE);
+        }
+        return f;
     }
 
     /** {@code tofile}：在上面再加一条「不能是已关闭的」 */
@@ -577,13 +720,52 @@ public final class IoLib {
 
     /* ==================== io 库函数 ==================== */
 
-    /** {@code io.type} */
+    /**
+     * {@code io.type}。
+     * <p>
+     * 参考实现按<b>元表</b>判：userdata 的元表必须是注册表里 {@code FILEHANDLE*} 那张，
+     * 否则一律答 {@code nil}。{@code debug.setmetatable(f, {...})} 换掉元表之后，
+     * {@code io.type(f)} 就从 {@code "file"} 变成 {@code nil}——即使内部结构还是
+     * 个 {@link LuaFile}。所以这里不能走 {@code fileAt}（那按 streamPtr 查 FILE_MAP，
+     * 永远找得着），必须像参考那样先取元表再比对。
+     */
     private static int ioType(LuaState L) {
         LuaAux.checkAny(L, 1);
-        LuaFile p = (LuaFile) LuaAux.testUdata(L, 1, FILE_HANDLE);
-        if (p == null) {
+        LuaValue v = L.arg1(1);
+        if (v.baseType() != Lua.TUSERDATA) {
             LuaAux.pushFail(L);
-        } else if (p.closef == null) {
+            return 1;
+        }
+        /*
+         * 取 userdata 自己的元表（不是类型共享的），和 FILE_HANDLE 那张比。
+         * {@code LuaTm.metatableOf} 会把类型元表也算进来，所以要先判是不是 userdata
+         * 自己的 {@code metatable} 字段。
+         */
+        LuaTable mt = ((LuaUserdata) v.o).metatable;
+        if (mt == null) {
+            LuaAux.pushFail(L);
+            return 1;
+        }
+        /*
+         * 比对象：注册表里 {@code FILE_HANDLE} 那张元表是唯一的，{@code debug.setmetatable}
+         * 换上去的新表不是同一张。用 {@code ==} 比引用就够了。
+         */
+        LuaValue fileMtVal = L.registry.get(FILE_HANDLE);
+        if (fileMtVal == null || fileMtVal.baseType() != Lua.TTABLE) {
+            LuaAux.pushFail(L);
+            return 1;
+        }
+        LuaTable fileMt = (LuaTable) fileMtVal.o;
+        if (mt != fileMt) {
+            LuaAux.pushFail(L);
+            return 1;
+        }
+        /*
+         * 元表对上了，再看 {@code closef}：{@code null} 表示已关。
+         * 这里才能安全地 {@code fileOfValue}——元表都对不上就别找了。
+         */
+        LuaFile p = fileOfValue(v);
+        if (p == null || p.closef == null) {
             L.push(LuaValue.ofString(LuaString.latin1("closed file")));
         } else {
             L.push(LuaValue.ofString(LuaString.latin1("file")));
@@ -692,14 +874,13 @@ public final class IoLib {
     /** {@code opencheck}：打不开直接报错（{@code io.lines} 用它） */
     private static void openCheck(LuaState L, LuaString fname, String mode) {
         LuaFile f = new LuaFile();
-        L.push(LuaValue.ofUserdata(f, FILE_UDATA_LEN));
-        LuaAux.setMetatableByName(L, FILE_HANDLE);
-        f.closef = IoLib::ioFclose;
+        newFileValue(L, f, IoLib::ioFclose);
         if (!openInto(f, fname.toJavaString(), mode)) {
             // 文件名是任意字节，消息得按字节拼
             throw L.libError(LuaString.latin1("cannot open file '").concat(fname)
                     .concat(LuaString.latin1("' (" + LuaAux.strError(f.errno) + ")")));
         }
+        fillStream(f);
     }
 
     /** 按 mode 打开真实文件；失败时把 errno 记进 {@code f} 并返回 false */
@@ -713,6 +894,8 @@ public final class IoLib {
          * 目录：C 的 fopen 在只读模式上是开得开的（open(dir, O_RDONLY) 允许），
          * 要写才给 EISDIR。Java 这边 RandomAccessFile 两种模式都开不了，
          * 所以先判目录再分模式 —— 否则写目录报的是 ENOENT 而不是 EISDIR。
+         * <p>
+         * 目录走 Java 模拟（没有 C FILE*），C 扩展拿到的 FILE* 是 0。
          */
         if (new java.io.File(fname).isDirectory()) {
             if (f.writable) {
@@ -724,42 +907,30 @@ public final class IoLib {
             return true;
         }
         /*
-         * {@code "r+"}：<b>C 的 {@code fopen("r+") 不创建文件</b>——它走的是
-         * {@code open(path, O_RDWR)}，没带 {@code O_CREAT}；而 Java 的
-         * {@code RandomAccessFile(f, "rw")} <b>一定会建</b>。于是
-         * {@code io.open(不存在的文件, "r+")} 参考给
-         * {@code nil, "...: No such file or directory", 2}，我们却开出一个
-         * 新文件。
+         * 普通文件走 C 的 {@code fopen}：C 扩展需要拿到真实的 {@code FILE*}。
          * <p>
-         * 修法是先用<b>只读</b>模式探一次（{@code "r"} 模式本身就不创建），
-         * 打不开就说明文件不在（或者没权限），errno 交给
-         * {@code LuaAux.errnoOf} 从异常消息里反查——于是 ENOENT 与 EACCES
-         * 各归各的，不用在这儿再判一遍。直接用 {@code File.exists()} 会把
-         * 「父目录不可搜索」的 EACCES 错报成 ENOENT。
+         * {@code "r+"} 不创建文件（C 的 fopen("r+") 走 open(path, O_RDWR)，
+         * 没带 O_CREAT），与参考实现一致。
          */
-        if (base == 'r' && f.writable) {
-            try (RandomAccessFile exists = new RandomAccessFile(fname, "r")) {
-                // 只为确认「这个文件已经在」，句柄立刻关掉
-            } catch (IOException e) {
-                f.err = true;
-                f.errno = LuaAux.errnoOf(e);
-                return false;
-            }
-        }
-        try {
-            f.raf = new RandomAccessFile(fname, f.writable ? "rw" : "r");
-            if (base == 'w') {
-                f.raf.setLength(0);
-            }
-            if (f.append) {
-                f.raf.seek(f.raf.length());
-            }
-            return true;
-        } catch (IOException e) {
+        byte[] pathBytes = fname.getBytes(StandardCharsets.UTF_8);
+        byte[] modeBytes = mode.getBytes(StandardCharsets.US_ASCII);
+        f.filePtr = NativeBridge.cFopen(pathBytes, modeBytes);
+        if (f.filePtr == 0) {
             f.err = true;
-            f.errno = LuaAux.errnoOf(e);
+            f.errno = lastErrno();
             return false;
         }
+        return true;
+    }
+
+    /**
+     * 取 C 侧的 {@code errno}。{@code cFopen} 失败后调它拿错误码。
+     * <p>
+     * C 的 {@code fopen} 失败时设 {@code errno}，JNI 调用本身不碰 {@code errno}，
+     * 所以这里读到的就是 {@code fopen} 留下的值。
+     */
+    private static int lastErrno() {
+        return NativeBridge.cGetErrno();
     }
 
     /**
@@ -771,7 +942,7 @@ public final class IoLib {
      */
     private static int ioOpen(LuaState L) {
         LuaString fname = LuaAux.checkString(L, 1).toCString();
-        String filename = fname.toJavaString(); // 交给 Java 文件 API 的那一侧
+        String filename = fname.toJavaString();
         String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
         newFile(L, f);
@@ -781,6 +952,7 @@ public final class IoLib {
             LuaAux.fileResult(L, false, fname, f.errno);
             return 3;
         }
+        fillStream(f);
         return 1;
     }
 
@@ -790,8 +962,7 @@ public final class IoLib {
         String filename = fname.toJavaString();
         String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
-        L.push(LuaValue.ofUserdata(f, FILE_UDATA_LEN));
-        LuaAux.setMetatableByName(L, FILE_HANDLE);
+        newPreFileValue(L, f);
         LuaAux.argCheck(L, checkModeP(mode), 2, "invalid mode");
         f.err = false;
         boolean forRead = mode.charAt(0) == 'r';
@@ -954,9 +1125,18 @@ public final class IoLib {
         try {
             java.io.File tmp = java.io.File.createTempFile("lua_", ".tmp");
             tmp.deleteOnExit();
-            f.raf = new RandomAccessFile(tmp, "rw");
-            f.readable = true;
-            f.writable = true;
+            String path = tmp.getAbsolutePath();
+            byte[] pathBytes = path.getBytes(StandardCharsets.UTF_8);
+            byte[] modeBytes = "w+b".getBytes(StandardCharsets.US_ASCII);
+            f.filePtr = NativeBridge.cFopen(pathBytes, modeBytes);
+            if (f.filePtr == 0) {
+                f.err = true;
+                f.errno = 2; // ENOENT fallback
+            } else {
+                f.readable = true;
+                f.writable = true;
+                fillStream(f);
+            }
         } catch (IOException e) {
             f.err = true;
             f.errno = LuaAux.errnoOf(e);
@@ -977,8 +1157,7 @@ public final class IoLib {
      */
     private static LuaValue getIoFile(LuaState L, String findex) {
         LuaValue v = L.registry.get(findex);
-        LuaFile p = (v == null || v.baseType() != Lua.TUSERDATA)
-                ? null : (LuaFile) LuaUserdata.dataOf(v);
+        LuaFile p = fileOfValue(v);
         if (p == null || p.closef == null) {
             throw L.libError("default " + findex.substring("_IO_".length())
                     + " file is closed");
@@ -1308,7 +1487,7 @@ public final class IoLib {
     private static int ioRead(LuaState L) {
         LuaValue v = getIoFile(L, IO_INPUT);
         L.push(v); // 压在所有读格式之后，g_read 会把它顶掉
-        return gRead(L, (LuaFile) LuaUserdata.dataOf(v), 1);
+        return gRead(L, fileOfValue(v), 1);
     }
 
     private static int fRead(LuaState L) {
@@ -1319,7 +1498,7 @@ public final class IoLib {
      * {@code io_readline}：{@code lines} 的迭代函数。
      */
     private static int readline(LuaState L) {
-        LuaFile p = (LuaFile) LuaUserdata.dataOf(L.upvalue(0));
+        LuaFile p = fileOfValue(L.upvalue(0));
         int n = (int) L.upvalue(1).i;
         if (p.closef == null) {
             throw L.libError("file is already closed");
@@ -1380,7 +1559,7 @@ public final class IoLib {
     private static int ioWrite(LuaState L) {
         LuaValue v = getIoFile(L, IO_OUTPUT);
         L.push(v); // 压在待写的值之后，g_write 返回的 1 个值就是它
-        return gWrite(L, (LuaFile) LuaUserdata.dataOf(v), 1);
+        return gWrite(L, fileOfValue(v), 1);
     }
 
     private static int fWrite(LuaState L) {
@@ -1438,7 +1617,7 @@ public final class IoLib {
     }
 
     private static int ioFlush(LuaState L) {
-        LuaFile f = (LuaFile) LuaUserdata.dataOf(getIoFile(L, IO_OUTPUT));
+        LuaFile f = fileOfValue(getIoFile(L, IO_OUTPUT));
         f.err = false;
         f.flush();
         LuaAux.fileResult(L, !f.err, null, f.errno);

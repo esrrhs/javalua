@@ -1350,11 +1350,23 @@ JNIEXPORT jlong JNICALL
 Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFopen(JNIEnv *env,
         jclass cls, jbyteArray path, jbyteArray mode) {
     (void)cls;
-    jbyte *pPath = (*env)->GetByteArrayElements(env, path, NULL);
-    jbyte *pMode = (*env)->GetByteArrayElements(env, mode, NULL);
-    FILE *f = fopen((const char *)pPath, (const char *)pMode);
-    (*env)->ReleaseByteArrayElements(env, path, pPath, JNI_ABORT);
-    (*env)->ReleaseByteArrayElements(env, mode, pMode, JNI_ABORT);
+    jsize pathLen = (*env)->GetArrayLength(env, path);
+    jsize modeLen = (*env)->GetArrayLength(env, mode);
+    /* Java byte arrays 没有 NUL 结尾，必须手动加 */
+    char *pPath = (char *)malloc((size_t)pathLen + 1);
+    char *pMode = (char *)malloc((size_t)modeLen + 1);
+    if (pPath == NULL || pMode == NULL) {
+        free(pPath);
+        free(pMode);
+        return 0;
+    }
+    (*env)->GetByteArrayRegion(env, path, 0, pathLen, (jbyte *)pPath);
+    pPath[pathLen] = '\0';
+    (*env)->GetByteArrayRegion(env, mode, 0, modeLen, (jbyte *)pMode);
+    pMode[modeLen] = '\0';
+    FILE *f = fopen(pPath, pMode);
+    free(pPath);
+    free(pMode);
     return (jlong)(intptr_t)f;
 }
 
@@ -1462,12 +1474,23 @@ JNIEXPORT jlong JNICALL
 Java_com_github_esrrhs_fakescript_lua_NativeBridge_cPopen(JNIEnv *env,
         jclass cls, jbyteArray cmd, jbyteArray mode) {
     (void)cls;
-    jbyte *pCmd = (*env)->GetByteArrayElements(env, cmd, NULL);
-    jbyte *pMode = (*env)->GetByteArrayElements(env, mode, NULL);
+    jsize cmdLen = (*env)->GetArrayLength(env, cmd);
+    jsize modeLen = (*env)->GetArrayLength(env, mode);
+    char *pCmd = (char *)malloc((size_t)cmdLen + 1);
+    char *pMode = (char *)malloc((size_t)modeLen + 1);
+    if (pCmd == NULL || pMode == NULL) {
+        free(pCmd);
+        free(pMode);
+        return 0;
+    }
+    (*env)->GetByteArrayRegion(env, cmd, 0, cmdLen, (jbyte *)pCmd);
+    pCmd[cmdLen] = '\0';
+    (*env)->GetByteArrayRegion(env, mode, 0, modeLen, (jbyte *)pMode);
+    pMode[modeLen] = '\0';
     fflush(NULL);
-    FILE *f = popen((const char *)pCmd, (const char *)pMode);
-    (*env)->ReleaseByteArrayElements(env, cmd, pCmd, JNI_ABORT);
-    (*env)->ReleaseByteArrayElements(env, mode, pMode, JNI_ABORT);
+    FILE *f = popen(pCmd, pMode);
+    free(pCmd);
+    free(pMode);
     return (jlong)(intptr_t)f;
 }
 
@@ -1522,6 +1545,13 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStdStream(JNIEnv *env,
         case 2: return (jlong)(intptr_t)stderr;
         default: return 0;
     }
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cGetErrno(JNIEnv *env,
+        jclass cls) {
+    (void)env; (void)cls;
+    return (jint)errno;
 }
 
 /* ==================== 生成的 stub ==================== */
