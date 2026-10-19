@@ -14,9 +14,6 @@ package com.github.esrrhs.fakescript.lua;
  * {@code io} 库就崩：{@code luaL_testudata} 判的是「这个 userdata 的元表
  * 是不是注册表里 {@code FILEHANDLE*} 那一张」，要是所有 userdata 共用，
  * 随机数状态也会被当成文件句柄。
- * <p>
- * 用户值（{@code lua_getiuservalue}）这里不实现——{@code liolib} 建的
- * {@code LStream} 用 {@code nuvalue = 0}，阶段 7 用不上。
  */
 public final class LuaUserdata {
 
