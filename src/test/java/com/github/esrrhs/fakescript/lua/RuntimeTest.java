@@ -1,9 +1,21 @@
 package com.github.esrrhs.fakescript.lua;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -10688,9 +10700,22 @@ os.remove("io_big.txt")
      *       {@code chmod 555} 目录。</li>
      * </ul>
      */
+    private static final String SCRATCH = "au_tmp";
+
     @Test
-    void errnoShapesMatchReference() {
-        Diff.assertMatches("""
+    void errnoShapesMatchReference() throws IOException {
+        /*
+         * 开跑之前先删一次。
+         * <p>
+         * 上一轮要是被 kill 了（超时、Ctrl-C、宿主杀进程），{@code au_tmp} 会带着一个
+         * 555 的 {@code ro} 留在盘上；留到下一轮，{@code B04} 那条
+         * {@code os.rename(目录, 空目录)} 就稳定给 ENOTEMPTY。脚本里那条
+         * {@code chmod -R u+w; rm -rf} 本来也能清，但清的是<b>它自己那一轮</b>的
+         * 状态——被 kill 的时候它还没走到。所以这一刀得由 Java 先落。
+         */
+        rmRf(Paths.get(SCRATCH));
+        try {
+            Diff.assertMatches("""
 -- errno 形状表：io.open 的各种失败 × os.rename × os.remove
 -- 素材全放在子目录里，收尾整个删掉，不在仓库根目录留东西
 local D = "au_tmp/"
@@ -10716,8 +10741,13 @@ end
 --    {@code rm -rf} 删不掉它里面的东西，{@code mkdir -p} 又照建，状态就串了。
 --    实测偶发红过一次（{@code os.rename(目录, 空目录)} 那一条给成 ENOTEMPTY），
 --    两轮重跑都绿，是这一族里最像的那个解释。chmod 独立一条、失败也不影响后面。
-os.execute("chmod -R u+w au_tmp >/dev/null 2>&1")
-os.execute("rm -rf au_tmp >/dev/null 2>&1")
+-- ④ <b>chmod 与 rm 必须同一条 shell</b>（这一条是把上面那条「偶发」坐实之后
+--    改的）：分开两条就等于 fork 两次，中间任何一次 fork 出问题都会留下一个
+--    555 的 {@code au_tmp/ro}；下一轮开头再 chmod 已经来不及 —— 实测整片跑
+--    完 {@code au_tmp} 就留在盘上，下一轮 {@code B04 os.rename(目录, 空目录)}
+--    稳定给 ENOTEMPTY（因为 {@code e} 里多了上一轮的 {@code inner}）。
+--    合成一条（用 {@code ;} 不是 {@code &&}，chmod 失败也继续 rm）后不再残留。
+os.execute("chmod -R u+w au_tmp 2>/dev/null; rm -rf au_tmp 2>/dev/null")
 os.execute("mkdir -p au_tmp/d au_tmp/e")
 local w = io.open(D .. "f.txt", "w")
 w:write("f")
@@ -10783,9 +10813,103 @@ p("C09", os.remove, "/etc")                             -- 权限 -> EPERM
 os.execute("mkdir -p au_tmp/ro && touch au_tmp/ro/x && chmod 555 au_tmp/ro")
 p("C10", os.remove, D .. "ro/x")                        -- 目录只读 -> EACCES
 
-os.execute("chmod -R u+w au_tmp >/dev/null 2>&1")
-os.execute("rm -rf au_tmp >/dev/null 2>&1")
+-- 收尾同样合成一条：见开头那条注释的 ④。
+os.execute("chmod -R u+w au_tmp 2>/dev/null; rm -rf au_tmp 2>/dev/null")
         """);
+        } finally {
+            /*
+             * 收尾同样由 Java 落一刀，<b>不能只靠脚本里那条 {@code rm -rf}</b>。
+             * <p>
+             * 实测：整片跑时 {@code au_tmp} 会留在盘上，而留在盘上的样子是
+             * 「{@code ro} 已经是 755（说明 {@code chmod -R u+w} 那条<b>执行了</b>）
+             * 但整个目录还在（说明后面的 {@code rm} <b>没删</b>）」。同一条
+             * {@code sh -c} 里前一句成、后一句没成，只能是 {@code fork} 那一步
+             * 没拿到进程——宿主资源紧的时候会这样。
+             * <p>
+             * 于是清理的责任分两处：脚本里那条负责让<b>参考实现那一轮</b>与本轮
+             * 互不看见（参考先跑、本实现后跑，共用一个工作目录），Java 这两刀负责
+             * 「不管脚本成没成，盘上都不留东西」。
+             */
+            rmRf(Paths.get(SCRATCH));
+        }
+        /*
+         * 断言留在 <b>Java 侧</b>，不写进脚本里打印。
+         * <p>
+         * 一开始是把 {@code print("CLEAN " .. tostring(os.execute("test ! -d au_tmp")))}
+         * 打进脚本的（约定 #41 要「当场打印」）。但脚本输出是要<b>逐字节</b>和参考
+         * 实现比的，而「目录删掉没有」根本不是 Lua 语义 —— 它取决于宿主那一刻的
+         * 文件系统状态，于是这条诊断自己成了分歧源：整片跑时偶发红在
+         * {@code CLEAN2} 那一行（参考 {@code true}、本实现 {@code nil}），
+         * 而 errno 那三十几条一行都没红。诊断要能报警，但不能把自己变成被测内容。
+         */
+        assertFalse(Files.exists(Paths.get(SCRATCH)),
+                "清理没生效，" + SCRATCH + " 还在盘上；下一轮 B04 os.rename(目录, 空目录)"
+                        + " 会因为 e 里多了上一轮的 inner 变成 ENOTEMPTY。残留内容："
+                        + treeOf(Paths.get(SCRATCH)));
+    }
+
+    /**
+     * 递归强制删除：先给每一层补上 {@code u+w}，再自底向上删。
+     * <p>
+     * 不能直接 {@code rm -rf}：这条用例自己会造一个 555 的目录，删它里面的文件
+     * 需要对它自己有写权限。也不能指望 {@code Files.walk} 一次搞定 —— 权限是在
+     * {@code preVisitDirectory} 里<b>列子项之前</b>补的，所以走得通。
+     */
+    private static void rmRf(Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes a) {
+                addOwnerWrite(d);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path f, BasicFileAttributes a) {
+                addOwnerWrite(f);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path f, BasicFileAttributes a) throws IOException {
+                Files.deleteIfExists(f);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path d, IOException e) throws IOException {
+                if (e != null) {
+                    throw e;
+                }
+                Files.deleteIfExists(d);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    /** 给 {@code p} 加上属主写权限；不认 POSIX 权限的文件系统就照原样试删 */
+    private static void addOwnerWrite(Path p) {
+        try {
+            Set<PosixFilePermission> ps = new HashSet<>(Files.getPosixFilePermissions(p));
+            ps.add(PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(p, ps);
+        } catch (IOException | UnsupportedOperationException ignored) {
+            // 无能为力就交给后面的 delete，删不掉会带着路径报出来
+        }
+    }
+
+    /** 列出残留内容，供失败消息用 */
+    private static String treeOf(Path root) {
+        StringBuilder sb = new StringBuilder();
+        try (Stream<Path> s = Files.walk(root)) {
+            s.forEach(p -> sb.append("\n  ").append(p));
+        } catch (IOException e) {
+            sb.append("\n  <列不出来: ").append(e).append('>');
+        }
+        return sb.toString();
     }
 
     /* ==================== varinfo：错误消息里的变量后缀 ==================== */

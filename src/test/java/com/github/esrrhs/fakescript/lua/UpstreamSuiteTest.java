@@ -81,7 +81,14 @@ final class UpstreamSuiteTest {
         assumeTrue(ReferenceLua.find() != null, "参考实现二进制不存在，跳过一致性测试");
     }
 
-    @ParameterizedTest
+    /*
+     * 显示名里带上文件名。
+     * <p>
+     * 默认显示名是 {@code suite(String)[4]} —— 曾经整片跑挂在这一条上（超时
+     * 180 秒），报出来的只有「[4]」，还得回去数 {@code ValueSource} 的第 4 个是
+     * 谁。带名字之后超时消息直接写着 {@code closure.lua}。
+     */
+    @ParameterizedTest(name = "{0}")
     @ValueSource(strings = {
             "api.lua",
             "bitwise.lua",

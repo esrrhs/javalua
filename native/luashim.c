@@ -117,7 +117,22 @@ void luashim_throw(void) {
  */
 #define SLOT_STRIDE 16
 #define SLOT_CHUNK 256
-#define SLOT_MAXCHUNK 256
+#define SLOT_MAXCHUNK 4096
+/*
+ * 一块要 (SLOT_CHUNK + 1) 格，不是 SLOT_CHUNK 格。
+ * <p>
+ * {@code slot_ptr(i)} 交出去的是 {@code base + (i-1)%CHUNK*STRIDE + STRIDE}——
+ * 那个 {@code + STRIDE} 是给 LUA_EXTRASPACE 留的（{@code lua_getextraspace}
+ * 是 {@code (char*)L - LUA_EXTRASPACE}，越界一格就是野指针）。于是第
+ * {@code SLOT_CHUNK} 号句柄（每块的最后一格）落在 {@code base + CHUNK*STRIDE}，
+ * 正好在块尾之外：{@code slot_idx} 认不出它，交回 0，C 侧就拿到 <b>NULL 的
+ * lua_State*</b>。
+ * <p>
+ * 实测：跑到第 256 个句柄时 {@code luaopen_nat} 收到 NULL，紧接着
+ * {@code luaL_newmetatable(NULL, ...)} 在 Java 侧 NPE。主线程上只有 79 条
+ * 用例时句柄用不到 256，一直全绿；把语料塞进协程再跑一遍（158 条）就撞上了。
+ */
+#define SLOT_BYTES ((SLOT_CHUNK + 1) * SLOT_STRIDE)
 
 static char *g_chunks[SLOT_MAXCHUNK];
 static int g_nchunks = 0;
@@ -135,7 +150,7 @@ static char *slot_ptr(jlong idx) {
     }
     pthread_mutex_lock(&g_slotlock);
     while (c >= g_nchunks) {
-        g_chunks[g_nchunks++] = (char *)calloc(SLOT_CHUNK * SLOT_STRIDE, 1);
+        g_chunks[g_nchunks++] = (char *)calloc(SLOT_BYTES, 1);
     }
     base = g_chunks[c];
     pthread_mutex_unlock(&g_slotlock);
@@ -148,7 +163,7 @@ static jlong slot_idx(void *L) {
     }
     for (int c = 0; c < g_nchunks; c++) {
         char *b = g_chunks[c];
-        if ((char *)L < b || (char *)L >= b + SLOT_CHUNK * SLOT_STRIDE) {
+        if ((char *)L < b || (char *)L >= b + SLOT_BYTES) {
             continue;
         }
         jlong off = (char *)L - b;

@@ -372,7 +372,13 @@ class NativeApiTest {
             "  return 1;",
             "}",
             "static int f_getinfo(lua_State *L) {",
+            "  /* 必须先清零：lua_getstack 失败时 lua_Debug 一次都没被写过，",
+            "     source/name 这些指针就是 C 栈上的垃圾。读它两边都是未定义",
+            "     行为（参考实现那边实测是野指针，我们这边直接段错误——崩在",
+            "     协程里才现形，因为换了一条调用链、栈上留下的垃圾不一样）。",
+            "     清零之后两边都稳定地打印空串，才算可比对。 */",
             "  lua_Debug ar;",
+            "  memset(&ar, 0, sizeof(ar));",
             "  int r = lua_getstack(L, (int) luaL_checkinteger(L, 1), &ar);",
             "  int g = 0;",
             "  const char *what = luaL_optstring(L, 2, \"Slntu\");",
@@ -460,6 +466,10 @@ class NativeApiTest {
             "  lua_sethook(L, mask == 0 ? NULL : myhook, mask, (int) luaL_optinteger(L, 2, 0));",
             "  return 0;",
             "}",
+            "/* g_hits 是 .so 里的 C 全局：本实现所有用例共用一个 JVM（也就是同一份",
+            "   .so 数据段），参考实现每条用例一个新进程。所以必须能在脚本里清零，",
+            "   否则第二条用例开头的 g_hits 是上一条留下的，怎么比都是红。 */",
+            "static int f_hitreset(lua_State *L) { (void) L; g_hits = 0; return 0; }",
             "static int f_hookinfo(lua_State *L) {",
             "  lua_pushboolean(L, lua_gethook(L) != NULL);",
             "  lua_pushinteger(L, lua_gethookmask(L));",
@@ -711,6 +721,12 @@ class NativeApiTest {
             "  lua_pushnil(L);",
             "  lua_setmetatable(L, 1);",
             "  lua_settop(L, 0);",
+            "  /* 一次推 47 个值，<b>必须先 checkstack</b>：C 函数进来时只保证有",
+            "     LUA_MINSTACK(20) 个空位，超了不报、直接写穿栈顶。主线程上栈早就",
+            "     撑大了所以没事；<b>新协程的栈是小的</b>，参考实现在这里堆损坏",
+            "     （malloc: pointer being freed was not allocated，free 的是 0x6，",
+            "     正好是 LUA_TFUNCTION）。这条是协程第二遍咬出来的。 */",
+            "  lua_checkstack(L, n + 1);",
             "  lua_pushinteger(L, lua_type(L, 1));  /* 越界 -> LUA_TNONE */",
             "  for (i = 0; i < n; i++) lua_pushinteger(L, r[i]);",
             "  return n + 1;",
@@ -985,6 +1001,7 @@ class NativeApiTest {
             "  {\"getupvalue\", f_getupvalue}, {\"setupvalue\", f_setupvalue},",
             "  {\"upvalueid\", f_upvalueid}, {\"upvaluejoin\", f_upvaluejoin},",
             "  {\"traceback\", f_traceback}, {\"sethook\", f_sethook}, {\"hookinfo\", f_hookinfo},",
+            "  {\"hitreset\", f_hitreset},",
             "  {\"version\", f_version}, {\"checkver\", f_checkver}, {\"cstack\", f_cstack},",
             "  {\"atpanic\", f_atpanic}, {\"yield\", f_yield}, {\"yieldk\", f_yieldk},",
             "  {\"callk2\", f_callk2}, {\"pcallk2\", f_pcallk2}, {\"resume\", f_resume},",
@@ -1357,6 +1374,7 @@ class NativeApiTest {
             "local function lvl2() return lvl1() end",
             "print(lvl2())"},
         {"lua_sethook / gethook",
+            "n.hitreset()",
             "print(n.hookinfo())",
             "n.sethook(0)",
             "print(n.hookinfo())",
@@ -1636,17 +1654,28 @@ class NativeApiTest {
     private static final java.util.Set<String> FULL_MATCH =
             java.util.Set.of("luaL_traceback");
 
+    /**
+     * <b>不进协程第二遍</b>的用例名。
+     * <p>
+     * 「C 函数里 yield —— 不在协程里」测的就是「不在协程里」这件事本身：
+     * 塞进 {@code coroutine.wrap} 之后，参考实现那边 yield 会穿过
+     * {@code pcall} 一路冒出 {@code wrap}，<b>两条 print 一条都不执行</b>，
+     * 整个进程安安静静退出 0、什么也不打印——{@link Diff#assertMatches}
+     * 的「空用例」闸门就是为这种情况设的，于是这条只剩下假红。
+     */
+    private static final java.util.Set<String> NO_CO =
+            java.util.Set.of("C 函数里 yield —— 不在协程里");
+
     @TestFactory
     List<DynamicTest> cApiMatchesReference() {
         List<DynamicTest> tests = new ArrayList<>();
         String path = fixture();
         Assumptions.assumeTrue(path != null, "跳过 C API 用例：" + skipReason);
         for (String[] c : CASES) {
-            StringBuilder src = new StringBuilder(PRE.replace("@SO@", path));
+            StringBuilder body = new StringBuilder();
             for (int i = 1; i < c.length; i++) {
-                src.append(c[i]).append('\n');
+                body.append(c[i]).append('\n');
             }
-            String script = src.toString();
             /*
              * 回溯是<b>脚本打印出来的</b>那几条（{@code luaL_traceback}）得走
              * {@code assertFullMatches}：{@code assertMatches} 会从第一个
@@ -1654,11 +1683,44 @@ class NativeApiTest {
              * 输出——砍掉的那一段一条分歧也发现不了（见 {@link Diff#assertMatches}）。
              */
             boolean full = FULL_MATCH.contains(c[0]);
+            String head = PRE.replace("@SO@", path);
+            String plain = head + body;
             tests.add(DynamicTest.dynamicTest("C API: " + c[0],
-                    () -> (full ? (Runnable) () -> Diff.assertFullMatches(script)
-                            : (Runnable) () -> Diff.assertMatches(script)).run()));
+                    () -> run(full, plain, c[0])));
+            /*
+             * <b>第二遍：同一批语料塞进协程再跑一次。</b>
+             * <p>
+             * 第 7 条那条经验（registry 及 {@code _LOADED} / {@code _G} 是
+             * {@code global_State} 级的）说的是「这类 bug 只在协程里现形」，
+             * 而 C API 那一侧的协程相关面比纯 Lua 更大：{@code ci} 链多一层、
+             * {@code lua_getstack} 数出来的层级不一样、{@code luaL_where}
+             * 拿到的行可能落在协程体里、{@code lua_pushthread} 不再答真、
+             * {@code lua_isyieldable} 反过来了。主线程上全绿不代表这里绿。
+             */
+            String inCo = head + "coroutine.wrap(function()\n" + body
+                    + "end)()\n";
+            if (!NO_CO.contains(c[0])) {
+                tests.add(DynamicTest.dynamicTest("C API（协程里）: " + c[0],
+                        () -> run(full, inCo, c[0])));
+            }
         }
         return tests;
+    }
+
+    /**
+     * 抛出来的异常要带上用例名——动态用例在 surefire 报告里全叫
+     * {@code cApiMatchesReference}，不带上就只能靠「第几条」去数。
+     */
+    private static void run(boolean full, String src, String name) {
+        try {
+            if (full) {
+                Diff.assertFullMatches(src);
+            } else {
+                Diff.assertMatches(src);
+            }
+        } catch (Throwable t) {
+            throw new AssertionError("用例「" + name + "」抛了 " + t, t);
+        }
     }
 
     private static synchronized String fixture() {
