@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <dlfcn.h>
+#include <locale.h>   /* setlocale */
 #include <sys/wait.h>   /* luaL_execresult 要用本平台的 WIFEXITED / WTERMSIG */
 
 #include "lua.h"
@@ -1552,6 +1553,86 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cGetErrno(JNIEnv *env,
         jclass cls) {
     (void)env; (void)cls;
     return (jint)errno;
+}
+
+/*
+ * {@code setlocale(category, locale)} —— 直接调 C 的 setlocale。
+ * <p>
+ * {@code locale} 为 {@code NULL} 时只查询不设置；返回的字符串是 C 运行时的
+ * 内部状态，不能 free。Java 侧要把字节拷走（{@code NewStringUTF} 或
+ * {@code GetByteArrayRegion}），不能直接存指针。
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cSetlocale(JNIEnv *env,
+        jclass cls, jint category, jbyteArray locale) {
+    (void)cls;
+    const char *loc = NULL;
+    char *locBuf = NULL;
+    if (locale != NULL) {
+        jsize len = (*env)->GetArrayLength(env, locale);
+        locBuf = (char *)malloc((size_t)len + 1);
+        if (locBuf == NULL) return NULL;
+        (*env)->GetByteArrayRegion(env, locale, 0, len, (jbyte *)locBuf);
+        locBuf[len] = '\0';
+        loc = locBuf;
+    }
+    char *result = setlocale((int)category, loc);
+    free(locBuf);
+    if (result == NULL) return NULL;
+    /*
+     * 把结果拷回 Java byte[]：{@code NewStringUTF} 走 MUTF-8，locale 名字里
+     * 可能有非 ASCII（如 {@code zh_CN.UTF-8}），但实测 C 的 setlocale 返回的都是
+     * ASCII，这里用字节数组更稳妥，Java 侧按 UTF-8 解。
+     */
+    jsize rlen = (jsize)strlen(result);
+    jbyteArray arr = (*env)->NewByteArray(env, rlen);
+    if (arr == NULL) return NULL;
+    (*env)->SetByteArrayRegion(env, arr, 0, rlen, (jbyte *)result);
+    return arr;
+}
+
+/*
+ * {@code waitpid(pid, &status, 0)} —— 拿原始退出状态，区分 exit/signal。
+ * <p>
+ * Java 的 {@code Process.waitFor()} 只给退出码，信号杀死的进程一律按 exit 1 报。
+ * C 的 {@code waitpid} 把状态编码在 {@code status} 里：{@code WIFEXITED(status)}
+ * 判正常退出，{@code WEXITSTATUS(status)} 取退出码；{@code WIFSIGNALED(status)}
+ * 判信号杀死，{@code WTERMSIG(status)} 取信号编号。Lua 的 {@code os.execute}
+ * 走的就是这条路（{@code loslib.c: os_execute} → {@code luaL_execresult}）。
+ */
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cWaitpid(JNIEnv *env,
+        jclass cls, jlong pid, jlongArray statusOut) {
+    (void)cls;
+    int status = 0;
+    pid_t r = waitpid((pid_t)pid, &status, 0);
+    if (r < 0) return -1;
+    if (statusOut != NULL) {
+        jlong s = (jlong)status;
+        (*env)->SetLongArrayRegion(env, statusOut, 0, 1, &s);
+    }
+    return 0;
+}
+
+/*
+ * {@code WIFEXITED(status)} / {@code WEXITSTATUS(status)} /
+ * {@code WIFSIGNALED(status)} / {@code WTERMSIG(status)} —— 把 waitpid 拿到的
+ * 原始 status 解码成 Java 能直接用的四个字段。
+ * <p>
+ * 宏的定义平台相关（macOS 和 Linux 的位布局不一样），不能直接在 Java 里算，
+ * 所以走 JNI 调 C 的宏。返回值打包成一个 {@code long[4]}：
+ * {@code [wifexit, wexit, wifsig, wtermsig]}。
+ */
+JNIEXPORT void JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cDecodeStatus(JNIEnv *env,
+        jclass cls, jint status, jlongArray out) {
+    (void)cls;
+    jlong vals[4];
+    vals[0] = WIFEXITED(status) ? 1 : 0;
+    vals[1] = WEXITSTATUS(status);
+    vals[2] = WIFSIGNALED(status) ? 1 : 0;
+    vals[3] = WTERMSIG(status);
+    (*env)->SetLongArrayRegion(env, out, 0, 4, vals);
 }
 
 /* ==================== 生成的 stub ==================== */
