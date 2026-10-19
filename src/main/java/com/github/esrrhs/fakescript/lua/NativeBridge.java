@@ -198,6 +198,31 @@ public final class NativeBridge {
     /** {@code sizeof(lua_Debug)}：Java 侧要给 C 的钩子造一块 */
     static native long dbgSize();
 
+    /* ==================== C FILE* 操作 ==================== */
+
+    static native long cFopen(byte[] path, byte[] mode);
+    static native int cFclose(long f);
+    static native int cFread(long f, byte[] buf, int off, int len);
+    static native int cFwrite(long f, byte[] buf, int off, int len);
+    static native int cFseek(long f, long offset, int whence);
+    static native long cFtell(long f);
+    static native int cFflush(long f);
+    static native int cFerror(long f);
+    static native void cClearerr(long f);
+    static native int cFeof(long f);
+    static native byte[] cFgets(long f, int maxLen);
+    static native int cFgetc(long f);
+    static native int cFputc(long f, int c);
+    static native long cPopen(byte[] cmd, byte[] mode);
+    static native int cPclose(long f);
+    static native int cFileno(long f);
+    static native long cSizeofLuaLStream();
+    static native long cNewLuaLStream(long filePtr, long closefPtr);
+    static native long cStreamGetF(long streamPtr);
+
+    /** 取 C 标准流的 FILE*：0=stdin, 1=stdout, 2=stderr */
+    static native long cStdStream(int which);
+
     /* ==================== C 内存的生命周期 ==================== */
 
     /**
