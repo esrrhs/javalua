@@ -1344,6 +1344,186 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgShortSrc(JNIEnv *env,
     (*env)->ReleaseByteArrayElements(env, b, tmp, JNI_ABORT);
 }
 
+/* ==================== C FILE* 操作 ==================== */
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFopen(JNIEnv *env,
+        jclass cls, jbyteArray path, jbyteArray mode) {
+    (void)cls;
+    jbyte *pPath = (*env)->GetByteArrayElements(env, path, NULL);
+    jbyte *pMode = (*env)->GetByteArrayElements(env, mode, NULL);
+    FILE *f = fopen((const char *)pPath, (const char *)pMode);
+    (*env)->ReleaseByteArrayElements(env, path, pPath, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, mode, pMode, JNI_ABORT);
+    return (jlong)(intptr_t)f;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFclose(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    if (f == 0) return -1;
+    return fclose((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFread(JNIEnv *env,
+        jclass cls, jlong f, jbyteArray buf, jint off, jint len) {
+    (void)cls;
+    jbyte *tmp = (*env)->GetByteArrayElements(env, buf, NULL);
+    size_t n = fread(tmp + off, 1, (size_t)len, (FILE *)(intptr_t)f);
+    (*env)->ReleaseByteArrayElements(env, buf, tmp, 0);
+    return (jint)n;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFwrite(JNIEnv *env,
+        jclass cls, jlong f, jbyteArray buf, jint off, jint len) {
+    (void)cls;
+    jbyte *tmp = (*env)->GetByteArrayElements(env, buf, NULL);
+    size_t n = fwrite(tmp + off, 1, (size_t)len, (FILE *)(intptr_t)f);
+    (*env)->ReleaseByteArrayElements(env, buf, tmp, JNI_ABORT);
+    return (jint)n;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFseek(JNIEnv *env,
+        jclass cls, jlong f, jlong offset, jint whence) {
+    (void)env; (void)cls;
+    return fseeko((FILE *)(intptr_t)f, (off_t)offset, whence);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFtell(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return (jlong)ftello((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFflush(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return fflush((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFerror(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return ferror((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT void JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cClearerr(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    clearerr((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFeof(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return feof((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFgets(JNIEnv *env,
+        jclass cls, jlong f, jint maxLen) {
+    (void)cls;
+    char *buf = (char *)malloc((size_t)maxLen + 1);
+    if (buf == NULL) return NULL;
+    char *r = fgets(buf, maxLen + 1, (FILE *)(intptr_t)f);
+    if (r == NULL) { free(buf); return NULL; }
+    jsize n = (jsize)strlen(r);
+    jbyteArray a = (*env)->NewByteArray(env, n);
+    if (a != NULL && n > 0)
+        (*env)->SetByteArrayRegion(env, a, 0, n, (const jbyte *)r);
+    free(buf);
+    return a;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFgetc(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return fgetc((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFputc(JNIEnv *env,
+        jclass cls, jlong f, jint c) {
+    (void)env; (void)cls;
+    return fputc(c, (FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cPopen(JNIEnv *env,
+        jclass cls, jbyteArray cmd, jbyteArray mode) {
+    (void)cls;
+    jbyte *pCmd = (*env)->GetByteArrayElements(env, cmd, NULL);
+    jbyte *pMode = (*env)->GetByteArrayElements(env, mode, NULL);
+    fflush(NULL);
+    FILE *f = popen((const char *)pCmd, (const char *)pMode);
+    (*env)->ReleaseByteArrayElements(env, cmd, pCmd, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, mode, pMode, JNI_ABORT);
+    return (jlong)(intptr_t)f;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cPclose(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return pclose((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFileno(JNIEnv *env,
+        jclass cls, jlong f) {
+    (void)env; (void)cls;
+    return fileno((FILE *)(intptr_t)f);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cSizeofLuaLStream(JNIEnv *env,
+        jclass cls) {
+    (void)env; (void)cls;
+    return (jlong)(sizeof(FILE *) + sizeof(void (*)(void)));
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cNewLuaLStream(JNIEnv *env,
+        jclass cls, jlong filePtr, jlong closefPtr) {
+    (void)env; (void)cls;
+    void **p = (void **)calloc(2, sizeof(void *));
+    if (p == NULL) return 0;
+    p[0] = (void *)(intptr_t)filePtr;
+    p[1] = (void *)(intptr_t)closefPtr;
+    return (jlong)(intptr_t)p;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStreamGetF(JNIEnv *env,
+        jclass cls, jlong streamPtr) {
+    (void)env; (void)cls;
+    if (streamPtr == 0) return 0;
+    void **p = (void **)(intptr_t)streamPtr;
+    return (jlong)(intptr_t)p[0];
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStdStream(JNIEnv *env,
+        jclass cls, jint which) {
+    (void)env; (void)cls;
+    switch (which) {
+        case 0: return (jlong)(intptr_t)stdin;
+        case 1: return (jlong)(intptr_t)stdout;
+        case 2: return (jlong)(intptr_t)stderr;
+        default: return 0;
+    }
+}
+
 /* ==================== 生成的 stub ==================== */
 
 #include "luashim_stubs.inc"
