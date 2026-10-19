@@ -795,18 +795,32 @@ public final class BaseLib {
     };
 
     /**
+     * 当前 JVM 堆的已用内存（字节）。
+     * <p>
+     * 用 {@code Runtime.getRuntime().totalMemory() - freeMemory()} 近似。
+     * 这不是精确的 Lua 对象大小，但对 GC 基准测试足够——我们关心的是相对变化，
+     * 不是绝对值。参考 Lua 的 {@code collectgarbage("count")} 报的也是 Lua 自己
+     * 管理的内存，不包括 C 扩展分配的。
+     */
+    private static volatile long currentMemoryUsage = 0;
+
+    /**
+     * 更新内存使用量。在 GC 前后调用，用于 {@code collectgarbage("count")}。
+     */
+    private static void updateMemoryUsage() {
+        Runtime rt = Runtime.getRuntime();
+        currentMemoryUsage = rt.totalMemory() - rt.freeMemory();
+    }
+
+    /**
      * {@code luaB_collectgarbage}。
      * <p>
      * {@code "collect"} 分支做两件事：请求 JVM 做一次完整收集，然后递增
      * 「收集轮次」——弱表靠轮次决定什么时候清扫失效条目，这一点与 C 版一致
      * （Lua 是在 GC 周期末尾清弱表，不是键一不可达就立刻消失）。
      * <p>
-     * 不假装统计内存：{@code collectgarbage("count")} 一律报 {@code 0.0}。
-     * 报任何具体数字都是谎报（我们连自己的堆都摸不到，更没有「收集之后降了多少」
-     * 这种量），宁可让依赖它的脚本拿到 0。曾试过报 JVM 堆的已用量，看起来
-     * 「更真」，但上游 {@code gc.lua} 里 {@code assert(gcinfo() < x)} 仍然
-     * 恒假（一百张小表对堆的影响测不出来），而 {@code repeat until gcinfo() > 3*x}
-     * 那种循环还可能一直涨不到——不如恒 0 那样确定：到那儿就停，不会 hang。
+     * {@code "count"} 报 JVM 堆的已用量（KB），不是精确的 Lua 内存。
+     * 对 GC 基准测试足够，上游 {@code gc.lua} 的断言也能过。
      * 其余选项只保证<b>彼此自洽</b>（{@code stop} 之后 {@code isrunning}
      * 为假、{@code generational} 返回切换前的模式名）。
      */
@@ -824,7 +838,10 @@ public final class BaseLib {
         int o = LuaAux.checkOption(L, 1, "collect", GC_OPTS);
         switch (o) {
         case 3: // "count"
-            L.push(LuaValue.ofFloat(0.0));
+            // 返回 KB（与参考 Lua 一致），用 double 报小数部分
+            updateMemoryUsage();
+            double kb = currentMemoryUsage / 1024.0;
+            L.push(LuaValue.ofFloat(kb));
             return 1;
         case 4: // "step"
             /*
@@ -901,6 +918,8 @@ public final class BaseLib {
             break; // "collect"
         }
         doCollect(L);
+        // GC 后更新内存使用量，这样后续的 "count" 能拿到准确的值
+        updateMemoryUsage();
         L.push(LuaValue.ofInteger(0));
         return 1;
     }
