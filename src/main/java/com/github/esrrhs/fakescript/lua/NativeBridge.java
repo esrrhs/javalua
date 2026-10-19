@@ -226,6 +226,36 @@ public final class NativeBridge {
     /** 取 C 的 {@code errno}（{@code cFopen} 等失败后读它） */
     static native int cGetErrno();
 
+    /**
+     * 调 C 的 {@code setlocale(category, locale)}。
+     * <p>
+     * {@code locale} 为 {@code null} 时只查询不设置。返回的字节数组是 C 运行时
+     * 的当前 locale 名字（UTF-8 编码），设置失败返回 {@code null}。
+     */
+    static native byte[] cSetlocale(int category, byte[] locale);
+
+    /**
+     * 调 C 的 {@code waitpid(pid, &status, 0)}，拿原始退出状态。
+     * <p>
+     * Java 的 {@code Process.waitFor()} 只给退出码，信号杀死的进程一律按 exit 报。
+     * 这个方法把原始 status 写到 {@code statusOut[0]}，调用方再用
+     * {@link #cDecodeStatus} 解码。返回 0 表示成功，-1 表示 waitpid 失败。
+     */
+    static native int cWaitpid(long pid, long[] statusOut);
+
+    /**
+     * 把 {@code waitpid} 拿到的原始 status 解码成四个字段。
+     * <p>
+     * {@code out} 必须是长度 >= 4 的 {@code long[]}，填进去的是：
+     * <ol>
+     *   <li>{@code WIFEXITED(status)}：1 = 正常退出，0 = 否</li>
+     *   <li>{@code WEXITSTATUS(status)}：退出码（仅当 [0] 为 1 时有意义）</li>
+     *   <li>{@code WIFSIGNALED(status)}：1 = 被信号杀死，0 = 否</li>
+     *   <li>{@code WTERMSIG(status)}：信号编号（仅当 [2] 为 1 时有意义）</li>
+     * </ol>
+     */
+    static native void cDecodeStatus(int status, long[] out);
+
     /* ==================== C 内存的生命周期 ==================== */
 
     /**

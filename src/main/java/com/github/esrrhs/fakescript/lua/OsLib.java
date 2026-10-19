@@ -688,13 +688,17 @@ public final class OsLib {
      * <p>
      * 无参时 {@code system(NULL)} 问「有没有 shell」，这里一律给 true。
      * 有参时走 {@code sh -c}，并照 {@code luaL_execresult} 给三元组
-     * {@code (true|fail, "exit", 状态码)}——注意<b>成功时也返回三个值</b>，
+     * {@code (true|fail, "exit"|"signal", 状态码)}——注意<b>成功时也返回三个值</b>，
      * 不是只返回 true。
      * <p>
      * 命令名写 {@code "sh"} 而不是 {@code "/bin/sh"}：C 的 {@code system()} 是
      * {@code execl("/bin/sh", "sh", "-c", cmd)}，<b>argv[0] 是 {@code "sh"}</b>。
      * shell 的错误信息用 argv[0] 打头（{@code sh: 42: command not found}），
      * 写成全路径就会变成 {@code /bin/sh: ...}，和参考实现对不上。
+     * <p>
+     * 退出状态用 JNI 调 {@code waitpid} 拿原始 status，区分正常退出和被信号杀死：
+     * Java 的 {@code Process.waitFor()} 只给退出码，信号杀死的进程一律按 exit 1 报，
+     * 和参考实现对不上（{@code os.execute("kill -9 $$")} 应该报 {@code "signal", 9}）。
      */
     private static int execute(LuaState L) {
         if (L.isNoneArg(1) || L.arg1(1).isNil()) {
@@ -702,9 +706,9 @@ public final class OsLib {
             return 1;
         }
         String cmd = LuaAux.checkString(L, 1).toCString().toJavaString();
-        int stat;
+        Process p;
         try {
-            Process p = new ProcessBuilder("sh", "-c", cmd).start();
+            p = new ProcessBuilder("sh", "-c", cmd).start();
             // 子进程的输出必须抄到 L.out 上，不能用 inheritIO：后者走的是
             // 进程的文件描述符，脚本里换掉的输出流接不到，于是
             // os.execute("nosuch") 连「command not found」都看不见
@@ -712,9 +716,50 @@ public final class OsLib {
             Thread g2 = gobbler(p.getErrorStream(), L);
             g1.start();
             g2.start();
-            stat = p.waitFor();
+            // 不直接 waitFor()：要先用 waitpid 拿原始 status
+            long pid = p.pid();
+            long[] statusOut = new long[1];
+            int wr = NativeBridge.cWaitpid(pid, statusOut);
             g1.join();
             g2.join();
+            if (wr < 0) {
+                // waitpid 失败（理论上不该发生），兜底走 waitFor
+                int stat = p.waitFor();
+                if (stat == 0) {
+                    L.push(LuaValue.ofBoolean(true));
+                } else {
+                    L.pushNil();
+                }
+                L.push(LuaValue.ofString(LuaString.latin1("exit")));
+                L.push(LuaValue.ofInteger(stat));
+                return 3;
+            }
+            // 解码 status
+            long[] decoded = new long[4];
+            NativeBridge.cDecodeStatus((int) statusOut[0], decoded);
+            boolean wifexit = decoded[0] != 0;
+            int wexit = (int) decoded[1];
+            boolean wifsig = decoded[2] != 0;
+            int wtermsig = (int) decoded[3];
+            if (wifexit) {
+                if (wexit == 0) {
+                    L.push(LuaValue.ofBoolean(true));
+                } else {
+                    L.pushNil();
+                }
+                L.push(LuaValue.ofString(LuaString.latin1("exit")));
+                L.push(LuaValue.ofInteger(wexit));
+            } else if (wifsig) {
+                L.pushNil();
+                L.push(LuaValue.ofString(LuaString.latin1("signal")));
+                L.push(LuaValue.ofInteger(wtermsig));
+            } else {
+                // 既不是 exit 也不是 signal（理论上不该发生），兜底给 exit 1
+                L.pushNil();
+                L.push(LuaValue.ofString(LuaString.latin1("exit")));
+                L.push(LuaValue.ofInteger(1));
+            }
+            return 3;
         } catch (IOException e) {
             LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
             return 3;
@@ -723,17 +768,6 @@ public final class OsLib {
             LuaAux.fileResult(L, false, null, 4); // EINTR
             return 3;
         }
-        // Java 区分不出「被信号杀掉」，一律按 exit 汇报（见类注释）。
-        // 失败时给的是 luaL_pushfail（5.4 里就是 nil），不是 false——
-        // print(os.execute("false")) 出的是「nil exit 1」
-        if (stat == 0) {
-            L.push(LuaValue.ofBoolean(true));
-        } else {
-            L.pushNil();
-        }
-        L.push(LuaValue.ofString(LuaString.latin1("exit")));
-        L.push(LuaValue.ofInteger(stat));
-        return 3;
     }
 
     /** 把子进程的一条输出流抄到 {@code L.out} 上，并负责关流 */
@@ -895,35 +929,40 @@ public final class OsLib {
             "time" };
 
     /**
-     * 当前 locale。C 里这是<b>进程级</b>状态：{@code setlocale} 设完之后，
-     * 后面的查询返回的就是新名字。实测 {@code os.setlocale("POSIX")} 之后再
-     * {@code os.setlocale(nil, "time")} 返回 {@code "POSIX"}，所以这里也得是
-     * 一个可变字段，不能每次都回 {@code "C"}。
-     */
-    private static volatile String currentLocale = "C";
-
-    /**
      * {@code os.setlocale}。
      * <p>
-     * Java 没有 {@code setlocale}，这是整块里偏离最大的一个：只认 {@code "C"} /
-     * {@code "POSIX"}，其余一律 nil（表示没设成、locale 不变）。程序启动时是
-     * {@code "C"}——Lua 自己从不调 setlocale，所以查询类调用对得上。
+     * 直接调 C 的 {@code setlocale}：Java 没有进程级 locale，只能走 JNI。
+     * 查询（{@code locale=nil}）和设置都走同一条路——C 的 {@code setlocale}
+     * 在 {@code locale=NULL} 时就是查询。
+     * <p>
+     * category 映射：{@code "all"} → {@code LC_ALL}(0)，其余按名字查表。
+     * 设置失败（C 返回 {@code NULL}）时推 nil，成功时推 C 返回的 locale 名字。
      */
     private static int setlocale(LuaState L) {
         String loc = null;
         if (!L.isNoneArg(1) && !L.arg1(1).isNil()) {
             loc = LuaAux.checkString(L, 1).toCString().toJavaString();
         }
-        LuaAux.checkOption(L, 2, "all", CATS); // 只为复现「invalid option」那条报错
-        if (loc == null) {
-            L.push(LuaValue.ofString(LuaString.latin1(currentLocale)));
-        } else if ("C".equals(loc) || "POSIX".equals(loc)) {
-            currentLocale = loc;
-            L.push(LuaValue.ofString(LuaString.latin1(loc)));
+        int catIdx = LuaAux.checkOption(L, 2, "all", CATS);
+        int cat = catToLc(catIdx);
+        byte[] locBytes = loc != null ? loc.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
+        byte[] result = NativeBridge.cSetlocale(cat, locBytes);
+        if (result == null) {
+            L.pushNil();
         } else {
-            L.pushNil(); // 设不上：保持原样
+            L.push(LuaValue.ofString(LuaString.of(result)));
         }
         return 1;
+    }
+
+    /**
+     * Lua 的 category 下标（{@code checkOption} 返回的 0-based 索引）映射到 C 的
+     * {@code LC_*} 常量。顺序必须和 {@link #CATS} 数组一致。
+     */
+    private static int catToLc(int idx) {
+        // CATS = { "all", "collate", "ctype", "monetary", "numeric", "time" }
+        // macOS/Linux: LC_ALL=0, LC_COLLATE=1, LC_CTYPE=2, LC_MONETARY=3, LC_NUMERIC=4, LC_TIME=5
+        return idx; // 刚好一一对应
     }
 
     private static int exit(LuaState L) {
