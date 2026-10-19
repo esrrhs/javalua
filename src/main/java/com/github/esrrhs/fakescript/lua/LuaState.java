@@ -1041,14 +1041,30 @@ public final class LuaState {
      * 所以后者要过一层 {@link UpVal#value()}。
      */
     public LuaValue upvalue(int i) {
+        /*
+         * 三条「拿不到」的路在 C 里<b>都给 nilvalue，不报错</b>
+         * （{@code lapi.c: index2value}）：
+         * <ol>
+         *   <li>当前帧是<b>轻量 C 函数</b>（{@code ttislcf}）——它没有 upvalue；</li>
+         *   <li>{@code idx > nupvalues}——C 闭包只绑定了那么多个；</li>
+         *   <li>下标大得离谱——{@code MAXUPVAL} 之外。</li>
+         * </ol>
+         * 早先这里直接 {@code upvalue[i]}，越界就抛 Java 异常、把整个 JVM
+         * 拖垮。撞出来的是 {@code luaL_setfuncs(l, 0)}：注册出来的函数一个
+         * upvalue 都没有，而函数体里照写
+         * {@code lua_pushvalue(L, lua_upvalueindex(1))} —— 那在真 Lua 里是
+         * 合法的，只是取到 nil。
+         */
         LuaValue f = stack[ci.func];
         if (f.tt == Lua.VCCL) {
-            return ((CClosure) f.o).upvalue[i];
+            LuaValue[] uv = ((CClosure) f.o).upvalue;
+            return (i >= 0 && i < uv.length) ? uv[i] : LuaValue.ofNil();
         }
         if (f.tt == Lua.VLIF) {
-            return ((LClosure) f.o).upvals[i].value();
+            UpVal[] uv = ((LClosure) f.o).upvals;
+            return (i >= 0 && i < uv.length) ? uv[i].value() : LuaValue.ofNil();
         }
-        throw new IllegalStateException("current frame is not a closure");
+        return LuaValue.ofNil(); // 轻量 C 函数
     }
 
     /** {@code lua_getstack(L, 0, &ar)}：还有没有调用帧 */

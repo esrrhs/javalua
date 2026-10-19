@@ -315,17 +315,18 @@ final class Api {
     }
 
     static long luaL_checklstring(long L, long arg, long l) {
+        /*
+         * {@code lauxlib.c} 是「先 {@code lua_tolstring}、转不出来才
+         * {@code tag_error}」——所以数字<b>照样会被原地换掉</b>，与
+         * {@link #lua_tolstring} 同形。早先这里是「先判类型、再自己转」，
+         * 于是不做原地转换。
+         */
         LuaState S = st(L);
-        LuaValue v = S.arg1((int) arg);
-        if (!v.isString() && !v.isNumber()) {
+        long p = lua_tolstring(L, arg, l);
+        if (p == 0) {
             throw S.typeArgError((int) arg, "string");
         }
-        LuaString str = v.isString() ? v.asString()
-                : LuaString.latin1(Vm.numberToString(v));
-        if (l != 0) {
-            NativeBridge.put64(l, str.length());
-        }
-        return NativeBridge.strToNative(str.bytes);
+        return p;
     }
 
     static double luaL_checknumber(long L, long arg) {
@@ -418,30 +419,79 @@ final class Api {
         }
     }
 
+    /*
+     * {@code luaL_error} 整条搬到 {@code luashim.c} 里去了：
+     * <pre>
+     * luaL_where(L, 1); lua_pushvfstring(L, fmt, ap); lua_concat(L, 2);
+     * lua_error(L);
+     * </pre>
+     * 三件事都得在 C 侧做才对：变参只能在 C 里读；{@code lua_pushvfstring}
+     * 的动词表和 printf <b>不是</b>一套（见 {@code pushvfshim}）；
+     * {@code lua_error} 抛出去得走 {@code luashim_throw} 的 longjmp，
+     * 不能让 Java 异常跨过 JNI 帧。
+     * <p>
+     * 早先这里是「C 侧 {@code vsnprintf} 展开 → Java 拼 where + 抛」，
+     * 于是 {@code luaL_error(L, "%f", 1.5)} 给 {@code 1.500000}（参考
+     * {@code 1.5}）、{@code "%5d"} 照打不误（参考报
+     * {@code invalid option '%5'}）。
+     */
+    @Generated
     static long luaL_error(long L, long fmt, long a2) {
+        throw new IllegalStateException(
+                "luaL_error 在 luashim.c 里用 luaL_where + lua_pushvfstring 拼出来，不进 Java");
+    }
+
+    /*
+     * {@code luaL_execresult} / {@code luaL_fileresult}：<b>errno 是 C 侧塞进来的</b>。
+     * <p>
+     * {@code lauxlib.c} 里这两个的第一句都是 {@code int en = errno;}
+     * （注释明写 {@code calls to Lua API may change this value}）。errno 是
+     * 每个线程一份的 C 变量，Java 读不到——所以 {@code luashim.c} 在 C 侧先取
+     * 出来，多占一个参数槽交给这里（见 {@code gen_capi.py} 的
+     * {@code ARG_OVERRIDE}）。
+     * <p>
+     * 早先这两个是「生成出来的普通桩」，errno 一律当 0，后果有两处，而且都
+     * 是<b>我们自己的库永远撞不到</b>的（{@code io} / {@code os} 走的是
+     * {@code LuaAux} 另一条路，那边 errno 本来就是从 Java 异常反查的）：
+     * <ol>
+     *   <li>{@code luaL_fileresult} 永远答 {@code (no extra info), 0}；</li>
+     *   <li>{@code luaL_execresult} 那条 {@code stat != 0 && errno != 0}
+     *       的分支永远不走，于是扩展里「{@code system()} 失败」全被当成
+     *       「进程正常退出」。</li>
+     * </ol>
+     */
+    static long luaL_execresult(long L, long stat, long en, long what) {
         /*
-         * C 侧已经把 fmt 展开成字节了（变参在 C 里才拼得出来），这里只负责
-         * luaL_where + 消息 + 抛。抛出去同样是转 longjmp。
+         * {@code l_inspectstat} 已经在 C 侧用本平台的 wait 宏做完了，这里拿到
+         * 的是<b>已经换算过</b>的 {@code stat} 与 {@code what}
+         * （{@code "exit"} / {@code "signal"}）。
          */
         LuaState S = st(L);
-        byte[] b = (fmt == 0 || a2 <= 0) ? new byte[0] : NativeBridge.bytesAtN(fmt, (int) a2);
-        luaL_where(L, 1);
-        LuaString where = S.stack[S.top - 1].asString();
-        S.top--;
-        throw S.libError(where.concat(LuaString.of(b)));
+        LuaString w = LuaString.of(NativeBridge.bytesAt(what));
+        int st = (int) stat;
+        if (st == 0 && w.equals(LuaString.latin1("exit"))) {
+            pushVal(S, LuaValue.ofBoolean(true));
+        } else {
+            LuaAux.pushFail(S);
+        }
+        pushVal(S, LuaValue.ofString(w));
+        pushVal(S, LuaValue.ofInteger(st));
+        return 3;
     }
 
-    static long luaL_execresult(long L, long stat) {
-        LuaAux.execResult(st(L), (int) stat);
-        return 1;
-    }
-
-    static long luaL_fileresult(long L, long stat, long fname) {
+    static long luaL_fileresult(long L, long stat, long fname, long en) {
         LuaState S = st(L);
         boolean ok = stat != 0;
         LuaString fn = fname == 0 ? null : LuaString.of(NativeBridge.bytesAt(fname));
-        LuaAux.fileResult(S, ok, fn, 0);
-        return 3;
+        /*
+         * <b>返回值个数随 {@code stat} 变</b>：成功只压一个 {@code true}、
+         * 返回 1；失败压 {@code nil, msg, errno}、返回 3。
+         * 早先这里恒返回 3，成功那一支就把栈顶上面两格的<b>陈值</b>当成
+         * 结果交出去了。参考实现实测 {@code luaL_fileresult(L, 1, NULL)}
+         * 只给一个 {@code true}。
+         */
+        LuaAux.fileResult(S, ok, fn, (int) en);
+        return ok ? 1 : 3;
     }
 
     static long luaL_getmetafield(long L, long obj, long e) {
@@ -754,13 +804,39 @@ final class Api {
         }
     }
 
+    /*
+     * {@code lauxlib.c: luaL_where}：压 {@code "<short_src>:<line>: "}，
+     * 拿不到就压空串。
+     * <p>
+     * <b>这一条曾经是空串桩</b>（TODO 上写着「C2 阶段接上」），而它正是
+     * {@code luaL_error} 的第一句——于是所有从 C 扩展里 {@code luaL_error}
+     * 出来的消息都没有位置前缀。参考实测（{@code f_where}）从 Lua 函数里
+     * 调进来是 {@code target/rt/case.lua:8: }，我们给空串。
+     * <p>
+     * 两个容易踩的点：
+     * <ol>
+     *   <li><b>C 帧也算一层</b>。{@code lua_getstack} 是顺着 {@code ci} 链
+     *       退，不分 Lua / C。所以 {@code print(pcall(f))} 里
+     *       {@code luaL_where(L, 1)} 拿到的是 <b>pcall 那个 C 帧</b>
+     *       （{@code currentline == -1}），得 {@code level == 2} 才是主
+     *       chunk —— 这也是为什么「从 C 函数里 {@code luaL_error}」常常
+     *       <b>没有</b>前缀：中间隔着一个 pcall。</li>
+     *   <li>{@code short_src} 是<b>字节串</b>（chunk 名可以是任意字节），
+     *       拼的时候不能绕 Java String。</li>
+     * </ol>
+     */
     static void luaL_where(long L, long lvl) {
-        /*
-         * TODO：需要 lua_getstack / lua_getinfo 的 "Sl"，C2 阶段接上。
-         * 现在给空串——与「拿不到位置信息」那条分支一致，不会编造位置。
-         */
         LuaState S = st(L);
-        pushVal(S, LuaValue.ofString(LuaString.latin1("")));
+        LuaString where = LuaString.latin1("");
+        DebugLib.LuaDebug d = new DebugLib.LuaDebug();
+        if (DebugLib.getStack(S, (int) lvl, d)) {
+            DebugLib.getInfo(S, "Sl", d);
+            if (d.currentline > 0) {
+                where = d.shortSrc.concat(
+                        LuaString.latin1(":" + d.currentline + ": "));
+            }
+        }
+        pushVal(S, LuaValue.ofString(where));
     }
 
     static long lua_absindex(long L, long idx) {
@@ -1398,7 +1474,7 @@ final class Api {
          * {@code nuvalue} 恒为 0，{@code lua_getiuservalue} 永远答
          * {@code LUA_TNONE}——这是个「能跑但全错」的坑，留着注释别再踩回去。
          */
-        pushVal(S, LuaValue.ofUserdata(new LuaUserdata(m, (int) nuvalue)));
+        pushVal(S, LuaValue.ofUserdata(new LuaUserdata(m, (int) nuvalue, (int) sz)));
         return m.ptr;
     }
 
@@ -1592,8 +1668,14 @@ final class Api {
             return v.asTable().length();
         }
         if (v.baseType() == Lua.TUSERDATA) {
-            Object d = ((LuaUserdata) v.o).data;
-            return d instanceof NativeMemory ? ((NativeMemory) d).size : 0;
+            LuaUserdata ud = (LuaUserdata) v.o;
+            /*
+             * C 是 {@code uvalue(o)->len}：<b>与载荷是什么无关</b>，就是建
+             * userdata 时那一段的字节数。早先这里只看「载荷是不是
+             * {@link NativeMemory}」，于是我们自己造的文件句柄一律答 0
+             * （参考答 16，见 {@link LuaUserdata#len}）。
+             */
+            return ud.len;
         }
         return 0;
     }
@@ -1952,7 +2034,7 @@ final class Api {
         if (len != 0) {
             NativeBridge.put64(len, str.length());
         }
-        return NativeBridge.strToNative(str.bytes);
+        return str.nativePtr();
     }
 
     static double lua_tonumberx(long L, long idx, long isnum) {

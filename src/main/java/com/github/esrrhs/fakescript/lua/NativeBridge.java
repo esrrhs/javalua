@@ -172,6 +172,9 @@ public final class NativeBridge {
     /** 拷进 C 侧的环形缓冲，返回一个 NUL 结尾的 {@code const char*} */
     static native long strToNative(byte[] b);
 
+    /** 往 {@code alloc} 出来的块里写字节并补 NUL；见 {@link LuaString#nativePtr} */
+    static native void putBytes(long p, byte[] b);
+
     static native void put64(long p, long v);
 
     static native long get64(long p);
@@ -194,6 +197,37 @@ public final class NativeBridge {
 
     /** {@code sizeof(lua_Debug)}：Java 侧要给 C 的钩子造一块 */
     static native long dbgSize();
+
+    /* ==================== C 内存的生命周期 ==================== */
+
+    /**
+     * 一块「跟着某个 Java 对象活到死」的 C 内存。
+     * <p>
+     * 环形缓冲（{@code ring_put}，32 格）只能保证「接下来 32 次调用之内还
+     * 有效」，而 C 的 {@code lua_tolstring} 交回去的是<b>字符串自己的存储</b>，
+     * 只要那个字符串还在就一直有效、而且<b>两次取同一个值必得同一个地址</b>。
+     * 于是这里改成按对象惰性分配 + {@code Cleaner} 回收：地址稳定，也不漏。
+     */
+    private static final java.lang.ref.Cleaner CLEANER =
+            java.lang.ref.Cleaner.create();
+
+    private static final class FreeAction implements Runnable {
+        private final long p;
+
+        FreeAction(long p) {
+            this.p = p;
+        }
+
+        @Override
+        public void run() {
+            free(p);
+        }
+    }
+
+    /** 让 {@code p} 随 {@code owner} 一起被回收；{@code p} 必须是 {@code alloc} 来的 */
+    static void freeWith(Object owner, long p) {
+        CLEANER.register(owner, new FreeAction(p));
+    }
 
     /* ==================== 句柄 ==================== */
 

@@ -50,6 +50,14 @@ HAND_WRITTEN = {
     "luaL_buffinit", "luaL_buffinitsize", "luaL_prepbuffsize",
     "luaL_addlstring", "luaL_addstring", "luaL_addvalue",
     "luaL_pushresult", "luaL_pushresultsize",
+    # 这两个要读 C 那侧的 errno：lauxlib.c 第一句就是 `int en = errno;`
+    # （注释写着 "calls to Lua API may change this value"），而 errno 是
+    # 每个线程一份的 C 变量，Java 读不到。只能在 C 侧先取出来，多塞一个
+    # 参数进 Java（见 ARG_OVERRIDE）。不塞就只能用 errno=0 糊过去，于是
+    # luaL_fileresult 永远答 "(no extra info) 0"、luaL_execresult 那条
+    # `stat != 0 && errno != 0` 的分支永远不走 —— 而真扩展恰恰全靠这两个
+    # 报「为什么失败」。
+    "luaL_fileresult", "luaL_execresult",
     "lua_ident",          # 数据符号，不是函数
 }
 
@@ -72,6 +80,12 @@ C_ONLY = {
 ARG_OVERRIDE = {
     "luaL_checkoption": [("long", "L"), ("long", "arg"), ("long", "def"),
                          ("long", "packed"), ("long", "n")],
+    # C 侧多传一个 errno 进来（见 HAND_WRITTEN 里的说明）
+    "luaL_fileresult": [("long", "L"), ("long", "stat"), ("long", "fname"),
+                        ("long", "en")],
+    # what 是 l_inspectstat 之后的 "exit" / "signal"，C 侧算好再交进来
+    "luaL_execresult": [("long", "L"), ("long", "stat"), ("long", "en"),
+                        ("long", "what")],
 }
 
 DOUBLE_TYPES = {"lua_Number"}
