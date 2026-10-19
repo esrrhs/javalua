@@ -129,6 +129,28 @@ final class NativeRealExtTest {
                     "print(pcall(function() return p + 1 end))",
                     "print(pcall(function() return #p end))",
                     "print(tostring(p):sub(1, 7))"},
+                /*
+                 * <b>扩展回调 Lua 的时候能不能 yield。</b>
+                 * <p>
+                 * 这一条是冲着约定 #81 那个洞去的：{@code lua_call} 与
+                 * {@code lua_callk} 的分岔口在「当前帧是不是 Lua 帧」，漏了这一
+                 * 刀，从 C 函数里回调进来的 Lua 函数 yield 会穿过那个<b>没有续体
+                 * 的 C 帧</b>，恢复时 {@code finishCcall} 拿到 {@code k == null}。
+                 * 自己写的探针能测 {@code lua_callk}，但测不到「<b>真实扩展</b>
+                 * 到底用的是哪个」——lpeg 的 {@code /函数} 捕获
+                 * （{@code lpcap.c} 的 runtime capture）就是一条真扩展回调 Lua
+                 * 的路，主线程上怎么跑都正常，只有在协程里才分叉。
+                 */
+                {"捕获回调里 yield",
+                    "local co = coroutine.create(function()",
+                    "  return n.match(n.Ct((n.C(n.P(1)) / function(c)",
+                    "    coroutine.yield('Y' .. c)",
+                    "    return c",
+                    "  end)^0), 'ab')",
+                    "end)",
+                    "print(coroutine.resume(co))",
+                    "print(coroutine.resume(co))",
+                    "print(coroutine.resume(co))"},
             }),
         new Ext("CJSON_SRC", "cjson",
             new String[]{"lua_cjson.c", "strbuf.c", "dtoa.c", "g_fmt.c"},
@@ -370,6 +392,17 @@ final class NativeRealExtTest {
 
     private static String skipReason = "";
 
+    /**
+     * <b>不进协程第二遍</b>的用例名，格式是 {@code 模块: 用例}。
+     * <p>
+     * 与 {@link NativeApiTest#NO_CO} 同一类理由：这些用例测的本来就是「在协程
+     * 外面 / 在主线程上」这件事，塞进 {@code coroutine.wrap} 之后参考实现那边
+     * 会走一条完全不同的路，输出对不上是<b>预期的</b>而不是分歧。
+     */
+    private static final java.util.Set<String> NO_CO =
+            new java.util.HashSet<>(java.util.Arrays.asList(
+            ));
+
     @TestFactory
     List<DynamicTest> realExtensionMatchesReference() {
         List<DynamicTest> tests = new ArrayList<>();
@@ -381,18 +414,64 @@ final class NativeRealExtTest {
             String pre = "package.cpath = [==[" + path + "]==] .. \";\" .. package.cpath\n"
                     + "local n = require('" + e.mod + "')\n";
             for (String[] c : e.cases) {
-                StringBuilder src = new StringBuilder(pre);
+                StringBuilder body = new StringBuilder();
                 for (int i = 1; i < c.length; i++) {
-                    src.append(c[i]).append('\n');
+                    body.append(c[i]).append('\n');
                 }
-                String script = src.toString();
-                tests.add(DynamicTest.dynamicTest(e.mod + ": " + c[0],
-                        () -> Diff.assertMatches(script)));
+                String name = e.mod + ": " + c[0];
+                tests.add(DynamicTest.dynamicTest(name,
+                        () -> run(pre + body, name)));
+                /*
+                 * <b>第二遍：同一批语料塞进协程再跑一次。</b>
+                 * <p>
+                 * 这一层是 {@link NativeApiTest} 那边咬出四处真缺陷之后才补的
+                 * （约定 #9 第四层），而真实扩展那一侧的协程面比自己写的探针
+                 * 更大：扩展自己的 {@code lua_State *} 是哪一份、它在
+                 * {@code require} 时往 registry 里塞的东西是不是
+                 * {@code global_State} 级的（约定 #7）、扩展里的回调
+                 * （lpeg 的 {@code match} 接的函数、cjson 的
+                 * {@code decode} 钩子）能不能穿过 C 帧 yield。
+                 * 主线程上全绿不代表这里绿。
+                 */
+                if (!NO_CO.contains(name)) {
+                    tests.add(DynamicTest.dynamicTest(name + "（协程里）",
+                            () -> run(pre + "coroutine.wrap(function()\n" + body
+                                    + "end)()\n", name)));
+                }
             }
+            /*
+             * 每个扩展再补同一条：<b>在协程里再 require 一次</b>，拿到的必须是
+             * <b>同一个</b>模块表。
+             * <p>
+             * 约定 #7 那条（registry 与 {@code _LOADED} / {@code package.loaded}
+             * 是 {@code global_State} 级的，所有 {@code lua_State} 共用）在纯 Lua
+             * 那边已经被测过，但<b>扩展</b>这一侧多一层：{@code luaopen_X} 里
+             * {@code luaL_newlib} 建的表要挂到 {@code package.loaded[modname]} 上，
+             * 而 {@code modname} 是 {@code require} 从 C 侧查的
+             * （{@code ll_require → lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED")}）。
+             * 要是 {@code _LOADED} 做成了按线程一份，协程里 require 会<b>再跑一遍
+             * luaopen</b>，于是 {@code m == n} 是 false、扩展自己的静态数据也跟着
+             * 重置——而主线程上永远看不见。
+             */
+            String reqName = e.mod + ": 协程里 require";
+            tests.add(DynamicTest.dynamicTest(reqName,
+                    () -> run(pre + "coroutine.wrap(function()\n"
+                            + "  local m = require('" + e.mod + "')\n"
+                            + "  print(type(m), m == n)\n"
+                            + "end)()\n", reqName)));
         }
         Assumptions.assumeTrue(!tests.isEmpty(),
                 "跳过真实扩展用例：" + skipReason);
         return tests;
+    }
+
+    /** 跑一条用例；失败时带上用例名，否则 60 多条动态用例只报一句「脚本：」 */
+    private static void run(String src, String name) {
+        try {
+            Diff.assertMatches(src);
+        } catch (Throwable t) {
+            throw new AssertionError("用例「" + name + "」抛了 " + t, t);
+        }
     }
 
     private static String fixture(Ext e) {
