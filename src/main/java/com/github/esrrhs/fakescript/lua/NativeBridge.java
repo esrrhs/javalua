@@ -223,6 +223,9 @@ public final class NativeBridge {
     /** 取 C 标准流的 FILE*：0=stdin, 1=stdout, 2=stderr */
     static native long cStdStream(int which);
 
+    /** 取 C 的 {@code errno}（{@code cFopen} 等失败后读它） */
+    static native int cGetErrno();
+
     /* ==================== C 内存的生命周期 ==================== */
 
     /**
