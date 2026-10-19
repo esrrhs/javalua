@@ -7,9 +7,10 @@ package com.github.esrrhs.fakescript.lua;
  * 组、字符串缓冲都在里面），所以这块内存不能放在 Java 堆上——必须是真的 native
  * 内存，地址是能交给 C 的那种。
  * <p>
- * TODO：释放还没接上。当前只分配不回收，长时间反复创建 userdata 的程序会漏。
- * 接法是把释放挂到 {@link LuaUserdata} 的终结路径上（与 __gc 那条同一个口子），
- * 等 C4 阶段一起做——先保证地址是对的、读写是对的。
+ * 释放挂到 {@link NativeBridge#freeWith} 上：{@code NativeMemory} 对象被 GC 回
+ * 收时，Cleaner 自动调 {@code free(ptr)}。{@code lua_newuserdatauv} 创建的
+ * {@code NativeMemory} 活在 {@link LuaUserdata#data} 里，跟着 userdata 一起生
+ * 死——userdata 没了，{@code NativeMemory} 也没强引用了，native 内存就释放。
  */
 public final class NativeMemory {
 
@@ -22,6 +23,9 @@ public final class NativeMemory {
     NativeMemory(long ptr, long size) {
         this.ptr = ptr;
         this.size = size;
+        if (ptr != 0) {
+            NativeBridge.freeWith(this, ptr);
+        }
     }
 
     public byte[] read(long off, int n) {

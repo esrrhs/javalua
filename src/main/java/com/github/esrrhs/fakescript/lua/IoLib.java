@@ -227,6 +227,16 @@ public final class IoLib {
 
         private static final int WBUF_CAP = 8192;
 
+        /**
+         * 缓冲模式：0 = 无缓冲（IONBF），1 = 全缓冲（IOFBF），2 = 行缓冲（_IOLBF）。
+         * <p>
+         * 默认是全缓冲（与 C stdio 对文件的默认行为一致）。标准流在创建时设成行缓冲。
+         */
+        int bufMode = 1;
+
+        /** 行缓冲模式下，缓冲区大小（由 setvbuf 的第三个参数指定） */
+        int bufSize = WBUF_CAP;
+
         /** 把写缓冲落盘；{@code raf == null} 时是空操作 */
         private boolean flushW() {
             if (raf == null || wlen == 0) {
@@ -354,6 +364,11 @@ public final class IoLib {
                         flushW();
                         raf.seek(raf.length());
                     }
+                    // 无缓冲模式：直接写，不经过缓冲区
+                    if (bufMode == 0) {
+                        raf.write(b, off, len);
+                        return;
+                    }
                     if (wlen + len > wbuf.length) {
                         if (!flushW()) {
                             return;
@@ -364,6 +379,15 @@ public final class IoLib {
                     } else {
                         System.arraycopy(b, off, wbuf, wlen, len);
                         wlen += len;
+                        // 行缓冲模式：检查是否有换行符，有就 flush
+                        if (bufMode == 2) {
+                            for (int i = 0; i < len; i++) {
+                                if (b[off + i] == '\n') {
+                                    flushW();
+                                    break;
+                                }
+                            }
+                        }
                     }
                 } else {
                     outStream().write(b, off, len);
@@ -1385,13 +1409,30 @@ public final class IoLib {
     /**
      * {@code f_setvbuf}。
      * <p>
-     * 参数照抄校验（模式名必须是 {@code no} / {@code full} / {@code line}），
-     * 但不真的改缓冲策略——见类注释第 1 条。
+     * 参数校验后真正改缓冲策略：{@code no} 无缓冲、{@code full} 全缓冲、
+     * {@code line} 行缓冲。第三个参数指定缓冲区大小（行缓冲/全缓冲时有效）。
      */
     private static int fSetvbuf(LuaState L) {
-        toFile(L);
-        LuaAux.checkOption(L, 2, null, new String[] { "no", "full", "line" });
-        LuaAux.optInteger(L, 3, LUAL_BUFFERSIZE);
+        LuaFile f = toFile(L);
+        String[] modes = new String[] { "no", "full", "line" };
+        int modeIdx = LuaAux.checkOption(L, 2, null, modes);
+        String mode = modes[modeIdx];
+        int size = (int) LuaAux.optInteger(L, 3, LUAL_BUFFERSIZE);
+        // 先 flush 现有缓冲，再切换模式
+        f.flushW();
+        switch (mode) {
+            case "no":
+                f.bufMode = 0;
+                break;
+            case "full":
+                f.bufMode = 1;
+                f.bufSize = size;
+                break;
+            case "line":
+                f.bufMode = 2;
+                f.bufSize = size;
+                break;
+        }
         LuaAux.fileResult(L, true, null, 0);
         return 1;
     }

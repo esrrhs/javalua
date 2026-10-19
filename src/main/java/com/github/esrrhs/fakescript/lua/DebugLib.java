@@ -553,8 +553,12 @@ public final class DebugLib {
             L.push(LuaValue.ofNil());
             return 1;
         }
-        // 本实现的 userdata 不带用户值（lua_newuserdatauv 的 nuvalue 总为 0）
-        L.push(LuaValue.ofNil());
+        LuaUserdata ud = (LuaUserdata) L.arg1(1).o;
+        if (ud.userValues == null || n <= 0 || n > ud.userValues.length) {
+            L.push(LuaValue.ofNil());
+            return 1;
+        }
+        L.push(ud.userValues[n - 1]);
         return 1;
     }
 
@@ -564,11 +568,17 @@ public final class DebugLib {
          * 类型检查<b>之前</b>——所以 {@code debug.setuservalue(1, 2, "x")} 报的是
          * 「#3 不是数」，不是「#1 不是 userdata」。
          */
-        LuaAux.optInteger(L, 3, 1);
+        int n = (int) LuaAux.optInteger(L, 3, 1);
         LuaAux.checkType(L, 1, Lua.TUSERDATA);
         LuaAux.checkAny(L, 2);
-        L.setTop(2);
-        L.push(LuaValue.ofNil()); // 本实现的 userdata 不带用户值，必失败
+        LuaUserdata ud = (LuaUserdata) L.arg1(1).o;
+        LuaValue val = L.arg1(2);
+        if (ud.userValues != null && n >= 1 && n <= ud.userValues.length) {
+            ud.userValues[n - 1].set(val);
+            L.setTop(1);
+            return 1;
+        }
+        L.push(LuaValue.ofNil());
         return 1;
     }
 
