@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <dlfcn.h>
+#include <sys/wait.h>   /* luaL_execresult 要用本平台的 WIFEXITED / WTERMSIG */
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -438,6 +439,28 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_strToNative(JNIEnv *env,
     return (jlong)(intptr_t)p;
 }
 
+/**
+ * 往 {@code alloc} 出来的那块里写字节，末尾补一个 NUL。
+ * 给 {@link LuaString#nativePtr} 用：那边要的是「随字符串活到死」的地址，
+ * 不能用环形缓冲（见 ring_put 的注释）。
+ */
+JNIEXPORT void JNICALL
+Java_com_github_esrrhs_fakescript_lua_NativeBridge_putBytes(JNIEnv *env,
+        jclass cls, jlong p, jbyteArray b) {
+    (void)cls;
+    if (p == 0 || b == NULL) {
+        return;
+    }
+    jsize n = (*env)->GetArrayLength(env, b);
+    jbyte *tmp = (*env)->GetByteArrayElements(env, b, NULL);
+    if (tmp == NULL) {
+        return;
+    }
+    memcpy((void *)(intptr_t)p, tmp, (size_t)n);
+    ((char *)(intptr_t)p)[n] = '\0';
+    (*env)->ReleaseByteArrayElements(env, b, tmp, JNI_ABORT);
+}
+
 JNIEXPORT void JNICALL
 Java_com_github_esrrhs_fakescript_lua_NativeBridge_put64(JNIEnv *env,
         jclass cls, jlong p, jlong v) {
@@ -516,32 +539,172 @@ const char lua_ident[] =
         "$LuaVersion: Lua 5.4.7 Copyright (C) 1994-2024 Lua.org, PUC-Rio $"
         "$LuaAuthors: R. Ierusalimschy, L. H. de Figueiredo, W. Celes $";
 
-static const char *pushvfshim(lua_State *L, const char *fmt, va_list ap) {
-    char small[512];
-    char *heap = NULL;
-    char *buf = small;
-    size_t len;
-    va_list ap2;
-    va_copy(ap2, ap);
-    int n = vsnprintf(small, sizeof small, fmt, ap2);
-    va_end(ap2);
-    if (n < 0) {
-        return NULL;
-    }
-    len = (size_t)n;
-    if (len >= sizeof small) {
-        heap = (char *)malloc(len + 1);
-        if (heap == NULL) {
-            return NULL;
+/*
+ * luaO_pushvfstring 的忠实移植。
+ *
+ * 为什么不能拿 vsnprintf 糊过去：lobject.c 里它只认 s c d I f p U % 八个
+ * 动词，其余一律 luaG_runerror("invalid option '%%%c' to 'lua_pushfstring'")；
+ * 而且 %d/%I/%f 走的是 addnum2buff（= luaO_tostr，%.14g，整数样的补 .0），
+ * 不是 printf 的 %d/%f。早先这里直接 vsnprintf，三处全错：
+ *   lua_pushfstring(L, "%f", 1.5)   我们 1.500000 / 参考 1.5
+ *   lua_pushfstring(L, "%x", 42)    我们 2a       / 参考报错
+ *   lua_pushfstring(L, "%5d", 42)   我们 "  42"   / 参考报错
+ * 而 luaL_error 就是 luaL_where + lua_pushvfstring，所以扩展里任何一条
+ * 带 %f 或带精度的 luaL_error 都会露出来。
+ */
+
+/* lua_Integer 是 long long，于是 l_uacInt 也是；LP64 之外的平台要改这里 */
+typedef long long shim_uacInt;
+
+typedef struct {
+    char *b;
+    size_t n;
+    size_t cap;
+    char small[256];
+} FSBuf;
+
+static void fs_add(FSBuf *f, const char *s, size_t l) {
+    if (f->n + l + 1 > f->cap) {
+        size_t cap = f->cap;
+        while (cap < f->n + l + 1) {
+            cap *= 2;
         }
-        vsnprintf(heap, len + 1, fmt, ap);
-        buf = heap;
+        char *nb = (char *) malloc(cap);
+        if (nb == NULL) {
+            return; /* 认了：参考会抛 "not enough memory"，这里截断 */
+        }
+        memcpy(nb, f->b, f->n);
+        if (f->b != f->small) {
+            free(f->b);
+        }
+        f->b = nb;
+        f->cap = cap;
     }
-    luashim_call(ID_lua_pushlstring, LUASHIM_HANDLE(L),
-            (intptr_t)buf, (jlong)len, 0, 0, 0, 0.0);
-    buf = ring_put(buf, len);
-    free(heap);
-    return buf;
+    memcpy(f->b + f->n, s, l);
+    f->n += l;
+    f->b[f->n] = '\0';
+}
+
+/*
+ * 数字必须经 Lua 自己的 tostring，不能 snprintf：%.14g 之后给整数样的结果
+ * 补 .0（参考 lua_pushfstring(L,"%f",503.0) 给 "503.0"），而 printf 的 %f
+ * 给 "503.000000"。所以这里推到栈上再 lua_tolstring 取回来。
+ */
+static void fs_addnum(lua_State *L, FSBuf *f, int isint,
+        long long iv, double dv) {
+    size_t len = 0;
+    const char *s;
+    luaL_checkstack(L, 1, NULL);
+    if (isint) {
+        lua_pushinteger(L, (lua_Integer) iv);
+    } else {
+        lua_pushnumber(L, (lua_Number) dv);
+    }
+    s = lua_tolstring(L, -1, &len);
+    if (s != NULL) {
+        fs_add(f, s, len);
+    }
+    lua_pop(L, 1);
+}
+
+/** lobject.c: luaO_utf8esc —— %U 把码点编成 UTF-8，倒着写进 buff 尾部 */
+static int shim_utf8esc(char *buff, unsigned long x) {
+    int n = 1;
+    if (x < 0x80) {
+        buff[8 - 1] = (char) x;
+    } else {
+        unsigned int mfb = 0x3f;
+        do {
+            buff[8 - (n++)] = (char) (0x80 | (x & 0x3f));
+            x >>= 6;
+            mfb >>= 1;
+        } while (x > mfb);
+        buff[8 - n] = (char) ((~mfb << 1) & x);
+    }
+    return n;
+}
+
+static const char *pushvfshim(lua_State *L, const char *fmt, va_list ap) {
+    FSBuf f;
+    const char *e;
+    f.b = f.small;
+    f.n = 0;
+    f.cap = sizeof f.small;
+    f.small[0] = '\0';
+    while ((e = strchr(fmt, '%')) != NULL) {
+        fs_add(&f, fmt, (size_t) (e - fmt));
+        switch (*(e + 1)) {
+            case 's': {
+                const char *s = va_arg(ap, char *);
+                if (s == NULL) {
+                    s = "(null)";
+                }
+                fs_add(&f, s, strlen(s));
+                break;
+            }
+            case 'c': {
+                char c = (char) (unsigned char) va_arg(ap, int);
+                fs_add(&f, &c, 1);
+                break;
+            }
+            case 'd':
+                fs_addnum(L, &f, 1, (long long) va_arg(ap, int), 0.0);
+                break;
+            case 'I':
+                fs_addnum(L, &f, 1, (long long) va_arg(ap, shim_uacInt), 0.0);
+                break;
+            case 'f':
+                fs_addnum(L, &f, 0, 0, (double) va_arg(ap, double));
+                break;
+            case 'p': {
+                char pb[32];
+                void *p = va_arg(ap, void *);
+                int l = snprintf(pb, sizeof pb, "%p", p);
+                if (l > 0) {
+                    fs_add(&f, pb, (size_t) l);
+                }
+                break;
+            }
+            case 'U': {
+                char ub[8];
+                int l = shim_utf8esc(ub, (unsigned long) va_arg(ap, long));
+                fs_add(&f, ub + 8 - l, (size_t) l);
+                break;
+            }
+            case '%':
+                fs_add(&f, "%", 1);
+                break;
+            default: {
+                /*
+                 * 参考是 luaG_runerror：从 C 帧抛，<b>不带</b>位置前缀
+                 * （isLua(ci) 为假就不 addinfo）。所以这里用 lua_error
+                 * 而不是 luaL_error——后者会先拼 luaL_where。
+                 */
+                char msg[64];
+                int l = snprintf(msg, sizeof msg,
+                        "invalid option '%%%c' to 'lua_pushfstring'", *(e + 1));
+                if (l < 0) {
+                    l = 0;
+                }
+                if (f.b != f.small) {
+                    free(f.b);
+                }
+                lua_pushlstring(L, msg, (size_t) l);
+                lua_error(L); /* 不返回 */
+                return NULL;
+            }
+        }
+        fmt = e + 2;
+    }
+    fs_add(&f, fmt, strlen(fmt));
+    lua_pushlstring(L, f.b, f.n);
+    {
+        char *r = ring_put(f.b, f.n);
+        if (f.b != f.small) {
+            free(f.b);
+        }
+        return r;
+    }
 }
 
 LUA_API const char *(lua_pushvfstring) (lua_State *L, const char *fmt,
@@ -585,26 +748,58 @@ LUA_API int (lua_gc) (lua_State *L, int what, ...) {
     return (int)luashim_call(ID_lua_gc, LUASHIM_HANDLE(L), (jint)what, e0, e1, e2, 0, 0.0);
 }
 
+/*
+ * lauxlib.c 原文四行，一行都不许省：
+ *   luaL_where(L, 1); lua_pushvfstring(L, fmt, ap);
+ *   lua_concat(L, 2); return lua_error(L);
+ * 变参只能在 C 侧读；pushvfstring 的动词表是 Lua 自己的（见 pushvfshim）；
+ * lua_error 走 luashim_throw 的 longjmp，而那个落点只在本文件的最外层 C 帧。
+ */
 LUALIB_API int (luaL_error) (lua_State *L, const char *fmt, ...) {
-    char small[512];
     va_list ap;
-    int n;
-    size_t len;
     va_start(ap, fmt);
-    n = vsnprintf(small, sizeof small, fmt, ap);
+    luaL_where(L, 1);
+    lua_pushvfstring(L, fmt, ap);
     va_end(ap);
-    if (n < 0) {
-        len = 0;
-    } else {
-        len = (size_t)n;
-        if (len >= sizeof small) {
-            len = sizeof small - 1;
-        }
-    }
-    /* Java 侧负责拼 luaL_where + 这条消息，然后压栈 */
-    luashim_call(ID_luaL_error, LUASHIM_HANDLE(L), (intptr_t)small, (jlong)len, 0, 0, 0, 0.0);
-    luashim_throw();
+    lua_concat(L, 2);
+    lua_error(L); /* 不返回 */
     return 0;
+}
+
+/*
+ * luaL_fileresult / luaL_execresult：errno 是<b>每个线程一份的 C 变量</b>，
+ * Java 读不到，只有在 C 侧先取出来再作为参数传进去。lauxlib.c 的第一句就是
+ * `int en = errno;`（注释写着 "calls to Lua API may change this value"），
+ * 顺序照抄。
+ */
+LUALIB_API int (luaL_fileresult) (lua_State *L, int stat, const char *fname) {
+    int en = errno;
+    return (int) luashim_call(ID_luaL_fileresult, LUASHIM_HANDLE(L),
+            (jint) stat, (intptr_t) fname, (jint) en, 0, 0, 0.0);
+}
+
+LUALIB_API int (luaL_execresult) (lua_State *L, int stat) {
+    static const char exitw[] = "exit";
+    static const char signalw[] = "signal";
+    const char *what = exitw;
+    int en = errno;
+    if (stat != 0 && en != 0) {
+        return luaL_fileresult(L, 0, NULL);
+    }
+    /*
+     * lauxlib.c 的 l_inspectstat。用<b>本平台</b>的 wait 宏，别自己造位运算：
+     * 实测（macOS）execresult(-1) 给 "exit",-1 而不是 "signal",127 ——
+     * 因为 BSD 的 WIFSIGNALED 排除了 _W_STOPPED(0177)，而 (x & 0x7f) 恰好
+     * 是 0177。照 Linux 那套位运算写就会错在这一条上。
+     */
+    if (WIFEXITED(stat)) {
+        stat = WEXITSTATUS(stat);
+    } else if (WIFSIGNALED(stat)) {
+        stat = WTERMSIG(stat);
+        what = signalw;
+    }
+    return (int) luashim_call(ID_luaL_execresult, LUASHIM_HANDLE(L),
+            (jint) stat, (jint) en, (intptr_t) what, 0, 0, 0.0);
 }
 
 /* luaL_Reg 数组在 C 侧，Java 读不到：照 lauxlib.c 逐个注册 */
@@ -614,11 +809,17 @@ LUALIB_API void (luaL_setfuncs) (lua_State *L, const luaL_Reg *l, int nup) {
             (intptr_t)noslots, 0, 0, 0, 0.0);
     for (; l->name != NULL; l++) {
         int i;
-        for (i = 0; i < nup; i++) {
-            luashim_call(ID_lua_pushvalue, LUASHIM_HANDLE(L), (jint)(-nup), 0, 0, 0, 0, 0.0);
+        if (l->func == NULL) {
+            /* lauxlib.c 的「占位」分支：压一个 false，不开闭包 */
+            luashim_call(ID_lua_pushboolean, LUASHIM_HANDLE(L), (jint)0,
+                    0, 0, 0, 0, 0.0);
+        } else {
+            for (i = 0; i < nup; i++) {
+                luashim_call(ID_lua_pushvalue, LUASHIM_HANDLE(L), (jint)(-nup), 0, 0, 0, 0, 0.0);
+            }
+            luashim_call(ID_lua_pushcclosure, LUASHIM_HANDLE(L),
+                    (intptr_t)(intptr_t)l->func, (jint)nup, 0, 0, 0, 0.0);
         }
-        luashim_call(ID_lua_pushcclosure, LUASHIM_HANDLE(L),
-                (intptr_t)(intptr_t)l->func, (jint)nup, 0, 0, 0, 0.0);
         luashim_call(ID_lua_setfield, LUASHIM_HANDLE(L), (jint)(-nup - 2),
                 (intptr_t)l->name, 0, 0, 0, 0.0);
     }

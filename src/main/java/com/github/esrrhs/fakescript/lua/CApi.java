@@ -76,9 +76,9 @@ final class CApi {
         case 17: /* luaL_error */
             return Api.luaL_error(a0, a1, a2);
         case 18: /* luaL_execresult */
-            return Api.luaL_execresult(a0, a1);
+            return Api.luaL_execresult(a0, a1, a2, a3);
         case 19: /* luaL_fileresult */
-            return Api.luaL_fileresult(a0, a1, a2);
+            return Api.luaL_fileresult(a0, a1, a2, a3);
         case 20: /* luaL_getmetafield */
             return Api.luaL_getmetafield(a0, a1, a2);
         case 21: /* luaL_getsubtable */

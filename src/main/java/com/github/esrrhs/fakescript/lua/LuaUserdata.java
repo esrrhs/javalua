@@ -40,13 +40,32 @@ public final class LuaUserdata {
      */
     public LuaTable metatable;
 
+    /**
+     * {@code lua_rawlen} 眼里的长度，也就是 C 里 {@code Udata} 载荷那一段的
+     * 字节数（{@code lapi.c: case LUA_VUSERDATA: return uvalue(o)->len;}）。
+     * <p>
+     * 只有两种来源：{@code lua_newuserdatauv} 传进来的 {@code sz}，或者
+     * 本实现自己造的 userdata 按「对应的 C 结构体有多大」填。
+     * <b>不能一律给 0</b>——扩展里有
+     * {@code lua_rawlen(L, 1) != sizeof(...)} 这种自检查，也有拿它当缓冲区
+     * 长度的；我们自己的 {@code io} 文件句柄对应 {@code LStream}
+     * （{@code FILE*} + {@code lua_CFunction}，LP64 上 16 字节），参考实测
+     * {@code lua_rawlen(io.stdout)} 就是 16。
+     */
+    public int len;
+
     public LuaUserdata(Object data) {
         this(data, 0);
     }
 
     public LuaUserdata(Object data, int nuvalue) {
+        this(data, nuvalue, 0);
+    }
+
+    public LuaUserdata(Object data, int nuvalue, int len) {
         LuaState.chargeGc();
         this.data = data;
+        this.len = len;
         if (nuvalue > 0) {
             LuaValue[] uv = new LuaValue[nuvalue];
             for (int i = 0; i < nuvalue; i++) {

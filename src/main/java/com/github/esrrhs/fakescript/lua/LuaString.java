@@ -25,6 +25,22 @@ public final class LuaString {
     /** 缓存的哈希值，对应 {@code lstring.c} 的 {@code luaS_hash} 结果 */
     private final int hash;
 
+    /**
+     * 本串在 C 侧那份副本的地址；惰性分配，随字符串一起回收。
+     * <p>
+     * C 的 {@code lua_tolstring} 交回去的是 {@code getstr(tsvalue(o))}——
+     * <b>字符串自己的存储</b>，所以两个性质必须成立：
+     * <ol>
+     *   <li>只要这个串还活着，地址就一直有效；</li>
+     *   <li>对同一个串两次取值，拿到的是<b>同一个</b>地址。</li>
+     * </ol>
+     * 环形缓冲两条都不满足（32 格轮转，同一串两次取会拿到两个不同的地址，
+     * 而扩展里 {@code const char *s = lua_tostring(...)} 存起来是很常见的
+     * 写法）。这里改成按串惰性分配 + {@code Cleaner} 回收，见
+     * {@link NativeBridge#freeWith}。
+     */
+    private volatile long nativePtr;
+
     private LuaString(byte[] bytes) {
         this.bytes = bytes;
         this.hash = luaSHash(bytes);
@@ -47,6 +63,24 @@ public final class LuaString {
 
     public static LuaString of(byte[] bytes) {
         return new LuaString(bytes);
+    }
+
+    /** 取（必要时分配）本串在 C 侧的 NUL 结尾副本；同一个串恒给同一个地址 */
+    public long nativePtr() {
+        long p = nativePtr;
+        if (p != 0) {
+            return p;
+        }
+        synchronized (this) {
+            if (nativePtr == 0) {
+                p = NativeBridge.alloc(bytes.length + 1L);
+                NativeBridge.putBytes(p, bytes);
+                nativePtr = p;
+                // 必须最后挂：FreeAction 只认 p，不持有 this，否则永远回收不掉
+                NativeBridge.freeWith(this, p);
+            }
+            return nativePtr;
+        }
     }
 
     public static LuaString of(byte[] buf, int off, int len) {

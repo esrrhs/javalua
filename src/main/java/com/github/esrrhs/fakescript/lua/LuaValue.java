@@ -104,6 +104,12 @@ public final class LuaValue {
                 : ofUserdata(new LuaUserdata(o));
     }
 
+    /** 同 {@link #ofUserdata(Object)}，并指定 {@link LuaUserdata#len} */
+    public static LuaValue ofUserdata(Object o, int len) {
+        return o instanceof LuaUserdata ? ofUserdata((LuaUserdata) o)
+                : ofUserdata(new LuaUserdata(o, 0, len));
+    }
+
     /**
      * 直接拿一个 {@link LuaUserdata} 当载荷，<b>不再套一层</b>。
      * <p>

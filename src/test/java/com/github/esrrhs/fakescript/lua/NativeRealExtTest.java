@@ -55,6 +55,12 @@ final class NativeRealExtTest {
         final String[][] cases;
         final String[] defs;
         final String out;
+        /**
+         * 相对源码根目录的额外 {@code -I}。luaposix 的每个 {@code ext/posix/*.c}
+         * 都 {@code #include "_helpers.c"}，那个文件在 {@code ext/include} 里，
+         * 不给 {@code -I} 连编都编不过。
+         */
+        final String[] incs;
         /** 编好的 .so 绝对路径；编一次就复用 */
         String path;
 
@@ -64,14 +70,25 @@ final class NativeRealExtTest {
 
         Ext(String env, String mod, String[] src, String[][] cases,
                 String[] defs, String out) {
+            this(env, mod, src, cases, defs, out, new String[0]);
+        }
+
+        Ext(String env, String mod, String[] src, String[][] cases,
+                String[] defs, String out, String[] incs) {
             this.env = env;
             this.mod = mod;
             this.src = src;
             this.cases = cases;
             this.defs = defs;
             this.out = out;
+            this.incs = incs;
         }
     }
+
+    /** luaposix 那四棵共用的 {@code -D}（{@code version} 字段要用） */
+    private static final String[] POSIX_DEFS = {
+        "PACKAGE=\"luaposix\"", "VERSION=\"36.3\""
+    };
 
     private static final Ext[] EXTS = {
         new Ext("LPEG_SRC", "lpeg",
@@ -277,6 +294,78 @@ final class NativeRealExtTest {
                     "print(pcall(n.qpwrp, 'x'))"},
             },
             new String[0], "mime_core.so"),
+        /*
+         * luaposix（第六个扩展）。
+         * <p>
+         * 前五个都是「一个 .so 一个模块」，luaposix 不一样：它是
+         * <b>一个模块一棵 .c</b>，每棵都 {@code #include "_helpers.c"}，
+         * 所以要额外的 {@code -I ext/include}，还要 {@code PACKAGE} /
+         * {@code VERSION} 两个宏（{@code _LPOSIX_VERSION_STRING} 拼
+         * {@code version} 字段时用）。
+         * <p>
+         * 挑这四棵的理由是它们<b>纯函数、不碰进程状态</b>：{@code unistd}
+         * 里有 {@code fork}、{@code stdlib} 里有 {@code abort}，跑一次就把
+         * 测试进程分成两半，不能进差分用例。剩下的这四棵照样把
+         * {@code luaL_checkinteger} / {@code luaL_argerror} /
+         * {@code luaL_optstring} 走了一遍；{@code errno} 那棵还额外是一次
+         * 「{@code lua_pushinteger} + {@code lua_setfield}」的密集网格
+         * （{@code LPOSIX_CONST} 一次注册七十来个常量）。
+         */
+        new Ext("POSIX_SRC", "posix.ctype", new String[]{"ext/posix/ctype.c"},
+            new String[][]{
+                {"字符分类",
+                    "print(n.isgraph('a'), n.isgraph(' '))",
+                    "print(n.isprint('a'), n.isprint('\\1'))"},
+                {"错参数",
+                    "print(pcall(n.isgraph))",
+                    "print(pcall(n.isgraph, 1))",
+                    "print(pcall(n.isgraph, true))",
+                    "print(pcall(n.isgraph, {}))",
+                    "print(pcall(n.isgraph, 'ab'))",
+                    "print(pcall(n.isgraph, -1))",
+                    "print(pcall(n.isgraph, 65))"},
+            }, POSIX_DEFS, "posix_ctype.so", new String[]{"ext/include"}),
+        new Ext("POSIX_SRC", "posix.errno", new String[]{"ext/posix/errno.c"},
+            new String[][]{
+                {"常量网格",
+                    "print(n.E2BIG, n.ENOENT, n.EACCES, n.EPERM, n.EINVAL)",
+                    "print(n.EWOULDBLOCK == n.EAGAIN)"},
+                {"errno 读写",
+                    "n.set_errno(2)",
+                    "print(n.errno())",
+                    "n.set_errno(0)",
+                    "print(n.errno())",
+                    "print(pcall(n.set_errno, 'x'))",
+                    "print(pcall(n.set_errno))"},
+            }, POSIX_DEFS, "posix_errno.so", new String[]{"ext/include"}),
+        new Ext("POSIX_SRC", "posix.fnmatch",
+            new String[]{"ext/posix/fnmatch.c"},
+            new String[][]{
+                {"匹配",
+                    "print(n.fnmatch('a*b', 'axxb'))",
+                    "print(n.fnmatch('a*b', 'axxb', n.FNM_PATHNAME))",
+                    "print(n.fnmatch('a?b', 'axb'))",
+                    "print(n.fnmatch('*.txt', 'x.txt', n.FNM_PERIOD))",
+                    "print(n.FNM_NOMATCH, n.FNM_NOESCAPE)"},
+                {"错参数",
+                    "print(pcall(n.fnmatch))",
+                    "print(pcall(n.fnmatch, 'a'))",
+                    "print(pcall(n.fnmatch, 'a', 1))",
+                    "print(pcall(n.fnmatch, 'a', 'a', 'x'))",
+                    "print(pcall(n.fnmatch, 'a', 'a', 1.5))",
+                    "print(pcall(n.fnmatch, 'a', 'a', 999))"},
+            }, POSIX_DEFS, "posix_fnmatch.so", new String[]{"ext/include"}),
+        new Ext("POSIX_SRC", "posix.libgen", new String[]{"ext/posix/libgen.c"},
+            new String[][]{
+                {"basename / dirname",
+                    "print(n.basename('/a/b/c.txt'), n.dirname('/a/b/c.txt'))",
+                    "print(n.basename('x'), n.dirname('x'))",
+                    "print(n.basename(''), n.dirname(''))"},
+                {"错参数",
+                    "print(pcall(n.basename))",
+                    "print(pcall(n.dirname, 1))",
+                    "print(pcall(n.basename, true))"},
+            }, POSIX_DEFS, "posix_libgen.so", new String[]{"ext/include"}),
     };
 
     private static String skipReason = "";
@@ -332,6 +421,10 @@ final class NativeRealExtTest {
                     "-I", "native/lua", "-o", out.getPath()));
             for (String d : e.defs) {
                 cmd.add("-D" + d);
+            }
+            for (String i : e.incs) {
+                cmd.add("-I");
+                cmd.add(new File(root, i).getPath());
             }
             for (String s : e.src) {
                 File f = new File(root, s);

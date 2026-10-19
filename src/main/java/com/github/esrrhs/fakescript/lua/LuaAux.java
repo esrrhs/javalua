@@ -346,7 +346,14 @@ public final class LuaAux {
             return;
         }
         L.pushNil();
-        String msg = strError(en);
+        /*
+         * {@code lauxlib.c} 是 {@code (en != 0) ? strerror(en) : "(no extra info)"}。
+         * errno 为 0 时<b>没有</b> strerror 文本，参考实测
+         * {@code luaL_fileresult(L, 0, NULL)}（errno 事先清成 0）给的就是
+         * {@code nil, "(no extra info)", 0}。早先这里一律走 {@code strError}，
+         * 于是 {@code strError(0)} 兜底成了 {@code "Input/output error"}。
+         */
+        String msg = (en == 0) ? "(no extra info)" : strError(en);
         if (fname != null) {
             // 文件名可以是任意字节：消息里那一段必须原样是字节，
             // 不能绕 Java String（UTF-8 解码会把 0xFF 变成 U+FFFD）
@@ -358,14 +365,22 @@ public final class LuaAux {
     }
 
     /**
-     * {@code luaL_execresult}：{@code os.execute} 与 {@code io.popen} 的收尾。
+     * {@code io.popen():close()} 的收尾（与 {@code luaL_execresult} 同形，但
+     * 那条已经在 {@code luashim.c} 里自己走完了）。
      * <p>
      * 成功 {@code true, "exit", 0}；非零退出 {@code nil, "exit", 码}。
-     * 失败（shell 都起不来）时 {@code stat == -1}，给 {@code nil, msg, errno}。
+     * {@code en} 是 C 侧的 {@code errno}；{@code io.popen} 这条没有 C 的
+     * errno，传 0。早先这里写的是 {@code errnoOf(null)}，直接 NPE。
+     * <p>
+     * 判据照 {@code lauxlib.c} 抄：<b>{@code stat != 0 && errno != 0}</b>
+     * 走 {@code luaL_fileresult(0)}，不是「{@code stat == -1}」。实测
+     * （参考二进制，macOS）{@code execresult(256, 13)} 给
+     * {@code nil, "Permission denied", 13}，而 {@code execresult(-1, 0)}
+     * 给 {@code nil, "exit", -1}——按退出码判断会两条全错。
      */
-    public static void execResult(LuaState L, int stat) {
-        if (stat == -1) {
-            fileResult(L, false, null, errnoOf(null));
+    public static void execResult(LuaState L, int stat, int en) {
+        if (stat != 0 && en != 0) {
+            fileResult(L, false, null, en);
         } else {
             /*
              * 失败时压的是 {@code luaL_pushfail}，而 5.4 里它<b>就是 nil</b>

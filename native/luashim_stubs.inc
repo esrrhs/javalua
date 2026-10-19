@@ -59,16 +59,6 @@ LUALIB_API void (luaL_checkversion_) (lua_State *L, lua_Number ver, size_t sz) {
 }
 
 /* lauxlib.h */
-LUALIB_API int (luaL_execresult) (lua_State *L, int stat) {
-  return (int)luashim_call(ID_luaL_execresult, LUASHIM_HANDLE(L), (jint)stat, 0, 0, 0, 0, 0);
-}
-
-/* lauxlib.h */
-LUALIB_API int (luaL_fileresult) (lua_State *L, int stat, const char *fname) {
-  return (int)luashim_call(ID_luaL_fileresult, LUASHIM_HANDLE(L), (jint)stat, (intptr_t)fname, 0, 0, 0, 0);
-}
-
-/* lauxlib.h */
 LUALIB_API int (luaL_getmetafield) (lua_State *L, int obj, const char *e) {
   return (int)luashim_call(ID_luaL_getmetafield, LUASHIM_HANDLE(L), (jint)obj, (intptr_t)e, 0, 0, 0, 0);
 }

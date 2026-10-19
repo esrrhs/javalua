@@ -509,9 +509,16 @@ public final class IoLib {
         return f;
     }
 
+        /**
+     * 文件句柄 userdata 的长度：参考里 {@code lua_rawlen(io.stdout)} 给
+     * <b>16</b>，那是 {@code sizeof(LStream)}（{@code FILE*} +
+     * {@code lua_CFunction closef}）在 LP64 上的值。见 {@link LuaUserdata#len}。
+     */
+    private static final int FILE_UDATA_LEN = 16;
+
     /** {@code newprefile} 的建值部分：userdata + 命名元表，closef 留空 */
     private static LuaValue newPreFileValue(LuaState L, LuaFile f) {
-        L.push(LuaValue.ofUserdata(f));
+        L.push(LuaValue.ofUserdata(f, FILE_UDATA_LEN));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         return new LuaValue(L.stack[L.top - 1]);
     }
@@ -661,7 +668,7 @@ public final class IoLib {
     /** {@code opencheck}：打不开直接报错（{@code io.lines} 用它） */
     private static void openCheck(LuaState L, LuaString fname, String mode) {
         LuaFile f = new LuaFile();
-        L.push(LuaValue.ofUserdata(f));
+        L.push(LuaValue.ofUserdata(f, FILE_UDATA_LEN));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         f.closef = IoLib::ioFclose;
         if (!openInto(f, fname.toJavaString(), mode)) {
@@ -759,7 +766,7 @@ public final class IoLib {
         String filename = fname.toJavaString();
         String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
-        L.push(LuaValue.ofUserdata(f));
+        L.push(LuaValue.ofUserdata(f, FILE_UDATA_LEN));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         LuaAux.argCheck(L, checkModeP(mode), 2, "invalid mode");
         f.err = false;
@@ -911,7 +918,7 @@ public final class IoLib {
             }
             p.pumps = null;
         }
-        LuaAux.execResult(L, stat);
+        LuaAux.execResult(L, stat, 0);
         return 3;
     }
 
