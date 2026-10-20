@@ -429,7 +429,7 @@ final class CApi {
 API_HEAD = '''package com.github.esrrhs.javalua;
 
 /**
- * C API 的语义 —— 对应 {@code lapi.c}，{@code luaL_*} 的在 {@link CAux}。
+ * C API 的语义 —— 对应 {@code lapi.c}，{@code luaL_*} 的在 {@link LuaAux}。
  * <p>
  * 由 {@code native/gen_capi.py} <b>初次</b>生成，之后手改：脚本见文件已存在就
  * 跳过，不会覆盖。分发表 {@link CApi} 每次都重新生成，两边靠<b>方法名</b>对上，
