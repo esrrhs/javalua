@@ -107,10 +107,11 @@ public final class LuaTable {
                 Object op = (other.o instanceof WeakRef) ? ((WeakRef) other.o).get() : other.o;
                 return kp != null && kp == op;
             }
-            if (keyTt != other.tt) {
+            int baseTt = Lua.noVariant(keyTt);
+            if (baseTt != Lua.noVariant(other.tt)) {
                 return false;
             }
-            switch (keyTt) {
+            switch (baseTt) {
             case Lua.TNIL:
                 return true;
             case Lua.TBOOLEAN:
