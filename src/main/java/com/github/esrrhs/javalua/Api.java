@@ -526,11 +526,15 @@ final class Api {
         return 0;
     }
 
+    /**
+     * C_ONLY：{@code luashim.c} 里照 {@code lauxlib.c} 用
+     * {@code luaL_buffinit} + {@code luaL_addgsub} + {@code luaL_pushresult}
+     * 拼出来，这个入口永远不会被调到——真正干活的是
+     * {@link #luaL_addgsub}（buffer 的三个队友都是 C 侧桩，只有替换本身进
+     * Java，因为要比的是字节串）。
+     */
     static long luaL_gsub(long L, long s, long p, long r) {
-        LuaState S = st(L);
-        pushVal(S, LuaValue.ofString(LuaString.of(NativeBridge.bytesAt(s))));
-        luaL_addgsub(S.stack[S.top - 1].hashCode() == 0 ? 0 : 0, s, p, r);
-        return 0;
+        throw new IllegalStateException("luaL_gsub 在 luashim.c 里用别的 lua_* 拼出来，不进 Java");
     }
 
     static long luaL_len(long L, long idx) {
