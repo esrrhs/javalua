@@ -43,14 +43,14 @@ standard library, binary chunks, debug hooks, and native C modules.
 <dependency>
   <groupId>com.github.esrrhs</groupId>
   <artifactId>javalua</artifactId>
-  <version>1.0.16</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 
 ```java
-import com.github.esrrhs.fakescript.lua.LuaLibs;
-import com.github.esrrhs.fakescript.lua.LuaState;
-import com.github.esrrhs.fakescript.lua.LuaValue;
+import com.github.esrrhs.javalua.LuaLibs;
+import com.github.esrrhs.javalua.LuaState;
+import com.github.esrrhs.javalua.LuaValue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -82,7 +82,7 @@ sh native/build.sh
 ```
 
 A custom build can be selected at startup with
-`-Dfakescript.luashim=/path/to/libluashim.so`. With the shim loaded,
+`-Djavalua.luashim=/path/to/libluashim.so`. With the shim loaded,
 `require("lpeg")` and `package.loadlib(path, "luaopen_x")` behave as in C Lua.
 Without it, pure-Lua code is unaffected and `package.loadlib` reports
 `dynamic libraries not enabled; check your Lua installation`.
@@ -151,7 +151,7 @@ LUA54_BIN=$PWD/lua-5.4.7/src/lua ./mvnw test
 
 | Path | Contents |
 |---|---|
-| `src/main/java/com/github/esrrhs/fakescript/lua/` | lexer, parser, code generator, VM, state, metamethods, standard library |
+| `src/main/java/com/github/esrrhs/javalua/` | lexer, parser, code generator, VM, state, metamethods, standard library |
 | `native/` | `luashim.c`, generated C API stubs, build script |
 | `src/test/java/...` | unit, differential, fuzz, and native-extension tests |
 | `benchmark/` | standalone Lua benchmark scripts |

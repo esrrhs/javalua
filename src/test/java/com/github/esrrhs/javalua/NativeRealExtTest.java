@@ -1,0 +1,544 @@
+package com.github.esrrhs.javalua;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
+
+/**
+ * <b>真·第三方 C 扩展</b>的端到端闸门：把真实扩展编成 .so，用 {@code require}
+ * 装进来，两边跑同一份脚本逐字节比。
+ * <p>
+ * 为什么另开一个类：{@link NativeApiTest} / {@link NativeExtTest} 的探针是<b>我们
+ * 自己写的</b>，只调我们想要它调的那些 {@code lua_*}。真实扩展不顺着我们的清单
+ * 走——lpeg 第一跑就撞在 {@code lua_getallocf} 上：它拿 {@code lua_getallocf}
+ * 的返回值是<b>为了直接当函数指针调用</b>（{@code lpcode.c} 的 {@code newcode} /
+ * {@code freecode} / {@code realloccode} 三处），而这个符号在 {@code Api} 里一直
+ * 是 {@code unimplemented}。自己写的探针一条都发现不了，因为压根没人想过要去调它。
+ * <p>
+ * 第二个扩展（cjson）咬出来的是另一类：{@code cjson.null} 是
+ * {@code lua_pushlightuserdata(L, NULL)} 推出来的轻量 userdata，
+ * {@code print} 它时参考给 {@code userdata: 0x0}——地址取自载荷里的指针值，
+ * 而 {@code BaseLib#tostring} 用的是 Java 对象的 identity hash。
+ * <p>
+ * 源码不入库（第三方代码、体积不小），用环境变量指到解压后的目录；没设就整类跳过。
+ * 差别只在「有没有装」，不在「对不对」——所以跳过是安全的。
+ */
+final class NativeRealExtTest {
+
+    /**
+     * 一个真实扩展：环境变量、模块名、源码文件、脚本网格。
+     * <p>
+     * {@code defs} 是额外的 {@code -D}：luabitop 的 {@code bit.c} 里有一句
+     * <pre>
+     * #ifdef LUA_NUMBER_DOUBLE ... #else #error "Unknown number type"
+     * </pre>
+     * 而 5.4 的 {@code luaconf.h} 早就不定义这个 5.1/5.2 时代的宏了，
+     * 所以必须我们自己加——不加连编都编不过，更别说跑。
+     * <p>
+     * {@code out} 是产物文件名，默认 {@code mod + ".so"}。含点的模块名要改它：
+     * {@code require("mime.core")} 会把点换成 {@code _} 去找
+     * {@code luaopen_mime_core}，所以产物得叫 {@code mime_core.so}。
+     * （cpath 里那条是没有 {@code ?} 的绝对路径，Lua 会<b>原样</b>用它，
+     * 因此文件名本身叫什么都能装上。）
+     */
+    private static final class Ext {
+        final String env;
+        final String mod;
+        final String[] src;
+        final String[][] cases;
+        final String[] defs;
+        final String out;
+        /**
+         * 相对源码根目录的额外 {@code -I}。luaposix 的每个 {@code ext/posix/*.c}
+         * 都 {@code #include "_helpers.c"}，那个文件在 {@code ext/include} 里，
+         * 不给 {@code -I} 连编都编不过。
+         */
+        final String[] incs;
+        /** 编好的 .so 绝对路径；编一次就复用 */
+        String path;
+
+        Ext(String env, String mod, String[] src, String[][] cases) {
+            this(env, mod, src, cases, new String[0], mod + ".so");
+        }
+
+        Ext(String env, String mod, String[] src, String[][] cases,
+                String[] defs, String out) {
+            this(env, mod, src, cases, defs, out, new String[0]);
+        }
+
+        Ext(String env, String mod, String[] src, String[][] cases,
+                String[] defs, String out, String[] incs) {
+            this.env = env;
+            this.mod = mod;
+            this.src = src;
+            this.cases = cases;
+            this.defs = defs;
+            this.out = out;
+            this.incs = incs;
+        }
+    }
+
+    /** luaposix 那四棵共用的 {@code -D}（{@code version} 字段要用） */
+    private static final String[] POSIX_DEFS = {
+        "PACKAGE=\"luaposix\"", "VERSION=\"36.3\""
+    };
+
+    private static final Ext[] EXTS = {
+        new Ext("LPEG_SRC", "lpeg",
+            new String[]{"lpcap.c", "lpcode.c", "lpcset.c", "lpprint.c",
+                    "lptree.c", "lpvm.c"},
+            new String[][]{
+                {"装进来",
+                    "print(type(n), type(n.P), type(n.match))",
+                    "print(n.match(n.P('a'), 'a'))"},
+                {"匹配",
+                    "print(n.match(n.P('a'), 'a'))",
+                    "print(n.match(n.P('a'), 'b'))",
+                    "print(n.match(n.P('abc'), 'abc'))",
+                    "print(n.match(n.R('az')^1, 'hello'))",
+                    "print(n.match(n.S('xy')^0, 'xxyyx'))",
+                    "print(n.match(n.P(1)^0, '\\xe4\\xb8\\xad\\xe6\\x96\\x87'))"},
+                {"捕获",
+                    "print(n.match(n.C(n.R('az')^1), 'hello there'))",
+                    "local t = n.match(n.Ct(n.C(n.R('az')^1) * n.P(' ') * n.C(n.R('09')^1)), 'abc 123')",
+                    "print(type(t), t[1], t[2])",
+                    "print(n.match(n.Cc('x') * n.P('y'), 'y'))",
+                    "print(n.match(n.Ct((n.C(n.P(1)) * n.P(',')^-1)^0), 'a,b,c')[3])",
+                    "print(n.match(n.C(n.P('a')^-1) * n.C(n.P(1)^0), 'bb'))"},
+                {"折叠 / 替换 / 语法捕获",
+                    "local add = function(a, b) return a + b end",
+                    "print(n.match(n.Cf(n.Cc(0) * (n.C(n.R('09')) / tonumber * n.P(',')^-1)^0, add), '1,2,3,4'))",
+                    "print(n.match(n.Cs((n.P('a') / 'X' + n.P(1))^0), 'banana'))",
+                    "print(n.match(n.P{'S', S = n.V('V') * n.P('!'), V = n.C(n.R('az')^1)}, 'hi!'))"},
+                {"错误路径",
+                    "print(pcall(n.P, {}))",
+                    "print(pcall(n.match, n.P('a')))",
+                    "print(pcall(n.P, 1.5))",
+                    "print(pcall(function() return n.P('a') + 1 end))",
+                    "print(pcall(function() return n.P('a'):match() end))"},
+                {"扩展自己的 userdata 与元表",
+                    "local p = n.P('a')",
+                    "print(type(p), getmetatable(p) ~= nil)",
+                    "print(pcall(function() return p + 1 end))",
+                    "print(pcall(function() return #p end))",
+                    "print(tostring(p):sub(1, 7))"},
+                /*
+                 * <b>扩展回调 Lua 的时候能不能 yield。</b>
+                 * <p>
+                 * 这一条是冲着约定 #81 那个洞去的：{@code lua_call} 与
+                 * {@code lua_callk} 的分岔口在「当前帧是不是 Lua 帧」，漏了这一
+                 * 刀，从 C 函数里回调进来的 Lua 函数 yield 会穿过那个<b>没有续体
+                 * 的 C 帧</b>，恢复时 {@code finishCcall} 拿到 {@code k == null}。
+                 * 自己写的探针能测 {@code lua_callk}，但测不到「<b>真实扩展</b>
+                 * 到底用的是哪个」——lpeg 的 {@code /函数} 捕获
+                 * （{@code lpcap.c} 的 runtime capture）就是一条真扩展回调 Lua
+                 * 的路，主线程上怎么跑都正常，只有在协程里才分叉。
+                 */
+                {"捕获回调里 yield",
+                    "local co = coroutine.create(function()",
+                    "  return n.match(n.Ct((n.C(n.P(1)) / function(c)",
+                    "    coroutine.yield('Y' .. c)",
+                    "    return c",
+                    "  end)^0), 'ab')",
+                    "end)",
+                    "print(coroutine.resume(co))",
+                    "print(coroutine.resume(co))",
+                    "print(coroutine.resume(co))"},
+            }),
+        new Ext("CJSON_SRC", "cjson",
+            new String[]{"lua_cjson.c", "strbuf.c", "dtoa.c", "g_fmt.c"},
+            new String[][]{
+                {"装进来",
+                    "print(type(n), type(n.encode), type(n.decode))"},
+                /*
+                 * 刻意不 encode 字符串键的表：{@code pairs} 顺序是<b>有意偏离</b>
+                 * （README 约定），打出来两边必然不同，那种红毫无意义。
+                 * 只打数组与标量，这两类是确定的。
+                 */
+                {"encode",
+                    "print(n.encode({1, 2, 3}))",
+                    "print(n.encode({}))",
+                    "print(n.encode(1), n.encode(1.5), n.encode('hi'))",
+                    "print(n.encode(true), n.encode(false), n.encode(nil))",
+                    "print(#n.encode({1, 2, 3}))"},
+                {"decode",
+                    "local t = n.decode('{\"a\":1,\"b\":[1,2],\"c\":null}')",
+                    "print(type(t), t.a, t.b[1], t.b[2])",
+                    "print(n.decode('1'), n.decode('1.5'), n.decode('\"s\"'))",
+                    "print(n.decode('true'), n.decode('false'))",
+                    "print(n.decode('[]')[1], #n.decode('[1,2,3]'))"},
+                {"null 是轻量 userdata",
+                    "local z = n.decode('null')",
+                    "print(type(z))",
+                    "print(tostring(z))",
+                    "print(rawequal(z, n.decode('null')))"},
+                {"错误路径",
+                    "print(pcall(n.decode, '{'))",
+                    "print(pcall(n.decode, '{\"a\"}'))",
+                    "print(pcall(n.decode, 1))",
+                    "print(pcall(n.decode))",
+                    "print(pcall(n.encode, {[1] = function() end}))"},
+            },
+            new String[]{"USE_INTERNAL_FPCONV"}, "cjson.so"),
+        /*
+         * luafilesystem：跟上面两个不一样的一类——它把 <b>C 的 errno 原文</b>
+         * 经 {@code luaL_argerror} 报出来（{@code "No such file or directory"}，
+         * 而且第二个返回值就是 errno 数字），还用带 {@code __gc} 的 userdata
+         * 包 {@code DIR*}。这两条都是只跑真扩展才会走到的路。
+         */
+        new Ext("LFS_SRC", "lfs",
+            new String[]{"src/lfs.c"},
+            new String[][]{
+                {"装进来",
+                    "print(type(n), type(n.attributes), type(n.dir))"},
+                {"建目录 / 取属性",
+                    "local d = 'target/rt/lfsd'",
+                    "os.remove(d .. '/t.txt')",
+                    "n.rmdir(d)",
+                    "print(n.mkdir(d))",
+                    "print(n.attributes(d).mode)",
+                    "local f = io.open(d .. '/t.txt', 'w')",
+                    "f:write('abc') f:close()",
+                    "print(n.attributes(d .. '/t.txt').size)"},
+                {"目录迭代",
+                    "local d = 'target/rt/lfsd'",
+                    "local names = {}",
+                    "for x in n.dir(d) do names[#names + 1] = x end",
+                    "table.sort(names)",
+                    "print(table.concat(names, ','))"},
+                {"errno 走 luaL_argerror",
+                    "print(n.attributes('target/rt/lfsd/nope'))",
+                    "print(n.attributes('target/rt/lfsd/t.txt/nope'))"},
+                {"错误路径",
+                    "print(pcall(n.attributes))",
+                    "print(pcall(n.attributes, 1))",
+                    "print(pcall(n.dir, 'target/rt/lfsd/nope'))",
+                    "print(type(n.currentdir()))"},
+            }),
+        /*
+         * luabitop：第三类的代表——它是个<b>纯计算</b>扩展，没有 userdata、没有
+         * 文件、没有 errno，但它把「C 侧往 Lua 数上按位抠」这条路的每一格都踩
+         * 到：{@code lua_Number} 与 {@code lua_Unsigned} 的来回、32 位环绕、
+         * 算术右移、{@code luaL_checknumber} 对<b>浮点</b>参数的态度。
+         * 而且它返回值一律是<b>浮点</b>（{@code print} 出来是 {@code 15.0}
+         * 而不是 {@code 15}），本实现的整数／浮点分裂在这里会被直接看见。
+         */
+        new Ext("BIT_SRC", "bit",
+            new String[]{"bit.c"},
+            new String[][]{
+                {"装进来",
+                    "print(type(n), type(n.band), type(n.bor), type(n.bxor))",
+                    "print(type(n.bnot), type(n.lshift), type(n.rshift))",
+                    "print(type(n.arshift), type(n.rol), type(n.ror))",
+                    "print(type(n.bswap), type(n.tobit), type(n.tohex))"},
+                {"位运算",
+                    "print(n.band(0xff, 0x0f))",
+                    "print(n.bor(1, 2, 4))",
+                    "print(n.bxor(0xff, 0x0f))",
+                    "print(n.bnot(0))",
+                    "print(n.lshift(1, 31))",
+                    "print(n.rshift(0x80000000, 31))",
+                    "print(n.arshift(-8, 2))",
+                    "print(n.rol(1, 4))",
+                    "print(n.ror(0x10, 4))",
+                    "print(n.bswap(0x11223344))",
+                    "print(n.tobit(0xffffffff))",
+                    "print(n.band(-1, -1))"},
+                {"tohex / 浮点参数 / 越界移位",
+                    "print(n.tohex(0xdeadbeef))",
+                    "print(n.tohex(-1))",
+                    "print(n.tohex(255, 4))",
+                    "print(n.tohex(0, -1))",
+                    "print('[' .. n.tohex(1, 0) .. ']')",
+                    "print(n.band(1.5))",
+                    "print(n.band(3.9, 1.9))",
+                    "print(n.tobit(2^53))",
+                    "print(n.lshift(1, 100))",
+                    "print(n.rshift(-1, 100))"},
+                {"错误路径",
+                    "print(pcall(n.band))",
+                    "print(pcall(n.band, 'x'))",
+                    "print(pcall(n.band, 1, nil))",
+                    "print(pcall(n.tohex, 'x'))",
+                    "print(pcall(n.tohex, 1, 'x'))",
+                    "print(pcall(n.lshift))",
+                    "print(pcall(n.bnot))"},
+            },
+            new String[]{"LUA_NUMBER_DOUBLE"}, "bit.so"),
+        /*
+         * luasocket 的 {@code mime.core}：这一类专治 {@code luaL_Buffer}。
+         * {@code luaL_buffinit / luaL_addlstring / luaL_addchar / luaL_pushresult}
+         * 在 {@code Api} 里全是「在 luashim.c 里用别的 lua_* 拼出来」的壳，
+         * Java 侧永远走不到——只有真跑一个重度用 buffer 的扩展才知道那层壳
+         * 拼得对不对。而且它一<b>路返回两个值</b>（结果 + 没吃完的尾巴），
+         * 多返回值在 C 帧上的摆位也一并被验到。
+         */
+        new Ext("MIME_SRC", "mime.core",
+            new String[]{"src/mime.c"},
+            new String[][]{
+                {"装进来",
+                    "print(type(n), type(n.b64), type(n.unb64), type(n.qp))",
+                    "print(type(n.unqp), type(n.qpwrp), type(n.eol))",
+                    "print(type(n.dot), type(n.wrp))"},
+                {"base64",
+                    "print(n.b64('hello'))",
+                    "print(n.b64(''))",
+                    "print(n.b64('a'))",
+                    "print(n.b64('ab'))",
+                    "print(n.b64('abc'))",
+                    "print(n.b64('hel', 'lo'))",
+                    "print(n.unb64('aGVsbG8='))",
+                    "print(n.unb64('aGVsbG'))",
+                    "print(n.b64(nil))",
+                    "print(n.b64(1))"},
+                {"quoted-printable",
+                    "print(n.qp('hello'))",
+                    "print(n.qp('a=b'))",
+                    "print(n.qp('caf\\xc3\\xa9'))",
+                    "print(n.unqp('a=3Db'))"},
+                {"带状态的过滤器：qpwrp / eol / dot / wrp",
+                    "print(n.qpwrp(0, 'hello world', 5))",
+                    "print(n.qpwrp(0, nil, 5))",
+                    "print(n.eol(0, 'a\\nb\\n', '\\r\\n'))",
+                    "print(n.eol(0, nil))",
+                    "print(n.dot(2, 'a\\nb'))",
+                    "print(n.dot(2, nil))",
+                    "print(n.wrp(0, 'hello', 3))"},
+                {"错误路径",
+                    "print(pcall(n.eol, 'x'))",
+                    "print(pcall(n.qpwrp, 'x'))"},
+            },
+            new String[0], "mime_core.so"),
+        /*
+         * luaposix（第六个扩展）。
+         * <p>
+         * 前五个都是「一个 .so 一个模块」，luaposix 不一样：它是
+         * <b>一个模块一棵 .c</b>，每棵都 {@code #include "_helpers.c"}，
+         * 所以要额外的 {@code -I ext/include}，还要 {@code PACKAGE} /
+         * {@code VERSION} 两个宏（{@code _LPOSIX_VERSION_STRING} 拼
+         * {@code version} 字段时用）。
+         * <p>
+         * 挑这四棵的理由是它们<b>纯函数、不碰进程状态</b>：{@code unistd}
+         * 里有 {@code fork}、{@code stdlib} 里有 {@code abort}，跑一次就把
+         * 测试进程分成两半，不能进差分用例。剩下的这四棵照样把
+         * {@code luaL_checkinteger} / {@code luaL_argerror} /
+         * {@code luaL_optstring} 走了一遍；{@code errno} 那棵还额外是一次
+         * 「{@code lua_pushinteger} + {@code lua_setfield}」的密集网格
+         * （{@code LPOSIX_CONST} 一次注册七十来个常量）。
+         */
+        new Ext("POSIX_SRC", "posix.ctype", new String[]{"ext/posix/ctype.c"},
+            new String[][]{
+                {"字符分类",
+                    "print(n.isgraph('a'), n.isgraph(' '))",
+                    "print(n.isprint('a'), n.isprint('\\1'))"},
+                {"错参数",
+                    "print(pcall(n.isgraph))",
+                    "print(pcall(n.isgraph, 1))",
+                    "print(pcall(n.isgraph, true))",
+                    "print(pcall(n.isgraph, {}))",
+                    "print(pcall(n.isgraph, 'ab'))",
+                    "print(pcall(n.isgraph, -1))",
+                    "print(pcall(n.isgraph, 65))"},
+            }, POSIX_DEFS, "posix_ctype.so", new String[]{"ext/include"}),
+        new Ext("POSIX_SRC", "posix.errno", new String[]{"ext/posix/errno.c"},
+            new String[][]{
+                {"常量网格",
+                    "print(n.E2BIG, n.ENOENT, n.EACCES, n.EPERM, n.EINVAL)",
+                    "print(n.EWOULDBLOCK == n.EAGAIN)"},
+                {"errno 读写",
+                    "n.set_errno(2)",
+                    "print(n.errno())",
+                    "n.set_errno(0)",
+                    "print(n.errno())",
+                    "print(pcall(n.set_errno, 'x'))",
+                    "print(pcall(n.set_errno))"},
+            }, POSIX_DEFS, "posix_errno.so", new String[]{"ext/include"}),
+        new Ext("POSIX_SRC", "posix.fnmatch",
+            new String[]{"ext/posix/fnmatch.c"},
+            new String[][]{
+                {"匹配",
+                    "print(n.fnmatch('a*b', 'axxb'))",
+                    "print(n.fnmatch('a*b', 'axxb', n.FNM_PATHNAME))",
+                    "print(n.fnmatch('a?b', 'axb'))",
+                    "print(n.fnmatch('*.txt', 'x.txt', n.FNM_PERIOD))",
+                    "print(n.FNM_NOMATCH, n.FNM_NOESCAPE)"},
+                {"错参数",
+                    "print(pcall(n.fnmatch))",
+                    "print(pcall(n.fnmatch, 'a'))",
+                    "print(pcall(n.fnmatch, 'a', 1))",
+                    "print(pcall(n.fnmatch, 'a', 'a', 'x'))",
+                    "print(pcall(n.fnmatch, 'a', 'a', 1.5))",
+                    "print(pcall(n.fnmatch, 'a', 'a', 999))"},
+            }, POSIX_DEFS, "posix_fnmatch.so", new String[]{"ext/include"}),
+        new Ext("POSIX_SRC", "posix.libgen", new String[]{"ext/posix/libgen.c"},
+            new String[][]{
+                {"basename / dirname",
+                    "print(n.basename('/a/b/c.txt'), n.dirname('/a/b/c.txt'))",
+                    "print(n.basename('x'), n.dirname('x'))",
+                    "print(n.basename(''), n.dirname(''))"},
+                {"错参数",
+                    "print(pcall(n.basename))",
+                    "print(pcall(n.dirname, 1))",
+                    "print(pcall(n.basename, true))"},
+            }, POSIX_DEFS, "posix_libgen.so", new String[]{"ext/include"}),
+    };
+
+    private static String skipReason = "";
+
+    /**
+     * <b>不进协程第二遍</b>的用例名，格式是 {@code 模块: 用例}。
+     * <p>
+     * 与 {@link NativeApiTest#NO_CO} 同一类理由：这些用例测的本来就是「在协程
+     * 外面 / 在主线程上」这件事，塞进 {@code coroutine.wrap} 之后参考实现那边
+     * 会走一条完全不同的路，输出对不上是<b>预期的</b>而不是分歧。
+     */
+    private static final java.util.Set<String> NO_CO =
+            new java.util.HashSet<>(java.util.Arrays.asList(
+            ));
+
+    @TestFactory
+    List<DynamicTest> realExtensionMatchesReference() {
+        List<DynamicTest> tests = new ArrayList<>();
+        for (Ext e : EXTS) {
+            String path = fixture(e);
+            if (path == null) {
+                continue;
+            }
+            String pre = "package.cpath = [==[" + path + "]==] .. \";\" .. package.cpath\n"
+                    + "local n = require('" + e.mod + "')\n";
+            for (String[] c : e.cases) {
+                StringBuilder body = new StringBuilder();
+                for (int i = 1; i < c.length; i++) {
+                    body.append(c[i]).append('\n');
+                }
+                String name = e.mod + ": " + c[0];
+                tests.add(DynamicTest.dynamicTest(name,
+                        () -> run(pre + body, name)));
+                /*
+                 * <b>第二遍：同一批语料塞进协程再跑一次。</b>
+                 * <p>
+                 * 这一层是 {@link NativeApiTest} 那边咬出四处真缺陷之后才补的
+                 * （约定 #9 第四层），而真实扩展那一侧的协程面比自己写的探针
+                 * 更大：扩展自己的 {@code lua_State *} 是哪一份、它在
+                 * {@code require} 时往 registry 里塞的东西是不是
+                 * {@code global_State} 级的（约定 #7）、扩展里的回调
+                 * （lpeg 的 {@code match} 接的函数、cjson 的
+                 * {@code decode} 钩子）能不能穿过 C 帧 yield。
+                 * 主线程上全绿不代表这里绿。
+                 */
+                if (!NO_CO.contains(name)) {
+                    tests.add(DynamicTest.dynamicTest(name + "（协程里）",
+                            () -> run(pre + "coroutine.wrap(function()\n" + body
+                                    + "end)()\n", name)));
+                }
+            }
+            /*
+             * 每个扩展再补同一条：<b>在协程里再 require 一次</b>，拿到的必须是
+             * <b>同一个</b>模块表。
+             * <p>
+             * 约定 #7 那条（registry 与 {@code _LOADED} / {@code package.loaded}
+             * 是 {@code global_State} 级的，所有 {@code lua_State} 共用）在纯 Lua
+             * 那边已经被测过，但<b>扩展</b>这一侧多一层：{@code luaopen_X} 里
+             * {@code luaL_newlib} 建的表要挂到 {@code package.loaded[modname]} 上，
+             * 而 {@code modname} 是 {@code require} 从 C 侧查的
+             * （{@code ll_require → lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED")}）。
+             * 要是 {@code _LOADED} 做成了按线程一份，协程里 require 会<b>再跑一遍
+             * luaopen</b>，于是 {@code m == n} 是 false、扩展自己的静态数据也跟着
+             * 重置——而主线程上永远看不见。
+             */
+            String reqName = e.mod + ": 协程里 require";
+            tests.add(DynamicTest.dynamicTest(reqName,
+                    () -> run(pre + "coroutine.wrap(function()\n"
+                            + "  local m = require('" + e.mod + "')\n"
+                            + "  print(type(m), m == n)\n"
+                            + "end)()\n", reqName)));
+        }
+        Assumptions.assumeTrue(!tests.isEmpty(),
+                "跳过真实扩展用例：" + skipReason);
+        return tests;
+    }
+
+    /** 跑一条用例；失败时带上用例名，否则 60 多条动态用例只报一句「脚本：」 */
+    private static void run(String src, String name) {
+        try {
+            Diff.assertMatches(src);
+        } catch (Throwable t) {
+            throw new AssertionError("用例「" + name + "」抛了 " + t, t);
+        }
+    }
+
+    private static String fixture(Ext e) {
+        if (e.path != null) {
+            return e.path;
+        }
+        String dir = System.getenv(e.env);
+        if (dir == null || dir.isEmpty()) {
+            skipReason += e.env + " 没设；";
+            return null;
+        }
+        if (!NativeBridge.AVAILABLE) {
+            skipReason += "native 层没装起来: " + NativeBridge.LOAD_ERROR + "；";
+            return null;
+        }
+        String cc = firstOf("cc", "gcc", "clang");
+        if (cc == null) {
+            skipReason += "PATH 里没有 C 编译器；";
+            return null;
+        }
+        try {
+            File root = new File(dir);
+            File out = new File("target/rt/" + e.out);
+            List<String> cmd = new ArrayList<>(Arrays.asList(
+                    cc, "-shared", "-fPIC", "-undefined", "dynamic_lookup",
+                    "-I", "native/lua", "-o", out.getPath()));
+            for (String d : e.defs) {
+                cmd.add("-D" + d);
+            }
+            for (String i : e.incs) {
+                cmd.add("-I");
+                cmd.add(new File(root, i).getPath());
+            }
+            for (String s : e.src) {
+                File f = new File(root, s);
+                if (!f.isFile()) {
+                    skipReason += dir + " 里缺 " + s + "；";
+                    return null;
+                }
+                cmd.add(f.getPath());
+            }
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            String log = new String(p.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+            if (p.waitFor() != 0 || !out.isFile()) {
+                Files.write(new File("target/rt/" + e.mod + "_build.log").toPath(),
+                        log.getBytes(StandardCharsets.UTF_8));
+                skipReason += "编译 " + e.mod + " 失败，见 target/rt/"
+                        + e.mod + "_build.log；";
+                return null;
+            }
+            e.path = out.getAbsolutePath();
+        } catch (Exception ex) {
+            skipReason += "编译 " + e.mod + " 失败: " + ex + "；";
+            return null;
+        }
+        return e.path;
+    }
+
+    private static String firstOf(String... names) {
+        for (String n : names) {
+            for (String d : System.getenv("PATH").split(File.pathSeparator)) {
+                if (new File(d, n).canExecute()) {
+                    return n;
+                }
+            }
+        }
+        return null;
+    }
+}
