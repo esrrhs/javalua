@@ -1064,8 +1064,8 @@ class NativeApiTest {
             "  return 1;",
             "}");
 
-    private static final String PRE = "local f = assert(package.loadlib([==[@SO@]==], "
-            + "\"luaopen_nat\"))\nlocal n = f()\n";
+    private static final String PRE = "local SOPATH = [==[@SO@]==]\n"
+            + "local f = assert(package.loadlib(SOPATH, \"luaopen_nat\"))\nlocal n = f()\n";
 
     /**
      * 参数网格。
@@ -1230,6 +1230,17 @@ class NativeApiTest {
             "print(pcall(n.chkint))",
             "print(n.chkint('0x10'))",
             "print(pcall(n.chkint, '3e2'))"},
+        {"package.loadlib 的三档返回值",
+            "-- 成功 / 「库里有但没有这个符号」(ERRFUNC) / 「库都打不开」(ERRLIB)。",
+            "-- 第三个返回值是「在哪一步失败」：C 里 ERRFUNC 给写死的 \"init\"，",
+            "-- ERRLIB 给 LIB_FAIL（装了 dlopen 的构建是 \"open\"）。失败消息文本",
+            "-- 是 dlerror 的原文、平台自己的，所以只比类型与这两个字面量。",
+            "local a, m, w = package.loadlib(SOPATH, 'luaopen_no_such_symbol')",
+            "print(1, tostring(a), type(m), tostring(w))",
+            "local a2, m2, w2 = package.loadlib(SOPATH .. '.nope', 'luaopen_x')",
+            "print(2, tostring(a2), type(m2), tostring(w2))",
+            "local t = table.pack(package.loadlib(SOPATH, 'luaopen_nat'))",
+            "print(3, t.n, type(t[1]), type(t[2]), type(t[3]))"},
         {"luaL_ref / luaL_unref",
             "local r1 = n.ref(print)",
             "local r2 = n.ref('s')",
