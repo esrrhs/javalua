@@ -49,11 +49,82 @@ public final class LuaTable {
     /** {@code __gc} 是否已经跑过。只跑一次，与参考实现一致（实测确认） */
     private boolean gcDone;
 
-    /** 哈希节点：键 + 值 + 同链下一跳（下标，-1 表示链尾） */
+    /**
+     * 哈希节点：键 + 值 + 同链下一跳（下标，-1 表示链尾）。
+     * <p>
+     * 优化：将 key 和 val 的字段直接内联，避免创建两个 LuaValue 对象。
+     * 每个节点从 ~108 bytes 降到 ~68 bytes，节省约 37% 内存。
+     */
     static final class Node {
-        final LuaValue key = new LuaValue();
-        final LuaValue val = new LuaValue();
+        // 键的字段（内联 LuaValue）
+        int keyTt = Lua.TNIL;
+        long keyI;
+        double keyN;
+        Object keyO;
+        
+        // 值的字段（内联 LuaValue）
+        int valTt = Lua.TNIL;
+        long valI;
+        double valN;
+        Object valO;
+        
         int next = -1;
+        
+        // 键的访问方法
+        LuaValue getKey() {
+            LuaValue v = new LuaValue();
+            v.tt = keyTt;
+            v.i = keyI;
+            v.n = keyN;
+            v.o = keyO;
+            return v;
+        }
+        
+        void setKey(LuaValue v) {
+            keyTt = v.tt;
+            keyI = v.i;
+            keyN = v.n;
+            keyO = v.o;
+        }
+        
+        void setKeyNil() {
+            keyTt = Lua.TNIL;
+            keyI = 0;
+            keyN = 0;
+            keyO = null;
+        }
+        
+        boolean keyIsNil() {
+            return keyTt == Lua.TNIL;
+        }
+        
+        // 值的访问方法
+        LuaValue getVal() {
+            LuaValue v = new LuaValue();
+            v.tt = valTt;
+            v.i = valI;
+            v.n = valN;
+            v.o = valO;
+            return v;
+        }
+        
+        void setVal(LuaValue v) {
+            valTt = v.tt;
+            valI = v.i;
+            valN = v.n;
+            valO = v.o;
+        }
+        
+        void setValNil() {
+            valTt = Lua.TNIL;
+            valI = 0;
+            valN = 0;
+            valO = null;
+        }
+        
+        boolean valIsNil() {
+            return valTt == Lua.TNIL;
+        }
     }
 
     /* ==================== 弱表 ==================== */
@@ -181,13 +252,15 @@ public final class LuaTable {
         List<LuaValue[]> live = new ArrayList<>();
         for (int i = 0; i < nodeSize; i++) {
             Node n = node[i];
-            if (n.val.isNil()) {
+            if (n.valIsNil()) {
                 continue;
             }
-            if (isDead(n.key) || isDead(n.val)) {
+            LuaValue key = n.getKey();
+            LuaValue val = n.getVal();
+            if (isDead(key) || isDead(val)) {
                 continue;
             }
-            live.add(new LuaValue[] { n.key, n.val });
+            live.add(new LuaValue[] { key, val });
         }
         if (live.size() == countLiveNodes()) {
             return; // 一项都没失效，不用重建
@@ -205,7 +278,7 @@ public final class LuaTable {
     private int countLiveNodes() {
         int n = 0;
         for (int i = 0; i < nodeSize; i++) {
-            if (!node[i].val.isNil()) {
+            if (!node[i].valIsNil()) {
                 n++;
             }
         }
@@ -425,8 +498,8 @@ public final class LuaTable {
         }
         Node n = node[mainPosition(key)];
         while (true) {
-            if (slotKeyEquals(n.key, key)) {
-                return n.val;
+            if (slotKeyEquals(n.getKey(), key)) {
+                return n.getVal();
             }
             if (n.next < 0) {
                 return null;
@@ -484,14 +557,91 @@ public final class LuaTable {
         purgeIfNeeded();
         LuaValue k = normalizeKeyForWrite(key);
         if (value.isNil()) {
-            LuaValue slot = rawGet(k);
-            // 键不存在：不建条目；键存在：照旧写 nil（条目留着，等 rehash 再摘）
-            if (slot != null) {
-                slot.set(value);
-            }
+            // 设置值为 nil：需要直接修改存储
+            setToNil(k);
             return;
         }
-        ensureSlot(k).set(weakWrap(value, weakValueFor(k, value)));
+        setSlot(k, weakWrap(value, weakValueFor(k, value)));
+    }
+    
+    /** 将键设为 nil（内联版） */
+    private void setToNil(LuaValue key) {
+        // 先查数组部分
+        if (key.tt == Lua.VNUMINT) {
+            long k = key.i;
+            if (k > 0 && k <= array.length) {
+                array[(int)k - 1].setNil();
+                return;
+            }
+        } else if (key.tt == Lua.VNUMFLT) {
+            long[] ki = new long[1];
+            if (floatToIntExact(key.n, ki) && ki[0] > 0 && ki[0] <= array.length) {
+                array[(int)ki[0] - 1].setNil();
+                return;
+            }
+        }
+        // 哈希部分：找到就设为 nil
+        int idx = findNodeIndex(key);
+        if (idx >= 0) {
+            node[idx].setValNil();
+        }
+        // 键不存在：什么都不做（与 C Lua 一致）
+    }
+    
+    /** 设置槽的值（内联版，直接写 Node 的字段） */
+    private void setSlot(LuaValue key, LuaValue value) {
+        // 先查数组部分
+        if (key.tt == Lua.VNUMINT) {
+            long k = key.i;
+            if (k > 0 && k <= array.length) {
+                array[(int)k - 1].set(value);
+                return;
+            }
+        } else if (key.tt == Lua.VNUMFLT) {
+            long[] ki = new long[1];
+            if (floatToIntExact(key.n, ki) && ki[0] > 0 && ki[0] <= array.length) {
+                array[(int)ki[0] - 1].set(value);
+                return;
+            }
+        }
+        // 哈希部分
+        int idx = findNodeIndex(key);
+        if (idx >= 0) {
+            node[idx].setVal(value);
+            return;
+        }
+        // 键不存在，建新节点
+        while (true) {
+            if (nodeSize == 0) {
+                rehash(key);
+            } else {
+                Node n = newKey(key, false);
+                if (n != null) {
+                    n.setVal(value);
+                    return;
+                }
+                rehash(key);
+            }
+            // rehash 后重新查找（可能在数组部分或哈希部分）
+            if (key.tt == Lua.VNUMINT) {
+                long k = key.i;
+                if (k > 0 && k <= array.length) {
+                    array[(int)k - 1].set(value);
+                    return;
+                }
+            } else if (key.tt == Lua.VNUMFLT) {
+                long[] ki = new long[1];
+                if (floatToIntExact(key.n, ki) && ki[0] > 0 && ki[0] <= array.length) {
+                    array[(int)ki[0] - 1].set(value);
+                    return;
+                }
+            }
+            idx = findNodeIndex(key);
+            if (idx >= 0) {
+                node[idx].setVal(value);
+                return;
+            }
+        }
     }
 
     /**
@@ -529,41 +679,6 @@ public final class LuaTable {
     }
 
     /**
-     * {@code luaH_set}：拿到键对应的可写槽，键不存在就先建条目。
-     * <p>
-     * <b>为什么不能一步到位。</b>rehash 有可能把这个键直接安排进数组部分
-     * （例如空表上 {@code t[1]=v}：rehash 算出数组部分该是 1，于是槽在
-     * {@code array[0]}，而它是 {@code LuaValue} 不是 {@code Node}）。所以
-     * rehash 之后必须重新查一次，不能假设结果还在哈希部分——这正是 C 版在
-     * rehash 后重新调用 {@code luaH_set} 的原因，只是那里靠指针统一了两种槽。
-     * <p>
-     * 只用于<b>非 nil</b> 的值——赋 nil 走 {@link #set} 那条路，不建条目
-     * （理由见那里的注释）。
-     */
-    private LuaValue ensureSlot(LuaValue key) {
-        LuaValue slot = rawGet(key);
-        if (slot != null) {
-            return slot;
-        }
-        while (true) {
-            if (nodeSize == 0) {
-                // 还没有哈希部分：交给 rehash 决定两段大小
-                rehash(key);
-            } else {
-                Node n = newKey(key, false);
-                if (n != null) {
-                    return n.val;
-                }
-                rehash(key);
-            }
-            slot = rawGet(key);
-            if (slot != null) {
-                return slot;
-            }
-        }
-    }
-
-    /**
      * {@code luaH_newkey}：为表中不存在的键分配条目。
      * <p>
      * 返回 {@code null} 表示「需要 rehash」，由调用方 rehash 后重试。之所以把这个
@@ -576,12 +691,12 @@ public final class LuaTable {
         }
         int mpIdx = mainPosition(key);
         Node mp = node[mpIdx];
-        if (!mp.val.isNil()) {
+        if (!mp.valIsNil()) {
             int f = getFreePos();
             if (f < 0) {
                 return null; // 没有空位
             }
-            int otherIdx = mainPosition(mp.key);
+            int otherIdx = mainPosition(mp.getKey());
             if (otherIdx != mpIdx) {
                 // mp 不在它自己的主位置：把它挪到空闲位 f，腾出 mp 给新键
                 int p = otherIdx;
@@ -591,7 +706,7 @@ public final class LuaTable {
                 node[p].next = f;
                 copyNode(mp, node[f]);
                 mp.next = -1;
-                mp.val.setNil();
+                mp.setValNil();
             } else {
                 // mp 就在自己的主位置：新节点挂到 f，链在 mp 之后
                 node[f].next = mp.next;
@@ -600,14 +715,14 @@ public final class LuaTable {
                 mp = node[f];
             }
         }
-        mp.key.set(weakWrap(key, weakKey));
-        mp.val.setNil();
+        mp.setKey(weakWrap(key, weakKey));
+        mp.setValNil();
         return mp;
     }
 
     private static void copyNode(Node from, Node to) {
-        to.key.set(from.key);
-        to.val.set(from.val);
+        to.setKey(from.getKey());
+        to.setVal(from.getVal());
         to.next = from.next;
     }
 
@@ -615,7 +730,7 @@ public final class LuaTable {
     private int getFreePos() {
         while (lastFree > 0) {
             lastFree--;
-            if (node[lastFree].key.isNil()) {
+            if (node[lastFree].keyIsNil()) {
                 return lastFree;
             }
         }
@@ -706,9 +821,9 @@ public final class LuaTable {
         int ause = 0;
         for (int i = 0; i < nodeSize; i++) {
             Node n = node[i];
-            if (!n.val.isNil()) {
-                if (n.key.tt == Lua.VNUMINT) {
-                    ause += countInt(n.key.i, nums);
+            if (!n.valIsNil()) {
+                if (n.keyTt == Lua.VNUMINT) {
+                    ause += countInt(n.keyI, nums);
                 }
                 totalUse++;
             }
@@ -783,8 +898,8 @@ public final class LuaTable {
             for (int i = 0; i < oldNodeSize; i++) {
                 Node n = oldNodes[i];
                 // 失效条目不搬：搬过去也是垃圾，还白占一个槽
-                if (!n.val.isNil() && !isDead(n.key) && !isDead(n.val)) {
-                    moved.add(new LuaValue[] { n.key, n.val });
+                if (!n.valIsNil() && !isDead(n.getKey()) && !isDead(n.getVal())) {
+                    moved.add(new LuaValue[] { n.getKey(), n.getVal() });
                 }
             }
         }
@@ -837,7 +952,7 @@ public final class LuaTable {
         if (n == null) {
             throw new IllegalStateException("hash part too small after resize");
         }
-        n.val.set(value);
+        n.setVal(value);
     }
 
     /** 这个键搬进新表时会走数组部分吗？与 {@link #rawGet} 的路由保持一致 */
@@ -1035,8 +1150,9 @@ public final class LuaTable {
         }
         if (nodeSize > 0) {
             for (int j = Math.max(start - array.length, 0); j < nodeSize; j++) {
-                if (!node[j].val.isNil() && !isDead(node[j].key) && !isDead(node[j].val)) {
-                    return new LuaValue[] { weakUnwrap(node[j].key), weakUnwrap(node[j].val) };
+                Node nj = node[j];
+                if (!nj.valIsNil() && !isDead(nj.getKey()) && !isDead(nj.getVal())) {
+                    return new LuaValue[] { weakUnwrap(nj.getKey()), weakUnwrap(nj.getVal()) };
                 }
             }
         }
@@ -1050,7 +1166,7 @@ public final class LuaTable {
         }
         int i = mainPosition(key);
         while (true) {
-            if (slotKeyEquals(node[i].key, key)) {
+            if (slotKeyEquals(node[i].getKey(), key)) {
                 return i;
             }
             if (node[i].next < 0) {
@@ -1096,8 +1212,8 @@ public final class LuaTable {
         }
         for (int i = 0; i < nodeSize; i++) {
             Node n = node[i];
-            if (!n.val.isNil() && !isDead(n.key) && !isDead(n.val)) {
-                all.add(new LuaValue[] { weakUnwrap(n.key), weakUnwrap(n.val) });
+            if (!n.valIsNil() && !isDead(n.getKey()) && !isDead(n.getVal())) {
+                all.add(new LuaValue[] { weakUnwrap(n.getKey()), weakUnwrap(n.getVal()) });
             }
         }
         // 弱表不用数组部分（槽是普通 LuaValue，放不了 WeakRef），整数键一并进哈希
@@ -1235,7 +1351,8 @@ public final class LuaTable {
         }
         if (nodeSize > 0) {
             for (int i = 0; i < nodeSize; i++) {
-                if (!node[i].val.isNil() && !isDead(node[i].key) && !isDead(node[i].val)) {
+                Node ni = node[i];
+                if (!ni.valIsNil() && !isDead(ni.getKey()) && !isDead(ni.getVal())) {
                     n++;
                 }
             }
