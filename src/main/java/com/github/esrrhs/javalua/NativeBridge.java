@@ -21,8 +21,13 @@ import java.util.IdentityHashMap;
  * </ol>
  * <p>
  * 装不上（没这个平台的库、或者不允许加载动态库）时 {@link #AVAILABLE} 是
- * false，{@code package.loadlib} 照旧走「未启用动态库」的兜底分支——不能因为
+ * false，此时 io 库退回纯 Java 的实现（{@code RandomAccessFile}），
+ * {@code package.loadlib} 走「未启用动态库」的兜底分支——不能因为
  * native 层不可用就让整个引擎起不来。
+ * <p>
+ * 退回哪条路径可以用 <b>{@code -Djavalua.nonative}</b> 强制：设了这个属性就
+ * 直接当作装不上，连库都不去装。io 的两条路径要各自跑一遍差分才有覆盖，
+ * 而装得上库的机器默认只会走 C 那一条。
  */
 public final class NativeBridge {
 
@@ -38,10 +43,15 @@ public final class NativeBridge {
     static {
         boolean ok = false;
         String err = null;
-        try {
-            ok = load();
-        } catch (Throwable t) {
-            err = String.valueOf(t.getMessage());
+        if (System.getProperty("javalua.nonative") != null) {
+            // 强制走纯 Java 路径，见类注释
+            err = "disabled by -Djavalua.nonative";
+        } else {
+            try {
+                ok = load();
+            } catch (Throwable t) {
+                err = String.valueOf(t.getMessage());
+            }
         }
         AVAILABLE = ok;
         LOAD_ERROR = err;
@@ -233,6 +243,16 @@ public final class NativeBridge {
      * 的当前 locale 名字（UTF-8 编码），设置失败返回 {@code null}。
      */
     static native byte[] cSetlocale(int category, byte[] locale);
+
+    /**
+     * 取 C 的 {@code localeconv()->decimal_point[0]}，也就是
+     * {@code lua_getlocaledecpoint()}（{@code luaconf.h}）。
+     * <p>
+     * Lua 的数字进出都过这个字符，所以它是<b>每次都要现问</b>的：
+     * {@code os.setlocale} 一改，答案就变。native 层不在时没人能改 locale，
+     * 调用方直接按 {@code '.'} 走（见 {@link Numeral#decpoint()}）。
+     */
+    static native int cLocaleDecpoint();
 
     /**
      * 调 C 的 {@code waitpid(pid, &status, 0)}，拿原始退出状态。

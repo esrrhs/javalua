@@ -64,7 +64,8 @@ jobs:
         test -x target/lua54/src/fkdump
     #
     # 编译期差分的语料:上游自带的测试套件。这批脚本是 Lua 作者自己写的、
-    # 专门用来压边界的,比手写几十条用例强得多。目前只编译不运行。
+    # 专门用来压边界的,比手写几十条用例强得多。落到 target/lua54-tests,
+    # 由 UpstreamSuiteTest(逐字节比对)与 UpstreamSmokeTest(只断言跑完)消费。
     - name: Fetch upstream lua test suite
       run: |
         set -e
@@ -85,6 +86,19 @@ jobs:
     # (package.loadlib 真的 dlopen)。这一步<b>故意不设 continue-on-error</b>:
     # 编不出来时 NativeExtTest / NativeApiTest 会整类跳过,而「跳过」在报告里
     # 和「跑过」长得一样——让 job 红掉才能发现 C 扩展这批闸门其实没在 CI 上跑。
+    #
+    # 逗号小数点的 locale。Lua 的数字进出都过 {@code localeconv()->decimal_point}
+    # （{@code lua_getlocaledecpoint()}），而发行版自带的 runner 只装了 C 与 en_US
+    # ——那两个的小数点都是 '.'，{@code os.setlocale("pt_BR")} 一律返回 nil，于是
+    # LocaleNumberTest 与上游 literals.lua 那一段<b>静默地什么都没测</b>。
+    # 这里生成它，并当场 grep 一遍确认真的在：装不上就让这一步红掉，
+    # 别把「闸门没跑」留给下一份报告去猜。
+    - name: Install a comma-decimal locale (pt_BR)
+      run: |
+        set -e
+        command -v locale-gen >/dev/null 2>&1 || sudo apt-get install -y locales
+        sudo locale-gen pt_BR.UTF-8
+        locale -a | grep -i 'pt_BR'
     - name: Build luashim (C API shim)
       run: |
         set -e
@@ -94,10 +108,64 @@ jobs:
       env:
         LUA54_BIN: target/lua54/src/lua
         FKDUMP_BIN: target/lua54/src/fkdump
-      run: ./mvnw -B test
+        LUA54_TESTS: target/lua54-tests
+      # 覆盖率校验留到两遍合并之后再算(见下面 coverage 那步):
+      # 单拿 native 这一遍去卡合并门槛,等价于逼人删掉兜底代码。
+      run: ./mvnw -B test -Djacoco.check.skip=true
+    # maven 只会因为「有用例失败」而红。用例<b>消失</b>它是看不见的:
+    # assumeTrue 的跳过在报告里和跑过长得一样,而 @TestFactory 里没建成用例
+    # 更是什么痕迹都不留。这一步数一遍执行数,并点名几类必须出活的闸门。
+    #
+    # 下限取「本地实测值留 30 条余量」:这一遍实测 1109 条(带 shim 的
+    # tools/local_conformance.sh 量出来的)。余量是给平台差异留的——真 C 扩展
+    # 那批用例会因编译器/网络而异;而<b>一整类</b>没了是几十条的量级,
+    # 卡得住。别把下限调到等于实测值:那会让每次加用例都要改 CI,
+    # 也让人倾向于删用例。
+    - name: Check the gates actually ran
+      run: python3 tools/check_ci_gates.py 1080
+    #
+    # io 的第二条路径:native 层装不上时走 RandomAccessFile(见 IoLib#openJavaFile)。
+    #
+    # 这条路径在别处一次都没跑过:Build job 虽然没编 luashim,但它也没有参考
+    # 二进制,差分用例整类跳过;Conformance job 有参考二进制但 luashim 装得上,
+    # 于是走的永远是 C 那条。发行版 jar 里没带 luashim 的用户拿到的恰恰是这一条。
+    # -Djavalua.nonative 强制当作装不上,再拿同一个 lua5.4 比一遍逐字节 stdout。
+    # jacoco 的 agent 照常挂着(append),这样两遍的执行数据能合并。
+    - name: Run conformance tests (pure-Java io path)
+      env:
+        LUA54_BIN: target/lua54/src/lua
+        FKDUMP_BIN: target/lua54/src/fkdump
+        LUA54_TESTS: target/lua54-tests
+      run: ./mvnw -B test -Djavalua.nonative=true -Djacoco.check.skip=true
+    # 这一遍没有 C API 那批用例,下限另算(-Djavalua.nonative 下
+    # NativeApiTest / NativeExtTest 是零用例返回,不是跳过;locale 小数点那批
+    # 同理,那条路上小数点恒为 '.')。实测 927 条,同样留 30 条余量。
+    # 927 比 native 那遍少 182 条,其中一条是 UpstreamSuiteTest 的
+    # literals.lua:它要 os.setlocale 真的能改 libc 的 locale 才能逐字节比,
+    # 没有 shim 时只有参考实现设得上,输出天然多一行,所以那条用例在
+    # 这一遍<b>根本不存在</b>(UpstreamSuiteTest#suiteFiles)。
+    - name: Check the gates actually ran (pure-Java io path)
+      run: python3 tools/check_ci_gates.py 900 --nonative
+    #
+    # 覆盖率:两条 io 路径<b>合并</b>后的行覆盖率才是门禁对象。
+    # 上面两遍各写了一份 jacoco.exec(append),这里不再跑测试,
+    # 只用合并后的数据出报告并卡一次门槛。
+    #
+    # env 那三行不是多余的:pom 里的 no-reference-lua profile 是按
+    # <b>环境变量在不在</b>来决定跳不跳校验的。这一步不跑测试,但它同样
+    # 会命中那个 profile——没有 LUA54_BIN 就静默跳过,整个覆盖率闸门
+    # 又变回「绿着没跑」。
+    - name: Check coverage of both io paths together
+      env:
+        LUA54_BIN: target/lua54/src/lua
+        FKDUMP_BIN: target/lua54/src/fkdump
+        LUA54_TESTS: target/lua54-tests
+      run: ./mvnw -B -DskipTests test -Djacoco.line.minimum=0.95
 
   quality:
-    # spotbugs静态分析报告(报告模式,不阻断)
+    # spotbugs 静态分析:只把 HIGH 优先级当闸门(见 pom.xml 里 quality profile
+    # 的注释),其余照常出报告。以前 failOnError=false 加上「只上传产物」=
+    # 这个 job 永远不会红,新增问题一个也拦不住。
     runs-on: ubuntu-latest
     name: Static analysis
     steps:

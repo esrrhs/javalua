@@ -33,6 +33,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *       会绕过这两个流。代价是「转发线程什么时候写完」有个很小的时间窗，
  *       靠 {@code pclose} 里 {@code join} 收口；那一刀<b>没有用例盯得住</b>
  *       （窗口太小，破坏它矩阵照样全绿），它防的是偶发红，不是语义。</li>
+ *   <li><b>native 层装不上时走 {@link RandomAccessFile}</b>。
+ *       {@code FILE*} 那份实现依赖随包带的 {@code luashim} 动态库；装不上时
+ *       {@code fopen}/{@code fdopen} 那几条换成 Java 的文件读写，错误码仍按
+ *       {@code strerror} 对齐，只是 C 扩展拿不到 {@code FILE*}。
+ *       两条路径各跑一遍全量差分：{@code -Djavalua.nonative=true} 强制后一条，
+ *       见 {@link NativeBridge}。</li>
  * </ol>
  */
 public final class IoLib {
@@ -45,32 +51,18 @@ public final class IoLib {
      * <p>
      * C 扩展 {@code luaL_checkudata(L, idx, "FILE*")} 拿到的是 {@code luaL_Stream*}
      * （一块 native 内存），而 Java 侧的 I/O 逻辑需要对应的 {@code LuaFile} 对象。
-     * 这个表就是两边的桥梁。
+     * 这个表就是两边的桥梁；native 层不可用时压根不登记，
+     * userdata 的载荷直接放 {@link LuaFile}（见 {@link #fileOfValue}）。
      * <p>
-     * 条目在 {@link #freeStream} 时移除（文件关闭），残余条目随 JVM 退出回收。
+     * 条目在 {@code newPreFileValue} 分配 {@code luaL_Stream} 时放入，之后
+     * <b>不因 close 而移除</b>：关掉句柄后还要靠这条映射答
+     * 「attempt to use a closed file」而不是「FILE* expected, got FILE*」。
+     * userdata 被 GC 时 {@code NativeMemory} 的 Cleaner 释放那块 native 内存，
+     * 表里留下一个过期键；libc 把那块地址重新分配出去时，新的
+     * {@code newPreFileValue} 会用同一个键 {@code put} 覆盖掉旧条目。
      */
     private static final ConcurrentHashMap<Long, LuaFile> FILE_MAP =
             new ConcurrentHashMap<>();
-
-    /** 分配 {@code luaL_Stream} 结构，写入 FILE* 和 closef 占位，注册到 FILE_MAP */
-    private static long allocStream(long filePtr, LuaFile f) {
-        if (!NativeBridge.AVAILABLE) {
-            return 0;
-        }
-        long sp = NativeBridge.cNewLuaLStream(filePtr, 0);
-        if (sp != 0) {
-            FILE_MAP.put(sp, f);
-        }
-        return sp;
-    }
-
-    /** 释放 {@code luaL_Stream} 结构，从 FILE_MAP 移除 */
-    private static void freeStream(long sp) {
-        if (sp != 0) {
-            FILE_MAP.remove(sp);
-            NativeBridge.free(sp);
-        }
-    }
 
     /** {@code LUA_FILEHANDLE} */
     static final String FILE_HANDLE = "FILE*";
@@ -178,9 +170,12 @@ public final class IoLib {
     /**
      * {@code LStream}：{@code FILE*} 的替身。
      * <p>
-     * C 里一个 {@code FILE*} 同时能读能写还能定位，Java 没有这种东西，所以按
-     * 「真实文件走 {@link RandomAccessFile}、标准流与管道走 {@code InputStream} /
-     * {@code OutputStream}」分开存，读写时各自分派。
+     * 一个 {@code FILE*} 同时能读能写还能定位，Java 侧<b>没有单一类型</b>能做
+     * 这件事，所以句柄分两条路存：{@code filePtr}/{@code streamPtr} 是 shim
+     * 装得上时那份真的 libc {@code FILE*}（C 扩展 {@code luaL_checkudata} 拿
+     * 到的就是它）；装不上时按「真实文件走 {@link RandomAccessFile}、标准流与
+     * 管道走 {@code InputStream} / {@code OutputStream}」分开存。读写时各自
+     * 分派，哪边有就用哪边。
      * <p>
      * {@code closef == null} 就是 C 的 {@code isclosed}。
      */
@@ -615,20 +610,6 @@ public final class IoLib {
     }
 
     /**
-     * 给 LuaFile 分配 C 侧的 {@code luaL_Stream} 结构和 {@code NativeMemory} 包装。
-     * <p>
-     * 调用后 {@code f.streamPtr} 指向有效的 {@code luaL_Stream}，{@code f.mem}
-     * 持有对应的 {@code NativeMemory}（防止 GC 提前释放）。
-     * <p>
-     * 必须在 {@code f.filePtr} 已经设好之后调用。
-     */
-    private static void ensureStream(LuaFile f) {
-        long sp = allocStream(f.filePtr, f);
-        f.streamPtr = sp;
-        f.mem = new NativeMemory(sp, FILE_UDATA_LEN);
-    }
-
-    /**
      * 把已分配的 {@code luaL_Stream} 写入真实的 FILE*。
      * <p>
      * {@code newPreFileValue} 已经分配了 native 内存和注册了 FILE_MAP，
@@ -652,6 +633,10 @@ public final class IoLib {
      * 占位）+ 命名元表。{@code streamPtr} 和 FILE* 稍后由 {@code openInto} 填入。
      * <p>
      * 如果打开失败，调用方负责释放这块 native 内存（{@code f.mem} 可达时 GC 也会收）。
+     * <p>
+     * native 层不可用时没有 {@code luaL_Stream} 可分配，userdata 的载荷直接放
+     * {@link LuaFile} 本身：{@link #fileOfValue} 两条来源都认，句柄的读写走
+     * {@code RandomAccessFile} 那条 Java 路径。
      */
     private static LuaValue newPreFileValue(LuaState L, LuaFile f) {
         long sp = NativeBridge.AVAILABLE ? NativeBridge.cNewLuaLStream(0, 0) : 0;
@@ -661,7 +646,7 @@ public final class IoLib {
         if (sp != 0) {
             FILE_MAP.put(sp, f);
         }
-        L.push(LuaValue.ofUserdata(new LuaUserdata(m, 0, FILE_UDATA_LEN)));
+        L.push(LuaValue.ofUserdata(new LuaUserdata(m != null ? m : f, 0, FILE_UDATA_LEN)));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         return new LuaValue(L.stack[L.top - 1]);
     }
@@ -684,7 +669,8 @@ public final class IoLib {
      * 从栈上参数取出 LuaFile。
      * <p>
      * userdata 的 {@code data} 是 {@code NativeMemory}（给 C 扩展的
-     * {@code luaL_Stream*}），Java 侧通过 FILE_MAP 反查到 {@code LuaFile}。
+     * {@code luaL_Stream*}），Java 侧通过 FILE_MAP 反查到 {@code LuaFile}；
+     * native 层不可用时没有这块内存，{@code data} 直接就是 {@code LuaFile}。
      */
     private static LuaFile fileAt(LuaState L, int arg) {
         LuaValue v = L.arg1(arg);
@@ -697,6 +683,9 @@ public final class IoLib {
             return null;
         }
         Object d = ((LuaUserdata) v.o).data;
+        if (d instanceof LuaFile) {
+            return (LuaFile) d;
+        }
         if (d instanceof NativeMemory) {
             long sp = ((NativeMemory) d).ptr;
             LuaFile f = FILE_MAP.get(sp);
@@ -918,11 +907,12 @@ public final class IoLib {
          * <p>
          * {@code "r+"} 不创建文件（C 的 fopen("r+") 走 open(path, O_RDWR)，
          * 没带 O_CREAT），与参考实现一致。
+         * <p>
+         * native 层不可用时退回 {@link #openJavaFile}：io 库照常能读写，只是
+         * C 扩展拿不到 {@code FILE*}。
          */
         if (!NativeBridge.AVAILABLE) {
-            f.err = true;
-            f.errno = 38; // ENOSYS - Function not implemented
-            return false;
+            return openJavaFile(f, fname, mode);
         }
         byte[] pathBytes = fname.getBytes(StandardCharsets.UTF_8);
         byte[] modeBytes = mode.getBytes(StandardCharsets.US_ASCII);
@@ -933,6 +923,48 @@ public final class IoLib {
             return false;
         }
         return true;
+    }
+
+    /**
+     * {@code fopen} 的纯 Java 替身 —— 只在 native 层装不上的时候用。
+     * <p>
+     * 一律用 {@link RandomAccessFile} 顶替 {@code FILE*}：它没有 C 那套
+     * 「按 mode 决定读写与是否创建」的概念（要么 {@code "r"} 要么 {@code "rw"}，
+     * 而 {@code "rw"} 会把不存在的文件<b>建出来</b>），所以模式在这里手动摆：
+     * 只读的走 {@code "r"}，{@code "r+"} 先判存在再开 {@code "rw"}（C 的
+     * {@code open(path, O_RDWR)} 不带 {@code O_CREAT}），{@code "w"} 开完截断、
+     * {@code "a"} 开完跳到末尾。真正的读写字节只由 {@code openInto} 设好的
+     * {@code readable} / {@code writable} 决定。
+     * <p>
+     * 错误码走 {@link LuaAux#errnoOf(java.io.IOException)}：Java 的 IO 异常把
+     * libc 的 {@code strerror} 原文带在消息里（{@code "(Permission denied)"}、
+     * {@code ": Not a directory"}），所以 {@code io.open} 失败时那三元组
+     * {@code nil, "<路径>: No such file or directory", 2} 与 C 那条路一致。
+     */
+    private static boolean openJavaFile(LuaFile f, String fname, String mode) {
+        char base = mode.charAt(0);
+        boolean plus = mode.indexOf('+') >= 0;
+        java.io.File f2 = new java.io.File(fname);
+        if (base == 'r' && plus && !f2.exists()) {
+            // "r+" 不开新文件：RandomAccessFile("rw") 会把它建出来
+            f.err = true;
+            f.errno = 2; // ENOENT
+            return false;
+        }
+        try {
+            f.raf = new RandomAccessFile(fname, (base == 'r' && !plus) ? "r" : "rw");
+            if (base == 'w') {
+                f.raf.setLength(0); // fopen("w") 截断
+            } else if (base == 'a') {
+                f.raf.seek(f.raf.length());
+            }
+            return true;
+        } catch (IOException e) {
+            f.err = true;
+            f.errno = LuaAux.errnoOf(e);
+            f.raf = null;
+            return false;
+        }
     }
 
     /**
@@ -1134,14 +1166,17 @@ public final class IoLib {
         LuaFile f = new LuaFile();
         newFile(L, f);
         f.err = false;
-        if (!NativeBridge.AVAILABLE) {
-            f.err = true;
-            f.errno = 38; // ENOSYS - Function not implemented
-        } else {
-            try {
-                java.io.File tmp = java.io.File.createTempFile("lua_", ".tmp");
-                tmp.deleteOnExit();
-                String path = tmp.getAbsolutePath();
+        try {
+            java.io.File tmp = java.io.File.createTempFile("lua_", ".tmp");
+            tmp.deleteOnExit();
+            String path = tmp.getAbsolutePath();
+            /*
+             * C 那边是「Java 建好临时路径、C 再 fopen("w+b")」：名字由
+             * createTempFile 定，FILE* 由 libc 开（C 扩展要拿得到）。
+             * native 层装不上就直接开 RandomAccessFile，语义一样是
+             * 「读写都行、已截断、退出即删」。
+             */
+            if (NativeBridge.AVAILABLE) {
                 byte[] pathBytes = path.getBytes(StandardCharsets.UTF_8);
                 byte[] modeBytes = "w+b".getBytes(StandardCharsets.US_ASCII);
                 f.filePtr = NativeBridge.cFopen(pathBytes, modeBytes);
@@ -1153,10 +1188,15 @@ public final class IoLib {
                     f.writable = true;
                     fillStream(f);
                 }
-            } catch (IOException e) {
-                f.err = true;
-                f.errno = LuaAux.errnoOf(e);
+            } else {
+                f.raf = new RandomAccessFile(path, "rw");
+                f.raf.setLength(0);
+                f.readable = true;
+                f.writable = true;
             }
+        } catch (IOException e) {
+            f.err = true;
+            f.errno = LuaAux.errnoOf(e);
         }
         if (f.err) {
             LuaAux.fileResult(L, false, null, f.errno);
@@ -1395,8 +1435,15 @@ public final class IoLib {
             count++;
             c = f.getc();
         }
-        if (c == '.') { // locale 的小数点这里只认 '.'，与 C 的默认一致
-            b.append('.');
+        /*
+         * C 那边是 {@code char decp[2] = {lua_getlocaledecpoint(), '.'}}，
+         * 也就是<b>locale 的小数点和 '.' 两个都收</b>（{@code os.setlocale("pt_BR")}
+         * 之后 {@code "1,5 2.5"} 读得出两个数）。收进来的是原本那个字符，
+         * 判格式与取值都交给 {@code lua_stringtonumber}（{@link Numeral#str2num}）。
+         */
+        char dp = Numeral.decpoint();
+        if (c == '.' || c == dp) {
+            b.append((char) c);
             c = f.getc();
             while (c >= 0 && (hex ? isXdigit(c) : isDigit(c)) && b.length() <= L_MAXLENNUM) {
                 b.append((char) c);
@@ -1556,8 +1603,13 @@ public final class IoLib {
                  * 浮点按 LUA_NUMBER_FMT（%.14g）写，<b>不补 .0</b>——
                  * 那是 luaO_tostring 才做的事。实测 io.write(-0.0) 出 "-0"，
                  * 而 print(-0.0) 出 "-0.0"。
+                 * <p>
+                 * C 这里是 {@code fprintf(f, LUA_NUMBER_FMT, n)}，走 locale 的
+                 * 小数点；{@code %.14g} 在我们这边恒为 '.'，所以补一次换算
+                 * （{@code os.setlocale("pt_BR")} 后 io.write(3.5) 出 "3,5"）。
                  */
-                String s = v.isInteger() ? Long.toString(v.i) : Vm.formatG(v.n, 14);
+                String s = v.isInteger() ? Long.toString(v.i)
+                        : Numeral.toLocaleRadix(Vm.formatG(v.n, 14));
                 b = s.getBytes(StandardCharsets.US_ASCII);
             } else {
                 LuaString s = LuaAux.checkString(L, arg);
