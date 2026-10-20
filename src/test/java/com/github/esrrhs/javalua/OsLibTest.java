@@ -348,7 +348,7 @@ class OsLibTest {
             .. d(r[2]) .. " " .. type(r[3]) .. " " .. type(r[4])
         end
 
-        local D = "/tmp/fkerm"
+        local D = "$RT/fkerm"
         os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
         local function put(p, body)
           local f = assert(io.open(p, "w")); f:write(body or "x"); f:close()

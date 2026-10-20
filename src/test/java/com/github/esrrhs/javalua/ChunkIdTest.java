@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
  * {@code lobject.c: luaO_chunkid}。
  * <p>
  * 单独开一类是因为它有一个<b>只在长名字上才出现</b>的坑，而差分用例全跑在
- * {@code target/rt/case.lua} 这个短路径上，永远碰不到。它是接上游测试套件时
+ * {@code $RT/case.lua}（每个 JVM 一份，见 {@link Diff#SCRATCH}）这个短路径上，永远碰不到。它是接上游测试套件时
  * 第一个炸出来的东西：用例目录的绝对路径一长，{@code error} 拼消息前缀
  * 就越界一字节。
  * <p>

@@ -73,7 +73,7 @@ class BinarySafetyTest {
     @BeforeAll
     static void prepare() {
         // 片二/片三会往这里写临时文件（约定 #41：开头先删一次）
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /** 片一：string 核心函数 x 字节样本（12000+ 行）。 */
@@ -531,7 +531,7 @@ P("N dumpname", function()
 end)
 
 print("=== O io 字节往返 ===")
-local TMP = "target/rt/b.bin"
+local TMP = "$RT/b.bin"
 os.remove(TMP)
 P("O write", function()
   local f = assert(io.open(TMP, "wb"))
@@ -742,22 +742,22 @@ P("S objerr mt", function()
 end)
 
 print("=== T require / loadfile 的 chunk 名 ===")
-os.remove("target/rt/m1.lua")
-local w = io.open("target/rt/m1.lua", "wb")
+os.remove("$RT/m1.lua")
+local w = io.open("$RT/m1.lua", "wb")
 w:write("return {}" .. string.char(10))
 w:close()
 P("T require", function()
-  package.path = "target/rt/?.lua"
+  package.path = "$RT/?.lua"
   local m = require("m1")
   return type(m)
 end)
 P("T require2", function()
-  package.path = "target/rt/?.lua"
+  package.path = "$RT/?.lua"
   package.loaded["m1"] = nil
   local m, extra = require("m1")
   return type(m), extra
 end)
-os.remove("target/rt/m1.lua")
+os.remove("$RT/m1.lua")
 
 print("=== U 协程第二遍：整片重跑 ===")
 local function body()
@@ -1051,20 +1051,20 @@ print("=== X require 的模块名 ===")
 for i = 1, #NAMES do
   local nm = NAMES[i]
   P("X req " .. esc(nm), function()
-    package.path = "target/rt/?.lua"
+    package.path = "$RT/?.lua"
     return require(nm)
   end)
   P("X searchpath " .. esc(nm), function()
-    return package.searchpath(nm, "target/rt/?.lua")
+    return package.searchpath(nm, "$RT/?.lua")
   end)
   P("X searchpath2 " .. esc(nm), function()
     return package.searchpath("m", nm)
   end)
   P("X searchpath3 " .. esc(nm), function()
-    return package.searchpath("m", "target/rt/?.lua", nm)
+    return package.searchpath("m", "$RT/?.lua", nm)
   end)
   P("X searchpath4 " .. esc(nm), function()
-    return package.searchpath("m", "target/rt/?.lua", ".", nm)
+    return package.searchpath("m", "$RT/?.lua", ".", nm)
   end)
   P("X searchers " .. esc(nm), function()
     return package.searchers[1](nm)
@@ -1166,16 +1166,16 @@ P("AB nulname", function()
 end)
 
 print("=== AC loadfile 的 mode：原样拼进错误消息 ===")
--- 约定 #41：自己建临时文件，别读 target/rt/case.lua（那个文件的内容随测试而异）
-os.remove("target/rt/ac.lua")
-local w = assert(io.open("target/rt/ac.lua", "wb"))
+-- 约定 #41：自己建临时文件，别读 $RT/case.lua（那个文件的内容随测试而异）
+os.remove("$RT/ac.lua")
+local w = assert(io.open("$RT/ac.lua", "wb"))
 w:write("return 1\n")
 w:close()
 
 for i = 1, #NAMES do
   local md = NAMES[i]
-  P("AC loadfile " .. esc(md), function() return loadfile("target/rt/ac.lua", md) end)
-  P("AC loadfile2 " .. esc(md), function() return loadfile("target/rt/nope.lua", md) end)
+  P("AC loadfile " .. esc(md), function() return loadfile("$RT/ac.lua", md) end)
+  P("AC loadfile2 " .. esc(md), function() return loadfile("$RT/nope.lua", md) end)
   P("AC load " .. esc(md), function() return load("return 1", "=x", md) end)
 end
         """);

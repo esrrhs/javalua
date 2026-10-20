@@ -9,35 +9,33 @@ import org.junit.jupiter.api.TestFactory;
 /**
  * {@code load} / {@code loadfile} / {@code dofile} 的差分用例 —— 阶段 8。
  * <p>
- * 与前面几个库不同，这里<b>还没做完</b>：二进制 chunk 需要 {@code luaU_undump}
- * 与 {@code luaU_dump}（{@code lundump.c} / {@code ldump.c}），这一轮只把
- * 「文本那条路」接上，二进制那条路挡下来并<b>照 C 的 {@code checkmode} 先判
- * 模式</b>。所以：
- * <ul>
- *   <li><b>不比对</b> {@code string.dump}（还没实现）与任何以
- *       {@code \x1bLua} 开头的输入；</li>
- *   <li>模式校验、chunk 名、{@code _ENV} 参数、读函数这几条都逐字节比。</li>
- * </ul>
- * <p>
- * 盯住的几处：
+ * 这一批盯的是<b>入口</b>那一层，不是编译器：
  * <ul>
  *   <li><b>{@code load} 失败给两个值</b>：{@code nil, 消息}，不抛错；
  *       而 {@code dofile} 失败是<b>抛</b>错；</li>
  *   <li><b>chunk 名</b>：{@code load(s)} 默认拿 {@code s} 自己当名字，
  *       {@code loadfile} 的是 {@code "@" + 路径}，两者打印时都会被
- *       {@code luaO_chunkid} 剥掉前缀；</li>
+ *       {@code luaO_chunkid} 剥掉前缀；{@code "=x"} 才是「名字原样用」；</li>
  *   <li><b>{@code load(s, name, mode, env)}</b> 的第四参数替换主 chunk 的
  *       {@code _ENV}（也就是它的第一个 upvalue）；</li>
  *   <li><b>读函数</b>返回 nil 表示结束，返回非字符串非数字要报
- *       {@code reader function must return a string}。</li>
+ *       {@code reader function must return a string}；</li>
+ *   <li><b>模式先判</b>：{@code checkmode} 在读内容<b>之前</b>就跑，
+ *       所以 {@code load("\27Lua", nil, "t")} 报的是模式错而不是
+ *       {@code precompiled part of a file}；消息处理函数的生效位置
+ *       （抛出点，不是 {@code pcall} 边界）也跟着变。</li>
  * </ul>
+ * <p>
+ * 二进制那条路（{@code luaU_dump} / {@code luaU_undump}）不在这里测：产物逐字节
+ * 比在 {@code DumpTest}，畸形字节码的健壮性在 {@code BinarySafetyTest}，
+ * {@code load}/{@code string.dump} 往返在 {@code BinaryChunkTest}。
  */
 class LoadTest {
 
     @TestFactory
     List<DynamicTest> loadScriptsMatchReference() {
         List<DynamicTest> tests = new ArrayList<>();
-                                                                                        add(tests, "load", LOAD);
+        add(tests, "load", LOAD);
         add(tests, "env", ENV);
         add(tests, "reader", READER);
         add(tests, "file", FILE);
@@ -191,7 +189,7 @@ class LoadTest {
 
     private static final String[] FILE = {
             """
-            local p = "/tmp/fkld_f1.lua"
+            local p = "$RT/fkld_f1.lua"
             local f = io.open(p, "w")
             f:write("return 7\\n")
             f:close()
@@ -202,7 +200,7 @@ class LoadTest {
 
             """
             -- 每个 chunk 有自己的 _ENV 上值，改全局互相可见
-            local p = "/tmp/fkld_f2.lua"
+            local p = "$RT/fkld_f2.lua"
             local f = io.open(p, "w")
             f:write("SHARED = SHARED and SHARED + 1 or 1\\nreturn SHARED\\n")
             f:close()
@@ -221,7 +219,7 @@ class LoadTest {
 
             """
             -- dofile 返回被调 chunk 的全部返回值
-            local p = "/tmp/fkld_f4.lua"
+            local p = "$RT/fkld_f4.lua"
             local f = io.open(p, "w")
             f:write("return 1, 2, 3\\n")
             f:close()
@@ -232,7 +230,7 @@ class LoadTest {
 
             """
             -- 文件里的错误带的是文件自己的位置
-            local p = "/tmp/fkld_f5.lua"
+            local p = "$RT/fkld_f5.lua"
             local f = io.open(p, "w")
             f:write("local a = 1\\nerror('in file')\\n")
             f:close()
@@ -244,12 +242,12 @@ class LoadTest {
 
             """
             -- '#' 开头的首行会被跳过（Unix 脚本）；行号靠补一个 \\n 保住
-            local p = "/tmp/fkld_f6.lua"
+            local p = "$RT/fkld_f6.lua"
             local f = io.open(p, "w")
             f:write("#!/usr/bin/lua\\nreturn 5\\n")
             f:close()
             print(dofile(p))
-            local p2 = "/tmp/fkld_f7.lua"
+            local p2 = "$RT/fkld_f7.lua"
             f = io.open(p2, "w")
             f:write("#!/usr/bin/lua\\nerror('here')\\n")
             f:close()
@@ -260,7 +258,7 @@ class LoadTest {
 
             """
             -- loadfile 的 mode 参数
-            local p = "/tmp/fkld_f8.lua"
+            local p = "$RT/fkld_f8.lua"
             local f = io.open(p, "w")
             f:write("return 1\\n")
             f:close()
@@ -310,15 +308,15 @@ class LoadTest {
             X("syntax", function() return load("x++") end)
             X("syntax2", function() return load(function() return "x++" end) end)
             X("mode", function() return load("return 1", "=x", "q") end)
-            X("mode2", function() return loadfile("target/rt/case.lua", "q") end)
-            X("cannotopen", function() return loadfile("target/rt/nope.lua") end)
+            X("mode2", function() return loadfile("$RT/case.lua", "q") end)
+            X("cannotopen", function() return loadfile("$RT/nope.lua") end)
             -- 走 luaG_errormsg：带 H
             X("readererr", function() return load(function() error("boom") end) end)
             X("readerbad", function() return load(function() return true end) end)
             X("readerlvl0", function() return load(function() error("b", 0) end) end)
             X("readernonstr", function() return load(function() error({ "t" }) end) end)
             -- dofile 的打不开要走 lua_error，所以带 H
-            X("dofile", function() return dofile("target/rt/nope.lua") end)
+            X("dofile", function() return dofile("$RT/nope.lua") end)
             -- 协程不继承 errfunc：新线程那份是 0
             X("co", function()
               local co = coroutine.create(function()

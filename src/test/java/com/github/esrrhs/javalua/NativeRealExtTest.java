@@ -199,7 +199,7 @@ final class NativeRealExtTest {
                 {"装进来",
                     "print(type(n), type(n.attributes), type(n.dir))"},
                 {"建目录 / 取属性",
-                    "local d = 'target/rt/lfsd'",
+                    "local d = '$RT/lfsd'",
                     "os.remove(d .. '/t.txt')",
                     "n.rmdir(d)",
                     "print(n.mkdir(d))",
@@ -208,18 +208,18 @@ final class NativeRealExtTest {
                     "f:write('abc') f:close()",
                     "print(n.attributes(d .. '/t.txt').size)"},
                 {"目录迭代",
-                    "local d = 'target/rt/lfsd'",
+                    "local d = '$RT/lfsd'",
                     "local names = {}",
                     "for x in n.dir(d) do names[#names + 1] = x end",
                     "table.sort(names)",
                     "print(table.concat(names, ','))"},
                 {"errno 走 luaL_argerror",
-                    "print(n.attributes('target/rt/lfsd/nope'))",
-                    "print(n.attributes('target/rt/lfsd/t.txt/nope'))"},
+                    "print(n.attributes('$RT/lfsd/nope'))",
+                    "print(n.attributes('$RT/lfsd/t.txt/nope'))"},
                 {"错误路径",
                     "print(pcall(n.attributes))",
                     "print(pcall(n.attributes, 1))",
-                    "print(pcall(n.dir, 'target/rt/lfsd/nope'))",
+                    "print(pcall(n.dir, '$RT/lfsd/nope'))",
                     "print(type(n.currentdir()))"},
             }),
         /*
@@ -494,7 +494,7 @@ final class NativeRealExtTest {
         }
         try {
             File root = new File(dir);
-            File out = new File("target/rt/" + e.out);
+            File out = new File(Diff.SCRATCH, e.out);
             List<String> cmd = new ArrayList<>(Arrays.asList(
                     cc, "-shared", "-fPIC", "-undefined", "dynamic_lookup",
                     "-I", "native/lua", "-o", out.getPath()));
@@ -517,10 +517,9 @@ final class NativeRealExtTest {
             String log = new String(p.getInputStream().readAllBytes(),
                     StandardCharsets.UTF_8);
             if (p.waitFor() != 0 || !out.isFile()) {
-                Files.write(new File("target/rt/" + e.mod + "_build.log").toPath(),
+                Files.write(new File(Diff.SCRATCH, e.mod + "_build.log").toPath(),
                         log.getBytes(StandardCharsets.UTF_8));
-                skipReason += "编译 " + e.mod + " 失败，见 target/rt/"
-                        + e.mod + "_build.log；";
+                skipReason += "编译 " + e.mod + " 失败，见 " + Diff.SCRATCH + "/" + e.mod + "_build.log；";
                 return null;
             }
             e.path = out.getAbsolutePath();

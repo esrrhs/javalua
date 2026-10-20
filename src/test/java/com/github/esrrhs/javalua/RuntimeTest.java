@@ -30,7 +30,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * 逐字节比对 stdout；出错时比对第一行错误信息（回溯依赖调试信息的层数，
  * 且程序名前缀是二进制路径，两边必然不同）。
  * <p>
- * 脚本路径固定为 {@code target/rt/case.lua}：参考实现的 {@code luaO_chunkid}
+ * 脚本路径是 {@code $RT/case.lua}（每个 JVM 一份，见 {@link Diff#SCRATCH}）：参考实现的 {@code luaO_chunkid}
  * 会把过长的源名从左边截成 {@code ...xxx}，用随机临时文件名就没法比对了。
  */
 class RuntimeTest {
@@ -4795,9 +4795,9 @@ class RuntimeTest {
                   end
                   return v
                 end
-                -- 临时模块一律写到 target/rt 下：两边的工作目录都是仓库根，直接写根目录
+                -- 临时模块一律写到 $RT 下：两边的工作目录都是仓库根，直接写根目录
                 -- 会在用例失败时留下一堆 _pk_*.lua。
-                local D = "target/rt/"
+                local D = "$RT/"
                 local function rm(p)
                   return os.remove(D .. p)
                 end
@@ -4847,22 +4847,22 @@ class RuntimeTest {
                 pr("B7", package.searchpath("", "./?.lua"))
                 do
                   local ok = mkfile("_pk_sp.lua", "return 1\\n")
-                  pr("B8", ok, package.searchpath("_pk_sp", "./target/rt/?.lua"))
-                  pr("B9", package.searchpath("_pk_sp", "./target/rt/?.lua;./target/rt/?.xyz"))
+                  pr("B8", ok, package.searchpath("_pk_sp", "./$RT/?.lua"))
+                  pr("B9", package.searchpath("_pk_sp", "./$RT/?.lua;./$RT/?.xyz"))
                   rm("_pk_sp.lua")
-                  pr("B10", package.searchpath("_pk_sp", "./target/rt/?.lua"))
+                  pr("B10", package.searchpath("_pk_sp", "./$RT/?.lua"))
                 end
                 do
                   -- sep / rep：把名字里的点换成目录分隔符
                   local ok = mkfile("_pk_sp2.lua", "return 2\\n")
-                  pr("B11", ok, package.searchpath("a.b", "./target/rt/?.lua", ".", "_"))
-                  pr("B12", package.searchpath("_pk.sp2", "./target/rt/?.lua", ".", "_"))
+                  pr("B11", ok, package.searchpath("a.b", "./$RT/?.lua", ".", "_"))
+                  pr("B12", package.searchpath("_pk.sp2", "./$RT/?.lua", ".", "_"))
                   rm("_pk_sp2.lua")
                 end
 
                 -- 3) require：从磁盘加载 + 返回值的各种形态
                 local OLDPATH = package.path
-                package.path = "./target/rt/?.lua"
+                package.path = "./$RT/?.lua"
                 local function withModule(name, body, fn)
                   rm(name .. ".lua")
                   mkfile(name .. ".lua", body)
@@ -5061,7 +5061,7 @@ class RuntimeTest {
                 pr("I3", pc(dofile, 5))
                 rm("_pk_df.lua")
                 mkfile("_pk_df.lua", "return 11\\n")
-                pr("I4", pc(dofile, "./target/rt/_pk_df.lua"))
+                pr("I4", pc(dofile, "./$RT/_pk_df.lua"))
                 rm("_pk_df.lua")
                 pr("I5", loadstring == nil)
                 pr("I6", loadstring == nil and "gone" or "present")
@@ -5105,8 +5105,8 @@ class RuntimeTest {
     void ioLibraryDeepMatrixMatchesReference() {
         Diff.assertMatches("""
                 -- io 库矩阵。
-                -- 临时文件一律放 target/rt/（两边 cwd 都是仓库根，写根目录会留垃圾）。
-                local D = "target/rt/"
+                -- 临时文件一律放 $RT/（两边 cwd 都是仓库根，写根目录会留垃圾）。
+                local D = "$RT/"
                 local function P(n)
                   return D .. n
                 end
@@ -5488,7 +5488,7 @@ class RuntimeTest {
                 -- os.time 的各种表形态与越界、difftime、getenv、remove/rename、tmpname、
                 -- execute、setlocale，以及 os.date 的参数校验。
                 -- 时区：两边同一台机器、同一份环境，所以本地时间的绝对数值是可比的。
-                local D = "target/rt/"
+                local D = "$RT/"
                 local function pr(...)
                   print(...)
                 end
@@ -6215,12 +6215,12 @@ class RuntimeTest {
                   pr("E7", pc(debug.setmetatable, t, 5))
                 end
                 do
-                  local f = io.open("target/rt/_dbg_uv", "w")
+                  local f = io.open("$RT/_dbg_uv", "w")
                   f:write("x")
                   pr("E8", s(f), tostring(debug.getuservalue(f)))
                   pr("E9", debug.setuservalue(f, 42), tostring(debug.getuservalue(f)))
                   f:close()
-                  os.remove("target/rt/_dbg_uv")
+                  os.remove("$RT/_dbg_uv")
                   pr("E10", pc(debug.getuservalue, 5))
                   pr("E11", pc(debug.setuservalue, 5, 1))
                 end
@@ -7441,7 +7441,7 @@ class RuntimeTest {
                 n("unpack_f", string.unpack, "n", string.pack("n", 1.5))
                 n("packsize", string.packsize, "i4")
                 -- io
-                local p = "/tmp/it_tmp.txt"
+                local p = "$RT/it_tmp.txt"
                 os.remove(p)
                 local w = io.open(p, "w"); w:write("abcd"); w:close()
                 local f = io.open(p)
@@ -7860,12 +7860,12 @@ class RuntimeTest {
                 probe("o.setlocale", function() return type(os.setlocale()) end)
                 probe("o.setlocale_c", function() return type(os.setlocale("C")) end)
                 probe("o.remove", function()
-                  local p = "/tmp/fkok_rm.txt"
+                  local p = "$RT/fkok_rm.txt"
                   local f = io.open(p, "w"); f:write("x"); f:close()
                   return os.remove(p), io.open(p) == nil or "still"
                 end)
                 probe("o.rename", function()
-                  local a, b = "/tmp/fkok_a.txt", "/tmp/fkok_b.txt"
+                  local a, b = "$RT/fkok_a.txt", "$RT/fkok_b.txt"
                   os.remove(a); os.remove(b)
                   local f = io.open(a, "w"); f:write("y"); f:close()
                   os.rename(a, b)
@@ -7875,7 +7875,7 @@ class RuntimeTest {
                   os.remove(a); os.remove(b)
                   return r
                 end)
-                probe("o.remove_missing", os.remove, "/tmp/fkok_no_such_file_xyz")
+                probe("o.remove_missing", os.remove, "$RT/fkok_no_such_file_xyz")
 
                 -- coroutine
                 probe("c.create", function() return type(coroutine.create(function() end)) end)
@@ -7952,10 +7952,10 @@ class RuntimeTest {
                 end
                 local function say(s) out[#out + 1] = s end
 
-                local P = "/tmp/fkok3.txt"
+                local P = "$RT/fkok3.txt"
 
                 -- io
-                probe("i.open_r_missing", io.open, "/tmp/fkok_no_such_xyz", "r")
+                probe("i.open_r_missing", io.open, "$RT/fkok_no_such_xyz", "r")
                 probe("i.open_badmode", io.open, P, "q")
                 probe("i.write_read", function()
                   local f = assert(io.open(P, "w"))
@@ -8203,7 +8203,7 @@ class RuntimeTest {
                   out[#out + 1] = s
                 end
 
-                local D = "/tmp/fkdir"
+                local D = "$RT/fkdir"
                 os.execute("rm -rf " .. D .. " && mkdir -p " .. D .. "/adir.lua " .. D .. "/adir")
                 local DIR = D .. "/adir.lua"
 

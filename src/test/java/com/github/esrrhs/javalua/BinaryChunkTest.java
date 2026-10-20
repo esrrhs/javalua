@@ -40,7 +40,7 @@ import org.junit.jupiter.api.TestFactory;
 class BinaryChunkTest {
 
     /** 固定路径：{@code luaO_chunkid} 会把超过 {@code LUA_IDSIZE} 的源名截断 */
-    private static final File DIR = new File("target/rt/chunk");
+    private static final File DIR = new File(Diff.SCRATCH, "chunk");
 
     @BeforeAll
     static void needReference() {
@@ -356,18 +356,18 @@ class BinaryChunkTest {
              * 原先不看签名，报 unexpected symbol near '<\27>'。
              */
             """
-            local p = "target/rt/chunk/m1.lua"
+            local p = "$RT/chunk/m1.lua"
             local f = io.open(p, "wb")
             f:write(string.dump(function() return 1, 2, "three" end))
             f:close()
-            package.path = "target/rt/chunk/?.lua;" .. package.path
+            package.path = "$RT/chunk/?.lua;" .. package.path
             print(require("m1"))
             print(require("m1"))
             print(package.loaded.m1)
             """,
 
             """
-            local p = "target/rt/chunk/m2.lua"
+            local p = "$RT/chunk/m2.lua"
             local f = io.open(p, "wb")
             f:write(string.dump(function(a, b) return a * b end))
             f:close()

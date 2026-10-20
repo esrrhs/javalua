@@ -73,7 +73,7 @@ class LimitGridTest {
 
     @BeforeAll
     static void prepare() {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /**
@@ -325,12 +325,12 @@ go2("packsize.bad", function() return string.packsize("!") end)
 go2("packsize.none", function() return string.packsize() end)
 
 -- ⑦ io 的非法格式与模式（只撞开不成功的那几档，不落真实文件）
-go2("open.mode", function() return io.open("target/rt/nope.txt", "q") end)
-go2("open.mode2", function() return io.open("target/rt/nope.txt", "rw+") end)
-go2("open.mode3", function() return io.open("target/rt/nope.txt", "") end)
-go2("open.mode4", function() return io.open("target/rt/nope.txt", "rb+") end)
-go2("open.mode5", function() return io.open("target/rt/nope.txt", 1) end)
-local tmp = "target/rt/lim_in.txt"
+go2("open.mode", function() return io.open("$RT/nope.txt", "q") end)
+go2("open.mode2", function() return io.open("$RT/nope.txt", "rw+") end)
+go2("open.mode3", function() return io.open("$RT/nope.txt", "") end)
+go2("open.mode4", function() return io.open("$RT/nope.txt", "rb+") end)
+go2("open.mode5", function() return io.open("$RT/nope.txt", 1) end)
+local tmp = "$RT/lim_in.txt"
 os.remove(tmp)
 local w = assert(io.open(tmp, "w"))
 w:write("1 2\\nthree\\n")
@@ -420,7 +420,7 @@ go2("mem.wraptbcerr", function()
     end)()
 end)
 -- 真去撞一次内存错误：f:read(-1)（C 里是 resizebox 失败）
-local tmp2 = "target/rt/lim_in2.txt"
+local tmp2 = "$RT/lim_in2.txt"
 os.remove(tmp2)
 local w2 = assert(io.open(tmp2, "w"))
 w2:write("abc")

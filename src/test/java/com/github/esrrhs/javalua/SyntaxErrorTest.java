@@ -602,9 +602,9 @@ local function go(tag, f, ...)
     print(table.concat(out, " "))
 end
 
--- 临时文件写 target/rt/：两边同一个 cwd，写仓库根会互相踩（第 41 条）。
+-- 临时文件写 $RT/：两边同一个 cwd，写仓库根会互相踩（第 41 条）。
 -- 开头先删一次，免得上一次跑留下的东西混进来。
-local DIR = "target/rt/pre"
+local DIR = "$RT/pre"
 -- 开头先删一次（第 41 条），但<b>不用 {@code rm -rf}</b>：
 -- 一是宿主沙箱对「一次删一整个目录」有批量确认守卫，被拦下时它会往
 -- <b>stdout</b> 打一行 JSON，正好混进我们要比的输出里（实测过一次，
@@ -682,7 +682,7 @@ print("HASH3", loadrun("hash3.lc"))
 print("DIR", loadrun("."))
 
 -- 13) loadfile 不存在的文件
-print("MISSING", loadrun("target/rt/pre/does-not-exist-xyz.lc"))
+print("MISSING", loadrun("$RT/pre/does-not-exist-xyz.lc"))
 
 --[[
   14) load(字符串) 里的 BOM 不该被吃掉——只有文件加载才跳前导。

@@ -11,13 +11,15 @@ import org.junit.jupiter.api.TestFactory;
  * package 库的差分用例 —— 阶段 7。
  * <p>
  * 只比「纯 Lua 那条路」：{@code preload} 搜索器与 {@code Lua} 搜索器的行为
- * 可以与参考实现逐字节一致，C 搜索器不能——参考二进制是用 {@code dlopen} 编
- * 出来的，本实现没有动态库。所以：
+ * 可以与参考实现逐字节一致，C 搜索器不能——它的失败文本是 {@code dlerror()}
+ * 的原文，随平台与 loader 变；shim 装不上那一路更是直接停在
+ * 「dynamic libraries not enabled」。所以：
  * <ul>
- *   <li><b>不比对 {@code package.loadlib}</b> 的返回值（消息是
- *       {@code dlerror()} 的文本，平台相关）；</li>
- *   <li><b>不比对「能找到 {@code .so}」的 {@code require}</b>——测试里根本
- *       不建 {@code .so} 文件，C 搜索器一律停在「找不到文件」，两边一致；</li>
+ *   <li><b>不比对 {@code package.loadlib}</b> 的失败消息文本（形状比，内容
+ *       归一成 {@code <NODL>}）；</li>
+ *   <li><b>不比对「能加载成功的 C 模块」</b>——{@code D} 下那些 {@code .so}
+ *       是文本文件冒充的，不是真的 mach-o/ELF，两边都停在「打不开」，只差在
+ *       打不开的那句话怎么说；</li>
  *   <li>{@code package.path} / {@code cpath} 的<b>数值</b>不比：那是编译期
  *       常量，本实现照抄了默认值，但 {@code LUA_PATH} 环境变量会改它。用例里
  *       都先显式设成临时目录再 require。</li>
@@ -99,12 +101,12 @@ class PackageLibTest {
     private static final String[] SEARCHPATH = {
             """
             -- 找到就返回文件名
-            local p = "/tmp/fkpk_sp1.lua"
+            local p = "$RT/fkpk_sp1.lua"
             local f = io.open(p, "w")
             f:write("return {}\\n")
             f:close()
-            print(package.searchpath("fkpk_sp1", "/tmp/?.lua"))
-            print(package.searchpath("fkpk_sp1", "/tmp/?.lua;/tmp/?/init.lua"))
+            print(package.searchpath("fkpk_sp1", "$RT/?.lua"))
+            print(package.searchpath("fkpk_sp1", "$RT/?.lua;$RT/?/init.lua"))
             os.remove(p)
             """,
 
@@ -180,11 +182,11 @@ class PackageLibTest {
     private static final String[] LUAMOD = {
             """
             -- 从文件加载；require 的第二个返回值是文件名
-            local p = "/tmp/fkpk_l1.lua"
+            local p = "$RT/fkpk_l1.lua"
             local f = io.open(p, "w")
             f:write("local M = {v = 42}\\nreturn M\\n")
             f:close()
-            package.path = "/tmp/?.lua"
+            package.path = "$RT/?.lua"
             local m, ld = require("fkpk_l1")
             print(m.v, ld)
             print(package.loaded["fkpk_l1"] == m)
@@ -193,11 +195,11 @@ class PackageLibTest {
 
             """
             -- 子模块：a.b 会去找 a/b.lua
-            local p = "/tmp/fkpk_l2.lua"
+            local p = "$RT/fkpk_l2.lua"
             local f = io.open(p, "w")
             f:write("return {deep = true}\\n")
             f:close()
-            package.path = "/tmp/?.lua"
+            package.path = "$RT/?.lua"
             local m = require("fkpk_l2")
             print(m.deep)
             os.remove(p)
@@ -205,22 +207,22 @@ class PackageLibTest {
 
             """
             -- 模块里的错误带的是文件的 chunk 名（@ + 路径），不是调用点
-            local p = "/tmp/fkpk_l3.lua"
+            local p = "$RT/fkpk_l3.lua"
             local f = io.open(p, "w")
             f:write("error('boom')\\n")
             f:close()
-            package.path = "/tmp/?.lua"
+            package.path = "$RT/?.lua"
             print(pcall(require, "fkpk_l3"))
             os.remove(p)
             """,
 
             """
             -- 模块有语法错误：searcher_Lua 报 error loading module
-            local p = "/tmp/fkpk_l4.lua"
+            local p = "$RT/fkpk_l4.lua"
             local f = io.open(p, "w")
             f:write("this is not lua\\n")
             f:close()
-            package.path = "/tmp/?.lua"
+            package.path = "$RT/?.lua"
             print(pcall(require, "fkpk_l4"))
             os.remove(p)
             """,
@@ -313,8 +315,10 @@ class PackageLibTest {
      * 敏感性量过：把 {@code searchpath} 的默认 {@code sep} 从 {@code "."} 改成
      * {@code "-"}，立刻红在 {@code sp_dots}。
      * <p>
-     * 库目录用 {@code /tmp/fkreq} 并在开头 {@code rm -rf} 重建：两边跑在同一台
-     * 机器上，绝对路径对双方都可见，也不依赖 cwd。
+     * 库目录用 {@code $RT/fkreq}（{@link Diff} 把它换成按当前 JVM 进程号分开的
+     * 暂存目录）并在开头 {@code rm -rf} 重建：两边跑在同一台机器上，同一条路径
+     * 对双方都可见，也不依赖 cwd；而每个 JVM 各占一个目录，并发跑测试才不至于
+     * 互相把对方的模块目录删掉。
      */
     private static final String[] DEEP = {"""
         -- require / package.searchpath 深矩阵：真在磁盘上造模块，走完整条搜索器链
@@ -336,7 +340,7 @@ class PackageLibTest {
         end
         local function say(s) out[#out + 1] = s end
 
-        local D = "/tmp/fkreq"
+        local D = "$RT/fkreq"
         local R = D .. "/repo"
         os.execute("rm -rf " .. D .. " && mkdir -p " .. R .. "/sub")
         local function put(path, body)
@@ -468,19 +472,21 @@ class PackageLibTest {
     /**
      * C 搜索器那条路（23 行）—— 也是照着未覆盖行点名打的。
      * <p>
-     * 本实现没有 {@code dlopen}，{@code loadfunc} 一律失败，但<b>「失败成什么样」
-     * 是有形状的</b>：{@code searcher_C} 找到文件 → {@code loadfunc} 失败 →
+     * shim 装不上时 {@code loadfunc} 一律失败，装得上时也是失败——只是失败在
+     * {@code dlopen} 而不是「没有动态库」；<b>「失败成什么样」是有形状的</b>：
+     * {@code searcher_C} 找到文件 → {@code loadfunc} 失败 →
      * {@code checkLoad} 装裱出 {@code error loading module 'X' from file 'Y'}；
      * {@code searcher_Croot} 还会先把模块名切成根名（{@code a.b} → {@code a}）；
-     * {@code package.loadlib} 的三元组第三个值是 {@code "open"}（不是
-     * {@code "absent"} —— 那是 {@code ERRLIB} 才给的）。
+     * {@code package.loadlib} 的三元组第三个值停在 {@code ERRLIB} 上是
+     * {@code "open"}，不是兜底分支那个 {@code "absent"}。
      * 这些分支<b>从来没人走过</b>，因为默认 {@code cpath} 下永远找不到真文件；
      * 把 {@code package.cpath} 指到一个真存在的文件上就走到了。
      * <p>
-     * 一处不比：<b>{@code dlopen} 的失败文本是平台自己的</b>（macOS 是
+     * 一处不比：<b>打不开的那句话是平台与 loader 自己的</b>（macOS 是
      * {@code dlopen(...): tried: '...' (slice is not valid mach-o file)}，
-     * 本实现给 {@code dynamic libraries not enabled; check your Lua installation}）。
-     * 两边是同一件事、只是措辞不同，归一成 {@code <NODL>} 再比，其余照比。
+     * glibc 是 {@code cannot open shared object file}，shim 装不上时是本实现的
+     * {@code dynamic libraries not enabled; check your Lua installation}）。
+     * 说的是同一件事、只是措辞不同，归一成 {@code <NODL>} 再比，其余照比。
      * <p>
      * 顺带这一片还咬出了「目录当文件用」那处 bug（{@code m_dir}）：
      * {@code require} 一个名字撞上目录的模块时，参考报
@@ -489,8 +495,8 @@ class PackageLibTest {
      * {@code RuntimeTest#directoryAsFileMatchesReference}。
      */
     private static final String[] CFALLBACK = {"""
-        -- 照着 PackageLib 未覆盖行点名打：C 搜索器那条路（本实现没有 dlopen，
-        -- 一律失败，但「失败成什么样」是有形状的）、loadlib、searchpath 的模板边界
+        -- 照着 PackageLib 未覆盖行点名打：C 搜索器那条路（两边都停在打不开，
+        -- 但「失败成什么样」是有形状的）、loadlib、searchpath 的模板边界
         local out = {}
         local function d(v)
           local t = type(v)
@@ -500,12 +506,12 @@ class PackageLibTest {
           if t == "string" then return string.format("q(%d)[%s]", #v, (v:gsub("\\n", "\\\\n"))) end
           return t
         end
-        -- C 搜索器 / loadlib 的失败文本是平台自己的：macOS 是
+        -- C 搜索器 / loadlib 的失败文本是平台与 loader 自己的：macOS 是
         -- "dlopen(...): tried: '...' (slice is not valid mach-o file)"，glibc 是
         -- "...: cannot open shared object file" / "...: file too short" /
-        -- "undefined symbol: ..."，本实现没有 dlopen，给
+        -- "undefined symbol: ..."，shim 装不上时给
         -- "dynamic libraries not enabled..."，而 require 那层会把它们再包成
-        -- "error loading module 'x' from file 'y': ..."。两边都是「没有动态库」
+        -- "error loading module 'x' from file 'y': ..."。说的都是「这个库打不开」
         -- 这一件事，只是措辞不同 —— 归一成 <NODL> 再比，其余部分照比。
         local NODL_PATS = { "dlopen", "dynamic libraries not enabled",
                             "cannot open shared object", "file too short",
@@ -528,7 +534,7 @@ class PackageLibTest {
           out[#out + 1] = s
         end
 
-        local D = "/tmp/fkreq2"
+        local D = "$RT/fkreq2"
         os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
         local function put(p, body)
           local f = assert(io.open(p, "w")); f:write(body or "x"); f:close()
@@ -579,7 +585,7 @@ class PackageLibTest {
           return "n=" .. r.n
         end)
 
-        -- 2. package.loadlib：永远失败，但三元组有形状（第三个是 "absent"）
+        -- 2. package.loadlib：停在「打不开」，但三元组有形状（第三个是 "open"）
         probe("ll_basic", package.loadlib, "/tmp/nope.so", "luaopen_x")
         probe("ll_exists", package.loadlib, D .. "/basic.so", "luaopen_basic")
         probe("ll_noargs", package.loadlib)
@@ -590,9 +596,10 @@ class PackageLibTest {
         -- ERRLIB 上时给 LIB_FAIL（POSIX 有 dlopen 是 "open"，没有的是
         -- "absent"），落在 ERRFUNC 上时给 "init"。而<b>空路径</b>是分水岭：
         -- glibc 的 dlopen("") 是「打开主程序」—— 它<b>成功</b>，于是往下走到
-        -- dlsym("") 失败，给 "init"；macOS 的 dlopen("") 直接失败，给 "open"；
-        -- 本实现没有 dlopen，也给 "open"。三个答案分属三个 loader，不是 Lua
-        -- 的语义差 —— 只比「这个三元组在不在、第三个是不是字符串」。
+        -- dlsym("") 失败，给 "init"；macOS 的 dlopen("") 直接失败，给 "open"。
+        -- shim 装得上时我们跟着同一台机器的 loader 走，装不上时停在 ERRLIB 给
+        -- "open" —— 三个答案分属三个 loader，不是 Lua 的语义差，
+        -- 所以只比「这个三元组在不在、第三个是不是字符串」。
         -- 其余 ll_* 两边都停在 ERRLIB，"open" 照比（它同时钉住 LIB_FAIL 不是
         -- "absent"）。
         local function probe_llnowhere(name, ...)
@@ -666,7 +673,7 @@ class PackageLibTest {
      * 缓存，再 require 会再跑一遍）；{@code package.preload[name]} 不是函数；
      * 名字带点的子模块；{@code require} 的参数错；{@code package.searchers}
      * 全删 / 换成自定义 / 返回非函数 / 返回 {@code nil + 消息}；真去
-     * {@code target/rt/req/} 下找文件的 Lua 搜索器；{@code package.searchpath}
+     * {@code $RT/req/} 下找文件的 Lua 搜索器；{@code package.searchpath}
      * 与 {@code package.config} / {@code loadlib}。
      * <p>
      * 两处<b>不比内容</b>：{@code package.loadlib} 的失败消息（约定 #54/#57：
@@ -696,7 +703,7 @@ local function pr(tag, ...)
   for i = 1, n do out[#out + 1] = sh((select(i, ...))) end
   print(table.concat(out, " | "))
 end
-local D = "target/rt/req/"   -- 临时目录，两边同一个 cwd
+local D = "$RT/req/"   -- 临时目录，两边同一个 cwd
 
 -- 1) 模块返回值的各种形状
 local shapes = {
@@ -796,7 +803,7 @@ do
   package.searchers = saved
 end
 
--- 6) 文件搜索器（Lua 搜索器）：真去 target/rt/req/ 下找
+-- 6) 文件搜索器（Lua 搜索器）：真去 $RT/req/ 下找
 do
   local dir = D
   os.execute("mkdir -p " .. dir)
@@ -842,7 +849,7 @@ pr("C2", type(package.cpath))
 pr("C3", select("#", package.loadlib("no_such_lib_zzz", "luaopen_x")))
 pr("C4", type(select(1, package.loadlib("no_such_lib_zzz", "luaopen_x"))))
 -- 约定 #54/#57：loadlib 的失败消息是「在哪一步失败」，dlopen 的文本随平台变，
--- 本实现没有 dlopen —— 只比「是不是字符串」。
+-- shim 装不上时更只有一句 "dynamic libraries not enabled" —— 只比「是不是字符串」。
 pr("C5", type(select(2, package.loadlib("no_such_lib_zzz", "luaopen_x"))))
 pr("C6", pcall(package.loadlib))
 pr("C7", pcall(package.loadlib, "a"))

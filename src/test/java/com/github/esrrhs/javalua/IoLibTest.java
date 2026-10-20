@@ -103,7 +103,7 @@ class IoLibTest {
 
     private static final String[] OPEN = {
             """
-            local p = "/tmp/fkio_open1.txt"
+            local p = "$RT/fkio_open1.txt"
             os.remove(p)
             local f = io.open(p, "w")
             print(io.type(f))
@@ -126,10 +126,10 @@ class IoLibTest {
 
             """
             -- 模式校验：只认 [rwa]%+?[b]*
-            print(pcall(io.open, "/tmp/fkio_open3.txt", "bogus"))
-            print(pcall(io.open, "/tmp/fkio_open3.txt", ""))
-            print(pcall(io.open, "/tmp/fkio_open3.txt", "rw"))
-            print(pcall(io.open, "/tmp/fkio_open3.txt", "rb+"))
+            print(pcall(io.open, "$RT/fkio_open3.txt", "bogus"))
+            print(pcall(io.open, "$RT/fkio_open3.txt", ""))
+            print(pcall(io.open, "$RT/fkio_open3.txt", "rw"))
+            print(pcall(io.open, "$RT/fkio_open3.txt", "rb+"))
             print(pcall(io.open))
             """,
 
@@ -145,7 +145,7 @@ class IoLibTest {
 
             """
             -- io.input / io.output 换默认流
-            local p = "/tmp/fkio_open5.txt"
+            local p = "$RT/fkio_open5.txt"
             os.remove(p)
             local o = io.output(p)
             print(io.type(o))
@@ -171,7 +171,7 @@ class IoLibTest {
 
     private static final String[] READ = {
             """
-            local p = "/tmp/fkio_read1.txt"
+            local p = "$RT/fkio_read1.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("a\\nb\\nc\\n")
@@ -185,7 +185,7 @@ class IoLibTest {
             """,
 
             """
-            local p = "/tmp/fkio_read2.txt"
+            local p = "$RT/fkio_read2.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("a\\nb\\nc\\n")
@@ -200,7 +200,7 @@ class IoLibTest {
             """,
 
             """
-            local p = "/tmp/fkio_read3.txt"
+            local p = "$RT/fkio_read3.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("3.5 -7 0x10 1e3 3x -  .5")
@@ -214,7 +214,7 @@ class IoLibTest {
             """,
 
             """
-            local p = "/tmp/fkio_read4.txt"
+            local p = "$RT/fkio_read4.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("0123456789")
@@ -241,7 +241,7 @@ class IoLibTest {
 
             """
             -- 多个读格式一次返回多个结果
-            local p = "/tmp/fkio_read6.txt"
+            local p = "$RT/fkio_read6.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("12 abc\\n34\\n")
@@ -254,7 +254,7 @@ class IoLibTest {
 
             """
             -- 读格式带 '*' 前缀（兼容写法）
-            local p = "/tmp/fkio_read7.txt"
+            local p = "$RT/fkio_read7.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("hi\\n")
@@ -276,7 +276,7 @@ class IoLibTest {
             """,
 
             """
-            local p = "/tmp/fkio_write2.txt"
+            local p = "$RT/fkio_write2.txt"
             os.remove(p)
             local f = io.open(p, "w")
             print(f:write("one\\n"))
@@ -290,7 +290,7 @@ class IoLibTest {
 
             """
             -- 'a' 是追加：重写不会截断
-            local p = "/tmp/fkio_write3.txt"
+            local p = "$RT/fkio_write3.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("base\\n")
@@ -313,7 +313,7 @@ class IoLibTest {
 
             """
             -- 写字节：Lua 字符串可以含 \\0
-            local p = "/tmp/fkio_write4.txt"
+            local p = "$RT/fkio_write4.txt"
             os.remove(p)
             local f = io.open(p, "wb")
             f:write("a\\0b")
@@ -329,7 +329,7 @@ class IoLibTest {
 
     private static final String[] LINES = {
             """
-            local p = "/tmp/fkio_lines1.txt"
+            local p = "$RT/fkio_lines1.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("x\\ny\\nz\\n")
@@ -345,7 +345,7 @@ class IoLibTest {
 
             """
             -- io.lines(文件) 返回四个值，迭代结束自动关文件
-            local p = "/tmp/fkio_lines2.txt"
+            local p = "$RT/fkio_lines2.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("1\\n2\\n3\\n")
@@ -367,7 +367,7 @@ class IoLibTest {
 
             """
             -- lines 的读格式会传给每次迭代
-            local p = "/tmp/fkio_lines3.txt"
+            local p = "$RT/fkio_lines3.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("10 20\\n30 40\\n")
@@ -387,7 +387,7 @@ class IoLibTest {
 
     private static final String[] SEEK = {
             """
-            local p = "/tmp/fkio_seek1.txt"
+            local p = "$RT/fkio_seek1.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("0123456789")
@@ -416,7 +416,7 @@ class IoLibTest {
             """,
 
             """
-            local p = "/tmp/fkio_seek3.txt"
+            local p = "$RT/fkio_seek3.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("hello")
@@ -433,7 +433,7 @@ class IoLibTest {
 
             """
             -- setvbuf 只认模式名，总是成功
-            local p = "/tmp/fkio_seek4.txt"
+            local p = "$RT/fkio_seek4.txt"
             os.remove(p)
             local f = io.open(p, "w")
             print(f:setvbuf("no"))
@@ -447,7 +447,7 @@ class IoLibTest {
 
             """
             print(io.flush())
-            local p = "/tmp/fkio_seek5.txt"
+            local p = "$RT/fkio_seek5.txt"
             os.remove(p)
             local f = io.open(p, "w")
             print(f:flush())
@@ -460,7 +460,7 @@ class IoLibTest {
     private static final String[] ERRORS = {
             """
             -- 已关闭的句柄
-            local p = "/tmp/fkio_err1.txt"
+            local p = "$RT/fkio_err1.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("x")
@@ -484,7 +484,7 @@ class IoLibTest {
 
             """
             -- 读格式不认识
-            local p = "/tmp/fkio_err3.txt"
+            local p = "$RT/fkio_err3.txt"
             os.remove(p)
             local f = io.open(p, "w")
             f:write("hi\\n")
@@ -500,7 +500,7 @@ class IoLibTest {
 
             """
             -- 默认流被关掉之后再用
-            local p = "/tmp/fkio_err4.txt"
+            local p = "$RT/fkio_err4.txt"
             os.remove(p)
             local i = io.input(p)
             print(io.type(i))
@@ -512,7 +512,7 @@ class IoLibTest {
 
             """
             -- 错误里的函数名：方法调用时参数号要减一
-            local p = "/tmp/fkio_err5.txt"
+            local p = "$RT/fkio_err5.txt"
             os.remove(p)
             local f = io.open(p, "w")
             print(pcall(f.read, f, 42))
@@ -544,7 +544,7 @@ class IoLibTest {
     private static final String[] ZERO = {
             """
             -- 往<b>只读</b>文件写空串是成功的（fwrite 的 l == 0）
-            local p = "/tmp/fkio_zero.txt"
+            local p = "$RT/fkio_zero.txt"
             os.remove(p)
             local w = io.open(p, "w")
             w:write("hello")
@@ -573,7 +573,7 @@ class IoLibTest {
 
             """
             -- 读 0 字节：g_read 对 0 走 test_eof（getc + ungetc），不是 fread
-            local p = "/tmp/fkio_zero2.txt"
+            local p = "$RT/fkio_zero2.txt"
             os.remove(p)
             local w = io.open(p, "w")
             w:write("abc")
@@ -592,7 +592,7 @@ class IoLibTest {
 
             """
             -- 多参数里混空串，以及关闭之后
-            local p = "/tmp/fkio_zero3.txt"
+            local p = "$RT/fkio_zero3.txt"
             os.remove(p)
             local w = io.open(p, "w")
             print("M1", w:write("", "", "") == w)
@@ -740,7 +740,7 @@ class IoLibTest {
               out[#out + 1] = s
             end
             local function say(s) out[#out + 1] = s end
-            local p = "/tmp/fkio_vbuf.txt"
+            local p = "$RT/fkio_vbuf.txt"
             os.remove(p)
             for _, mode in ipairs({ "no", "full", "line" }) do
               local f = io.open(p, "w")
@@ -822,7 +822,7 @@ class IoLibTest {
           out[#out + 1] = s
         end
 
-        local P = "/tmp/fkmd.txt"
+        local P = "$RT/fkmd.txt"
         local function seed()
           local f = assert(io.open(P, "w"))
           f:write("hello\\nworld\\n")
@@ -1003,7 +1003,7 @@ class IoLibTest {
           out[#out + 1] = s
         end
 
-        local P = "/tmp/fkio2.txt"
+        local P = "$RT/fkio2.txt"
         local function put(s)
           local f = assert(io.open(P, "w"))
           f:write(s)
@@ -1189,7 +1189,7 @@ class IoLibTest {
 -- io 的「出错路径」探针：管道上的 seek/tell、错的打开模式、popen/tempfile 的
 -- errno、close 的三元组。起因是覆盖率报告里 IoLib 有 54 行没走到，几乎全是
 -- catch (IOException) —— 也就是「真出 I/O 错时给什么 errno」这一片从来没扫过。
-local D = "target/rt"
+local D = "$RT"
 -- 与 RuntimeTest 的 errno 用例同理：清理与建目录不串在一条 && 上，
 -- 清理没成也照样建（mkdir -p 幂等），否则整片假红；清理的输出不进断言
 -- （宿主环境可能给 rm 套一层会说话的包装）。
@@ -1440,7 +1440,7 @@ print("DONE")
                 say("E " .. tostring(io.read("a")))
                 say("F " .. tostring(select('#', io.read("l", "l"))))
                 -- ③ 换掉默认输入之后，无参 io.lines() 读的是那个文件
-                local p = "target/rt/lines_in.txt"
+                local p = "$RT/lines_in.txt"
                 os.remove(p)
                 local f = assert(io.open(p, "w"))
                 f:write("f1\\nf2\\nf3\\n")
@@ -1477,7 +1477,7 @@ local function s(tag, f, ...)
     end
 end
 
-local P = "/tmp/fkio_fm.txt"
+local P = "$RT/fkio_fm.txt"
 os.remove(P)                     -- 开头先删一次：上一趟崩掉留下的残骸会翻盘
 do
     local f = io.open(P, "w")
@@ -1526,7 +1526,7 @@ print("type_num", io.type(1))
 print("type_std", io.type(io.stdout))
 -- 打不开的文件：各模式
 print("open_dir", pcall(io.open, "/tmp", "r"))
-print("open_noent", pcall(io.open, "/tmp/fkio_no_such_file", "r"))
+print("open_noent", pcall(io.open, "$RT/fkio_no_such_file", "r"))
 print("open_badmode", pcall(io.open, P, "rw"))
 print("open_badmode2", pcall(io.open, P, ""))
 print("open_badmode3", pcall(io.open, P, "rb"))
