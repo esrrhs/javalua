@@ -85,7 +85,7 @@ public final class Lua {
     /**
      * 完整 userdata：{@code makevariant(LUA_TUSERDATA, 0)}。
      * <p>
-     * 阶段 7 才需要它，用途是给 C 闭包绑一个宿主对象：
+     * 它是随字符串库（阶段 7）一起补的，用途是给 C 闭包绑一个宿主对象：
      * {@code string.gmatch} 要在迭代之间记住「上次匹配到哪儿」，
      * 而它的迭代器是 C 闭包，只能通过 upvalue 带状态。用一张表也行，
      * 但那张表得暴露在 Lua 可见的地方——C 版就是 userdata，照做。

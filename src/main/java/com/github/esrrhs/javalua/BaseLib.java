@@ -6,9 +6,8 @@ import java.nio.charset.StandardCharsets;
 /**
  * 基础库 —— 对应 {@code lbaselib.c}，加上 {@code lstrlib.c} 里那组字符串算术元方法。
  * <p>
- * 阶段 3 只求「脚本能跑起来并对 stdout 做差分」，所以这里挑的是差分比对真正
- * 用得上的函数：输出、类型、转换、元表、迭代、错误处理。字符串 / 表 / os /
- * io 等库随阶段 7 各自成文件。
+ * 阶段 3 落地时只挑了差分比对真正用得上的函数：输出、类型、转换、元表、迭代、
+ * 错误处理；字符串 / 表 / os / io 各自成文件随后续阶段补齐，这里只留基础库本身。
  * <p>
  * <b>为什么这里要挂字符串的算术元方法。</b>{@code "10" + 1 == 11} 这件事
  * <b>不是</b> VM 做的——VM 的算术宏只认真正的数字。它来自 {@code lstrlib.c}
@@ -69,7 +68,8 @@ public final class BaseLib {
      * {@code lstrlib.c: createmetatable} + 算术元方法。
      * <p>
      * 上游还给这个元表设了 {@code __index = string} 库（所以 {@code ("x"):upper()}
-     * 能用），那部分随字符串库一起到阶段 7 再补。
+     * 能用）——那一句在 {@link StringLib#open} 里挂上：字符串库开得比这里晚，
+     * 它自己去取已存在的类型元表补 {@code __index}，两边合起来才是完整的元表。
      */
     private static void openStringMetatable(LuaState L) {
         LuaTable mt = new LuaTable();
@@ -965,9 +965,9 @@ public final class BaseLib {
     /**
      * {@code luaB_load}。
      * <p>
-     * 二进制 chunk 目前只能挡下来——{@code luaU_undump} 还没搬，硬吃掉会静默
-     * 编出一个错误的 chunk。挡的时候<b>照 C 的 {@code checkmode} 先报模式错</b>，
-     * 模式没错才报「不支持」，这样 mode 的语义先对上。
+     * 二进制 chunk 走 {@code luaU_undump}（见 {@link Undump}），与文本源码
+     * 共用同一套 {@code checkmode}：模式不对时<b>先报模式错</b>，
+     * 模式对了才谈加载本身。
      */
     private static int loadFn(LuaState L) {
         LuaValue a = L.arg1(1);
