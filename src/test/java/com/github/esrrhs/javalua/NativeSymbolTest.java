@@ -29,13 +29,31 @@ import org.junit.jupiter.api.TestFactory;
  * 参考实现还导出一堆内部符号（{@code luaC_*} {@code luaD_*} {@code luaV_*} …），
  * 那些是 {@code lgc.c} 一类的实现细节，本实现没有义务有，也不该被扩展调。
  * <p>
- * 参考库用 {@code LUA54_LIB} 指（默认 {@code /tmp/lua-5.4.7/src/liblua.a}），
+ * 参考库按顺序找：环境变量 {@code LUA54_LIB} → 仓库里 {@code target/lua54/src}
+ * （CI 与 {@code tools/local_conformance.sh} 都建到那儿）→
+ * {@code /tmp/lua-5.4.7/src/liblua.a}（手工照着 lua.org 解压缩时的默认位置）。
  * 找不到 {@code nm} 或缺参考库就整类跳过。差别只在「有没有装」，不在「对不对」。
+ * <p>
+ * <b>这个查找顺序本身就是修出来的。</b>以前只认 {@code LUA54_LIB} 和
+ * {@code /tmp/lua-5.4.7} 那一条，而 CI 把参考实现建在 {@code target/lua54}，
+ * 于是这道闸门在 CI 上<b>一直是跳过状态</b>——报告里躺着一条 skipped，
+ * 谁也没看出来它本该拦住「少导出一个符号」。现在 {@code target/lua54} 进了
+ * 候选，CI 不用额外设变量就能真的跑；{@code tools/check_ci_gates.py} 里也把这个
+ * 类列进了「native 那遍必须出活」的名单，它再变成零用例或整片跳过就直接红。
  */
 final class NativeSymbolTest {
 
-    private static final String DEFAULT_LIB =
-            "/tmp/lua-5.4.7/src/liblua.a";
+    /**
+     * 没设 {@code LUA54_LIB} 时依次试的位置。
+     * <p>
+     * {@code target/lua54} 在前：那是本仓库脚本与 CI 的固定落点，
+     * {@code /tmp} 那条只是给手工构建兜底，机器上残留一份旧版
+     * （5.4.7 与 5.4.x 的符号集不一样）时不该优先撞上它。
+     */
+    private static final String[] CANDIDATE_LIBS = {
+            "target/lua54/src/liblua.a",
+            "/tmp/lua-5.4.7/src/liblua.a",
+    };
 
     @TestFactory
     List<DynamicTest> symbolsMatchReference() {
@@ -88,10 +106,25 @@ final class NativeSymbolTest {
         return null;
     }
 
+    /**
+     * 参考实现的 {@code liblua.a}；找不到可用的候选返回 {@code null}。
+     * <p>
+     * 每条候选都要 {@code isFile()} 才算数——{@code whySkip} 与 {@code nm} 那步
+     * 都靠它，挑中一个不存在的文件只会让跳过原因写成「找不到」，看不出是路径
+     * 列表没覆盖到 CI 的落点。
+     */
     private static File refLib() {
         String env = System.getenv("LUA54_LIB");
-        String p = (env != null && !env.isEmpty()) ? env : DEFAULT_LIB;
-        return new File(p);
+        if (env != null && !env.isEmpty()) {
+            return new File(env);
+        }
+        for (String cand : CANDIDATE_LIBS) {
+            File f = new File(cand);
+            if (f.isFile()) {
+                return f;
+            }
+        }
+        return null;
     }
 
     /**

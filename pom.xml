@@ -23,8 +23,29 @@
         <maven.compiler.release>21</maven.compiler.release>
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <jazzer.version>0.30.0</jazzer.version>
-        <!-- 阶段性门禁值:每完成一个阶段往上抬一档,目标 0.85 -->
-        <jacoco.line.minimum>0.95</jacoco.line.minimum>
+        <!--
+          阶段性门禁值:每完成一个阶段往上抬一档,目标 0.85。
+          0.94 是<b>单跑一条 io 路径</b>（native 那一遍）实测的量;CI 两遍
+          合并后按 0.95 卡(见 .github/workflows/maven.yml 最后一步)。
+        -->
+        <jacoco.line.minimum>0.94</jacoco.line.minimum>
+        <!--
+          覆盖率<b>校验</b>单独可跳(报告照常生成)。
+          CI 把整个套件跑两遍:一遍 native、一遍 -Djavalua.nonative 的纯 Java
+          io 兜底路径。任何<b>单</b>一遍都不该执行另一遍的那批分支,拿它去卡
+          合并后的门槛只会逼人删掉兜底代码;所以那两步各传
+          -Djacoco.check.skip=true,合并的 jacoco.exec 最后单独 check 一次
+          (见 .github/workflows/maven.yml 的 coverage-merged 步骤)。
+          本地跑单遍请用默认值——默认门槛就是按单遍能过定的。
+        -->
+        <jacoco.skip>false</jacoco.skip>
+        <!--
+          默认跟着 jacoco.skip 走:check 这个执行自己配了 <skip>,一旦配了
+          就不再认插件的 jacoco.skip,于是 -Djacoco.skip=true 会出现「agent 和
+          报告都跳了、校验照跑、还因为没数据而判红」。把默认值串起来,两个开关
+          各管各的:-Djacoco.skip=true 全跳,-Djacoco.check.skip=true 只跳校验。
+        -->
+        <jacoco.check.skip>${jacoco.skip}</jacoco.check.skip>
     </properties>
 
     <licenses>
@@ -168,6 +189,7 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <skip>${jacoco.check.skip}</skip>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
@@ -227,19 +249,6 @@
             </build>
         </profile>
         <profile>
-            <id>bench</id>
-            <!-- 运行微基准:./mvnw -q -Pbench test-compile exec:java -Dexec.classpathScope=test -->
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.2.0</version>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <profile>
             <id>quality</id>
             <build>
                 <plugins>
@@ -248,7 +257,19 @@
                         <artifactId>spotbugs-maven-plugin</artifactId>
                         <version>4.8.6.4</version>
                         <configuration>
-                            <failOnError>false</failOnError>
+                            <!--
+                              只把 HIGH 优先级当成闸门：本仓库有一批<b>刻意为之</b>的
+                              中等项（LuaValue 的 public 字段照抄 C 的 struct、
+                              生成器产物的风格问题），把它们也卡住只会让人往
+                              excludeFilterFile 里堆豁免，反而把真信号淹掉。
+                              HIGH 这一档历史上只有两类：默认字符集解 C 侧字节流
+                              （会毁掉非 ASCII 字节，正是本实现最不能犯的错）和
+                              多余判空——都能修，修完就该拦住回归。
+                              低优先级仍然拦不住 CI，需要完整清单时本地跑
+                              ./mvnw -Pquality -DskipTests -Dspotbugs.threshold=Low。
+                            -->
+                            <threshold>High</threshold>
+                            <failOnError>true</failOnError>
                             <excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
                         </configuration>
                         <executions>

@@ -31,14 +31,18 @@ import java.util.TimeZone;
  *       {@code GregorianCalendar} 默认在 1582-10-15 之前走儒略历，不关会差好几天。</li>
  * </ul>
  * <p>
- * 三处承认下来的偏离（都写进了 README）：
+ * 原来对不上的三处，现在的状态：
  * <ol>
- *   <li><b>{@code setlocale}</b>：Java 没有 {@code setlocale}，这里只能认
- *       {@code nil} / {@code "C"} / {@code "POSIX"}，其余一律返回 nil。</li>
- *   <li><b>{@code os.clock}</b>：取的是<b>当前线程</b>的 CPU 时间
- *       （{@code ThreadMXBean}），不是整个进程的——本实现本来就只在一条线程上跑。</li>
- *   <li><b>{@code os.execute} 拿不到信号</b>：进程被信号杀掉时 C 给
- *       {@code ("signal", 信号编号)}，Java 只能给 {@code ("exit", 128+n)}。</li>
+ *   <li><b>{@code setlocale}</b>：已经能真做——JNI 调 C 的 {@code setlocale}，
+ *       查询与设置都走它（见 {@link #setlocale}）。native 层装不上时才退回
+ *       「只认 {@code nil} / {@code "C"} / {@code "POSIX"}」。</li>
+ *   <li><b>{@code os.clock}</b>：仍然取<b>当前线程</b>的 CPU 时间
+ *       （{@code ThreadMXBean}），不是整个进程的——本实现本来就只在一条线程上跑，
+ *       这一条是刻意保留的偏离。</li>
+ *   <li><b>{@code os.execute} 的信号</b>：已经能报——JNI 调 {@code waitpid}
+ *       拿原始 status，被信号杀死给 {@code ("signal", 编号)}（见
+ *       {@link #execute}）。native 层装不上时退回 {@code Process.waitFor()}，
+ *       那只有退出码，被信号杀死的进程会报成 {@code ("exit", 128+n)}。</li>
  * </ol>
  */
 public final class OsLib {
@@ -716,14 +720,19 @@ public final class OsLib {
             Thread g2 = gobbler(p.getErrorStream(), L);
             g1.start();
             g2.start();
-            // 不直接 waitFor()：要先用 waitpid 拿原始 status
+            // 不直接 waitFor()：要先用 waitpid 拿原始 status。
+            // native 层装不上就没有 waitpid，wr=-1 让下面退回 waitFor()
             long pid = p.pid();
             long[] statusOut = new long[1];
-            int wr = NativeBridge.cWaitpid(pid, statusOut);
+            int wr = NativeBridge.AVAILABLE ? NativeBridge.cWaitpid(pid, statusOut) : -1;
             g1.join();
             g2.join();
             if (wr < 0) {
-                // waitpid 失败（理论上不该发生），兜底走 waitFor
+                /*
+                 * 没有 waitpid 可用（native 层装不上），或者 waitpid 本身失败。
+                 * 退回 {@code waitFor()} 只有退出码：被信号杀死的进程会报成
+                 * {@code ("exit", 128+n)} 而不是 {@code ("signal", n)}。
+                 */
                 int stat = p.waitFor();
                 if (stat == 0) {
                     L.push(LuaValue.ofBoolean(true));
@@ -940,6 +949,9 @@ public final class OsLib {
      * <p>
      * 新进程基线的处理见 {@link LuaState#localeBaseline}：脚本还没碰 locale 时，
      * 查询不能把 JVM 启动时塞进 libc 的宿主 locale 漏出去。
+     * <p>
+     * native 层装不上时退成「只有 {@code "C"} / {@code "POSIX"} 认」：查询答
+     * {@code "C"}，其余 locale 一律 nil —— Java 没有进程级 locale，做不了真的切换。
      */
     private static int setlocale(LuaState L) {
         String loc = null;
@@ -948,6 +960,16 @@ public final class OsLib {
         }
         int catIdx = LuaAux.checkOption(L, 2, "all", CATS);
         int cat = catToLc(catIdx);
+        if (!NativeBridge.AVAILABLE) {
+            if (loc == null) {
+                L.push(LuaValue.ofString(LuaString.latin1("C")));
+            } else if (loc.equals("C") || loc.equals("POSIX")) {
+                L.push(LuaValue.ofString(LuaString.latin1("C")));
+            } else {
+                L.pushNil();
+            }
+            return 1;
+        }
         if (!L.localeBaseline) {
             if (loc == null) {
                 L.push(LuaValue.ofString(LuaString.utf8("C")));
