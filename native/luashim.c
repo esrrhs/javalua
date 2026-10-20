@@ -22,6 +22,9 @@
 #include <dlfcn.h>
 #include <locale.h>   /* setlocale */
 #include <sys/wait.h>   /* luaL_execresult 要用本平台的 WIFEXITED / WTERMSIG */
+#include <unistd.h>   /* pipe / read / write / close */
+#include <spawn.h>    /* posix_spawn：子进程不能归 JVM 管，原因见 cSpawn */
+#include <signal.h>   /* sigfillset + POSIX_SPAWN_SETSIGDEF */
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -1611,6 +1614,9 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
     return (jint)(unsigned char)lc->decimal_point[0];
 }
 
+/* 定义在本文件末尾的 cSpawn 那一节 */
+static void luashim_pending_take(pid_t pid);
+
 /*
  * {@code waitpid(pid, &status, 0)} —— 拿原始退出状态，区分 exit/signal。
  * <p>
@@ -1619,6 +1625,9 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
  * 判正常退出，{@code WEXITSTATUS(status)} 取退出码；{@code WIFSIGNALED(status)}
  * 判信号杀死，{@code WTERMSIG(status)} 取信号编号。Lua 的 {@code os.execute}
  * 走的就是这条路（{@code loslib.c: os_execute} → {@code luaL_execresult}）。
+ * <p>
+ * 收到尸的那一刻才可以放手 {@code cSpawn} 为这个 pid 存的那份命令文本——
+ * 那时子进程早就 exec 完了，argv 的内容已经被内核拷走。
  */
 JNIEXPORT jint JNICALL
 Java_com_github_esrrhs_javalua_NativeBridge_cWaitpid(JNIEnv *env,
@@ -1627,6 +1636,7 @@ Java_com_github_esrrhs_javalua_NativeBridge_cWaitpid(JNIEnv *env,
     int status = 0;
     pid_t r = waitpid((pid_t)pid, &status, 0);
     if (r < 0) return -1;
+    luashim_pending_take((pid_t)pid);
     if (statusOut != NULL) {
         jlong s = (jlong)status;
         (*env)->SetLongArrayRegion(env, statusOut, 0, 1, &s);
@@ -1653,6 +1663,232 @@ Java_com_github_esrrhs_javalua_NativeBridge_cDecodeStatus(JNIEnv *env,
     vals[2] = WIFSIGNALED(status) ? 1 : 0;
     vals[3] = WTERMSIG(status);
     (*env)->SetLongArrayRegion(env, out, 0, 4, vals);
+}
+
+/* ==================== 子进程：spawn / pipe / close ==================== */
+
+/*
+ * {@code os.execute} 与 {@code io.popen} 的子进程。<b>为什么不能继续用
+ * {@code ProcessBuilder}</b>：JVM 是自己孩子的父进程，它为了
+ * {@code Process.onExit()} 会起一条 reaper 线程去 {@code waitpid} 那个 pid。
+ * 我们想拿<b>原始 status</b>（区分 {@code WIFSIGNALED} 与退出码）就只能再调一次
+ * {@code waitpid}，于是两条线程抢同一个孩子，谁先回来纯看调度：实测
+ * {@code kill -TERM $$} 二十次里输掉十五次，输了就退回 {@code waitFor()} 拿到
+ * JDK 自己折算的 {@code 128+n}，报成 {@code ("exit",143)} 而不是
+ * {@code ("signal",15)}；赢了反而把 JVM 那侧掏空，{@code waitFor()} 回来 0。
+ * 也就是说同一行脚本可以两次跑出不同答案。
+ * <p>
+ * 这里改成 {@code posix_spawn} 由 C 起：孩子不属于 JVM，reaper 不认识它,
+ * {@code cWaitpid} 是唯一的收割者，抢不到也不可能失败。没接管的 fd 一律
+ * 继承，与 C 的 {@code system()} / {@code popen()} 同构。
+ */
+
+/* 老 glibc 的 unistd.h 不在这里给 environ 的声明 */
+extern char **environ;
+
+/*
+ * {@code argv} 里那几个字符串必须活到<b>子进程真的 exec 之后</b>。
+ * <p>
+ * {@code posix_spawn} 交回控制权时子进程<b>还没 exec 完</b>（glibc 是
+ * {@code clone()} 完就返回，macOS 的 {@code exec} 由内核在主线程继续摆），而
+ * argv 是<b>指针</b>：内容在 exec 那一刻才从父进程的地址空间里拷走。所以
+ * {@code ReleaseByteArrayElements} 之后立刻把那块还回去，命令就成了随机字节
+ * （实测 {@code sh: line 1: Ó%ú: command not found}）。
+ * <p>
+ * 于是 {@code strdup} 一份存着，等到 {@code cWaitpid} 收到同一个 pid 再放——
+ * 那一刻子进程必然早就 exec 完了。表满（同时有 64 个没收尸的孩子）时当场释放
+ * 新的一份：那条支路只可能出现在「脚本压根不关 popen 句柄」，宁可命令文本
+ * 说错，也不留一个没有上界的泄漏。
+ */
+#define LUASHIM_MAX_PENDING 64
+
+static struct {
+    pid_t pid;
+    char *cmd;
+} luashim_pending[LUASHIM_MAX_PENDING];
+
+static pthread_mutex_t luashim_pending_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void luashim_pending_add(pid_t pid, char *cmd) {
+    int i;
+    pthread_mutex_lock(&luashim_pending_lock);
+    for (i = 0; i < LUASHIM_MAX_PENDING; i++) {
+        if (luashim_pending[i].cmd == NULL) {
+            luashim_pending[i].pid = pid;
+            luashim_pending[i].cmd = cmd;
+            pthread_mutex_unlock(&luashim_pending_lock);
+            return;
+        }
+    }
+    pthread_mutex_unlock(&luashim_pending_lock);
+    free(cmd);
+}
+
+static void luashim_pending_take(pid_t pid) {
+    int i;
+    pthread_mutex_lock(&luashim_pending_lock);
+    for (i = 0; i < LUASHIM_MAX_PENDING; i++) {
+        if (luashim_pending[i].cmd != NULL && luashim_pending[i].pid == pid) {
+            free(luashim_pending[i].cmd);
+            luashim_pending[i].cmd = NULL;
+            luashim_pending[i].pid = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&luashim_pending_lock);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cSpawn(JNIEnv *env, jclass cls,
+        jbyteArray cmd, jboolean outPipe, jboolean errPipe, jboolean inPipe,
+        jlongArray fdsOut) {
+    (void)cls;
+    int ofd[2] = { -1, -1 }, efd[2] = { -1, -1 }, ifd[2] = { -1, -1 };
+    char *argv[4];
+    posix_spawn_file_actions_t fa;
+    posix_spawnattr_t sa;
+    pid_t pid = -1;
+    int rc;
+    jlong fds[3];
+    jbyte *c;
+    char *dup;
+
+    if (outPipe && pipe(ofd) != 0) return -1;
+    if (errPipe && pipe(efd) != 0) { if (ofd[0] >= 0) { close(ofd[0]); close(ofd[1]); } return -1; }
+    if (inPipe  && pipe(ifd) != 0) { if (ofd[0] >= 0) { close(ofd[0]); close(ofd[1]); }
+                                     if (efd[0] >= 0) { close(efd[0]); close(efd[1]); } return -1; }
+    c = (jbyte *)(*env)->GetByteArrayElements(env, cmd, NULL);
+    if (c == NULL) return -1;
+    /*
+     * 拷一份出来：argv 是指针，得活到子进程 exec 之后（见 luashim_pending_add）。
+     * <b>必须按数组长度拷并自己补 '\0'</b> —— Java 的 {@code byte[]} 后面没有
+     * 结束符，用 {@code strdup} 会一路读到堆上<b>碰巧</b>出现的 0 字节，把垃圾
+     * 一起塞进 argv。实测症状：{@code mkdir -p target/rt/61640/fkerm/d*\xe8\x80...}
+     * 报 {@code Illegal byte sequence}，于是同一条 {@code os.execute} 时灵时不灵。
+     */
+    {
+        jsize len = (*env)->GetArrayLength(env, cmd);
+        dup = (char *)malloc((size_t)len + 1);
+        if (dup != NULL) {
+            memcpy(dup, c, (size_t)len);
+            dup[len] = '\0';
+        }
+    }
+    (*env)->ReleaseByteArrayElements(env, cmd, c, JNI_ABORT);
+    if (dup == NULL) return -1;
+    argv[0] = "sh";                       /* C 是 execl("/bin/sh","sh",...)：argv[0] 不是路径 */
+    argv[1] = "-c";
+    argv[2] = dup;
+    argv[3] = NULL;
+    if (posix_spawn_file_actions_init(&fa) != 0) { free(dup); return -1; }
+    /*
+     * 三条管道各有两头，孩子只该拿到属于自己的那一头。<b>必须把另一头也
+     * addclose 掉</b>：{@code posix_spawn} 跟 {@code fork}+{@code exec} 一样，
+     * 父进程其余 fd 是<b>整个继承下去的</b>（{@code pipe()} 给的 fd 没有
+     * FD_CLOEXEC），孩子于是握着「父端」那一份，自己等自己写 ——
+     * 实测症状是 {@code io.popen("cat > /dev/null","w"):close()} 卡死：
+     * 父母那边把写端关了想给 {@code cat} 一个 EOF，可孩子手里还有一份写端，
+     * EOF 永远不来。C 的 {@code popen} 是靠 {@code close} 掉另一头来避免的。
+     */
+    if (outPipe) {
+        posix_spawn_file_actions_adddup2(&fa, ofd[1], 1);
+        posix_spawn_file_actions_addclose(&fa, ofd[0]);
+        posix_spawn_file_actions_addclose(&fa, ofd[1]);
+    }
+    if (errPipe) {
+        posix_spawn_file_actions_adddup2(&fa, efd[1], 2);
+        posix_spawn_file_actions_addclose(&fa, efd[0]);
+        posix_spawn_file_actions_addclose(&fa, efd[1]);
+    }
+    if (inPipe) {
+        posix_spawn_file_actions_adddup2(&fa, ifd[0], 0);
+        posix_spawn_file_actions_addclose(&fa, ifd[0]);
+        posix_spawn_file_actions_addclose(&fa, ifd[1]);
+    }
+    /*
+     * 信号恢复默认处置：JVM 会把 SIGPIPE / SIGQUIT 设成 {@code SIG_IGN}，而
+     * <b>{@code SIG_IGN} 是穿过 exec 继承的</b>（装了 handler 的那些才会复位）。
+     * {@code sh}/{@code cat} 从 JVM 这边生下来就带着「忽略 SIGPIPE」，于是
+     * {@code io.popen(...):close()} 该拿的 {@code ("signal",13)} 永远拿不到。
+     * C 的 {@code system()} 从一个不碰这些信号的进程里 fork，不会有这个问题，
+     * 所以这里显式把全套信号拉回默认，向 C 看齐。
+     */
+    if (posix_spawnattr_init(&sa) == 0) {
+        sigset_t all;
+        sigfillset(&all);
+        if (posix_spawnattr_setsigdefault(&sa, &all) == 0) {
+#ifdef POSIX_SPAWN_SETSIGDEF
+            posix_spawnattr_setflags(&sa, POSIX_SPAWN_SETSIGDEF);
+#endif
+            rc = posix_spawn(&pid, "/bin/sh", &fa, &sa, argv, environ);
+        } else {
+            rc = posix_spawn(&pid, "/bin/sh", &fa, NULL, argv, environ);
+        }
+        posix_spawnattr_destroy(&sa);
+    } else {
+        rc = posix_spawn(&pid, "/bin/sh", &fa, NULL, argv, environ);
+    }
+    posix_spawn_file_actions_destroy(&fa);
+    if (rc != 0) {
+        errno = rc;                        /* posix_spawn 用返回值传错，不碰 errno */
+        free(dup);
+        if (ofd[0] >= 0) { close(ofd[0]); close(ofd[1]); }
+        if (efd[0] >= 0) { close(efd[0]); close(efd[1]); }
+        if (ifd[0] >= 0) { close(ifd[0]); close(ifd[1]); }
+        return -1;
+    }
+    luashim_pending_add(pid, dup);
+    /* 父进程只留自己要用那头 */
+    if (outPipe) close(ofd[1]);
+    if (errPipe) close(efd[1]);
+    if (inPipe)  close(ifd[0]);
+    fds[0] = ofd[0];
+    fds[1] = efd[0];
+    fds[2] = ifd[1];
+    (*env)->SetLongArrayRegion(env, fdsOut, 0, 3, fds);
+    return (jlong) pid;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cPipeRead(JNIEnv *env, jclass cls,
+        jlong fd, jbyteArray buf) {
+    (void)cls;
+    jbyte *b = (jbyte *)(*env)->GetByteArrayElements(env, buf, NULL);
+    jint n;
+    if (b == NULL) return -1;
+    do {
+        n = (jint) read((int) fd, b, (size_t)(*env)->GetArrayLength(env, buf));
+    } while (n < 0 && errno == EINTR);
+    if (n > 0) (*env)->ReleaseByteArrayElements(env, buf, b, 0);   /* 拷回 Java */
+    else (*env)->ReleaseByteArrayElements(env, buf, b, JNI_ABORT);
+    return n;                              /* 0 = EOF，<0 = 出错（含 EBADF：句柄已关） */
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cPipeWrite(JNIEnv *env, jclass cls,
+        jlong fd, jbyteArray buf, jint off, jint len) {
+    (void)cls;
+    jbyte *b = (jbyte *)(*env)->GetByteArrayElements(env, buf, NULL);
+    jint written = 0;
+    if (b == NULL) return -1;
+    while (written < len) {
+        ssize_t w = write((int) fd, b + off + written, (size_t)(len - written));
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            written = -1;                  /* EPIPE 之类：子进程已经走了 */
+            break;
+        }
+        written += (jint) w;
+    }
+    (*env)->ReleaseByteArrayElements(env, buf, b, JNI_ABORT);
+    return written;
+}
+
+JNIEXPORT void JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cCloseFd(JNIEnv *env, jclass cls,
+        jlong fd) {
+    (void)env; (void)cls;
+    if (fd >= 0) close((int) fd);
 }
 
 /* ==================== 生成的 stub ==================== */

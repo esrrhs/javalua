@@ -276,6 +276,42 @@ public final class NativeBridge {
      */
     static native void cDecodeStatus(int status, long[] out);
 
+    /**
+     * 用 {@code posix_spawn} 起一个<b>不属于 JVM</b> 的子进程跑
+     * {@code /bin/sh -c cmd}（{@code argv[0]} 是 {@code "sh"}，与 C 的
+     * {@code system()} 一致）。
+     * <p>
+     * 为什么要自己起：{@code ProcessBuilder} 的孩子由 JVM 认领，JDK 的 reaper
+     * 线程会替我们 {@code waitpid} 掉它，于是原始 status 永远拿不到——被信号
+     * 杀死的进程只能报成 {@code ("exit", 128+n)}，而且是<b>抢输才这样</b>，
+     * 同一行脚本两次跑出两种答案。C 生的孩子 JVM 不认识，
+     * {@link #cWaitpid} 是唯一的收割者。
+     * <p>
+     * 三条流按需接管，其余继承（与 C 的 {@code system()} / {@code popen()}
+     * 同构）；{@code fds} 回来三个父进程用的 fd：
+     * <ol>
+     *   <li>读子进程的 stdout（没接管则 -1）</li>
+     *   <li>读子进程的 stderr（没接管则 -1）</li>
+     *   <li>写子进程的 stdin（没接管则 -1）</li>
+     * </ol>
+     * 起不来返回 -1。
+     * <p>
+     * 顺带把子进程的信号全恢复默认处置：{@code SIG_IGN} 是<b>穿过 exec 继承</b>
+     * 的，而 JVM 把 SIGPIPE / SIGQUIT 设成了忽略——不处理的话
+     * {@code io.popen} 那边该拿的 {@code ("signal",13)} 永远拿不到。
+     */
+    static native long cSpawn(byte[] cmd, boolean outPipe, boolean errPipe,
+            boolean inPipe, long[] fds);
+
+    /** 从 {@link #cSpawn} 交回来的 fd 上读一块；返回字节数，0 是 EOF，负数是出错 */
+    static native int cPipeRead(long fd, byte[] buf);
+
+    /** 往 {@link #cSpawn} 交回来的 fd 上写满 {@code len} 字节；返回实际写入数，负数是出错 */
+    static native int cPipeWrite(long fd, byte[] buf, int off, int len);
+
+    /** 关掉 {@link #cSpawn} 交回来的一个 fd；负数（没接管）直接忽略 */
+    static native void cCloseFd(long fd);
+
     /* ==================== C 内存的生命周期 ==================== */
 
     /**

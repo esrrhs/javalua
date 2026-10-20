@@ -584,8 +584,19 @@ final class Diff {
      * 出错时不带程序名前缀：参考实现的 {@code lua.c} 直接写消息本身
      * （{@code lua_writestringerror("%s\n", msg)}），程序名是 shell 加的。
      */
-    private static String mineRaw(String src) {
-        LuaState L = freshState();
+    /**
+     * 只跑本实现（<b>不</b>比对参考实现），把 stdout 收成字符串。
+     * <p>
+     * 给「两条 io 路径本来就该不一样」的用例用：{@code io}/{@code os} 的兜底
+     * 路径没有 {@code waitpid}，被信号杀死的子进程只能报 {@code ("exit",128+n)}，
+     * 那是 README 里写明的偏离。与其整片跳过，不如照兜底路径自己的期望值断言
+     * ——两条路各有一条真断言。
+     */
+    static String javaOnly(String src) {
+        return mineRaw(resolve(src));
+    }
+
+    private static String mineRaw(String src) {        LuaState L = freshState();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
         L.out = ps;

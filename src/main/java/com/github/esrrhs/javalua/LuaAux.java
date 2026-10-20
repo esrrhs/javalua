@@ -403,6 +403,35 @@ public final class LuaAux {
     }
 
     /**
+     * 把 {@code wait} 系列拿到的<b>原始状态</b>装成 C 的三元组。
+     * <p>
+     * 对应 {@code l_inspectstat} + {@code luaL_execresult} 合起来做的事：
+     * 正常退出给 {@code (true|fail, "exit", 码)}，被信号杀死给
+     * {@code (fail, "signal", 信号号)}。调用方先用 {@code cDecodeStatus} 把
+     * status 拆成这四个值——位布局是平台相关的，必须在 C 侧判。
+     * <p>
+     * {@code os.execute} 与 {@code io.popen} 的 {@code pclose} 共用这一份；
+     * 两边以前各写各的，而 {@code pclose} 那份只会写 {@code "exit"}。
+     */
+    public static void waitStatus(LuaState L, boolean wifexit, int exitCode,
+            boolean wifsig, int termsig) {
+        if (wifexit) {
+            execResult(L, exitCode, 0);
+            return;
+        }
+        if (wifsig) {
+            pushFail(L);
+            L.push(LuaValue.ofString(LuaString.latin1("signal")));
+            L.push(LuaValue.ofInteger(termsig));
+            return;
+        }
+        // stopped / continued 之类在这儿不会出现（waitpid 没带 WUNTRACED）
+        pushFail(L);
+        L.push(LuaValue.ofString(LuaString.latin1("exit")));
+        L.push(LuaValue.ofInteger(1));
+    }
+
+    /**
      * 把 Java 的 {@code IOException} 翻译成 errno。
      * <p>
      * Lua 脚本里 {@code io.open} 失败后要看 {@code errno} 的<b>数值</b>

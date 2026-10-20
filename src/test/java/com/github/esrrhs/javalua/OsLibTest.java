@@ -7,6 +7,8 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 /**
  * os 库的差分用例 —— 阶段 7。
  * <p>
@@ -945,6 +947,91 @@ end
 
 print("END")
 
+                """);
+    }
+
+    /**
+     * 子进程被<b>信号</b>杀掉时 {@code os.execute} 给什么。
+     * <p>
+     * 这一条以前一次都没跑过：{@code ERRORS} 那组只试到 {@code exit 7} 这种
+     * 「正常退出、码不为 0」，而 C 的 {@code l_inspectstat} 是看 wait status
+     * 的低位判 {@code WIFSIGNALED} 的，命中就给
+     * {@code (nil, "signal", 信号编号)}——不是 {@code ("exit", 128+n)}。
+     * 差在两个地方：第二个返回值的字面量，和第三个那个数的含义。
+     * <p>
+     * 拿到原始 status 要靠 JNI 的 {@code waitpid}：{@code Process.waitFor()}
+     * 只回退出码，被信号杀死的进程一律算成非零退出。所以
+     * <ul>
+     *   <li>shim 装得上：与参考实现逐字节比对；</li>
+     *   <li>shim 装不上：<b>不比</b>（那条路给的就是 {@code ("exit", 128+n)}，
+     *       这是 README 里认下来的偏离），改成直接断言兜底路径自己的形状——
+     *       三元组在不在、第二个是不是 {@code "exit"}、码是不是 {@code 128+n}。
+     *       两条路各有一条真断言，没有整片跳过。</li>
+     * </ul>
+     */
+    @Test
+    void signalKilledChildStatus() {
+        String src = """
+                local function show(tag, cmd)
+                  local ok, kind, code = os.execute(cmd)
+                  print(tag, tostring(ok), kind, code)
+                end
+                show("term", "kill -TERM $$")
+                show("kill9", "kill -KILL $$")
+                show("exit3", "exit 3")
+                show("true", "true")
+                """;
+        if (NativeBridge.AVAILABLE) {
+            Diff.assertMatches(src);
+            return;
+        }
+        String out = Diff.javaOnly(src);
+        assertEquals("""
+                term\tnil\texit\t143
+                kill9\tnil\texit\t137
+                exit3\tnil\texit\t3
+                true\ttrue\texit\t0
+                """, out, "兜底路径没有 waitpid：被信号杀死的子进程只能报 (\"exit\", 128+n)");
+    }
+
+    /**
+     * {@code os.rename} 的「目录挪进<b>空</b>目录」那一支。
+     * <p>
+     * 已有的 {@code rn_dir_over_fulldir} 踩的是 ENOTEMPTY，{@code rn_dir_to_file}
+     * 踩的是 ENOTDIR，中间那条「目标是个空目录 → 照 POSIX 成功」从来没走过：
+     * 它要求先把空目录摘掉再挪，不能让 {@code Files.move} 的
+     * {@code REPLACE_EXISTING} 代劳（那个在空目录上会时好时坏地抛
+     * {@code DirectoryNotEmptyException}，见 {@code OsLib.rename} 里的注释）。
+     * 顺带把「同名同 inode」「目标是非空目录」再钉一遍，因为这三条共用一段代码。
+     */
+    @Test
+    void renameDirectoryOntoEmptyDirectoryMatchesReference() {
+        Diff.assertMatches("""
+                local D = "$RT/fkrd"
+                os.execute("rm -rf " .. D .. " && mkdir -p " .. D)
+                local function tree()
+                  os.execute("rm -rf " .. D .. " && mkdir -p " .. D .. "/src "
+                    .. D .. "/dst_empty " .. D .. "/dst_full")
+                  local f = assert(io.open(D .. "/src/inner", "w")); f:write("x"); f:close()
+                  local g = assert(io.open(D .. "/dst_full/other", "w")); g:write("y"); g:close()
+                end
+                local function show(tag, ...)
+                  local r = table.pack(os.rename(...))
+                  print(tag, r.n, tostring(r[1]),
+                        r[2] == nil and "nil" or (tostring(r[2]):gsub(D, "<D>")),
+                        type(r[3]), r[3] == nil and "nil" or tostring(r[3]))
+                end
+                -- 目录 -> 空目录：POSIX 允许，C 成功
+                tree()
+                show("empty", D .. "/src", D .. "/dst_empty")
+                print("empty_src_gone", tostring(io.open(D .. "/src")))
+                -- 目录 -> 非空目录：ENOTEMPTY / ENOTDIR，errno 看内核
+                tree()
+                show("full", D .. "/src", D .. "/dst_full")
+                -- 源和目标同一路径：C 的 rename(a, a) 是成功的 no-op
+                tree()
+                show("same", D .. "/src", D .. "/src")
+                os.execute("rm -rf " .. D)
                 """);
     }
 }
