@@ -291,27 +291,36 @@ final class Api {
         }
     }
 
+    /**
+     * {@code lauxlib.c: check_integer} 那三档，一档都不能合着写：
+     * {@code lua_tointegerx} 失败之后，先看<b>类型</b>再看<b>内容</b>。
+     * <ol>
+     *   <li>本来就是数字（浮点）但没有整数表示 →
+     *       {@code "number has no integer representation"}；</li>
+     *   <li>不是数字也不是字符串 → {@code luaL_typeerror} 的
+     *       {@code "number expected, got X"}；</li>
+     *   <li>是字符串：<b>转不成数字</b>才算 typeerror；转得成数字却没有整数
+     *       表示（{@code '3.5'}）走的是第 1 档那句。</li>
+     * </ol>
+     * 以前这里把字符串单独按「得直接是整数」判，于是 {@code '3.0'} 报
+     * {@code number expected, got string}，而参考实现给 3（{@code lua_tointegerx}
+     * 内部就是「先转数字、再看能不能精确落到整数」）。
+     */
     static long luaL_checkinteger(long L, long arg) {
         LuaState S = st(L);
         LuaValue v = S.arg1((int) arg);
-        if (v.isInteger()) {
-            return v.asInteger();
+        long[] out = new long[1];
+        if (toIntegerExact(v, out)) {
+            return out[0];
         }
-        if (v.isFloat()) {
-            long[] out = new long[1];
-            if (LuaValue.floatToIntExact(v.asFloat(), out)) {
-                return out[0];
-            }
+        int tt = typeOf(S, (int) arg);
+        if (tt == Lua.TNUMBER) {
             throw S.argError((int) arg, "number has no integer representation");
         }
-        if (S.isNoneArg((int) arg)) {
+        if (tt != Lua.TSTRING || Vm.strToNum(v) == null) {
             throw S.typeArgError((int) arg, "number");
         }
-        LuaValue n = v.isString() ? Vm.strToNum(v) : null;
-        if (n != null && n.isInteger()) {
-            return n.asInteger();
-        }
-        throw S.typeArgError((int) arg, "number");
+        throw S.argError((int) arg, "number has no integer representation");
     }
 
     static long luaL_checklstring(long L, long arg, long l) {
