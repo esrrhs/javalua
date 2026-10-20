@@ -1,7 +1,7 @@
 package com.github.esrrhs.javalua;
 
 /**
- * C API 的语义 —— 对应 {@code lapi.c}，{@code luaL_*} 的在 {@link CAux}。
+ * C API 的语义 —— 对应 {@code lapi.c}，{@code luaL_*} 的在 {@link LuaAux}。
  * <p>
  * 由 {@code native/gen_capi.py} <b>初次</b>生成，之后手改：脚本见文件已存在就
  * 跳过，不会覆盖。分发表 {@link CApi} 每次都重新生成，两边靠<b>方法名</b>对上，
@@ -111,7 +111,7 @@ final class Api {
          * 的返回值 C 扩展是拿去和 {@code LUA_OK / LUA_ERRSYNTAX} 比的，
          * 给 2 会被当成别的失败档。
          */
-        return 3; // LUA_ERRSYNTAX
+        return LuaState.LUA_ERRSYNTAX;
     }
 
     /** {@code lua_rotate} 用的原地翻转 */
@@ -255,7 +255,7 @@ final class Api {
          * 不返回。抛出去的 LuaError 会被 shim 接住转成 longjmp——所以这里<b>要</b>
          * 抛，不能只是把消息压栈。
          */
-        String m = extramsg == 0 ? "" : new String(NativeBridge.bytesAt(extramsg));
+        String m = extramsg == 0 ? "" : new String(NativeBridge.bytesAt(extramsg), java.nio.charset.StandardCharsets.ISO_8859_1);
         throw st(L).argError((int) arg, m);
     }
 
@@ -364,7 +364,7 @@ final class Api {
         try {
             grow(S, (int) sz);
         } catch (RuntimeException e) {
-            String m = (msg == 0) ? "" : new String(NativeBridge.bytesAt(msg));
+            String m = (msg == 0) ? "" : new String(NativeBridge.bytesAt(msg), java.nio.charset.StandardCharsets.ISO_8859_1);
             throw S.libError("stack overflow" + (m.isEmpty() ? "" : " (" + m + ")"));
         }
     }
@@ -379,7 +379,7 @@ final class Api {
     static long luaL_checkudata(long L, long ud, long tname) {
         long p = luaL_testudata(L, ud, tname);
         if (p == 0) {
-            String tn = tname == 0 ? "?" : new String(NativeBridge.bytesAt(tname));
+            String tn = tname == 0 ? "?" : new String(NativeBridge.bytesAt(tname), java.nio.charset.StandardCharsets.ISO_8859_1);
             throw st(L).typeArgError((int) ud, tn);
         }
         return p;
@@ -790,7 +790,7 @@ final class Api {
     }
 
     static long luaL_typeerror(long L, long arg, long tname) {
-        String tn = tname == 0 ? "?" : new String(NativeBridge.bytesAt(tname));
+        String tn = tname == 0 ? "?" : new String(NativeBridge.bytesAt(tname), java.nio.charset.StandardCharsets.ISO_8859_1);
         throw st(L).typeArgError((int) arg, tn);
     }
 
@@ -811,7 +811,8 @@ final class Api {
      * <b>这一条曾经是空串桩</b>（TODO 上写着「C2 阶段接上」），而它正是
      * {@code luaL_error} 的第一句——于是所有从 C 扩展里 {@code luaL_error}
      * 出来的消息都没有位置前缀。参考实测（{@code f_where}）从 Lua 函数里
-     * 调进来是 {@code target/rt/case.lua:8: }，我们给空串。
+     * 调进来是 {@code <用例文件>:<行号>: }（差分用例落在
+     * {@code target/rt/<pid>/case.lua}，见测试里的 {@code Diff.RT_ROOT}），我们给空串。
      * <p>
      * 两个容易踩的点：
      * <ol>
