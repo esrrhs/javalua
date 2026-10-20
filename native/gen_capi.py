@@ -28,7 +28,7 @@ import sys
 SRC = os.environ.get("LUA54_SRC", "/tmp/lua-5.4.7/src")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-JAVA_DIR = os.path.join(ROOT, "src/main/java/com/github/esrrhs/fakescript/lua")
+JAVA_DIR = os.path.join(ROOT, "src/main/java/com/github/esrrhs/javalua")
 
 HEADERS = ["lua.h", "lauxlib.h", "lualib.h"]
 
@@ -392,7 +392,7 @@ def decl_of(a):
     return "%s%s %s" % (c, t, a["name"])
 
 
-CAPI_HEAD = '''package com.github.esrrhs.fakescript.lua;
+CAPI_HEAD = '''package com.github.esrrhs.javalua;
 
 /**
  * C API 的分发表 —— 对应 {@code lapi.c} + {@code lauxlib.c}。
@@ -426,7 +426,7 @@ final class CApi {
         switch (id) {
 '''
 
-API_HEAD = '''package com.github.esrrhs.fakescript.lua;
+API_HEAD = '''package com.github.esrrhs.javalua;
 
 /**
  * C API 的语义 —— 对应 {@code lapi.c}，{@code luaL_*} 的在 {@link CAux}。

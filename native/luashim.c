@@ -209,7 +209,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_init(JNIEnv *env, jclass cls) {
+Java_com_github_esrrhs_javalua_NativeBridge_init(JNIEnv *env, jclass cls) {
     g_cls = (*env)->NewGlobalRef(env, cls);
     g_dispatch = (*env)->GetStaticMethodID(env, cls, "dispatch",
             "(IJJJJJJD)J");
@@ -217,7 +217,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_init(JNIEnv *env, jclass cls)
             "(IJJJJJJD)D");
     {
         jclass y = (*env)->FindClass(env,
-                "com/github/esrrhs/fakescript/lua/LuaYield");
+                "com/github/esrrhs/javalua/LuaYield");
         if (y != NULL) {
             g_clsYield = (*env)->NewGlobalRef(env, y);
             (*env)->DeleteLocalRef(env, y);
@@ -249,7 +249,7 @@ static int pending_is_yield(void) {
 }
 
 JNIEXPORT jobject JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_takePending(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_takePending(JNIEnv *env,
         jclass cls) {
     jobject r = NULL;
     (void)cls;
@@ -269,7 +269,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_takePending(JNIEnv *env,
  * 超长才落到堆上。
  */
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeWarn(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_invokeWarn(JNIEnv *env,
         jclass cls, jlong fn, jlong ud, jbyteArray b, jboolean tocont) {
     char small[512];
     char *buf = small;
@@ -309,7 +309,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeWarn(JNIEnv *env,
 
 /** 把本库提升进全局命名空间：System.load 用的是 RTLD_LOCAL，不提升扩展就找不到 */
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlopen(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_dlopen(JNIEnv *env,
         jclass cls, jstring path, jboolean global) {
     (void)cls;
     const char *p = (*env)->GetStringUTFChars(env, path, NULL);
@@ -319,7 +319,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlopen(JNIEnv *env,
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlsym(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_dlsym(JNIEnv *env,
         jclass cls, jlong h, jstring name) {
     (void)cls;
     const char *n = (*env)->GetStringUTFChars(env, name, NULL);
@@ -329,7 +329,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlsym(JNIEnv *env,
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlerror(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_dlerror(JNIEnv *env,
         jclass cls) {
     (void)cls;
     const char *e = dlerror();
@@ -341,7 +341,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dlerror(JNIEnv *env,
  * 返回：>=0 是结果个数；-1 是 longjmp（lua_error）；-2 是 yield。
  */
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeC(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_invokeC(JNIEnv *env,
         jclass cls, jlong fn, jlong L) {
     (void)cls;
     if (fn == 0) {
@@ -370,7 +370,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeC(JNIEnv *env,
  * 再 {@code lua_yieldk}、照样可以抛错。返回码与 {@code invokeC} 同义。
  */
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeK(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_invokeK(JNIEnv *env,
         jclass cls, jlong fn, jlong L, jint status, jlong ctx) {
     (void)cls;
     if (fn == 0) {
@@ -393,7 +393,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_invokeK(JNIEnv *env,
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_alloc(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_alloc(JNIEnv *env,
         jclass cls, jlong n) {
     (void)env;
     (void)cls;
@@ -401,7 +401,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_alloc(JNIEnv *env,
 }
 
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_free(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_free(JNIEnv *env,
         jclass cls, jlong p) {
     (void)env;
     (void)cls;
@@ -409,7 +409,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_free(JNIEnv *env,
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_bytesAt(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_bytesAt(JNIEnv *env,
         jclass cls, jlong p) {
     (void)cls;
     if (p == 0) {
@@ -424,7 +424,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_bytesAt(JNIEnv *env,
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_bytesAtN(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_bytesAtN(JNIEnv *env,
         jclass cls, jlong p, jint n) {
     (void)cls;
     if (p == 0 || n < 0) {
@@ -439,7 +439,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_bytesAtN(JNIEnv *env,
 
 /** 拷进环形缓冲，返回 NUL 结尾的 C 串地址 */
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_strToNative(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_strToNative(JNIEnv *env,
         jclass cls, jbyteArray b) {
     (void)cls;
     if (b == NULL) {
@@ -461,7 +461,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_strToNative(JNIEnv *env,
  * 不能用环形缓冲（见 ring_put 的注释）。
  */
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_putBytes(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_putBytes(JNIEnv *env,
         jclass cls, jlong p, jbyteArray b) {
     (void)cls;
     if (p == 0 || b == NULL) {
@@ -478,7 +478,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_putBytes(JNIEnv *env,
 }
 
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_put64(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_put64(JNIEnv *env,
         jclass cls, jlong p, jlong v) {
     (void)env;
     (void)cls;
@@ -488,7 +488,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_put64(JNIEnv *env,
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_get64(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_get64(JNIEnv *env,
         jclass cls, jlong p) {
     (void)env;
     (void)cls;
@@ -496,7 +496,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_get64(JNIEnv *env,
 }
 
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_put32(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_put32(JNIEnv *env,
         jclass cls, jlong p, jint v) {
     (void)env;
     (void)cls;
@@ -506,7 +506,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_put32(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_get32(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_get32(JNIEnv *env,
         jclass cls, jlong p) {
     (void)env;
     (void)cls;
@@ -515,7 +515,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_get32(JNIEnv *env,
 
 /** {@code sizeof(lua_Debug)}：Java 侧要给 C 的钩子分配一块，尺寸不能猜 */
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgSize(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_dbgSize(JNIEnv *env,
         jclass cls) {
     (void)env;
     (void)cls;
@@ -528,7 +528,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgSize(JNIEnv *env,
  * {@code L} 去调别的 {@code lua_*} 的 writer 就当场崩了。
  */
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_statePtr(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_statePtr(JNIEnv *env,
         jclass cls, jlong idx) {
     (void)env;
     (void)cls;
@@ -537,7 +537,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_statePtr(JNIEnv *env,
 
 /** 回调任意 C 函数指针：reader / writer / hook / alloc / 续体都走这一条 */
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_callPtr(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_callPtr(JNIEnv *env,
         jclass cls, jlong fn, jlong a0, jlong a1, jlong a2, jlong a3) {
     (void)env;
     (void)cls;
@@ -1136,7 +1136,7 @@ LUALIB_API void (luaL_pushresultsize) (luaL_Buffer *B, size_t sz) {
 
 /** 给 Java 用：往 luaL_Buffer 里追加字节 */
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_bufAppend(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_bufAppend(JNIEnv *env,
         jclass cls, jlong bp, jbyteArray b) {
     (void)cls;
     luaL_Buffer *B = (luaL_Buffer *)(intptr_t)bp;
@@ -1229,7 +1229,7 @@ static int luashim_panic(lua_State *L) {
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_defaultPanic(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_defaultPanic(JNIEnv *env,
         jclass cls) {
     (void)env;
     (void)cls;
@@ -1292,7 +1292,7 @@ static const struct {
 
 /** 把 Java 给的 DBG_N 个值按各自宽度写进 lua_Debug */
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgFill(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_dbgFill(JNIEnv *env,
         jclass cls, jlong arp, jlongArray vals) {
     (void)cls;
     char *ar = (char *)(intptr_t)arp;
@@ -1322,7 +1322,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgFill(JNIEnv *env,
 
 /** short_src 是定长数组，单独拷 */
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgShortSrc(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_dbgShortSrc(JNIEnv *env,
         jclass cls, jlong arp, jbyteArray b) {
     (void)cls;
     char *ar = (char *)(intptr_t)arp;
@@ -1348,7 +1348,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_dbgShortSrc(JNIEnv *env,
 /* ==================== C FILE* 操作 ==================== */
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFopen(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFopen(JNIEnv *env,
         jclass cls, jbyteArray path, jbyteArray mode) {
     (void)cls;
     jsize pathLen = (*env)->GetArrayLength(env, path);
@@ -1372,7 +1372,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFopen(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFclose(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFclose(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     if (f == 0) return -1;
@@ -1380,7 +1380,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFclose(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFread(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFread(JNIEnv *env,
         jclass cls, jlong f, jbyteArray buf, jint off, jint len) {
     (void)cls;
     jbyte *tmp = (*env)->GetByteArrayElements(env, buf, NULL);
@@ -1390,7 +1390,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFread(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFwrite(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFwrite(JNIEnv *env,
         jclass cls, jlong f, jbyteArray buf, jint off, jint len) {
     (void)cls;
     jbyte *tmp = (*env)->GetByteArrayElements(env, buf, NULL);
@@ -1400,49 +1400,49 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFwrite(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFseek(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFseek(JNIEnv *env,
         jclass cls, jlong f, jlong offset, jint whence) {
     (void)env; (void)cls;
     return fseeko((FILE *)(intptr_t)f, (off_t)offset, whence);
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFtell(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFtell(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return (jlong)ftello((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFflush(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFflush(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return fflush((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFerror(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFerror(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return ferror((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cClearerr(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cClearerr(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     clearerr((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFeof(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFeof(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return feof((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFgets(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFgets(JNIEnv *env,
         jclass cls, jlong f, jint maxLen) {
     (void)cls;
     char *buf = (char *)malloc((size_t)maxLen + 1);
@@ -1458,21 +1458,21 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFgets(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFgetc(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFgetc(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return fgetc((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFputc(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFputc(JNIEnv *env,
         jclass cls, jlong f, jint c) {
     (void)env; (void)cls;
     return fputc(c, (FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cPopen(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cPopen(JNIEnv *env,
         jclass cls, jbyteArray cmd, jbyteArray mode) {
     (void)cls;
     jsize cmdLen = (*env)->GetArrayLength(env, cmd);
@@ -1496,28 +1496,28 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cPopen(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cPclose(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cPclose(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return pclose((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cFileno(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cFileno(JNIEnv *env,
         jclass cls, jlong f) {
     (void)env; (void)cls;
     return fileno((FILE *)(intptr_t)f);
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cSizeofLuaLStream(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cSizeofLuaLStream(JNIEnv *env,
         jclass cls) {
     (void)env; (void)cls;
     return (jlong)(sizeof(FILE *) + sizeof(void (*)(void)));
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cNewLuaLStream(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cNewLuaLStream(JNIEnv *env,
         jclass cls, jlong filePtr, jlong closefPtr) {
     (void)env; (void)cls;
     void **p = (void **)calloc(2, sizeof(void *));
@@ -1528,7 +1528,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cNewLuaLStream(JNIEnv *env,
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStreamGetF(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cStreamGetF(JNIEnv *env,
         jclass cls, jlong streamPtr) {
     (void)env; (void)cls;
     if (streamPtr == 0) return 0;
@@ -1537,7 +1537,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStreamGetF(JNIEnv *env,
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStdStream(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cStdStream(JNIEnv *env,
         jclass cls, jint which) {
     (void)env; (void)cls;
     switch (which) {
@@ -1549,7 +1549,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cStdStream(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cGetErrno(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cGetErrno(JNIEnv *env,
         jclass cls) {
     (void)env; (void)cls;
     return (jint)errno;
@@ -1563,7 +1563,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cGetErrno(JNIEnv *env,
  * {@code GetByteArrayRegion}），不能直接存指针。
  */
 JNIEXPORT jbyteArray JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cSetlocale(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale(JNIEnv *env,
         jclass cls, jint category, jbyteArray locale) {
     (void)cls;
     const char *loc = NULL;
@@ -1601,7 +1601,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cSetlocale(JNIEnv *env,
  * 走的就是这条路（{@code loslib.c: os_execute} → {@code luaL_execresult}）。
  */
 JNIEXPORT jint JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cWaitpid(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cWaitpid(JNIEnv *env,
         jclass cls, jlong pid, jlongArray statusOut) {
     (void)cls;
     int status = 0;
@@ -1624,7 +1624,7 @@ Java_com_github_esrrhs_fakescript_lua_NativeBridge_cWaitpid(JNIEnv *env,
  * {@code [wifexit, wexit, wifsig, wtermsig]}。
  */
 JNIEXPORT void JNICALL
-Java_com_github_esrrhs_fakescript_lua_NativeBridge_cDecodeStatus(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cDecodeStatus(JNIEnv *env,
         jclass cls, jint status, jlongArray out) {
     (void)cls;
     jlong vals[4];

@@ -1,8 +1,8 @@
-import com.github.esrrhs.fakescript.lua.LuaState;
-import com.github.esrrhs.fakescript.lua.LuaLibs;
-import com.github.esrrhs.fakescript.lua.LuaValue;
-import com.github.esrrhs.fakescript.lua.LuaString;
-import com.github.esrrhs.fakescript.lua.LuaError;
+import com.github.esrrhs.javalua.LuaState;
+import com.github.esrrhs.javalua.LuaLibs;
+import com.github.esrrhs.javalua.LuaValue;
+import com.github.esrrhs.javalua.LuaString;
+import com.github.esrrhs.javalua.LuaError;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;

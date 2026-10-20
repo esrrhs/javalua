@@ -40,14 +40,14 @@ javalua 是对 Lua 5.4 参考实现的逐模块移植。现有 Lua 5.4 程序可
 <dependency>
   <groupId>com.github.esrrhs</groupId>
   <artifactId>javalua</artifactId>
-  <version>1.0.16</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 
 ```java
-import com.github.esrrhs.fakescript.lua.LuaLibs;
-import com.github.esrrhs.fakescript.lua.LuaState;
-import com.github.esrrhs.fakescript.lua.LuaValue;
+import com.github.esrrhs.javalua.LuaLibs;
+import com.github.esrrhs.javalua.LuaState;
+import com.github.esrrhs.javalua.LuaValue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -77,7 +77,7 @@ L.close();
 sh native/build.sh
 ```
 
-也可以在启动时用 `-Dfakescript.luashim=/path/to/libluashim.so` 指定自定义
+也可以在启动时用 `-Djavalua.luashim=/path/to/libluashim.so` 指定自定义
 构建。加载 shim 后，`require("lpeg")` 和
 `package.loadlib(path, "luaopen_x")` 的行为与 C Lua 一致。没有 shim 时，
 纯 Lua 代码不受影响，`package.loadlib` 会返回
@@ -145,7 +145,7 @@ LUA54_BIN=$PWD/lua-5.4.7/src/lua ./mvnw test
 
 | 路径 | 内容 |
 |---|---|
-| `src/main/java/com/github/esrrhs/fakescript/lua/` | 词法、语法、代码生成、虚拟机、状态、元方法、标准库 |
+| `src/main/java/com/github/esrrhs/javalua/` | 词法、语法、代码生成、虚拟机、状态、元方法、标准库 |
 | `native/` | `luashim.c`、生成的 C API stub、构建脚本 |
 | `src/test/java/...` | 单元、差分、fuzz 和原生扩展测试 |
 | `benchmark/` | 独立的 Lua 基准脚本 |

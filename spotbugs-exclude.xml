@@ -2,9 +2,9 @@
 <FindBugsFilter>
     <!-- 生成代码,不检查 -->
     <Match>
-        <Class name="~com\.github\.esrrhs\.fakescript\.YYParser.*"/>
+        <Class name="~com\.github\.esrrhs\.javalua\.YYParser.*"/>
     </Match>
     <Match>
-        <Class name="com.github.esrrhs.fakescript.Yylex"/>
+        <Class name="com.github.esrrhs.javalua.Yylex"/>
     </Match>
 </FindBugsFilter>
