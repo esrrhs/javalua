@@ -71,9 +71,11 @@ public final class Parser {
     /**
      * 解析一段源码，返回主函数的原型。
      * <p>
-     * 上游这里返回的是带一个 upvalue（{@code _ENV}）的 {@code LClosure}；
-     * 闭包是阶段 2 后半的内容，先把 {@link Proto} 交出来，等 {@code LClosure}
-     * 落地后再套一层。
+     * 上游这里返回的是带一个 upvalue（{@code _ENV}）的 {@code LClosure}。
+     * 本实现把「套上 {@code _ENV}」留在装载处（{@code LuaState} 里
+     * {@code new LClosure(p, 1)} 那一段），因为那里才知道该关进哪个全局表；
+     * 解析器只管交出 {@link Proto}，与被 {@code LuaState} 包住的那条
+     * 带 {@code L} 的重载是同一件事。
      */
     public static Proto parse(byte[] data, byte[] chunkName, StringPool strings) {
         return parse(new Zio(data), chunkName, strings);

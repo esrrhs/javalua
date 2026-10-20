@@ -702,7 +702,8 @@ public final class DebugLib {
             } else {
                 v = new LuaValue(L1.stack[--L1.top]);
             }
-            L.push((name == null) ? LuaValue.ofNil() : LuaValue.ofString(LuaString.utf8(name)));
+            // name 在上面的 if 里已判过非空
+            L.push(LuaValue.ofString(LuaString.utf8(name)));
             L.push(v);
             return 2;
         }

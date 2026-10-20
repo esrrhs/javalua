@@ -9,21 +9,23 @@ import java.util.List;
 /**
  * package 库与 {@code require} —— 对应 {@code loadlib.c}。
  * <p>
- * 与 {@code io} 那类库不同，这里<b>没有 libc 可借</b>：{@code dlopen} /
- * {@code dlsym} 在 JVM 上没有对应物（真要接得走 JNI 或 FFI，那是另一个工程）。
- * 所以 C 搜索器走的是 {@code loadlib.c} 里那段「未启用动态库」的兜底分支——
- * 不是偷懒，那就是 C 版在这种平台上的真实行为。
+ * C 模块这条路由 {@code io} 那套 shim 决定成败：shim 装得上时
+ * {@link #lookForFunc} 真的调 {@code dlopen} / {@code dlsym}，符号地址包成
+ * {@link LuaNativeFunction} 交给 Lua，与参考实现同一条路径；shim 装不上
+ * （{@code -Djavalua.nonative=true}，或机器上没有 {@code luashim}）时，C 搜索器
+ * 退回 {@code loadlib.c} 里「未启用动态库」的兜底分支——那不是偷懒，那就是
+ * C 版在没有 {@code dlopen} 的平台上的真实行为。
  * <p>
- * 与参考实现<b>不一致</b>的地方（参考二进制是用 {@code dlopen} 编出来的）：
+ * 兜底分支与参考实现（用 {@code dlopen} 编出来的二进制）<b>不一致</b>的地方：
  * <ul>
  *   <li>{@code package.loadlib} 的第二个返回值是
  *       {@code "dynamic libraries not enabled; check your Lua installation"}
  *       而不是 {@code dlerror()} 的文本（第三个返回值 {@code "open"} 是
  *       一致的，实测过）；</li>
- *   <li>{@code require} 一个真能找到 {@code .so} 的模块时，本实现会停在
- *       「动态库未启用」这一步，参考实现会真的去 {@code dlopen}。</li>
+ *   <li>{@code require} 一个真能找到 {@code .so} 的模块时，兜底分支停在
+ *       「动态库未启用」，参考实现会真的去 {@code dlopen}。</li>
  * </ul>
- * 两者都只影响 C 模块；纯 Lua 的 {@code require} 逐字节一致。
+ * 两者都只影响 C 模块；纯 Lua 的 {@code require} 逐字节一致，与 shim 在不在无关。
  */
 public final class PackageLib {
 
@@ -70,14 +72,16 @@ public final class PackageLib {
     private static final String CPATH_DEFAULT = "/usr/local/lib/lua/5.4/?.so;"
             + "/usr/local/lib/lua/5.4/loadall.so;./?.so";
 
-    /** 未启用动态库时的消息（{@code loadlib.c} 兜底分支的 {@code DLMSG}） */
+    /** shim 装不上时才用这条消息（{@code loadlib.c} 兜底分支的 {@code DLMSG}） */
     private static final String DLMSG =
             "dynamic libraries not enabled; check your Lua installation";
 
     /**
      * {@code LIB_FAIL}：{@code lookforfunc} 返回 {@code ERRLIB}（库打不开）时的
-     * 第三个返回值。启用 dlopen 的构建里是 {@code "open"}；本实现没有动态库，
-     * 失败一律发生在「打开」这一步，所以也必须是 {@code "open"}。
+     * 第三个返回值。启用 dlopen 的构建里是 {@code "open"}；兜底分支把它定义成
+     * {@code "absent"}，但那只改这一个常量，{@code ERRFUNC} 那支的
+     * {@code "init"} 没动。本实现照 {@code "open"} 写：走 dlopen 时本来就该是
+     * {@code "open"}，走兜底时参考实现在同一台机器上也给 {@code "open"}。
      */
     private static final String LIB_FAIL = "open";
 
@@ -370,9 +374,11 @@ public final class PackageLib {
          * <p>
          * 之前这里写死 {@code "absent"}，是因为照兜底分支的 {@code LIB_FAIL}
          * 记的；实测（参考二进制，macOS + dlopen）：库打不开给 {@code "open"}，
-         * 而库能打开、符号找不到给 {@code "init"}。本实现的
-         * {@code lookForFunc} 恒返回 {@code ERRLIB}，所以这一支走不到——
-         * 照样照 C 写，免得哪天真接上 dlopen 时对不上。
+         * 而库能打开、符号找不到给 {@code "init"}。{@code lookForFunc} 走
+         * dlopen 时两支都到得了，只有 shim 装不上时才恒停在 {@code ERRLIB}，
+         * 所以按 C 的写法两支都得保住——{@code PackageLibTest} 里
+         * {@code ll_empty} 那条专门踩 {@code "init"}（glibc 的
+         * {@code dlopen("")} 打开主程序、成功，于是往下在 {@code dlsym} 上失败）。
          */
         L.push(LuaValue.ofString(LuaString.latin1(stat == ERRLIB ? LIB_FAIL : "init")));
         return 3;
