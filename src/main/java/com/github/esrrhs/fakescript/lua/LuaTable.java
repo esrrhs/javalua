@@ -614,10 +614,9 @@ public final class LuaTable {
                 return;
             }
         }
-        // 哈希部分：找到就清空整个节点（键和值都设为 nil）
+        // 哈希部分：找到就只清空值，保留键以维持哈希链结构
         int idx = findNodeIndex(key);
         if (idx >= 0) {
-            node[idx].setKeyNil();
             node[idx].setValNil();
         }
         // 键不存在：什么都不做（与 C Lua 一致）
