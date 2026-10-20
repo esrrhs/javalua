@@ -282,7 +282,7 @@ class NativeExtTest {
             return null;
         }
         try {
-            File dir = new File("target/rt");
+            File dir = new File(Diff.SCRATCH);
             if (!dir.isDirectory() && !dir.mkdirs()) {
                 return null;
             }

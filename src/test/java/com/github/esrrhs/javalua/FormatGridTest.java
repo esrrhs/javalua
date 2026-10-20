@@ -71,7 +71,7 @@ class FormatGridTest {
 
     @BeforeAll
     static void prepare() {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /** 动词 × 标志 × 宽度 × 精度 × 值。 */

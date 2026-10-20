@@ -73,7 +73,7 @@ class DebugGridTest {
 
     @BeforeAll
     static void prepare() {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /** 主网格：16 段 559 行。 */

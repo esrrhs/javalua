@@ -40,7 +40,7 @@ class ArithGridTest {
 
     @BeforeAll
     static void prepare() {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /** 运算符 × 操作数类型 的全网格。 */
@@ -82,7 +82,7 @@ for oi = 1, #BIN do
         print("B" .. oi .. "_" .. V[ai][1] .. "_" .. V[bi][1], "ok", sh(r))
       else
         print("B" .. oi .. "_" .. V[ai][1] .. "_" .. V[bi][1], "err",
-              tostring(r):gsub("^target/rt/case.lua:%d+: ", ""))
+              tostring(r):gsub("^" .. arg[0] .. ":%d+: ", ""))
       end
     end
   end
@@ -104,7 +104,7 @@ for ui = 1, #UN do
       print("U" .. UN[ui][1] .. "_" .. V[vi][1], "ok", sh(r))
     else
       print("U" .. UN[ui][1] .. "_" .. V[vi][1], "err",
-            tostring(r):gsub("^target/rt/case.lua:%d+: ", ""))
+            tostring(r):gsub("^" .. arg[0] .. ":%d+: ", ""))
     end
   end
 end
@@ -127,7 +127,7 @@ for pi = 1, #N do
     local f = load("local a, b = ... return a " .. OPS2[oi][2] .. " b", "=p")
     local ok, r = pcall(f, N[pi][1], N[pi][2])
     print("P" .. pi .. "_" .. OPS2[oi][1], ok and "ok" or "err",
-          ok and sh(r) or tostring(r):gsub("^target/rt/case.lua:%d+: ", ""))
+          ok and sh(r) or tostring(r):gsub("^" .. arg[0] .. ":%d+: ", ""))
   end
 end
 

@@ -443,7 +443,8 @@ class CoroutineTest {
                 end
               end)
             end
-            -- 用不了 table.concat / io.write：这两个属于标准库阶段，还没实现
+            -- 只用手写的字符串拼接：这条测的是「嵌套 wrap 能不能 yield 透」，
+            -- 别让 table.concat 的迭代器协议混进同一条失败里
             local out = ""
             for x in walk({1, {2, 3}, {4, {5}}}) do out = out .. tostring(x) .. " " end
             print(out)

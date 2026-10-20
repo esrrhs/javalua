@@ -154,7 +154,7 @@ class DumpTest {
 
             """
             -- 二进制 chunk 落盘再由 loadfile / dofile 读回来
-            local p = "/tmp/fkdump_f1.luac"
+            local p = "$RT/fkdump_f1.luac"
             local f = io.open(p, "wb")
             f:write(string.dump(function() return 99 end))
             f:close()
@@ -240,8 +240,8 @@ class DumpTest {
 
     /* ==================== 产物逐字节比 ==================== */
 
-    private static final String REF_BIN = "target/rt/dump_ref.bin";
-    private static final String MINE_BIN = "target/rt/dump_mine.bin";
+    private static final String REF_BIN = Diff.SCRATCH + "/dump_ref.bin";
+    private static final String MINE_BIN = Diff.SCRATCH + "/dump_mine.bin";
 
     @Test
     void dumpBytesMatchReference() throws Exception {
@@ -285,7 +285,7 @@ class DumpTest {
                 "string.dump 的产物与参考实现不一致：" + name);
     }
 
-    private static final String GRID_BIN = "target/rt/dumpgrid.bin";
+    private static final String GRID_BIN = Diff.SCRATCH + "/dumpgrid.bin";
 
     /**
      * 字节对撞的<b>全语法语料</b>（约 360 条函数 × {@code strip} 真/假）。
@@ -314,7 +314,7 @@ class DumpTest {
      */
     @Test
     void dumpBytesGridMatchReference() throws Exception {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
         // 两边都从 CASE_PATH 跑：dump 里存着源名，源名就是 chunk 名
         String refOut = Diff.ref(GRID_SCRIPT);
         byte[] ref = Files.readAllBytes(Paths.get(GRID_BIN));
@@ -550,7 +550,7 @@ for _, n in ipairs({ 1, 50, 51, 100, 2000 }) do
 end
 
 -- 每条 dump 成「长度前缀 + 内容」的记录，便于定位哪一条不一致
-local out = assert(io.open("target/rt/dumpgrid.bin", "wb"))
+local out = assert(io.open("$RT/dumpgrid.bin", "wb"))
 local n = 0
 for i = 1, #FS do
   local f, err = load("return " .. FS[i])

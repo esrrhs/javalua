@@ -66,7 +66,7 @@ class ErrorPropagationTest {
 
     @BeforeAll
     static void prepare() {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /** 片一：错误对象 x 传播上下文（413 行）。 */

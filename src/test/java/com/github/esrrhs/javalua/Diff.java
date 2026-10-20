@@ -28,12 +28,32 @@ import java.nio.file.Files;
 final class Diff {
 
     /**
-     * 脚本路径固定为 {@code target/rt/case.lua}。
+     * 本 JVM 独占的临时目录 —— <b>按进程号分开</b>，不是写死一个。
+     * <p>
+     * 之前它写死成 {@code target/rt}：两个 {@code mvn test} 同时跑（本地手开一个、
+     * 后台还有一个，或者 IDE 与命令行撞车）就会互相踩。踩法很难查——脚本文件
+     * {@code case.lua} 被另一个 JVM 换成它自己的用例，于是本实现跑 A、参考实现
+     * 跑 B，红的是<b>完全无辜</b>的那一批用例；更糟的是 LoadTest 那类
+     * 「写完→读→{@code os.remove}」的脚本会把对方的临时文件删掉，症状变成
+     * 「{@code utf8.charpattern} 那条用例报 cannot open /tmp/fkld_f2.lua」。
+     * 实测一次误诊花掉一小时，所以这一层隔离是<b>买断</b>这类假红的。
+     * <p>
+     * 目录留在 {@code target/} 下而不是 {@code java.io.tmpdir}：{@code mvn clean}
+     * 顺手清掉，且路径短（见 {@link #CASE_PATH}）。
+     */
+    /** 临时目录的公共前缀；{@code target} 由 {@code mvn clean} 一起清掉 */
+    private static final String RT_ROOT = "target/rt";
+
+    static final String SCRATCH = RT_ROOT + "/" + ProcessHandle.current().pid();
+
+    /**
+     * 脚本路径固定为 {@code <SCRATCH>/case.lua}（每个 JVM 一份，见
+     * {@link #SCRATCH}）。
      * <p>
      * 不能换成随机临时文件：参考实现的 {@code luaO_chunkid} 会把过长的源名
      * 从左边截成 {@code ...xxx}，两边一截就没得比了。
      */
-    static final String CASE_PATH = "target/rt/case.lua";
+    static final String CASE_PATH = SCRATCH + "/case.lua";
 
     /**
      * 传给本实现的 chunk 名<b>带 {@code @}</b>，与参考实现一致。
@@ -46,7 +66,26 @@ final class Diff {
      */
     static final String CHUNK = "@" + CASE_PATH;
 
+    /**
+     * 脚本里表示临时目录的占位符。
+     * <p>
+     * 用例文本里写 {@code "$RT/fkio_open1.txt"}，{@link #resolve} 在跑之前换成
+     * {@link #SCRATCH}。之所以要占位符而不是 Java 常量拼接：脚本是文本块，
+     * 拼常量会把可读性拆掉；而路径<b>必须</b>两边同一串——它出现在错误消息里。
+     */
+    static final String RT_MARK = "$RT";
+
+    static {
+        // 脚本用 io.open 往 $RT 下写文件时，Lua 不会建父目录，先备好
+        new File(SCRATCH).mkdirs();
+    }
+
     private Diff() {
+    }
+
+    /** 把 {@link #RT_MARK} 换成本 JVM 的临时目录 */
+    private static String resolve(String src) {
+        return src.replace(RT_MARK, SCRATCH);
     }
 
     /**
@@ -58,6 +97,7 @@ final class Diff {
      */
     static void assertMatches(String src) {
         requireReference();
+        src = resolve(src);
         String raw = refRaw(src);
         assertEquals(true, !raw.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
@@ -129,6 +169,7 @@ final class Diff {
      */
     static void assertFullMatches(String src) {
         requireReference();
+        src = resolve(src);
         String r = normalize(refRaw(src), false);
         assertEquals(true, !r.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
@@ -151,8 +192,35 @@ final class Diff {
         String r = normalize(refFileRaw(dir, name), false);
         assertEquals(true, !r.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。file: " + name);
-        assertEquals(r, normalize(mineFileRaw(dir, name), false),
-                "file: " + name + "\n见 target/rt/" + name + ".ref 与 .mine");
+        String m = normalize(mineFileRaw(dir, name), false);
+        /*
+         * 红的时候把两份输出落到文件里。
+         * <p>
+         * 上游那批用例（{@code errors.lua}、{@code files.lua}）一跑就是几百行
+         * 输出，AssertionError 里塞不下、也看不出<b>从哪一行开始</b>不一样；
+         * 落成两个文件之后 {@code diff -u} 一眼定位。
+         */
+        if (!r.equals(m)) {
+            dump(name + ".ref", r);
+            dump(name + ".mine", m);
+        }
+        assertEquals(r, m, "file: " + name
+                + "\n两份输出见 " + SCRATCH + "/" + name + ".ref 与 .mine");
+    }
+
+    /** 把一份输出写到 {@link #SCRATCH} 下；写失败不影响判定 */
+    private static void dump(String name, String content) {
+        try {
+            /*
+             * 按 Latin-1 落盘：比对用的字符串是字节摊出来的（见
+             * {@link #latin1}），按 UTF-8 写会把上游输出里的非法字节
+             * 换成 U+FFFD，而 diff 要看的正是那些字节。
+             */
+            Files.write(new File(SCRATCH, name).toPath(),
+                    content.getBytes(StandardCharsets.ISO_8859_1));
+        } catch (java.io.IOException ignored) {
+            // 只是调试产物，落不下去就算了，不能因此改变用例结论
+        }
     }
 
     /**
@@ -164,6 +232,7 @@ final class Diff {
      */
     static void assertMatchesWithStdin(String src, String stdin) {
         requireReference();
+        src = resolve(src);
         String r = normalize(refRawWithStdin(src, stdin), false);
         assertEquals(true, !r.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
@@ -184,6 +253,7 @@ final class Diff {
     /** 只比对第一行（回溯与后续内容不可比时用） */
     static void assertFirstLineMatches(String src) {
         requireReference();
+        src = resolve(src);
         String r = ref(src);
         assertEquals(true, !r.isEmpty(),
                 "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
@@ -207,7 +277,7 @@ final class Diff {
 
     /** 在参考实现上跑一段脚本，返回归一化后的输出（剥回溯） */
     static String ref(String src) {
-        return normalize(refRaw(src), true);
+        return normalize(refRaw(resolve(src)), true);
     }
 
     /** 在参考实现上跑一段脚本，返回原始输出 */
@@ -236,7 +306,7 @@ final class Diff {
      * 漏的那次表现为「只有地址不同」的假红。
      */
     static String mine(String src) {
-        return normalize(mineRaw(src), true);
+        return normalize(mineRaw(resolve(src)), true);
     }
 
     /** 在参考实现上跑一个文件：工作目录设为用例目录，参考实现才有 {@code ./?.lua} */
@@ -264,6 +334,27 @@ final class Diff {
         return mineFileRaw(dir, name);
     }
 
+    /**
+     * 建一个「刚启动的新进程」该有的状态。
+     * <p>
+     * 那句把 {@code LC_ALL} 拉回 "C" 不是保险丝，是<b>必需</b>的：locale 是 libc
+     * 的<b>进程级</b>状态，而上游 {@code literals.lua} 会
+     * {@code os.setlocale("pt_BR")} 并且<b>不</b>还原——C 那边每份用例都是独立
+     * 进程，还不还原都一样。surefire 默认把全部类塞进同一个 fork，于是它一跑完，
+     * 排在后面的用例在我们这边就是在逗号区域里执行的：{@code tonumber("3.4")}
+     * 照样成、{@code tostring(3.0)} 却成了 "3,0"，而参考实现那边仍是 "C"。
+     * 症状是<b>随机一条</b>红（谁排在它后面谁倒霉），跟当次改动毫无关系——
+     * 之前那条复现不了的 IoLibTest 失败就是这么来的。
+     */
+    private static LuaState freshState() {
+        if (NativeBridge.AVAILABLE) {
+            NativeBridge.cSetlocale(0, "C".getBytes(StandardCharsets.UTF_8)); // LC_ALL
+        }
+        LuaState L = new LuaState();
+        LuaLibs.openAll(L);
+        return L;
+    }
+
     /** 在本实现上跑一个文件，返回<b>原始</b>输出 */
     private static String mineFileRaw(File dir, String name) {
         File f = new File(dir, name);
@@ -273,8 +364,7 @@ final class Diff {
         } catch (java.io.IOException e) {
             throw new AssertionError("读不到用例文件：" + f, e);
         }
-        LuaState L = new LuaState();
-        LuaLibs.openAll(L);
+        LuaState L = freshState();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
         L.out = ps;
@@ -495,8 +585,7 @@ final class Diff {
      * （{@code lua_writestringerror("%s\n", msg)}），程序名是 shell 加的。
      */
     private static String mineRaw(String src) {
-        LuaState L = new LuaState();
-        LuaLibs.openAll(L);
+        LuaState L = freshState();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
         L.out = ps;
@@ -506,8 +595,7 @@ final class Diff {
     }
 
     private static String mineRawWithStdin(String src, String stdin) {
-        LuaState L = new LuaState();
-        LuaLibs.openAll(L);
+        LuaState L = freshState();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
         L.out = ps;

@@ -42,7 +42,7 @@ class PatternGridTest {
 
     @BeforeAll
     static void prepare() {
-        new File("target/rt").mkdirs();
+        new File(Diff.SCRATCH).mkdirs();
     }
 
     /** 片一：字符类 x 量词 x 构造 x 五个出口（约 16900 行）。 */

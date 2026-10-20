@@ -1281,7 +1281,7 @@ class NativeApiTest {
             "local g, st = n.load('return 7')",
             "print(st, type(g), g and g())"},
         {"luaL_loadfilex",
-            "local fn = 'target/rt/loadme.lua'",
+            "local fn = '$RT/loadme.lua'",
             "local f = assert(io.open(fn, 'wb'))",
             "f:write('#!/usr/bin/lua\\nreturn 42\\n')",
             "f:close()",
@@ -1292,7 +1292,7 @@ class NativeApiTest {
             "f2:close()",
             "local g2, st2 = n.loadfilex(fn)",
             "print(st2, type(g2), g2 and g2())",
-            "local g3, st3 = n.loadfilex('target/rt/nope.lua')",
+            "local g3, st3 = n.loadfilex('$RT/nope.lua')",
             "print(st3, type(g3), tostring(g3))",
             "local g4, st4 = n.loadfilex(fn, 'b')",
             "print(st4, type(g4), tostring(g4))"},
@@ -1739,7 +1739,7 @@ class NativeApiTest {
             return null;
         }
         try {
-            File dir = new File("target/rt");
+            File dir = new File(Diff.SCRATCH);
             if (!dir.isDirectory() && !dir.mkdirs()) {
                 return null;
             }
