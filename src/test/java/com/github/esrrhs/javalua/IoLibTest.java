@@ -17,8 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *   <li><b>不比对地址</b>。{@code print(io.stdout)} 给的是
  *       {@code file (0x...)}，两边不可能相同，差分比对会把它抹成
  *       {@code 0xADDR}——所以这种用例只验证「形状」，验证不了数值。</li>
- *   <li><b>不比对 {@code io.popen} 拿 errno 的路径</b>：Java 起进程失败的
- *       errno 与 C 的 {@code popen} 不同。</li>
+ *   <li><b>不比对 {@code io.popen} 起进程失败那条路</b>：子进程现在由 shim 的
+ *       {@code posix_spawn} 起，errno 是真的了，但那条支路要 {@code fork} 失败
+ *       才走得到，构造不出稳定的用例。</li>
  *   <li><b>临时文件用固定路径</b>：两边跑在同一台机器上，同一个路径对两边
  *       都可见；每个用例开头先 {@code os.remove} 掉，避免相互干扰。</li>
  * </ul>

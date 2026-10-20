@@ -25,13 +25,15 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li><b>{@code f_tostring}</b> 里的 {@code %p} 是地址，不可能与参考实现相同，
  *       只能给个同形状的十六进制值（差分比对会把它抹成 {@code 0xADDR}）。</li>
  *   <li><b>{@code setvbuf}</b> 只认参数、总是成功，不真的改缓冲策略。</li>
- *   <li><b>{@code popen}</b> 的子进程输出走管道而不是 {@code FILE*}
- *       （{@code pclose} 起来失败时拿不到 shell 的真实 errno）。被接管的
- *       那一条（读模式是子进程的 {@code stdout}、写模式是它的 {@code stdin}）
- *       语义与 C 一致；<b>没被接管的那两条是转发到 {@code L.out} / {@code L.err}
- *       的</b>，不是 {@code Redirect.INHERIT} —— 后者走 JVM 进程的 fd 1 / fd 2，
- *       会绕过这两个流。代价是「转发线程什么时候写完」有个很小的时间窗，
- *       靠 {@code pclose} 里 {@code join} 收口；那一刀<b>没有用例盯得住</b>
+ *   <li><b>{@code popen}</b> 的子进程由 shim 的 {@code posix_spawn} 起、管道
+ *       收发（{@link #popenSpawn}），{@code pclose} 用 {@code waitpid} 拿
+ *       <b>原始</b> status，所以 {@code ("signal", n)} 那一档与 C 一致。
+ *       被接管的那一条（读模式是子进程的 {@code stdout}、写模式是它的
+ *       {@code stdin}）语义与 C 一致；<b>没被接管的那两条是转发到
+ *       {@code L.out} / {@code L.err} 的</b>，不是让子进程直接继承 JVM 的
+ *       fd 1 / fd 2 —— 后者会绕过这两个流，测试也就看不见。
+ *       代价是「转发线程什么时候写完」有个很小的时间窗，靠 {@code pclose}
+ *       里带上限的 {@code join} 收口；那一刀<b>没有用例盯得住</b>
  *       （窗口太小，破坏它矩阵照样全绿），它防的是偶发红，不是语义。</li>
  *   <li><b>native 层装不上时走 {@link RandomAccessFile}</b>。
  *       {@code FILE*} 那份实现依赖随包带的 {@code luashim} 动态库；装不上时
