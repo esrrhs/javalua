@@ -1874,7 +1874,14 @@ public final class Vm {
         if (looksLikeInt(s)) {
             s = s + ".0";
         }
-        return s;
+        /*
+         * C 那边这两步都是 sprintf/locale 的事：{@code buff[len++] =
+         * lua_getlocaledecpoint()} 补的那个点，与 {@code %.14g} 自己打出来的
+         * 那个点是同一个字符。这里数字全部先按 '.' 算，最后统一换成
+         * locale 的那一个（{@code os.setlocale("pt_BR")} 之后
+         * {@code tostring(3.0)} 是 "3,0"）。
+         */
+        return Numeral.toLocaleRadix(s);
     }
 
     /**

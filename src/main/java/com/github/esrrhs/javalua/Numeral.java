@@ -127,9 +127,12 @@ final class Numeral {
     /**
      * {@code l_str2d}。
      * <p>
-     * C 版在首次解析失败后还有一段「按当前 locale 的小数点再试一次」的回退。
-     * Java 的 {@code Double.parseDouble} 只认 '.'，不存在 locale 小数点，
-     * 因此那段回退在这里没有对应物——不需要也不该造一个。
+     * 注释里那句「Java 没有 locale 小数点，回退不该造一个」是<b>错的</b>，
+     * 上游 {@code literals.lua} 里那一串 {@code tonumber("3,4")} 会当场把它
+     * 戳穿：{@code os.setlocale("pt_BR")} 之后 C 的两条路都成立——
+     * 解析时 locale 的小数点（','）和 '.' <b>都收</b>，输出时写的是 locale
+     * 那一个。所以这里照 C 摆两步：先按「当前 locale 的小数点」认一遍
+     * （{@link #normalizeRadix}），认失败再把串里<b>第一个</b> '.' 换成它重试。
      */
     static Double str2d(String s) {
         int mode = 0;
@@ -143,7 +146,79 @@ final class Numeral {
         if (mode == 'n') {
             return null; // 拒绝 inf / nan
         }
-        return str2dLoc(s, mode);
+        Double d = str2dLoc(s, mode);
+        if (d != null) {
+            return d;
+        }
+        /*
+         * C 的回退：{@code strlen(s) > L_MAXLENNUM} 或串里没有 '.' 就直接放弃，
+         * 否则复制一份、把第一个 '.' 改成 locale 的小数点再试。
+         * 那个 200 的上限<b>只</b>管这一条支路，主路径上没有。
+         */
+        char dp = decpoint();
+        int dot = s.indexOf('.');
+        if (dp == '.' || dot < 0 || s.length() > MAXLENNUM) {
+            return null;
+        }
+        return str2dLoc(s.substring(0, dot) + dp + s.substring(dot + 1), mode);
+    }
+
+    /** {@code L_MAXLENNUM} */
+    private static final int MAXLENNUM = 200;
+
+    /**
+     * {@code lua_getlocaledecpoint()} —— {@code localeconv()->decimal_point[0]}。
+     * <p>
+     * <b>每次现问，不能缓存</b>：{@code os.setlocale} 一改，答案就变，而 Lua 的
+     * 数字进出都过它。native 层装不上时没人能改 locale
+     * （{@code OsLib.setlocale} 只认 {@code nil}/{@code "C"}/{@code "POSIX"}），
+     * 所以那条路上小数点恒为 '.'。
+     */
+    static char decpoint() {
+        if (!NativeBridge.AVAILABLE) {
+            return '.';
+        }
+        return (char) NativeBridge.cLocaleDecpoint();
+    }
+
+    /**
+     * 把一份「用 '.' 写好的数字串」换成当前 locale 的写法
+     * （对应 C 那边 {@code sprintf} 直接按 locale 输出）。
+     * <p>
+     * 本实现的数字格式化全部先做成 '.' 的（见 {@link StringLib#generalDigits}
+     * 的注释：Java 的 {@code %g} 与 C 不同，只能用 BigDecimal 自己算），
+     * locale 就只影响最后那一个字符。
+     */
+    static String toLocaleRadix(String dot) {
+        char dp = decpoint();
+        if (dp == '.' || dot.indexOf('.') < 0) {
+            return dot;
+        }
+        return dot.replace('.', dp);
+    }
+
+    /** {@link #normalizeRadix} 用来顶替「在这个 locale 里不算小数点的 '.'」 */
+    private static final char NOT_A_RADIX = '\u0000';
+
+    /**
+     * 把「按当前 locale 写的数字」换成 Java 认的写法：locale 的小数点换成 '.'，
+     * 串里本来就有的 '.' 换成一个谁都认不出来的字符。
+     * <p>
+     * 后半句不是花样，是 C 的语义：在 {@code pt_BR} 里 {@code "3.4"} <b>不是</b>
+     * 3.4——{@code strtod} 认到 '3' 就停，尾巴上还有字符，{@code l_str2dloc}
+     * 判失败；{@code l_str2d} 正是靠这次失败才去换小数点重来的。
+     */
+    private static String normalizeRadix(String t) {
+        char dp = decpoint();
+        if (dp == '.') {
+            return t;
+        }
+        StringBuilder sb = new StringBuilder(t.length());
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            sb.append(c == dp ? '.' : (c == '.' ? NOT_A_RADIX : c));
+        }
+        return sb.toString();
     }
 
     /** 严格匹配 C strtod 接受的十进制浮点形状（不含 d/f 后缀、不含 inf/nan） */
@@ -181,7 +256,7 @@ final class Numeral {
         while (se > sp && LCType.isSpace(s.charAt(se - 1))) {
             se--;
         }
-        String t = s.substring(sp, se);
+        String t = normalizeRadix(s.substring(sp, se));
         if (!DECIMAL.matcher(t).matches()) {
             return null;
         }
@@ -226,9 +301,11 @@ final class Numeral {
             return; // 没有 0x 前缀
         }
         p += 2;
+        /* C 的 lua_strx2number 拿的是 lua_getlocaledecpoint()，不是字面 '.' */
+        final char dp = decpoint();
         for (; p < s.length(); p++) {
             char c = s.charAt(p);
-            if (c == '.') {
+            if (c == dp) {
                 if (hasdot) {
                     break; // 第二个小数点，停
                 }

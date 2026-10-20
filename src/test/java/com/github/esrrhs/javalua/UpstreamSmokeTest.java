@@ -13,10 +13,17 @@ import org.junit.jupiter.params.provider.ValueSource;
  * 上游套件里「输出不该逐字节比、但必须能跑完」的那些用例。
  * <p>
  * 与 {@link UpstreamSuiteTest} 的分工：那边断言与参考实现<b>逐字节一致</b>，
- * 这边只断言<b>能正常结束</b>——跑完并打印 {@code OK}。理由写在
+ * 这边只断言<b>能正常结束</b>——跑完并打印 {@code OK}。不进严格表的理由写在
  * {@link UpstreamSuiteTest} 的类注释里（{@code cstack.lua} 打印随实现而变的
- * 递归层数，{@code gc.lua} 依赖本实现没有的增量收集器，
- * {@code literals.lua} 依赖 C 程序才设得上的 locale 小数点）。
+ * 递归层数，{@code gc.lua} 与 {@code constructs.lua} 打印随机数与耗时，
+ * {@code math.lua} / {@code sort.lua} 打印种子与计时）。
+ * <p>
+ * {@code literals.lua} 是个例外，它<b>两边都在</b>：小数点那段在有 shim 时
+ * 可以逐字节比（见 {@link UpstreamSuiteTest}），但那只覆盖 native 那一路，
+ * {@code -Djavalua.nonative} 的路径上 {@code os.setlocale} 设不上 locale，
+ * 两边输出天然不同，只能退回这里断言「跑完」。而这份 smoke 还有一层独立价值：
+ * 它<b>不需要参考二进制</b>——{@code ./mvnw test} 在一台没装 lua5.4 的机器上，
+ * 严格表整片跳过，只有这里还在盯「大量分配会不会把自动收集那一层跑死」。
  * <p>
  * {@code sort.lua} 也是同一个道理：它打印排序耗时与比较次数
  * （{@code sorting 50000 random elements in 13.71 msec.}），而待排数据是
