@@ -1592,6 +1592,26 @@ Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale(JNIEnv *env,
 }
 
 /*
+ * {@code localeconv()->decimal_point[0]} —— 就是 C 的
+ * {@code lua_getlocaledecpoint()}（{@code luaconf.h}）。
+ * <p>
+ * Lua 5.4 的数字进出全都过这个字符：{@code l_str2d} 解析失败后会把它
+ * 换进去再试一次，{@code luaO_tostring} / {@code string.format} 的浮点
+ * 转换则把它写出去。{@code os.setlocale("pt_BR")} 之后它是 ','。
+ * <p>
+ * 结构体是 locale 的<b>静态存储</b>，只能把这一个字节取走，不能存指针。
+ */
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
+        jclass cls) {
+    (void)env; (void)cls;
+    struct lconv *lc = localeconv();
+    if (lc == NULL || lc->decimal_point == NULL || lc->decimal_point[0] == '\0')
+        return (jint)'.';
+    return (jint)(unsigned char)lc->decimal_point[0];
+}
+
+/*
  * {@code waitpid(pid, &status, 0)} —— 拿原始退出状态，区分 exit/signal。
  * <p>
  * Java 的 {@code Process.waitFor()} 只给退出码，信号杀死的进程一律按 exit 1 报。

@@ -12,15 +12,16 @@ import java.math.RoundingMode;
  * {@code String} 是 UTF-16 并且拒绝非法序列。所以这里没有一处用 Java
  * String 处理 Lua 字符串内容——全部走 {@code byte[]}。
  * <p>
- * 三个刻意的缺口，都留到后面的阶段补（见 README 的「已知差异」）：
+ * 剩下的刻意偏离只有一处（见 README 的「已知差异」）：
  * <ul>
- *   <li>{@code string.dump}：要等阶段 8 的二进制 chunk 导出（{@code ldump.c}）；
- *       现在一律报「unable to dump given function」。</li>
- *   <li>{@code string.pack} / {@code unpack} / {@code packsize}：约五百行机械代码，
- *       尚未移植。</li>
  *   <li>{@code string.format} 的 {@code %p}：打印的是 Java 的 identity hash，
  *        不可能是 C 的指针值。</li>
  * </ul>
+ * <p>
+ * {@code string.dump}（阶段 8 的 {@code ldump.c}）与
+ * {@code string.pack}/{@code unpack}/{@code packsize}（见 {@link StringPack}）
+ * 都已补齐；{@code pack} 那批是唯一一处结果取决于宿主平台的地方，
+ * 平台尺寸在小端 LP64 上钉死，理由写在 {@link StringPack} 的类注释里。
  */
 public final class StringLib {
 
@@ -1442,7 +1443,8 @@ public final class StringLib {
 
     private static void emitFloat(LuaAux.Buf out, Spec sp, boolean neg, String digits,
             boolean upper) {
-        out.addAscii(assemble(sp, signOf(neg, sp), "", digits, upper));
+        // C 这边是 l_sprintf，小数点字符来自 locale；我们的 digits 恒为 '.'
+        out.addAscii(assemble(sp, signOf(neg, sp), "", Numeral.toLocaleRadix(digits), upper));
     }
 
     /**
@@ -1570,8 +1572,9 @@ public final class StringLib {
         boolean neg = isNeg(x);
         double ax = Math.abs(x);
         boolean special = Double.isInfinite(ax) || Double.isNaN(ax);
+        // 同 emitFloat：%a 的那个点也是 locale 的（%q 走 quoteFloat，它恒为 '.'）
         out.addAscii(assemble(sp, signOf(neg, sp), special ? "" : "0x",
-                hexFloatDigits(ax, sp), upper));
+                Numeral.toLocaleRadix(hexFloatDigits(ax, sp)), upper));
     }
 
     /**

@@ -3,10 +3,12 @@ package com.github.esrrhs.javalua;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * 上游自带的一致性套件 —— {@code lua-5.4.x/tests/*.lua} 原样跑一遍。
@@ -48,10 +50,13 @@ import org.junit.jupiter.params.provider.ValueSource;
  *   <li>{@code gc.lua}：整个文件在测增量收集器的参数（{@code setpause} /
  *       {@code setstepmul} / {@code count} / {@code step}）、弱表、应急 GC。
  *       本实现把内存管理交给 JVM，没有这一层可对标的语义。</li>
- *   <li>{@code literals.lua}：末尾那段「decimal point locale」要
- *       {@code os.setlocale("pt_BR")} 真的生效——参考实现所在的 C 程序能设上，
- *       于是它会跑 {@code tonumber("3,4")} 那一整组；本实现设不上，走的是
- *       「跳过」分支，输出天然多一行。</li>
+ *   <li>{@code literals.lua}：末尾那段 decimal point locale 要
+ *       {@code os.setlocale("pt_BR")} 真的生效。{@code pt_BR} 设进 libc 是
+ *       C 程序才做得到的事，所以它<b>只在 native 那一路进表</b>——有 shim 时
+ *       两边逐字节一致（设得上就都走逗号分支，机器上没装 {@code pt_BR} 就都
+ *       打印 skipped），而 {@code -Djavalua.nonative} 那一路设不上 locale，
+ *       参考实现照样设得上，输出天然多一行。这一路仍由
+ *       {@link UpstreamSmokeTest} 跑它，兜「大量分配会不会把自动收集跑死」。</li>
  *   <li>{@code constructs.lua}：第 319 行是
  *       {@code _ENV.GLOB1 = math.random(0, 1)}，紧跟着就
  *       {@code print('testing short-circuit optimizations (' .. _ENV.GLOB1 .. ')')}。
@@ -85,30 +90,43 @@ final class UpstreamSuiteTest {
      * 显示名里带上文件名。
      * <p>
      * 默认显示名是 {@code suite(String)[4]} —— 曾经整片跑挂在这一条上（超时
-     * 180 秒），报出来的只有「[4]」，还得回去数 {@code ValueSource} 的第 4 个是
-     * 谁。带名字之后超时消息直接写着 {@code closure.lua}。
+     * 180 秒），报出来的只有「[4]」，还得回去数表里的第 4 个是谁。带名字之后
+     * 超时消息直接写着 {@code closure.lua}。
+     * <p>
+     * 用 {@code MethodSource} 而不是 {@code ValueSource}：{@code literals.lua}
+     * 要看 native 层在不在，编译期常量表做不到这件事。注意它是<b>整条用例不
+     * 存在</b>，不是「跑出来再跳过」——后者会让 {@code tools/check_ci_gates.py}
+     * 的跳过数变脏，而零用例是它认识的 {@code --nonative} 语义。
      */
+    static List<String> suiteFiles() {
+        List<String> files = new ArrayList<>();
+        files.add("api.lua");
+        files.add("bitwise.lua");
+        files.add("calls.lua");
+        files.add("closure.lua");
+        files.add("code.lua");
+        files.add("coroutine.lua");
+        files.add("db.lua");
+        files.add("errors.lua");
+        files.add("events.lua");
+        files.add("gengc.lua");
+        files.add("goto.lua");
+        files.add("nextvar.lua");
+        files.add("pm.lua");
+        files.add("strings.lua");
+        files.add("tpack.lua");
+        files.add("utf8.lua");
+        files.add("vararg.lua");
+        files.add("verybig.lua");
+        if (NativeBridge.AVAILABLE) {
+            // 见类注释：小数点那段要 os.setlocale 真的能改 libc 的 locale
+            files.add("literals.lua");
+        }
+        return files;
+    }
+
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {
-            "api.lua",
-            "bitwise.lua",
-            "calls.lua",
-            "closure.lua",
-            "code.lua",
-            "coroutine.lua",
-            "db.lua",
-            "errors.lua",
-            "events.lua",
-            "gengc.lua",
-            "goto.lua",
-            "nextvar.lua",
-            "pm.lua",
-            "strings.lua",
-            "tpack.lua",
-            "utf8.lua",
-            "vararg.lua",
-            "verybig.lua",
-    })
+    @MethodSource("suiteFiles")
     void suite(String name) {
         Diff.assertFileMatches(dir, name);
     }
