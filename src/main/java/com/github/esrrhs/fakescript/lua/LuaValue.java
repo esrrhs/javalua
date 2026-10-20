@@ -26,12 +26,22 @@ public final class LuaValue {
     private static final int INTEGER_CACHE_MAX = 256;
     private static final LuaValue[] INTEGER_CACHE = new LuaValue[INTEGER_CACHE_MAX - INTEGER_CACHE_MIN + 1];
 
+    /** 布尔值单例 */
+    private static final LuaValue TRUE_VALUE = new LuaValue();
+    private static final LuaValue FALSE_VALUE = new LuaValue();
+
+    /** nil 单例 */
+    private static final LuaValue NIL_VALUE = new LuaValue();
+
     static {
         for (int i = INTEGER_CACHE_MIN; i <= INTEGER_CACHE_MAX; i++) {
             LuaValue v = new LuaValue();
             v.setInteger(i);
             INTEGER_CACHE[i - INTEGER_CACHE_MIN] = v;
         }
+        TRUE_VALUE.setBoolean(true);
+        FALSE_VALUE.setBoolean(false);
+        NIL_VALUE.setNil();
     }
 
     /** 完整标签（含变体），见 {@link Lua} */
@@ -57,13 +67,11 @@ public final class LuaValue {
     }
 
     public static LuaValue ofNil() {
-        return new LuaValue();
+        return NIL_VALUE;
     }
 
     public static LuaValue ofBoolean(boolean b) {
-        LuaValue v = new LuaValue();
-        v.setBoolean(b);
-        return v;
+        return b ? TRUE_VALUE : FALSE_VALUE;
     }
 
     public static LuaValue ofInteger(long x) {
