@@ -57,7 +57,8 @@ class LocaleNumberTest {
                  */
                 System.err.println("LOCALE-DIAG set=" + new String(set, StandardCharsets.UTF_8)
                         + " decpoint='" + (char) NativeBridge.cLocaleDecpoint()
-                        + "' os=" + System.getProperty("os.name"));
+                        + "' os=" + System.getProperty("os.name")
+                        + "  " + NativeBridge.cLocaleDiag());
                 break;
             }
         }

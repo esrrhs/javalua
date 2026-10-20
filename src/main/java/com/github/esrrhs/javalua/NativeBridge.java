@@ -255,6 +255,12 @@ public final class NativeBridge {
     static native int cLocaleDecpoint();
 
     /**
+     * 只查询、不改状态的一行诊断：libc 眼里的当前 locale 与它自己会用的
+     * 小数点（{@code localeconv} / {@code nl_langinfo} / {@code printf} 三种口径）。
+     */
+    static native String cLocaleDiag();
+
+    /**
      * 调 C 的 {@code waitpid(pid, &status, 0)}，拿原始退出状态。
      * <p>
      * Java 的 {@code Process.waitFor()} 只给退出码，信号杀死的进程一律按 exit 报。

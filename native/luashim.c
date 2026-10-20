@@ -20,7 +20,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <dlfcn.h>
-#include <locale.h>   /* setlocale */
+#include <locale.h>   /* setlocale / localeconv */
+#include <langinfo.h>   /* nl_langinfo(RADIXCHAR) —— 诊断用（macOS 上没有 DECIMAL_POINT 这个名字） */
 #include <sys/wait.h>   /* luaL_execresult 要用本平台的 WIFEXITED / WTERMSIG */
 #include <unistd.h>   /* pipe / read / write / close */
 #include <spawn.h>    /* posix_spawn：子进程不能归 JVM 管，原因见 cSpawn */
@@ -1612,6 +1613,30 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
     if (lc == NULL || lc->decimal_point == NULL || lc->decimal_point[0] == '\0')
         return (jint)'.';
     return (jint)(unsigned char)lc->decimal_point[0];
+}
+
+/*
+ * 纯查询，不改任何状态：把「libc 眼里的当前 locale」和「libc 自己会用的
+ * 小数点」四种口径一起打出来，用于定位 {@code os.setlocale} 在 JVM 里
+ * 与在 C 进程里表现不一致的那条路（Linux 上 {@code setlocale} 返回了名字，
+ * {@code localeconv()} 却仍给 '.'）。
+ */
+JNIEXPORT jstring JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDiag(JNIEnv *env,
+        jclass cls) {
+    (void)cls;
+    char out[512];
+    char probe[16];
+    const char *all = setlocale(LC_ALL, NULL);
+    const char *num = setlocale(LC_NUMERIC, NULL);
+    struct lconv *lc = localeconv();
+    snprintf(probe, sizeof probe, "%.1f", 1.5);
+    snprintf(out, sizeof out, "all=%s|numeric=%s|conv=%c|probe=%s|langinfo=%s",
+             all ? all : "?", num ? num : "?",
+             (lc != NULL && lc->decimal_point != NULL && lc->decimal_point[0] != '\0')
+                     ? lc->decimal_point[0] : '?',
+             probe, nl_langinfo(RADIXCHAR));
+    return (*env)->NewStringUTF(env, out);
 }
 
 /* 定义在本文件末尾的 cSpawn 那一节 */
