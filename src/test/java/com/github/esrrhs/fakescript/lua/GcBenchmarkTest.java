@@ -3,7 +3,7 @@ package com.github.esrrhs.fakescript.lua;
 import org.junit.jupiter.api.Test;
 
 /**
- * GC 基准测试：对比参考 Lua 和 fakescript_java 的 GC 性能。
+ * GC 基准测试：对比参考 Lua 和 javalua 的 GC 性能。
  */
 class GcBenchmarkTest {
 

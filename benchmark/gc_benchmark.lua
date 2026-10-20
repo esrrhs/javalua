@@ -1,5 +1,5 @@
 -- GC 基准测试：构造 1GB 左右的网状对象结构，测量完整 GC 一轮的时间
--- 目标：对比参考 Lua 和 fakescript_java 的 GC 性能
+-- 目标：对比参考 Lua 和 javalua 的 GC 性能
 
 local function now()
     return os.clock()
