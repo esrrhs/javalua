@@ -5,13 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.github.esrrhs</groupId>
-    <artifactId>fakescript-java</artifactId>
+    <artifactId>javalua</artifactId>
     <packaging>jar</packaging>
     <version>1.0.16</version>
 
-    <name>fakescript-java</name>
+    <name>javalua</name>
     <description>Lua 5.4 implemented in pure Java, with the JVM handling garbage collection.</description>
-    <url>https://github.com/esrrhs/fakescript-java</url>
+    <url>https://github.com/esrrhs/javalua</url>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -39,14 +39,14 @@
         <developer>
             <name>esrrhs</name>
             <email>esrrhs@163.com</email>
-            <url>https://github.com/esrrhs/fakescript-java</url>
+            <url>https://github.com/esrrhs/javalua</url>
         </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:git@github.com:esrrhs/fakescript-java.git</connection>
-        <developerConnection>scm:git:git@github.com:esrrhs/fakescript-java.git</developerConnection>
-        <url>git@github.com:esrrhs/fakescript-java.git</url>
+        <connection>scm:git:git@github.com:esrrhs/javalua.git</connection>
+        <developerConnection>scm:git:git@github.com:esrrhs/javalua.git</developerConnection>
+        <url>git@github.com:esrrhs/javalua.git</url>
     </scm>
 
     <dependencyManagement>

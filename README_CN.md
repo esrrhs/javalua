@@ -1,9 +1,9 @@
-# fakescript-java
+# javalua
 
-[![License](https://img.shields.io/github/license/esrrhs/fakescript_java)](https://github.com/esrrhs/fakescript_java)
-[![Language](https://img.shields.io/github/languages/top/esrrhs/fakescript_java)](https://github.com/esrrhs/fakescript_java)
-[![Maven Central](https://img.shields.io/maven-central/v/com.github.esrrhs/fakescript-java)](https://central.sonatype.com/artifact/com.github.esrrhs/fakescript-java)
-[![Build Status](https://github.com/esrrhs/fakescript_java/actions/workflows/maven.yml/badge.svg?branch=master)](https://github.com/esrrhs/fakescript_java/actions)
+[![License](https://img.shields.io/github/license/esrrhs/javalua)](https://github.com/esrrhs/javalua)
+[![Language](https://img.shields.io/github/languages/top/esrrhs/javalua)](https://github.com/esrrhs/javalua)
+[![Maven Central](https://img.shields.io/maven-central/v/com.github.esrrhs/javalua)](https://central.sonatype.com/artifact/com.github.esrrhs/javalua)
+[![Build Status](https://github.com/esrrhs/javalua/actions/workflows/maven.yml/badge.svg?branch=master)](https://github.com/esrrhs/javalua/actions)
 
 **纯 Java 实现的 Lua 5.4 —— 不自己实现 GC，内存回收全部交给 JVM。**
 
