@@ -937,6 +937,9 @@ public final class OsLib {
      * <p>
      * category 映射：{@code "all"} → {@code LC_ALL}(0)，其余按名字查表。
      * 设置失败（C 返回 {@code NULL}）时推 nil，成功时推 C 返回的 locale 名字。
+     * <p>
+     * 新进程基线的处理见 {@link LuaState#localeBaseline}：脚本还没碰 locale 时，
+     * 查询不能把 JVM 启动时塞进 libc 的宿主 locale 漏出去。
      */
     private static int setlocale(LuaState L) {
         String loc = null;
@@ -945,6 +948,17 @@ public final class OsLib {
         }
         int catIdx = LuaAux.checkOption(L, 2, "all", CATS);
         int cat = catToLc(catIdx);
+        if (!L.localeBaseline) {
+            if (loc == null) {
+                L.push(LuaValue.ofString(LuaString.utf8("C")));
+                return 1;
+            }
+            byte[] c = NativeBridge.cSetlocale(catToLc(0),
+                    "C".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if (c != null) {
+                L.localeBaseline = true;
+            }
+        }
         byte[] locBytes = loc != null ? loc.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
         byte[] result = NativeBridge.cSetlocale(cat, locBytes);
         if (result == null) {

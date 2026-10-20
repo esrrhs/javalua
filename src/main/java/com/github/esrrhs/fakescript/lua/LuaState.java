@@ -232,6 +232,21 @@ public final class LuaState {
      */
     boolean gcLastAtomic = true;
 
+    /**
+     * C 语言环境是否已经落到「新进程基线」上（见 {@code OsLib.setlocale}）。
+     * <p>
+     * C 程序启动时一定是 {@code "C"}——环境变量里的 {@code LANG} / {@code LC_*}
+     * 只有显式调用 {@code setlocale(LC_ALL, "")} 才生效。参考实现是独立进程，
+     * 所以 {@code os.setlocale()} 查到的是 {@code "C"}；而 JVM 在启动时替我们
+     * 调了那次 {@code setlocale(LC_ALL, "")}，libc 里已经是宿主 locale
+     * （Linux CI 上是 {@code "C.UTF-8"}）。
+     * <p>
+     * 所以每个 {@link LuaState} 都要表现得像「刚启动的新进程」：脚本还没碰
+     * locale 时查询直接答 {@code "C"}；第一次设置前先把 {@code LC_ALL} 拉回
+     * {@code "C"}，没被脚本碰过的 category 也就不会漏出宿主的值。
+     */
+    boolean localeBaseline;
+
     /*
      * {@code global_State.gcpause} / {@code gcstepmul}。
      * <p>
