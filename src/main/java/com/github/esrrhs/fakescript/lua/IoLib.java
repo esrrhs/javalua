@@ -54,6 +54,9 @@ public final class IoLib {
 
     /** 分配 {@code luaL_Stream} 结构，写入 FILE* 和 closef 占位，注册到 FILE_MAP */
     private static long allocStream(long filePtr, LuaFile f) {
+        if (!NativeBridge.AVAILABLE) {
+            return 0;
+        }
         long sp = NativeBridge.cNewLuaLStream(filePtr, 0);
         if (sp != 0) {
             FILE_MAP.put(sp, f);
@@ -158,9 +161,11 @@ public final class IoLib {
                                       String fname) {
         LuaValue v = newFileValue(L, f, IoLib::ioNoclose);
         // 标准流也分配 C FILE*，让 C 扩展能拿到真实的 stdin/stdout/stderr
-        int which = f.stdIn ? 0 : (f.stdErr ? 2 : 1);
-        f.filePtr = NativeBridge.cStdStream(which);
-        fillStream(f);
+        if (NativeBridge.AVAILABLE) {
+            int which = f.stdIn ? 0 : (f.stdErr ? 2 : 1);
+            f.filePtr = NativeBridge.cStdStream(which);
+            fillStream(f);
+        }
         if (key != null) {
             L.registry.set(key, v);
         }
@@ -649,11 +654,13 @@ public final class IoLib {
      * 如果打开失败，调用方负责释放这块 native 内存（{@code f.mem} 可达时 GC 也会收）。
      */
     private static LuaValue newPreFileValue(LuaState L, LuaFile f) {
-        long sp = NativeBridge.cNewLuaLStream(0, 0);
-        NativeMemory m = new NativeMemory(sp, FILE_UDATA_LEN);
+        long sp = NativeBridge.AVAILABLE ? NativeBridge.cNewLuaLStream(0, 0) : 0;
+        NativeMemory m = sp != 0 ? new NativeMemory(sp, FILE_UDATA_LEN) : null;
         f.streamPtr = sp;
         f.mem = m;
-        FILE_MAP.put(sp, f);
+        if (sp != 0) {
+            FILE_MAP.put(sp, f);
+        }
         L.push(LuaValue.ofUserdata(new LuaUserdata(m, 0, FILE_UDATA_LEN)));
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         return new LuaValue(L.stack[L.top - 1]);
@@ -912,6 +919,11 @@ public final class IoLib {
          * {@code "r+"} 不创建文件（C 的 fopen("r+") 走 open(path, O_RDWR)，
          * 没带 O_CREAT），与参考实现一致。
          */
+        if (!NativeBridge.AVAILABLE) {
+            f.err = true;
+            f.errno = 38; // ENOSYS - Function not implemented
+            return false;
+        }
         byte[] pathBytes = fname.getBytes(StandardCharsets.UTF_8);
         byte[] modeBytes = mode.getBytes(StandardCharsets.US_ASCII);
         f.filePtr = NativeBridge.cFopen(pathBytes, modeBytes);
@@ -930,7 +942,7 @@ public final class IoLib {
      * 所以这里读到的就是 {@code fopen} 留下的值。
      */
     private static int lastErrno() {
-        return NativeBridge.cGetErrno();
+        return NativeBridge.AVAILABLE ? NativeBridge.cGetErrno() : 38; // ENOSYS
     }
 
     /**
@@ -1122,24 +1134,29 @@ public final class IoLib {
         LuaFile f = new LuaFile();
         newFile(L, f);
         f.err = false;
-        try {
-            java.io.File tmp = java.io.File.createTempFile("lua_", ".tmp");
-            tmp.deleteOnExit();
-            String path = tmp.getAbsolutePath();
-            byte[] pathBytes = path.getBytes(StandardCharsets.UTF_8);
-            byte[] modeBytes = "w+b".getBytes(StandardCharsets.US_ASCII);
-            f.filePtr = NativeBridge.cFopen(pathBytes, modeBytes);
-            if (f.filePtr == 0) {
-                f.err = true;
-                f.errno = 2; // ENOENT fallback
-            } else {
-                f.readable = true;
-                f.writable = true;
-                fillStream(f);
-            }
-        } catch (IOException e) {
+        if (!NativeBridge.AVAILABLE) {
             f.err = true;
-            f.errno = LuaAux.errnoOf(e);
+            f.errno = 38; // ENOSYS - Function not implemented
+        } else {
+            try {
+                java.io.File tmp = java.io.File.createTempFile("lua_", ".tmp");
+                tmp.deleteOnExit();
+                String path = tmp.getAbsolutePath();
+                byte[] pathBytes = path.getBytes(StandardCharsets.UTF_8);
+                byte[] modeBytes = "w+b".getBytes(StandardCharsets.US_ASCII);
+                f.filePtr = NativeBridge.cFopen(pathBytes, modeBytes);
+                if (f.filePtr == 0) {
+                    f.err = true;
+                    f.errno = 2; // ENOENT fallback
+                } else {
+                    f.readable = true;
+                    f.writable = true;
+                    fillStream(f);
+                }
+            } catch (IOException e) {
+                f.err = true;
+                f.errno = LuaAux.errnoOf(e);
+            }
         }
         if (f.err) {
             LuaAux.fileResult(L, false, null, f.errno);
