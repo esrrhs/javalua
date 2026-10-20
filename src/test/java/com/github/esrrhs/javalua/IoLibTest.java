@@ -7,6 +7,8 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 /**
  * io 库的差分用例 —— 阶段 7。
  * <p>
@@ -1700,5 +1702,44 @@ end
 os.remove(P)
 print("done")
             """);
+    }
+
+    /**
+     * {@code pclose} 遇到<b>被信号杀死</b>的子进程。
+     * <p>
+     * 这一档以前从来没被测过，而它恰恰是 {@code popen} 最容易糊过去的地方：
+     * 子进程用 {@code ProcessBuilder} 起时，JVM 的 reaper 线程会和我们抢
+     * {@code waitpid}，抢输就只剩 {@code waitFor()} 的 {@code 128+n}，抢赢才有
+     * C 那个 {@code ("signal", n)}——<b>同一行脚本两次跑出两种答案</b>。
+     * 现在子进程由 shim 的 {@code posix_spawn} 起（{@code IoLib#popenSpawn}），
+     * 收尸只有我们一家。
+     * <p>
+     * 与 {@code OsLibTest#signalKilledChildStatus} 同一套安排：shim 装得上就与
+     * 参考实现逐字节比，装不上就断言兜底路径自己那份（{@code ("exit", 128+n)}，
+     * README 里认下来的偏离），两条路都有真断言，不整片跳过。
+     */
+    @Test
+    void pcloseSignalKilledChild() {
+        String src = """
+                local function show(tag, cmd)
+                  local ok, kind, code = io.popen(cmd):close()
+                  print(tag, tostring(ok), kind, code)
+                end
+                show("term", "kill -TERM $$")
+                show("kill9", "kill -KILL $$")
+                show("exit3", "exit 3")
+                show("true", "true")
+                """;
+        if (NativeBridge.AVAILABLE) {
+            Diff.assertMatches(src);
+        } else {
+            assertEquals("""
+                    term\tnil\texit\t143
+                    kill9\tnil\texit\t137
+                    exit3\tnil\texit\t3
+                    true\ttrue\texit\t0
+                    """, Diff.javaOnly(src),
+                    "兜底路径没有 waitpid：只能把信号死亡报成 (\"exit\", 128+n)");
+        }
     }
 }

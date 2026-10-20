@@ -208,6 +208,21 @@ public final class IoLib {
         java.lang.Process proc;
 
         /**
+         * {@code io.popen} 走 C 那侧时的子进程：{@code posix_spawn} 起来的，
+         * 父进程是本 shim 而不是 JVM，所以 {@code pclose} 能用 {@code waitpid}
+         * 拿到<b>原始</b>状态，{@code ("signal", n)} 那一档才有得谈。
+         *
+         * @see #popenSpawn
+         */
+        long pid = -1;
+
+        /** 子进程 stdout 的读端；读模式交给句柄自己，写模式搬到 {@code L.out} 上 */
+        long fdChildOut = -1;
+
+        /** 子进程 stdin 的写端；写模式由 {@code f:write} 往里灌 */
+        long fdChildIn = -1;
+
+        /**
          * {@code io.popen} 的子进程里那些<b>没被接管</b>的流的转发线程。
          * 关句柄时要先 {@code join} 它们，否则子进程的最后几行输出可能还没
          * 落到 {@code L.out} / {@code L.err} 上，比对就时好时坏。
@@ -1032,31 +1047,35 @@ public final class IoLib {
          * C 那边的落点是 fd 1 / fd 2，两边是同一件事。
          */
         try {
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c", filename);
-            /*
-             * 重定向必须在 {@code start()} <b>之前</b>设好 —— {@code ProcessBuilder}
-             * 是在 {@code start} 那一刻才照这份配置去摆 fd 的，之后再改不影响已
-             * 经起来的子进程。读模式要把 {@code stdin} 设为 INHERIT：子进程的
-             * 输入应当来自 lua 自己的标准输入（{@code cat} 这类命令才读得到东西），
-             * 而不是一条没人写也没人关的管道。
-             */
-            if (forRead) {
-                pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-            }
-            java.lang.Process p = pb.start();
-            f.proc = p;
-            java.util.List<Thread> ps = new java.util.ArrayList<>();
-            if (forRead) {
-                f.in = p.getInputStream();
-                f.readable = true;
-                ps.add(pump(p.getErrorStream(), L.err));
+            if (NativeBridge.AVAILABLE) {
+                popenSpawn(L, f, filename, forRead);
             } else {
-                f.out = p.getOutputStream();
-                f.writable = true;
-                ps.add(pump(p.getInputStream(), L.out));
-                ps.add(pump(p.getErrorStream(), L.err));
+                ProcessBuilder pb = new ProcessBuilder("sh", "-c", filename);
+                /*
+                 * 重定向必须在 {@code start()} <b>之前</b>设好 —— {@code ProcessBuilder}
+                 * 是在 {@code start} 那一刻才照这份配置去摆 fd 的，之后再改不影响已
+                 * 经起来的子进程。读模式要把 {@code stdin} 设为 INHERIT：子进程的
+                 * 输入应当来自 lua 自己的标准输入（{@code cat} 这类命令才读得到东西），
+                 * 而不是一条没人写也没人关的管道。
+                 */
+                if (forRead) {
+                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                }
+                java.lang.Process p = pb.start();
+                f.proc = p;
+                java.util.List<Thread> ps = new java.util.ArrayList<>();
+                if (forRead) {
+                    f.in = p.getInputStream();
+                    f.readable = true;
+                    ps.add(pump(p.getErrorStream(), L.err));
+                } else {
+                    f.out = p.getOutputStream();
+                    f.writable = true;
+                    ps.add(pump(p.getInputStream(), L.out));
+                    ps.add(pump(p.getErrorStream(), L.err));
+                }
+                f.pumps = ps.toArray(new Thread[0]);
             }
-            f.pumps = ps.toArray(new Thread[0]);
         } catch (IOException e) {
             f.err = true;
             f.errno = LuaAux.errnoOf(e);
@@ -1067,6 +1086,182 @@ public final class IoLib {
             return 3;
         }
         return 1;
+    }
+
+    /**
+     * {@code io.popen} 的 native 路：子进程由 shim 的 {@code posix_spawn} 起。
+     * <p>
+     * 换掉 {@code ProcessBuilder} 只有一个理由，但很硬：<b>退出状态</b>。
+     * JVM 是自己孩子的父进程，它为了 {@code Process.onExit()} 会派一条 reaper
+     * 线程去 {@code waitpid}，于是我们永远拿不到原始 status——被信号杀死的子进程
+     * 只能报成 {@code ("exit", 128+n)}，而 C 的 {@code pclose} 给
+     * {@code ("signal", n)}。更糟的是这事<b>看运气</b>：抢输才错，同一行脚本可以
+     * 两次跑出不同答案（实测 {@code os.execute("kill -TERM $$")} 二十次错十五次）。
+     * C 生的孩子 JVM 不认识，{@code pclose} 里那次 {@code waitpid} 是唯一的收割者。
+     * <p>
+     * 接管的流与原来<b>完全一致</b>（读模式：stdout 交给句柄、stderr 搬到
+     * {@code L.err}；写模式：stdout / stderr 都搬，stdin 由 {@code f:write} 灌），
+     * 只换了「谁起的孩子、谁来收尸」。
+     */
+    private static void popenSpawn(LuaState L, LuaFile f, String filename, boolean forRead) {
+        long[] fds = new long[3];
+        long pid = NativeBridge.cSpawn(filename.getBytes(StandardCharsets.UTF_8),
+                true, true, !forRead, fds);
+        if (pid < 0) {
+            f.err = true;
+            f.errno = NativeBridge.cGetErrno();
+            if (f.errno == 0) {
+                f.errno = 2; // ENOENT：起不动 shell 就按「没这个文件」报
+            }
+            return;
+        }
+        f.pid = pid;
+        f.fdChildOut = fds[0];
+        f.fdChildIn = fds[2];
+        java.util.List<Thread> ps = new java.util.ArrayList<>();
+        if (forRead) {
+            f.in = new FdInput(fds[0]);
+            f.readable = true;
+            ps.add(fdPump(fds[1], L.err));
+        } else {
+            f.out = new FdOutput(fds[2]);
+            f.writable = true;
+            ps.add(fdPump(fds[0], L.out));
+            ps.add(fdPump(fds[1], L.err));
+        }
+        f.pumps = ps.toArray(new Thread[0]);
+    }
+
+    /** {@link #pump} 的 fd 版：从 C 那侧的管道一直抽干，写到目标流上 */
+    private static Thread fdPump(long fd, java.io.OutputStream dst) {
+        Thread t = new Thread(() -> {
+            FdInput src = new FdInput(fd);
+            byte[] b = new byte[4096];
+            try {
+                int n;
+                while ((n = src.read(b, 0, b.length)) > 0) {
+                    dst.write(b, 0, n);
+                    dst.flush();
+                }
+            } catch (IOException e) {
+                // 子进程退出后管道就断了，正常结束
+            } finally {
+                /*
+                 * 必须关：<b>这些 fd 没有 CLOEXEC</b>，不关的话下一个
+                 * {@code popen} / {@code os.execute} 的孩子会把它们整个继承
+                 * 过去（实测一个跑了二十条命令的进程里，孩子手里攥着十几条
+                 * 跟自己无关的管道）。C 的 {@code system()} 不会这样，因为它
+                 * 的父进程本来就只有一两条 fd。
+                 */
+                src.close();
+            }
+        });
+        t.setName("lua-popen-fd-pump");
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
+    /**
+     * C 那侧一个读管道 fd 的 {@code InputStream} 外衣——有了它，{@code io} 的
+     * 读路径（{@code read} 的四种模式、{@code lines}、{@code read("n")}）不必
+     * 为 native / Java 两条路写两遍。
+     */
+    private static final class FdInput extends InputStream {
+
+        private final long fd;
+        private final byte[] buf = new byte[4096];
+        private int at;
+        private int have;
+        private boolean eof;
+        private boolean closed;
+
+        FdInput(long fd) {
+            this.fd = fd;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (at >= have) {
+                if (!fill()) {
+                    return -1;
+                }
+            }
+            return buf[at++] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (len == 0) {
+                return 0;
+            }
+            if (at >= have) {
+                if (!fill()) {
+                    return -1;
+                }
+            }
+            int n = Math.min(len, have - at);
+            System.arraycopy(buf, at, b, off, n);
+            at += n;
+            return n;
+        }
+
+        /** 从 fd 上再灌一块进内部缓冲；返回 {@code false} 表示 EOF 或出错 */
+        private boolean fill() {
+            if (eof || closed) {
+                return false;
+            }
+            int n = NativeBridge.cPipeRead(fd, buf);
+            if (n <= 0) {
+                eof = true;
+                return false;
+            }
+            at = 0;
+            have = n;
+            return true;
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                closed = true;
+                NativeBridge.cCloseFd(fd);
+            }
+        }
+    }
+
+    /** C 那侧一个写管道 fd 的 {@code OutputStream} 外衣；{@code close} 即让子进程看到 EOF */
+    private static final class FdOutput extends java.io.OutputStream {
+
+        private final long fd;
+        private boolean closed;
+
+        FdOutput(long fd) {
+            this.fd = fd;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            write(new byte[] {(byte) b}, 0, 1);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (closed) {
+                throw new IOException("stream closed");
+            }
+            if (NativeBridge.cPipeWrite(fd, b, off, len) < 0) {
+                throw new IOException("write to child failed"); // 子进程已经走了（EPIPE）
+            }
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                closed = true;
+                NativeBridge.cCloseFd(fd);
+            }
+        }
     }
 
     /**
@@ -1111,6 +1306,9 @@ public final class IoLib {
     /** {@code io_pclose} */
     private static int ioPclose(LuaState L) {
         LuaFile p = toLStream(L);
+        if (p.pid >= 0) {
+            return pcloseSpawn(L, p);
+        }
         if (p.proc == null) {
             // popen 就没起来过（shell 不存在之类），没有进程可等
             LuaAux.fileResult(L, false, null, (p.errno != 0) ? p.errno : 2);
@@ -1148,17 +1346,60 @@ public final class IoLib {
          * 干了；抽不干的只可能是「还有别人握着写端」，那种情况下等也没用。
          */
         if (p.pumps != null) {
-            for (Thread t : p.pumps) {
-                try {
-                    t.join(PUMP_JOIN_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            p.pumps = null;
+            joinPumps(p);
         }
         LuaAux.execResult(L, stat, 0);
         return 3;
+    }
+
+    /**
+     * {@code io.popen} 的 native 路收尾：{@code waitpid} 拿<b>原始</b>状态。
+     * <p>
+     * 与 Java 那侧的分别不只是 {@code ("signal", n)} 这一档：那个孩子归本
+     * shim 管，JVM 的 reaper 抢不到它，所以状态是<b>确定</b>的。
+     */
+    private static int pcloseSpawn(LuaState L, LuaFile p) {
+        try {
+            if (p.out != null) {
+                p.out.close();   // 关写端：子进程的 stdin 这才算见到 EOF
+            }
+        } catch (IOException e) {
+            // 已经断了就算了，正题在后面那个 status
+        }
+        long[] statusOut = new long[1];
+        int wr = NativeBridge.cWaitpid(p.pid, statusOut);
+        p.pid = -1;
+        try {
+            if (p.in != null) {
+                p.in.close();
+            }
+        } catch (IOException e) {
+            // 同上
+        }
+        joinPumps(p);
+        if (wr < 0) {
+            LuaAux.fileResult(L, false, null, 10); // ECHILD：这个孩子已被收走
+            return 3;
+        }
+        long[] d = new long[4];
+        NativeBridge.cDecodeStatus((int) statusOut[0], d);
+        LuaAux.waitStatus(L, d[0] != 0, (int) d[1], d[2] != 0, (int) d[3]);
+        return 3;
+    }
+
+    /** 等转发线程收尾，理由与那个 2 秒上限都见 {@link #ioPclose} */
+    private static void joinPumps(LuaFile p) {
+        if (p.pumps == null) {
+            return;
+        }
+        for (Thread t : p.pumps) {
+            try {
+                t.join(PUMP_JOIN_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        p.pumps = null;
     }
 
     /** {@code io.tmpfile} */

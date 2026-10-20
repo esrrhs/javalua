@@ -700,9 +700,10 @@ public final class OsLib {
      * shell 的错误信息用 argv[0] 打头（{@code sh: 42: command not found}），
      * 写成全路径就会变成 {@code /bin/sh: ...}，和参考实现对不上。
      * <p>
-     * 退出状态用 JNI 调 {@code waitpid} 拿原始 status，区分正常退出和被信号杀死：
-     * Java 的 {@code Process.waitFor()} 只给退出码，信号杀死的进程一律按 exit 1 报，
-     * 和参考实现对不上（{@code os.execute("kill -9 $$")} 应该报 {@code "signal", 9}）。
+     * 子进程由 shim 的 {@code posix_spawn} 起（{@link NativeBridge#cSpawn}），
+     * {@code argv[0]} 同样给 {@code "sh"}；退出状态用 {@code waitpid} 拿原始
+     * status，好区分正常退出与被信号杀死。走 {@code ProcessBuilder} 拿不到
+     * 原始 status，理由见 {@link #executeSpawn}。
      */
     private static int execute(LuaState L) {
         if (L.isNoneArg(1) || L.arg1(1).isNil()) {
@@ -710,6 +711,74 @@ public final class OsLib {
             return 1;
         }
         String cmd = LuaAux.checkString(L, 1).toCString().toJavaString();
+        if (NativeBridge.AVAILABLE) {
+            return executeSpawn(L, cmd);
+        }
+        return executeJava(L, cmd);
+    }
+
+    /**
+     * shim 在时的路：{@code posix_spawn} 由 C 起子进程，{@code waitpid} 由我们
+     * 独占，于是 {@code ("signal", n)} 这一档是<b>稳定</b>的。
+     * <p>
+     * 为什么不能用 {@code ProcessBuilder}：那样孩子是 JVM 的，JDK 为了
+     * {@code Process.onExit()} 起的 reaper 线程会抢同一个 {@code waitpid}——
+     * 抢输就只能退回 {@code waitFor()} 那个 {@code 128+n}，抢赢则反过来把 JVM
+     * 那侧掏空（{@code waitFor()} 回来 0）。实测同一句
+     * {@code os.execute("kill -TERM $$")} 二十次里十五次给错的答案。
+     */
+    private static int executeSpawn(LuaState L, String cmd) {
+        long[] fds = new long[3];
+        long pid = NativeBridge.cSpawn(cmd.getBytes(StandardCharsets.UTF_8),
+                true, true, false, fds);
+        if (pid < 0) {
+            /* C 那边是 system() 返回 -1，luaL_execresult 拿 errno 说话 */
+            LuaAux.fileResult(L, false, null, NativeBridge.cGetErrno());
+            return 3;
+        }
+        Thread g1 = fdGobbler(fds[0], L);
+        Thread g2 = fdGobbler(fds[1], L);
+        g1.start();
+        g2.start();
+        long[] statusOut = new long[1];
+        int wr = NativeBridge.cWaitpid(pid, statusOut);
+        try {
+            g1.join();
+            g2.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LuaAux.fileResult(L, false, null, 4); // EINTR
+            return 3;
+        }
+        if (wr < 0) {
+            // 收割失败（孩子不是我们的、或已被收走）：C 的 system() 这里也会给 -1
+            pushExit(L, -1);
+            return 3;
+        }
+        long[] decoded = new long[4];
+        NativeBridge.cDecodeStatus((int) statusOut[0], decoded);
+        LuaAux.waitStatus(L, decoded[0] != 0, (int) decoded[1],
+                decoded[2] != 0, (int) decoded[3]);
+        return 3;
+    }
+
+    /** {@code ("exit", n)} 那一档：{@code n == 0} 时第一个返回值是 {@code true} */
+    private static void pushExit(LuaState L, int code) {
+        if (code == 0) {
+            L.push(LuaValue.ofBoolean(true));
+        } else {
+            L.pushNil();
+        }
+        L.push(LuaValue.ofString(LuaString.latin1("exit")));
+        L.push(LuaValue.ofInteger(code));
+    }
+
+    /**
+     * shim 不在时的路：只有 {@code waitFor()} 那个退出码，被信号杀死的进程
+     * 一律报成 {@code ("exit", 128+n)}——这是 README 里认下来的偏离
+     * （没有 {@code waitpid} 就没有原始 status，Java 也不给）。
+     */
+    private static int executeJava(LuaState L, String cmd) {
         Process p;
         try {
             p = new ProcessBuilder("sh", "-c", cmd).start();
@@ -720,54 +789,10 @@ public final class OsLib {
             Thread g2 = gobbler(p.getErrorStream(), L);
             g1.start();
             g2.start();
-            // 不直接 waitFor()：要先用 waitpid 拿原始 status。
-            // native 层装不上就没有 waitpid，wr=-1 让下面退回 waitFor()
-            long pid = p.pid();
-            long[] statusOut = new long[1];
-            int wr = NativeBridge.AVAILABLE ? NativeBridge.cWaitpid(pid, statusOut) : -1;
+            int stat = p.waitFor();
             g1.join();
             g2.join();
-            if (wr < 0) {
-                /*
-                 * 没有 waitpid 可用（native 层装不上），或者 waitpid 本身失败。
-                 * 退回 {@code waitFor()} 只有退出码：被信号杀死的进程会报成
-                 * {@code ("exit", 128+n)} 而不是 {@code ("signal", n)}。
-                 */
-                int stat = p.waitFor();
-                if (stat == 0) {
-                    L.push(LuaValue.ofBoolean(true));
-                } else {
-                    L.pushNil();
-                }
-                L.push(LuaValue.ofString(LuaString.latin1("exit")));
-                L.push(LuaValue.ofInteger(stat));
-                return 3;
-            }
-            // 解码 status
-            long[] decoded = new long[4];
-            NativeBridge.cDecodeStatus((int) statusOut[0], decoded);
-            boolean wifexit = decoded[0] != 0;
-            int wexit = (int) decoded[1];
-            boolean wifsig = decoded[2] != 0;
-            int wtermsig = (int) decoded[3];
-            if (wifexit) {
-                if (wexit == 0) {
-                    L.push(LuaValue.ofBoolean(true));
-                } else {
-                    L.pushNil();
-                }
-                L.push(LuaValue.ofString(LuaString.latin1("exit")));
-                L.push(LuaValue.ofInteger(wexit));
-            } else if (wifsig) {
-                L.pushNil();
-                L.push(LuaValue.ofString(LuaString.latin1("signal")));
-                L.push(LuaValue.ofInteger(wtermsig));
-            } else {
-                // 既不是 exit 也不是 signal（理论上不该发生），兜底给 exit 1
-                L.pushNil();
-                L.push(LuaValue.ofString(LuaString.latin1("exit")));
-                L.push(LuaValue.ofInteger(1));
-            }
+            pushExit(L, stat);
             return 3;
         } catch (IOException e) {
             LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
@@ -777,6 +802,33 @@ public final class OsLib {
             LuaAux.fileResult(L, false, null, 4); // EINTR
             return 3;
         }
+    }
+
+    /**
+     * {@link #fdGobbler} 的 {@code read} 缓冲大小；与 {@link #gobbler} 一致。
+     */
+    private static final int FD_CHUNK = 4096;
+
+    /** 从 C 那侧的管道 fd 上抄到 {@code L.out}，读到 EOF 就关 fd */
+    private static Thread fdGobbler(long fd, LuaState L) {
+        Thread t = new Thread(() -> {
+            if (fd < 0) {
+                return;
+            }
+            byte[] buf = new byte[FD_CHUNK];
+            for (;;) {
+                int n = NativeBridge.cPipeRead(fd, buf);
+                if (n <= 0) {
+                    break;   // 0 = EOF；负数是出错（含别的线程已关这个 fd）
+                }
+                L.out.write(buf, 0, n);
+                L.out.flush();
+            }
+            NativeBridge.cCloseFd(fd);
+        });
+        t.setName("lua-exec-fd");
+        t.setDaemon(true);
+        return t;
     }
 
     /** 把子进程的一条输出流抄到 {@code L.out} 上，并负责关流 */
