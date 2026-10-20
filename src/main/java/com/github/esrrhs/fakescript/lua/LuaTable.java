@@ -98,6 +98,39 @@ public final class LuaTable {
             return keyTt == Lua.TNIL;
         }
         
+        boolean keyEquals(LuaValue other) {
+            if (keyO instanceof WeakRef || other.o instanceof WeakRef) {
+                if (keyTt != other.tt) {
+                    return false;
+                }
+                Object kp = (keyO instanceof WeakRef) ? ((WeakRef) keyO).get() : keyO;
+                Object op = (other.o instanceof WeakRef) ? ((WeakRef) other.o).get() : other.o;
+                return kp != null && kp == op;
+            }
+            if (keyTt != other.tt) {
+                return false;
+            }
+            switch (keyTt) {
+            case Lua.TNIL:
+                return true;
+            case Lua.TBOOLEAN:
+                return keyI == other.i;
+            case Lua.TNUMBER:
+                if (keyTt == Lua.VNUMINT) {
+                    return keyI == other.i;
+                } else {
+                    return keyN == other.n;
+                }
+            case Lua.TSTRING:
+                return keyO.equals(other.o);
+            case Lua.TLIGHTUSERDATA:
+                return (keyO instanceof Long && other.o instanceof Long)
+                        ? keyO.equals(other.o) : keyO == other.o;
+            default:
+                return keyO == other.o;
+            }
+        }
+        
         // 值的访问方法
         LuaValue getVal() {
             LuaValue v = new LuaValue();
@@ -498,7 +531,7 @@ public final class LuaTable {
         }
         Node n = node[mainPosition(key)];
         while (true) {
-            if (slotKeyEquals(n.getKey(), key)) {
+            if (n.keyEquals(key)) {
                 return n.getVal();
             }
             if (n.next < 0) {
@@ -1166,7 +1199,7 @@ public final class LuaTable {
         }
         int i = mainPosition(key);
         while (true) {
-            if (slotKeyEquals(node[i].getKey(), key)) {
+            if (node[i].keyEquals(key)) {
                 return i;
             }
             if (node[i].next < 0) {
