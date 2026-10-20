@@ -1,9 +1,16 @@
 package com.github.esrrhs.javalua;
 
+import static org.junit.jupiter.api.Assertions.fail;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
@@ -188,4 +195,122 @@ class GcTest {
             print("gc ran", n)
             """,
     };
+
+    /**
+     * 「{@code collectgarbage()} 返回的时候，{@code __gc} 必须已经全部跑完」这条
+     * 契约的<b>压力</b>版本。
+     * <p>
+     * 上面那条差分用例（{@code gcScriptsMatchReference} 里的「一批对象的
+     * {@code __gc} 都会跑到」）本来就是冲它来的，但它一次只跑<b>一遍</b>，
+     * 撞不撞得上下方那场竞态全看机器当时忙不忙——实测整套 1100 条跑到后半程时
+     * 六次里出过一次：期望 {@code count 3}，拿到 {@code count 0}，而同一轮的
+     * 另外五次都是 3。这种「绿了五百次、红了一次」的东西不能只靠重跑交差。
+     * <p>
+     * <b>竞态在哪。</b>{@code __gc} 靠 {@link GcSentinel} 的 {@code finalize}
+     * 报信，而报信的是 <b>JVM 的另一条线程</b>；{@code LuaState
+     * #collectAndRunFinalizers} 只能在「排空队列」和「问清单上还有已死未跑的
+     * 吗」之间反复确认。麻烦在于：带 {@code finalize} 的对象在被发现的那一刻会
+     * 被 JVM <b>临时复活</b>（不然它跑不了终结器），于是那半程里
+     * {@code WeakReference.get()} 还不是 null——「没有已死的」这个判断<b>说得
+     * 太早</b>。机器被别的线程占满时，这条报信线程可能一整轮都没排上队。
+     * <p>
+     * 所以这里把两个条件<b>主动造出来</b>，而不是等 CI 偶尔繁忙：
+     * <ul>
+     *   <li>开 {@code 2×核数} 条忙等线程，让报信线程去抢时间片；</li>
+     *   <li>压一批活数据进堆，让 {@code System.gc()} 这一轮本身就慢；</li>
+     *   <li>反复几十遍，每遍都丢掉八个挂了 {@code __gc} 的表。</li>
+     * </ul>
+     * 判定用脚本里的 {@code assert(n == 8)}：少跑一个就是 Lua 错误，
+     * 直接红，<b>不重试、不放宽、也不看机器脸色</b>。
+     */
+    @Test
+    void collectFinishesEveryFinalizerUnderStarvation() {
+        int cores = Runtime.getRuntime().availableProcessors();
+        final AtomicBoolean go = new AtomicBoolean(true);
+        List<Thread> burners = new ArrayList<>();
+        for (int i = 0; i < cores * 2; i++) {
+            Thread t = new Thread(() -> {
+                long x = 1;
+                while (go.get()) {
+                    x = x * 6364136223846793005L + 1442695040888963407L;
+                }
+                if (x == 42L) {
+                    System.out.println("impossible");
+                }
+            });
+            t.setDaemon(true);
+            t.setName("gcStarve-" + i);
+            burners.add(t);
+        }
+        for (Thread t : burners) {
+            t.start();
+        }
+        /*
+         * 每遍之前压 8 MB 活数据进堆：不为别的，只为 {@code System.gc()} 别在
+         * 一微秒内返回——它太快的时候，报信线程反而总能赶上，那条竞态就藏在
+         * 「收集比报信快」的那个窗口里。
+         */
+        List<byte[]> hog = new ArrayList<>();
+        try {
+            for (int round = 0; round < 25; round++) {
+                hog.add(new byte[8 * 1024 * 1024]);
+                if (hog.size() > 24) {
+                    hog.subList(0, 8).clear();
+                }
+                LuaState L = new LuaState();
+                LuaLibs.openAll(L);
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                PrintStream ps = new PrintStream(bos, true, StandardCharsets.UTF_8);
+                L.out = ps;
+                L.err = ps;
+                String out;
+                try {
+                    L.run(STRESS_SCRIPT);
+                } catch (LuaError e) {
+                    // 断言没跑齐就是这条竞态现形；输出（应当是空的）一并报出来
+                    out = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+                    fail("round " + round + "：collectgarbage() 返回时 __gc 没跑齐 —— "
+                            + errorMessage(e)
+                            + (out.isEmpty() ? "" : "，输出：" + out));
+                    return;
+                }
+                out = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+                if (!out.isEmpty()) {
+                    fail("round " + round + "：不该有输出，拿到 " + out);
+                }
+                L.close();
+            }
+        } finally {
+            go.set(false);
+        }
+    }
+
+    /**
+     * 八个表，全部丢掉，然后一次 {@code collectgarbage()} —— 少跑任何一个就是
+     * 那条竞态。断言写在脚本里，错误消息带着实际个数。
+     * <p>
+     * 脚本本身只用 ASCII：{@link LuaState#run(String)} 走的是 Latin-1（约定 #9），
+     * 这里塞中文会在<b>加载阶段</b>就抛 {@code IllegalArgumentException}，
+     * 症状是「一条 Java 异常从 collectgarbage 附近冒出来」，跟被測的东西毫无关系。
+     */
+    private static final String STRESS_SCRIPT = """
+            local n = 0
+            for i = 1, 8 do
+              local t = setmetatable({}, {__gc = function(o) n = n + 1 end})
+            end
+            collectgarbage()
+            assert(n == 8, "finalizers ran: " .. n)
+            """;
+
+    /** 错误值摊成一行文本；带位置信息的那种本来就长这样 */
+    private static String errorMessage(LuaError e) {
+        LuaValue v = e.value;
+        if (v == null) {
+            return String.valueOf(e.getMessage());
+        }
+        String body = v.isString()
+                ? new String(v.asString().bytes, StandardCharsets.UTF_8)
+                : "(error object is a " + v.typeName() + " value)";
+        return (e.where == null ? "" : e.where) + body;
+    }
 }

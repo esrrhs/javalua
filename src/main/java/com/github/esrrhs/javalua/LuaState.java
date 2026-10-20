@@ -157,8 +157,22 @@ public final class LuaState {
     /** {@code LUA_YIELD}：挂起了 */
     public static final int LUA_YIELD = 1;
 
-    /** {@code LUA_ERRRUN}：运行期错误（本实现目前只区分这三种状态） */
+    /**
+     * {@code LUA_ERRRUN}：运行期错误。
+     * <p>
+     * 状态码不止这里定义的这三个：{@code LUA_ERRSYNTAX}（{@link #LUA_ERRSYNTAX}）
+     * 与 {@code LUA_ERRMEM}（{@link #LUA_ERRMEM}）各自有独立的去处，
+     * {@code LUA_ERRERR} 则由 {@code LuaError} 那侧表达。
+     */
     public static final int LUA_ERRRUN = 2;
+
+    /**
+     * {@code lua.h: LUA_ERRSYNTAX}：{@code lua_load} 解析失败的那一档。
+     * <p>
+     * C 扩展拿到返回值后是跟 {@code LUA_OK / LUA_ERRSYNTAX} 比的，给它 {@code 2}
+     * 会被当成别的失败档（{@code Api.lua_load} 的返回值）。
+     */
+    public static final int LUA_ERRSYNTAX = 3;
 
     /**
      * {@code lua.h: LUA_ERRMEM}：内存错误（编号照抄 lua.h：
@@ -311,7 +325,7 @@ public final class LuaState {
     /**
      * 注册表里的 {@code _LOADED} 表，也就是 {@code package.loaded}。
      * <p>
-     * 除了阶段 8 的 {@code require} 要用它，这里<b>立刻</b>就要用它：
+     * {@code require}（阶段 8）要用它，但<b>更早</b>就得用它：
      * {@code lauxlib.c: pushglobalfuncname} 靠它反查「这个 C 函数在哪个库里」，
      * 于是 {@code pcall(string.len)} 报的是
      * 「bad argument #1 to 'string.len'」而不是「… to 'len'」。少的不是里子
@@ -919,11 +933,39 @@ public final class LuaState {
         m.runPendingFinalizers(L);
     }
 
-    /** 一轮「请求收集 + 催终结」之后最多再试几轮 */
-    private static final int GC_FINALIZE_ROUNDS = 8;
+    /**
+     * 一轮「请求收集 + 催终结」之后最多再试几轮。
+     * <p>
+     * 从 8 提到 16：改成「连续两轮问不出东西才算收敛」之后，正常的收集也要
+     * 走两轮了，别让轮数而不是时长成为上限。真正的兜底是下面那个 200 毫秒。
+     */
+    private static final int GC_FINALIZE_ROUNDS = 16;
 
-    /** 再试的总时长上限。收集一轮本身就要几毫秒，这个上限只是兜底 */
-    private static final long GC_FINALIZE_WAIT_NS = 200_000_000L;
+    /**
+     * 要连续几轮「问不出东西」才算收敛。
+     * <p>
+     * 必须是 <b>2</b>，1 不够，理由见下面方法注释里的复活时序。
+     */
+    private static final int GC_FINALIZE_QUIET_ROUNDS = 2;
+
+    /**
+     * 至少要走过几轮，才允许「时长上限」把这件事拦下来。
+     * <p>
+     * 取 3 是因为确认收敛要看两轮（{@link #GC_FINALIZE_QUIET_ROUNDS}），
+     * 再留一轮余量给「这一轮的收集就是慢」。
+     */
+    private static final int GC_FINALIZE_MIN_ROUNDS = 3;
+
+    /**
+     * 再试的总时长上限。
+     * <p>
+     * 从 200 毫秒放到 500：这条预算<b>只在「还有活要等」的时候才花得到</b>
+     * ——登记过的对象全跑完了就从 {@link #noFinalizablesRegistered} 直接出去，
+     * 一条都没登记过更是第一轮就走完。真正等不到的是 JVM 那条串行跑
+     * {@code finalize} 的线程被别的东西占住，而 200 毫秒在整套测试跑到后半程
+     * （大堆、一次完整收集就几百毫秒）时可能连一轮都不够。
+     */
+    private static final long GC_FINALIZE_WAIT_NS = 500_000_000L;
 
     /**
      * 一次「完整收集」：请求 GC → 催终结 → 在 Lua 线程上跑 {@code __gc}。
@@ -941,29 +983,79 @@ public final class LuaState {
      * {@code false 0} 的由来。所以每轮结束问一次「还有已死未终结的吗」
      * （{@link #pruneAndHasDeadFinalizables}），有就再要一轮。
      * <p>
-     * 退出条件因此是<b>收敛</b>的：对象一跑完 {@code __gc} 就从清单上摘掉，
-     * 还活着的对象不算「已死」，所以正常情况一轮就出去；只有真撞上那场竞态
-     * 才多走一两轮。
+     * <b>而「一轮问不出东西」本身也不能信。</b>带 {@code finalize} 的对象在被
+     * 发现的那一刻会被 JVM <b>临时判为可达</b>（它要先把这一轮复活出来好跑
+     * 终结器），于是在终结器真的跑掉之前，{@code GcRef.ref.get()} 一直不是
+     * null——{@code pruneAndHasDeadFinalizables} 因此报「没有已死的」，队列也
+     * 是空的，看起来干干净净，实际那三个对象一个 {@code __gc} 都没跑。整套
+     * 测试跑起来时堆大、{@code System.gc()} 一轮几十毫秒，
+     * {@code ReferenceHandler} 就更容易赶不上这一次问询：实测 {@code GcTest}
+     * 的「一批对象的 __gc 都会跑到」在同一次运行里六次里有 1 次打出
+     * {@code count 0}，另外五次 {@code count 3}。
+     * <p>
+     * 所以退出条件改成<b>连续 {@value #GC_FINALIZE_QUIET_ROUNDS} 轮问不出东西</b>
+     * （队列空、也没有已死未跑的），并把「队列非空」也纳入判据。代价只多
+     * 一轮收集，而且<b>只落在真挂了 {@code __gc} 的状态上</b>：清单空了就在
+     * 第一轮末尾直接出去，没登记过终结器的脚本一次 GC 都不多花。
      */
     void collectAndRunFinalizers(LuaState L) {
         long deadline = System.nanoTime() + GC_FINALIZE_WAIT_NS;
+        int quiet = 0;
         for (int round = 0; round < GC_FINALIZE_ROUNDS; round++) {
             System.gc();
             System.runFinalization();
             runPendingFinalizers(L);
-            if (!pruneAndHasDeadFinalizables()) {
+            /*
+             * 这里问的是两件事：清单上还有「已经不可达却还没跑 __gc」的吗
+             * （{@link #pruneAndHasDeadFinalizables} 顺手把跑完的摘掉），
+             * 以及终结线程有没有刚塞进来一批还没排的。两个都空才算这一轮安静。
+             */
+            if (!pruneAndHasDeadFinalizables() && !gcPending) {
+                if (++quiet >= GC_FINALIZE_QUIET_ROUNDS) {
+                    return;
+                }
+            } else {
+                quiet = 0;
+            }
+            /*
+             * 一条 __gc 都没登记过（或全跑完了）就没有「等一等再看」的意义，
+             * 别再花第二轮收集——绝大多数脚本走这条，改动前后代价一致。
+             */
+            if (noFinalizablesRegistered()) {
                 return;
             }
+            /*
+             * 时长上限<b>至少要走过 {@code GC_FINALIZE_MIN_ROUNDS} 轮才生效</b>。
+             * <p>
+             * 因为这一轮的开销根本不由我们决定：{@code System.gc()} 是完整收集，
+             * 堆上有几百 MB 活数据时单是它就能耗掉两三百毫秒，200 毫秒的预算在
+             * <b>第一轮结束的那一刻就已经花光</b>了——于是直接从这里出去，
+             * 一次确认都没做。整套测试跑到后半程就是这个形状。
+             */
             long left = deadline - System.nanoTime();
-            if (left <= 0) {
+            if (round + 1 >= GC_FINALIZE_MIN_ROUNDS && left <= 0) {
                 return;
             }
             try {
-                Thread.sleep(Math.min(2, left / 1_000_000 + 1));
+                /*
+                 * <b>必须夹住下限</b>：{@code left} 在这里已经是负的（上面那条
+                 * 判断现在放行了前几轮），而 {@code Thread.sleep(负数)} 直接抛
+                 * {@code IllegalArgumentException}——那可不是脚本报错，是从
+                 * {@code collectgarbage} 里冒出来的 Java 异常（约定 #4），
+                 * 症状是「一堆用例同时红」。
+                 */
+                Thread.sleep(Math.max(1, Math.min(2, left / 1_000_000 + 1)));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             }
+        }
+    }
+
+    /** 清单上还有没有任何登记过的终结对象（跑完的已经被 prune 摘掉） */
+    private boolean noFinalizablesRegistered() {
+        synchronized (finalizables) {
+            return finalizables.isEmpty();
         }
     }
 
@@ -2986,9 +3078,20 @@ public final class LuaState {
         return loadDispatch(z, name, z.getc());
     }
 
-    /** 编译并执行一段源码 */
+    /**
+     * 编译并执行一段源码。
+     * <p>
+     * 按 <b>UTF-8</b> 摊成字节再交给 {@link #run(byte[], String)}：宿主给的
+     * {@code Java String} 里可以有任何字符，而 {@code luaL_dostring} 收下的本来
+     * 就是「宿主决定编码的字节流」。以前这里走 {@link LuaString#latin1}，
+     * 脚本里一个中文就抛 {@code IllegalArgumentException} —— 那是从宿主的入口
+     * 方法里冒出来的 <b>Java 异常</b>（约定 #4），不是脚本报错，症状是
+     * 「{@code L.run} 崩了」而跟脚本内容无关。
+     * <p>
+     * ASCII 源码在两种编码下字节完全一致，所以这个改动只影响非 ASCII 的那批。
+     */
     public void run(String source) {
-        run(LuaString.latin1(source).bytes, "=chunk");
+        run(source.getBytes(java.nio.charset.StandardCharsets.UTF_8), "=chunk");
     }
 
     /** 编译并执行，等价于 {@code luaL_dostring} */
