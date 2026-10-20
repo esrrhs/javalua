@@ -31,7 +31,10 @@ javalua 是对 Lua 5.4 参考实现的逐模块移植。现有 Lua 5.4 程序可
   `string.dump` 读写标准 Lua 5.4 字节码。
 - **C API** —— `luashim` 是一个小型 JNI 库，导出 `lua_*` / `luaL_*` 接口，
   因此按 Lua 5.4 编译的真实 C 模块（lpeg、cjson、lfs、luabitop、mime、
-  luaposix 等）可以通过 `package.loadlib` 和 `require` 加载。
+  luaposix 等）可以通过 `package.loadlib` 和 `require` 加载。它还补上 Java
+  没有对应物的那几个 libc 调用：`setlocale`（连带 `tonumber`、`tostring`、
+  `string.format`、`io.read("n")` 都要走的那个 locale 小数点）、`waitpid`、
+  `FILE*`。
 - **需要 Java 21**，单个 jar，无运行时依赖。
 
 ## 快速开始
@@ -80,8 +83,13 @@ sh native/build.sh
 也可以在启动时用 `-Djavalua.luashim=/path/to/libluashim.so` 指定自定义
 构建。加载 shim 后，`require("lpeg")` 和
 `package.loadlib(path, "luaopen_x")` 的行为与 C Lua 一致。没有 shim 时，
-纯 Lua 代码不受影响，`package.loadlib` 会返回
+`package.loadlib` 会返回
 `dynamic libraries not enabled; check your Lua installation`。
+
+发布到 Maven Central 的 jar 不带 shim（`src/main/resources/native/` 被
+gitignore，按机器现编），开箱用到的是纯 Java 那条路：`io` 走
+`RandomAccessFile` 读写，缺的只是 C 模块加载。测试时可以两条路各自强制：
+`-Djavalua.nonative=true` 假装 shim 装不起来。
 
 ## 正确性验证
 
@@ -94,11 +102,17 @@ sh native/build.sh
 3. **差分 fuzz** —— 用确定性种子生成程序（包括协程模式和预编译 chunk
    模式），与参考实现对比。种子数量可通过 `-Dfuzz.seeds` 和
    `-Dfuzz.coSeeds` 调整。
-4. **覆盖率** —— JaCoCo 行覆盖率不得低于 95%。
+4. **覆盖率** —— JaCoCo 行覆盖率，按<b>两条 `io` 路径合并</b>后的数据统计，
+   不得低于 95%。
 
 CI 分为三个 job：`Build (JDK 21)`、`Conformance (against lua5.4)` 和
 `Static analysis`。其中 conformance job 会从源码构建 Lua 5.4.7、`fkdump`
-字节码转储器和 `luashim`，然后运行全量测试。
+字节码转储器和 `luashim`，再生成一个逗号小数点的 locale（`pt_BR`——没有它
+那批 locale 用例全绿却什么都没测），然后<b>把全量测试跑两遍</b>：一遍带
+shim，一遍加 `-Djavalua.nonative=true` 走纯 Java 的 `io` 路径，两条都要与
+参考实现逐字节一致。每一遍之后紧跟一次 `tools/check_ci_gates.py`，某个闸门
+类<b>一条用例都没建</b>时直接判失败；两遍的执行数据追加进同一个
+`jacoco.exec`，95% 那条线最后对着合并后的文件卡一次。
 
 ### 已知差异
 
@@ -108,6 +122,15 @@ CI 分为三个 job：`Build (JDK 21)`、`Conformance (against lua5.4)` 和
 - `collectgarbage("count")` 报告的是 JVM 堆用量，因此绝对值与参考实现不同
   （相对变化仍有意义）。
 - `io.popen` 的泵线程与 `close` 之间存在极罕见的竞态。
+- `os.clock` 取的是当前线程的 CPU 时间，不是整个进程的。
+- 带 shim 时 `os.setlocale` 会真的切换 libc 的 locale，而那是<b>进程级</b>
+  状态：同一个 JVM 里所有 `LuaState` 共享它，C 那边是一个进程一个状态。
+  `tonumber`、`tostring`、`string.format`、`io.write`、`io.read("n")` 用的
+  那个小数点会跟着变（`lua_getlocaledecpoint()`），但 `os.date` 的
+  `strftime` 名字（`%A`、`%B`、`%c`）仍是英文——那一半是 Java 实现的。
+- 没有 shim 时，`os.execute` 对被信号杀死的进程只能给
+  `("exit", 128+n)`，`os.setlocale` 只认 `nil`/`"C"`/`"POSIX"`，小数点恒为
+  `.`。
 
 ## 构建与测试
 
@@ -123,7 +146,9 @@ LUA54_BIN=/path/to/lua5.4 ./mvnw test
 ```
 
 查找顺序为 `LUA54_BIN`、`target/lua54/src/lua`，然后是 `PATH` 上的
-`lua5.4` 或 `lua`（会校验版本确实是 5.4）。可选环境变量：
+`lua5.4` 或 `lua`（会校验版本确实是 5.4）。差分驱动把临时文件写在
+`target/rt/<pid>/` 下 —— 每个 JVM 一份，所以同时开两个 `./mvnw test`
+也不会读到对方的用例文件。可选环境变量：
 
 | 变量 | 用途 |
 |---|---|
@@ -131,6 +156,7 @@ LUA54_BIN=/path/to/lua5.4 ./mvnw test
 | `LUAC54_BIN` | 参考 `luac` |
 | `FKDUMP_BIN` | 针对参考实现编译的字节码转储器 |
 | `LUA54_TESTS` | 解压后的上游测试套件 |
+| `LUA54_LIB` | 参考实现的 `liblua.a`（C API 符号集对撞用；不设则依次试 `target/lua54/src/liblua.a`、`/tmp/lua-5.4.7/src/liblua.a`） |
 
 本地构建参考实现：
 
@@ -148,7 +174,8 @@ LUA54_BIN=$PWD/lua-5.4.7/src/lua ./mvnw test
 | `src/main/java/com/github/esrrhs/javalua/` | 词法、语法、代码生成、虚拟机、状态、元方法、标准库 |
 | `native/` | `luashim.c`、生成的 C API stub、构建脚本 |
 | `src/test/java/...` | 单元、差分、fuzz 和原生扩展测试 |
-| `benchmark/` | 独立的 Lua 基准脚本 |
+| `benchmark/` | 本机的量级计时，不是 CI 闸门（理由见该目录 README） |
+| `tools/` | `check_ci_gates.py`：闸门类一条用例都没跑时直接判失败；`local_conformance.sh`：本地镜像 CI 的 conformance job（两条 `io` 路径各跑一遍、覆盖率合并后统计） |
 
 Java 类与 C 源码一一对应：`Lexer` ↔ `llex.c`、`Parser` ↔ `lparser.c`、
 `Codegen` ↔ `lcode.c`、`Vm` ↔ `lvm.c`、`LuaState` ↔ `lstate.c`/`ldo.c`、

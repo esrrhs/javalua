@@ -34,7 +34,10 @@ standard library, binary chunks, debug hooks, and native C modules.
   `string.dump` read and write standard Lua 5.4 bytecode.
 - **C API** — `luashim`, a small JNI library, exports the `lua_*` / `luaL_*`
   surface, so real C modules built for Lua 5.4 (lpeg, cjson, lfs, luabitop,
-  mime, luaposix, …) load through `package.loadlib` and `require`.
+  mime, luaposix, …) load through `package.loadlib` and `require`. It also
+  gives the runtime the few libc calls Java has no equivalent for: `setlocale`
+  (and with it the locale radix character that `tonumber`, `tostring`,
+  `string.format` and `io.read("n")` all go through), `waitpid`, `FILE*`.
 - **Java 21**, a single jar, no runtime dependencies.
 
 ## Quick start
@@ -84,8 +87,14 @@ sh native/build.sh
 A custom build can be selected at startup with
 `-Djavalua.luashim=/path/to/libluashim.so`. With the shim loaded,
 `require("lpeg")` and `package.loadlib(path, "luaopen_x")` behave as in C Lua.
-Without it, pure-Lua code is unaffected and `package.loadlib` reports
+Without it, `package.loadlib` reports
 `dynamic libraries not enabled; check your Lua installation`.
+
+The published jar does not bundle a shim (`src/main/resources/native/` is
+git-ignored and built per machine), so running it out of the box gives you the
+pure-Java paths: `io` reads and writes through `RandomAccessFile`, and only C
+module loading is missing. Force either path for testing with
+`-Djavalua.nonative=true`, which pretends the shim failed to load.
 
 ## Verification
 
@@ -99,11 +108,18 @@ Four gates run against a reference build:
 3. **Differential fuzzing** — deterministic generated programs (including
    coroutine and precompiled-chunk modes) are compared against the reference.
    Seed counts are configurable with `-Dfuzz.seeds` and `-Dfuzz.coSeeds`.
-4. **Coverage** — JaCoCo line coverage must stay at or above 95%.
+4. **Coverage** — JaCoCo line coverage, measured over both `io` paths
+   together, must stay at or above 95%.
 
 CI has three jobs: `Build (JDK 21)`, `Conformance (against lua5.4)`, and
 `Static analysis`. The conformance job builds Lua 5.4.7, the `fkdump` bytecode
-dumper and `luashim` from source, then runs the full test suite.
+dumper and `luashim` from source, generates a comma-decimal locale (`pt_BR`,
+otherwise the locale tests would pass while proving nothing), then runs the
+full test suite twice — once with the shim, once with `-Djavalua.nonative=true`
+so the pure-Java `io` path is diffed against the reference too. Each run is
+followed by `tools/check_ci_gates.py`, which fails when a gate class executed
+zero tests; the two runs append into one `jacoco.exec`, and the 95% line is
+checked against that merged file.
 
 ### Known divergences
 
@@ -114,6 +130,16 @@ dumper and `luashim` from source, then runs the full test suite.
 - `collectgarbage("count")` reports JVM heap usage, so absolute values differ
   from the reference (relative changes are still meaningful).
 - `io.popen` has a rare race between the pump thread and `close`.
+- `os.clock` measures the current thread's CPU time, not the whole process.
+- With the shim, `os.setlocale` really switches libc's locale, which is
+  **per-process**: every `LuaState` in the same JVM shares it, while C Lua has
+  one state per process. The radix character that `tonumber`, `tostring`,
+  `string.format`, `io.write` and `io.read("n")` use follows it
+  (`lua_getlocaledecpoint()`), but `os.date`'s `strftime` names (`%A`, `%B`,
+  `%c`) stay in English, because that half is implemented in Java.
+- Without the shim, `os.execute` can only report `("exit", 128+n)` for a
+  signal-killed process, `os.setlocale` only accepts `nil`/`"C"`/`"POSIX"`
+  and the radix character is always `.`.
 
 ## Build and test
 
@@ -129,7 +155,10 @@ LUA54_BIN=/path/to/lua5.4 ./mvnw test
 ```
 
 Discovery order is `LUA54_BIN`, then `target/lua54/src/lua`, then `lua5.4` or
-`lua` on `PATH` (the version is checked to be 5.4). Optional variables:
+`lua` on `PATH` (the version is checked to be 5.4). The differential harness
+writes its scratch files under `target/rt/<pid>/` — one directory per JVM — so
+two `./mvnw test` runs at the same time cannot read each other's case file.
+Optional variables:
 
 | Variable | Purpose |
 |---|---|
@@ -137,6 +166,7 @@ Discovery order is `LUA54_BIN`, then `target/lua54/src/lua`, then `lua5.4` or
 | `LUAC54_BIN` | reference `luac` |
 | `FKDUMP_BIN` | bytecode dumper built against the reference |
 | `LUA54_TESTS` | unpacked upstream test suite |
+| `LUA54_LIB` | reference `liblua.a` for the C API symbol sweep; otherwise tries `target/lua54/src/liblua.a`, then `/tmp/lua-5.4.7/src/liblua.a` |
 
 Building a reference locally:
 
@@ -154,7 +184,8 @@ LUA54_BIN=$PWD/lua-5.4.7/src/lua ./mvnw test
 | `src/main/java/com/github/esrrhs/javalua/` | lexer, parser, code generator, VM, state, metamethods, standard library |
 | `native/` | `luashim.c`, generated C API stubs, build script |
 | `src/test/java/...` | unit, differential, fuzz, and native-extension tests |
-| `benchmark/` | standalone Lua benchmark scripts |
+| `benchmark/` | local ballpark timing; not a CI gate (see its README) |
+| `tools/` | `check_ci_gates.py` — fails when a gate class silently ran zero tests; `local_conformance.sh` — mirrors the CI conformance job locally (both `io` paths, merged coverage) |
 
 The Java classes mirror the C sources: `Lexer` ↔ `llex.c`, `Parser` ↔
 `lparser.c`, `Codegen` ↔ `lcode.c`, `Vm` ↔ `lvm.c`, `LuaState` ↔
