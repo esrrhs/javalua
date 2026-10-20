@@ -1581,6 +1581,34 @@ Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale(JNIEnv *env,
         loc = locBuf;
     }
     char *result = setlocale((int)category, loc);
+    /*
+     * <b>glibc 在 JVM 进程里的实测坑</b>：{@code setlocale(LC_ALL, "pt_BR.UTF-8")}
+     * 返回了名字（看着像全成了），可紧接着在同一线程查询却是
+     * {@code LC_CTYPE=pt_BR.UTF-8;LC_NUMERIC=C.UTF-8;...}——只有 LC_CTYPE 真的
+     * 换过去了，于是 {@code localeconv()} / {@code printf} / {@code nl_langinfo}
+     * 三个口径一致报 {@code '.'}，数字的小数点没切过来。同一条命令在单线程的
+     * C 进程里是一次性全换好的（参考实现就是这么做的）。
+     * <p>
+     * 这里在 {@code LC_ALL} 声称成功之后，再<b>逐类目各设一次</b>，把没被
+     * LC_ALL 落实的那几类补上。单个类目设不上就保持它原有的值不动：那只能是
+     * 这台机器缺这份 locale 数据，不是我们改坏了。
+     */
+    if (result != NULL && loc != NULL && (int)category == LC_ALL) {
+        static const int luashim_cats[] = {LC_COLLATE, LC_CTYPE, LC_MONETARY,
+                LC_NUMERIC, LC_TIME
+#ifdef LC_MESSAGES
+                , LC_MESSAGES
+#endif
+#ifdef LC_PAPER
+                , LC_PAPER, LC_NAME, LC_ADDRESS, LC_TELEPHONE, LC_MEASUREMENT,
+                  LC_IDENTIFICATION
+#endif
+        };
+        size_t ci;
+        for (ci = 0; ci < sizeof luashim_cats / sizeof luashim_cats[0]; ci++) {
+            (void) setlocale(luashim_cats[ci], loc);
+        }
+    }
     free(locBuf);
     if (result == NULL) return NULL;
     /*
