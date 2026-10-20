@@ -47,8 +47,17 @@ class LocaleNumberTest {
         }
         boolean found = false;
         for (String name : CANDIDATES) {
-            if (NativeBridge.cSetlocale(LC_ALL, name.getBytes(StandardCharsets.UTF_8)) != null) {
+            byte[] set = NativeBridge.cSetlocale(LC_ALL, name.getBytes(StandardCharsets.UTF_8));
+            if (set != null) {
                 found = true;
+                /*
+                 * 诊断（CI 上逗号小数点这一档在 ubuntu 与 macOS 表现不同，
+                 * 需要知道「setlocale 之后 Java 侧问到的 decimal_point 到底是什么」）：
+                 * 打 stderr，不进差分比对。
+                 */
+                System.err.println("LOCALE-DIAG set=" + new String(set, StandardCharsets.UTF_8)
+                        + " decpoint='" + (char) NativeBridge.cLocaleDecpoint()
+                        + "' os=" + System.getProperty("os.name"));
                 break;
             }
         }

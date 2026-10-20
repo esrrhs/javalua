@@ -905,7 +905,7 @@ public final class OsLib {
         if (!sf.exists()) {
             en = 2; // ENOENT
         } else if (sf.isFile() && df.isDirectory()) {
-            en = 21; // EISDIR（Linux 上是 ENOTEMPTY，见上）
+            en = 21; // EISDIR：文件挪进目录，两边内核都给 21
         } else if (sf.isDirectory() && df.isFile()) {
             en = 20; // ENOTDIR
         }
@@ -936,12 +936,14 @@ public final class OsLib {
          * {@code DirectoryNotEmptyException}，报出来就成了
          * {@code Directory not empty | 66}，而 C 那边稳稳成功。
          * 全量跑里约 1/7 会红，单独重跑又一连十几次全绿，是典型的「赌 Java」。
-         * 这里按 POSIX 来：目标空就先摘掉再挪，不空就自己报 66。
+         * 这里按 POSIX 来：目标空就先摘掉再挪，不空就自己报本平台的
+         * {@code ENOTEMPTY}（Linux 是 39，macOS 是 66 —— 数值是内核定的，
+         * 见 {@link LuaAux#ENOTEMPTY}）。
          */
         if (df.isDirectory()) {
             String[] kids = df.list();
             if (kids == null || kids.length > 0) {
-                LuaAux.fileResult(L, false, null, 66); // ENOTEMPTY
+                LuaAux.fileResult(L, false, null, LuaAux.ENOTEMPTY);
                 return 3;
             }
             try {

@@ -127,6 +127,15 @@ final class UpstreamSuiteTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("suiteFiles")
+    /*
+     * 单条 10 分钟上限（默认全局是 180 秒）。
+     * <p>
+     * 这些是上游自己写的整份压力脚本，{@code calls.lua} 在 CI 那台两核的
+     * ubuntu runner 上实测要 210 多秒——不是本实现慢，是 180 秒那个默认值
+     * 本来就是给「一条断言」设的，套在「跑完一整份脚本」上会误杀。
+     * 真挂住的那类（死循环）由 Diff 自己的进程超时兜着，不靠这个数。
+     */
+    @org.junit.jupiter.api.Timeout(value = 10, unit = java.util.concurrent.TimeUnit.MINUTES)
     void suite(String name) {
         Diff.assertFileMatches(dir, name);
     }

@@ -455,7 +455,7 @@ public final class LuaAux {
      * {@code nil, "<p>: Directory not empty", 66} —— 之前这里写死 39，
      * 消息对了、数字差 27。
      */
-    private static final int ENOTEMPTY;
+    static final int ENOTEMPTY;
 
     static {
         String os = System.getProperty("os.name", "");
