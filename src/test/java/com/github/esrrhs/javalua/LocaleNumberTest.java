@@ -31,7 +31,7 @@ import org.junit.jupiter.api.TestFactory;
  */
 class LocaleNumberTest {
 
-    /** {@code LC_ALL} */
+    /** {@code os.setlocale} 的类目下标：0 = "all"（常量编号由 shim 翻） */
     private static final int LC_ALL = 0;
 
     /**
@@ -74,6 +74,7 @@ class LocaleNumberTest {
             local loc = os.setlocale("pt_BR") or os.setlocale("ptb")
                      or os.setlocale("pt_BR.UTF-8") or os.setlocale("pt_BR.iso88591")
             if not loc then print("NO_LOCALE") return end
+            GLOC = loc
             print("locale", loc)
             """;
 
@@ -85,6 +86,24 @@ class LocaleNumberTest {
             """;
 
     private static final String[] SCRIPTS = {
+
+            // 类目<b>下标</b>到 LC_* 常量的翻译。两边的编号不一样（glibc 的
+            // LC_ALL 是 6、macOS 的是 0），而 {@code os.setlocale} 的返回值只看
+            // 「这一类目装不装得上」——设 "C" 时全都返回 "C"，错成别的类目也
+            // 看不出来，所以以前整张表错着跑都没红。这里把 GUARD 设好的
+            // "all" 逐类目查回来：错一个下标就有一条不是同一份 locale；
+            // 再把 numeric 单独设一次，看它是不是真的只作用到 numeric。
+            """
+            for _, c in ipairs({"all", "collate", "ctype", "monetary", "numeric", "time"}) do
+              print("cat", c, tostring(os.setlocale(nil, c)))
+            end
+            print("to_c", tostring(os.setlocale("C")))
+            print("set_numeric", tostring(os.setlocale(GLOC, "numeric")))
+            for _, c in ipairs({"all", "collate", "ctype", "monetary", "numeric", "time"}) do
+              print("after", c, tostring(os.setlocale(nil, c)))
+            end
+            print("radix", tostring(tonumber("3,4")), tostring(tonumber("3.4")))
+            """ + RESTORE,
 
             // 解析：locale 的点与 '.' 两个都收（C 是「先按 locale 试，失败再把
             // 第一个 '.' 换成它重试」，所以 "1.2.3" 与 "3,4.5" 仍然出局）

@@ -348,7 +348,7 @@ final class Diff {
      */
     private static LuaState freshState() {
         if (NativeBridge.AVAILABLE) {
-            NativeBridge.cSetlocale(0, "C".getBytes(StandardCharsets.UTF_8)); // LC_ALL
+            NativeBridge.cSetlocale(0, "C".getBytes(StandardCharsets.UTF_8)); // 类目 0 = "all"
         }
         LuaState L = new LuaState();
         LuaLibs.openAll(L);

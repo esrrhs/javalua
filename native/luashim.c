@@ -1588,6 +1588,33 @@ static volatile char luashim_radix = 0;
  */
 static char luashim_nl_status = 0;
 
+/*
+ * Lua 的类目<b>下标</b>（{@code os.setlocale} 的第二参在
+ * {@code {"all","collate","ctype","monetary","numeric","time"}} 里的位置）
+ * 到本平台 {@code LC_*} <b>常量</b>的表，照 {@code loslib.c: os_setlocale}
+ * 里那一份抄。
+ * <p>
+ * <b>必须在 C 侧翻</b>：两边的常量编号不一样——macOS/BSD 是
+ * {@code LC_ALL=0, LC_COLLATE=1, LC_CTYPE=2, LC_MONETARY=3, LC_NUMERIC=4,
+ * LC_TIME=5}，glibc 是 {@code LC_CTYPE=0, LC_NUMERIC=1, LC_TIME=2,
+ * LC_COLLATE=3, LC_MONETARY=4, LC_MESSAGES=5, LC_ALL=6}。Java 侧以前把
+ * Lua 的下标直接当常量传（{@code catToLc} 是 {@code return idx;}，注释写着
+ * 「macOS/Linux 刚好一一对应」），于是在 Linux 上 {@code os.setlocale(loc)}
+ * 设的其实是 {@code LC_CTYPE}：locale 名字照样返回成功，小数点那一档却一动
+ * 没动——CI 上「只有 {@code LC_CTYPE=pt_BR.UTF-8}、其余仍是 {@code C.UTF-8}」
+ * 的诊断就是这么来的，不是 glibc 有什么怪癖。
+ */
+static const int luashim_cat[] = {LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY,
+                                  LC_NUMERIC, LC_TIME};
+
+static int luashim_category(int catIdx) {
+    if (catIdx < 0
+            || catIdx >= (int)(sizeof luashim_cat / sizeof luashim_cat[0])) {
+        return LC_ALL;      /* 与 loslib.c 一样：checkOption 只会给 0..5，兜底给 all */
+    }
+    return luashim_cat[catIdx];
+}
+
 static void luashim_remember_radix(int category, const char *name) {
     locale_t l;
     const char *rp;
@@ -1639,25 +1666,21 @@ Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale(JNIEnv *env,
         locBuf[len] = '\0';
         loc = locBuf;
     }
-    char *result = setlocale((int)category, loc);
+    int cat = luashim_category((int)category);
+    char *result = setlocale(cat, loc);
     /*
-     * 记下面要用的那个小数点。为什么不能现场问 {@code localeconv()}：
-     * CI（ubuntu runner）上实测，{@code setlocale(LC_ALL,"pt_BR.UTF-8")}
-     * <b>返回了名字</b>，可同一线程紧接着查回来的是
-     * {@code LC_CTYPE=pt_BR.UTF-8;LC_NUMERIC=C.UTF-8;...}——只有 LC_CTYPE 真换了;
-     * 再退一步，<b>逐类目各设一次也没把它换过去</b>（{@code LC_NUMERIC} 仍是
-     * {@code C.UTF-8}）。于是 {@code localeconv} / {@code printf} /
-     * {@code nl_langinfo} 三个口径一致报 {@code '.'}，数字的小数点切不过去，
-     * 而同一个 runner 上单进程的参考实现却确实是逗号（{@code setlocale} 在
-     * C 进程里能整份装上）。
+     * 顺手记下这份 locale 的小数点（见 luashim_remember_radix）。
      * <p>
-     * 所以不再依赖「这个进程/线程的 locale 到底切到哪一份」，改成直接问 libc:
-     * <b>「你要装的这份 locale，它自己的小数点是什么」</b>——
-     * {@code newlocale(mask, name, 0)} + {@code nl_langinfo_l(RADIXCHAR, l)}。
-     * 这与 C 的 {@code lua_getlocaledecpoint()} 在「locale 真的生效了」的进程里
-     * 拿到的是同一个字符，而我们对 locale 的语义要求本来也只是那一个字符。
+     * 为什么还要专门记一次，而不是等 {@code cLocaleDecpoint} 现场问
+     * {@code localeconv()}：问 {@code localeconv} 的前提是「这个线程/进程的
+     * {@code LC_NUMERIC} 真的切过去了」。这两件事在纯 C 进程里等价，但
+     * {@code os.setlocale} 的类目以前是按 macOS 的编号硬编码传的，glibc 上
+     * 设到的根本不是 {@code LC_NUMERIC}（见 {@link luashim_category}）——
+     * 编号已经修对，但**记下来的这一份与 C 的 lua_getlocaledecpoint() 取自
+     * 同一个 locale 对象**，比「先改全局状态、再从另一个 JNI 调用里读回」
+     * 少一层时机依赖，也少一类「setlocale 成功而读取仍是旧值」的平台差异。
      */
-    luashim_remember_radix((int)category, loc);
+    luashim_remember_radix(cat, loc);
     free(locBuf);
     if (result == NULL) return NULL;
     /*

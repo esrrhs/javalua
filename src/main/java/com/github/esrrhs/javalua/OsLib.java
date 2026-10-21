@@ -991,6 +991,9 @@ public final class OsLib {
     private static final String[] CATS = { "all", "collate", "ctype", "monetary", "numeric",
             "time" };
 
+    /** {@code CATS} 里 {@code "all"} 的下标 */
+    private static final int CAT_ALL = 0;
+
     /**
      * {@code os.setlocale}。
      * <p>
@@ -998,7 +1001,9 @@ public final class OsLib {
      * 查询（{@code locale=nil}）和设置都走同一条路——C 的 {@code setlocale}
      * 在 {@code locale=NULL} 时就是查询。
      * <p>
-     * category 映射：{@code "all"} → {@code LC_ALL}(0)，其余按名字查表。
+     * category 传的是 {@code CATS} 里的<b>下标</b>，由 shim 翻成本平台的
+     * {@code LC_*} 常量——那组常量的<b>编号 macOS 与 glibc 不一样</b>
+     * （glibc 的 {@code LC_ALL} 是 6，macOS 的是 0），Java 侧不能自己猜。
      * 设置失败（C 返回 {@code NULL}）时推 nil，成功时推 C 返回的 locale 名字。
      * <p>
      * 新进程基线的处理见 {@link LuaState#localeBaseline}：脚本还没碰 locale 时，
@@ -1012,8 +1017,8 @@ public final class OsLib {
         if (!L.isNoneArg(1) && !L.arg1(1).isNil()) {
             loc = LuaAux.checkString(L, 1).toCString().toJavaString();
         }
+        // 类目交给 shim 翻成本平台的 LC_* 常量：编号在 macOS 与 glibc 上不一样
         int catIdx = LuaAux.checkOption(L, 2, "all", CATS);
-        int cat = catToLc(catIdx);
         if (!NativeBridge.AVAILABLE) {
             if (loc == null) {
                 L.push(LuaValue.ofString(LuaString.latin1("C")));
@@ -1029,30 +1034,20 @@ public final class OsLib {
                 L.push(LuaValue.ofString(LuaString.utf8("C")));
                 return 1;
             }
-            byte[] c = NativeBridge.cSetlocale(catToLc(0),
+            byte[] c = NativeBridge.cSetlocale(CAT_ALL,
                     "C".getBytes(java.nio.charset.StandardCharsets.UTF_8));
             if (c != null) {
                 L.localeBaseline = true;
             }
         }
         byte[] locBytes = loc != null ? loc.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
-        byte[] result = NativeBridge.cSetlocale(cat, locBytes);
+        byte[] result = NativeBridge.cSetlocale(catIdx, locBytes);
         if (result == null) {
             L.pushNil();
         } else {
             L.push(LuaValue.ofString(LuaString.of(result)));
         }
         return 1;
-    }
-
-    /**
-     * Lua 的 category 下标（{@code checkOption} 返回的 0-based 索引）映射到 C 的
-     * {@code LC_*} 常量。顺序必须和 {@link #CATS} 数组一致。
-     */
-    private static int catToLc(int idx) {
-        // CATS = { "all", "collate", "ctype", "monetary", "numeric", "time" }
-        // macOS/Linux: LC_ALL=0, LC_COLLATE=1, LC_CTYPE=2, LC_MONETARY=3, LC_NUMERIC=4, LC_TIME=5
-        return idx; // 刚好一一对应
     }
 
     private static int exit(LuaState L) {
