@@ -95,6 +95,35 @@ final class Diff {
      * 打错一个函数名、或者脚本在开头就静默结束了，都会变成这种空用例——
      * 而它看起来是全绿的一部分。
      */
+    /**
+     * 与 {@link #assertMatches} 同一条路，但<b>不做地址归一化</b>。
+     * <p>
+     * 归一化那条 {@code 0x[0-9a-fA-F]+} 是为了抹掉「两边必然不同」的对象地址，
+     * 可它顺手把 {@code string.format("%a", 0.5)} 的 {@code 0x1p+00} 也抹平了——
+     * 于是浮点的十六进制表示<b>从来没被真比过</b>。要比这一类输出就用这个方法。
+     * <p>
+     * 代价：语料里不能出现真正的对象地址（{@code tostring({})} 那种），
+     * 本实现的是 Java 身份哈希、参考是 C 指针，短的可信、长的不可信。
+     */
+    static void assertMatchesLiteral(String src) {
+        requireReference();
+        src = resolve(src);
+        // 两边都必须在<b>同一个</b>归一化口径下比，所以开关要盖住两侧
+        SKIP_ADDR_MASK.set(Boolean.TRUE);
+        try {
+            String raw = refRaw(src);
+            assertEquals(true, !raw.isEmpty(),
+                    "用例在参考实现上没有产生任何输出，等于没测。script:\n" + src);
+            assertEquals(normalize(raw, true), normalize(mineRaw(src), true),
+                    "script:\n" + src);
+        } finally {
+            SKIP_ADDR_MASK.remove();
+        }
+    }
+
+    /** 给 {@link #assertMatchesLiteral} 用的开关：关掉地址归一化 */
+    private static final ThreadLocal<Boolean> SKIP_ADDR_MASK = new ThreadLocal<>();
+
     static void assertMatches(String src) {
         requireReference();
         src = resolve(src);
@@ -673,13 +702,22 @@ final class Diff {
     }
 
     private static String normalize(String s, boolean stripTraceback) {
+        if (Boolean.TRUE.equals(SKIP_ADDR_MASK.get())) {
+            return normalize(s, stripTraceback, true);
+        }
+        return normalize(s, stripTraceback, false);
+    }
+
+    private static String normalize(String s, boolean stripTraceback, boolean maskAddresses) {
         if (stripTraceback) {
             int tb = s.indexOf("stack traceback:");
             if (tb >= 0) {
                 s = s.substring(0, tb);
             }
         }
-        s = s.replaceAll("0x[0-9a-fA-F]+", "0xADDR");
+        if (!maskAddresses) {
+            s = s.replaceAll("0x[0-9a-fA-F]+", "0xADDR");
+        }
         /*
          * NaN 的符号：libc 说了算，两边不一致（约定 #96）。
          * <p>

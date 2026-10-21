@@ -262,7 +262,7 @@ final class Arith {
         case OP_DIV:
             return v1 / v2;
         case OP_POW:
-            return (v2 == 2) ? v1 * v1 : Math.pow(v1, v2);
+            return (v2 == 2) ? v1 * v1 : powf(v1, v2);
         case OP_IDIV:
             return Math.floor(v1 / v2);
         case OP_UNM:
@@ -282,4 +282,25 @@ final class Arith {
         }
         return r;
     }
+
+    /**
+     * 浮点幂，照 C 的 {@code pow}（{@code math.pow} 与 {@code ^} 共用一份，
+     * 与 {@code lvm.c}/{@code lmathlib.c} 都走 libm 是一样的分工）。
+     * <p>
+     * 为什么要盖住 {@code Math.pow}：Java 把「任一参数是 NaN 就返回 NaN」排在
+     * 特殊-case 表最前面，而 C99 规定 {@code pow(1, y) == 1} 对<b>任何</b> {@code y}
+     * 成立，{@code pow(±1, ±inf)} 也返回 1——glibc 与 macOS libc 都照这个来。
+     * 实测差异：{@code 1 ^ math.huge} 与 {@code (-1) ^ math.huge} 参考实现给
+     * {@code 1.0}，直接用 {@code Math.pow} 我们给 {@code NaN}。
+     */
+    static double powf(double x, double y) {
+        if (x == 1.0) {
+            return 1.0;                       /* C99 7.12.7.4：pow(1, y) 恒为 1 */
+        }
+        if (Math.abs(x) == 1.0 && Double.isInfinite(y)) {
+            return 1.0;                       /* pow(±1, ±inf) 也是 1 */
+        }
+        return Math.pow(x, y);
+    }
+
 }

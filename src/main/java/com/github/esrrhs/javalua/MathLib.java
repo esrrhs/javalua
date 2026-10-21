@@ -543,7 +543,7 @@ public final class MathLib {
     private static int pow(LuaState L) {
         double x = LuaAux.checkNumber(L, 1);
         double y = LuaAux.checkNumber(L, 2);
-        L.push(LuaValue.ofFloat(Math.pow(x, y)));
+        L.push(LuaValue.ofFloat(Arith.powf(x, y)));
         return 1;
     }
 
