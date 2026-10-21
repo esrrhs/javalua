@@ -269,11 +269,33 @@ public final class LuaTable {
 
     /* ==================== 哈希与主位置 ==================== */
 
+    /**
+     * C {@code hashmod}：{@code ((n) % ((sizenode(t)-1)|1))}。
+     * <p>
+     * 整数必须走这条而不是 2 的幂掩码（见 {@link #mainPosition}）。
+     * {@code n} 按无符号解释，与 {@code l_castS2U} 一致——负的
+     * {@code math.mininteger} 也要落在非负余数上。
+     */
+    private int hashMod(long n) {
+        int size = nodeSize;
+        int mod = (size - 1) | 1;
+        long ui = n; // Java long is already two's complement bit pattern
+        long rem = Long.remainderUnsigned(ui, mod);
+        return (int) rem;
+    }
+
     /** {@code mainposition}：键的主桶下标 */
     private int mainPosition(LuaValue key) {
         switch (key.tt) {
         case Lua.VNUMINT:
-            return (int) (key.i & 0x7FFFFFFF) & (nodeSize - 1);
+            /*
+             * C {@code hashint} → {@code hashmod}：{@code n % ((sizenode-1)|1)}，
+             * <b>不是</b>按 2 的幂取掩码。sizenode=2 时模数是 1，所有整数都
+             * 落进桶 0；用 {@code i & 1} 会把奇数键分到桶 1，于是
+             * {@code t[2]=nil; t[3]=true} 在参考实现上触发 rehash（数组扩到 4、
+             * {@code #t} 变 4），这里却静默塞进空桶，{@code #t} 停在 1。
+             */
+            return hashMod(key.i);
         case Lua.VNUMFLT:
             return hashFloat(key.n) & (nodeSize - 1);
         case Lua.VSHRSTR:
