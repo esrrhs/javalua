@@ -144,16 +144,17 @@ Lua 5.4.7):
   `string.format`, `io.write` and `io.read("n")` use follows it
   (`lua_getlocaledecpoint()`), and `os.date` locale names (`%A`, `%B`, `%c`,
   …) follow it too via libc `strftime`.
-- Without the shim, `os.execute` can only report `("exit", 128+n)` for a
-  signal-killed process, `os.setlocale` only accepts `nil`/`"C"`/`"POSIX"`,
-  the radix character is always `.`, and `os.date` name conversions stay on
-  the English tables.
-- `io.popen` undrained-close of a writer that already finished (tiny `echo`)
-  can yield `exit 0` instead of `signal 13` on **both** C Lua and this port —
-  a shared timing window. When the child is still writing (`sleep; echo`,
-  large `printf`), both sides agree on `signal 13`. Absolute `os.clock` values
-  still differ from a fresh `lua` process because of JVM startup CPU; the
-  function measures process CPU time like C's `clock()`.
+- Without the shim, `os.execute` / `io.popen:close` can only report
+  `("exit", 128+n)` for a signal-killed process (e.g. undrained close →
+  `("exit", 141)` instead of `("signal", 13)`), `os.setlocale` only accepts
+  `nil`/`"C"`/`"POSIX"`, the radix character is always `.`, and `os.date`
+  name conversions stay on the English tables.
+- With the shim, `io.popen` undrained-close while the child is still writing
+  (`sleep; echo`, large `printf`) agrees with C on `signal 13`. A tiny
+  `echo` that already finished can still yield `exit 0` on **both** sides —
+  a shared timing window. Absolute `os.clock` values still differ from a
+  fresh `lua` process because of JVM startup CPU; the function measures
+  process CPU time like C's `clock()`.
 
 ## Build and test
 

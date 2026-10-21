@@ -627,11 +627,11 @@ class IoLibTest {
      *       两边对不齐。所以这里写的是 {@code cat > /dev/null} 与
      *       {@code 2>/dev/null}，而不是 {@code cat} 与裸命令。</li>
      *   <li><b>不排空管道就 {@code close}</b>：读端必须在 {@code waitpid}
-     *       之前关掉（对齐 C 的 {@code pclose}）。子进程还在写时两边都给
-     *       {@code nil, "signal", 13}（见下方 {@code sleep; echo} /
-     *       大块 {@code printf} 用例）。若子进程在 close 前已经写完并退出
-     *       （极短的 {@code echo hi}），C 与本实现都会偶发 {@code true, "exit", 0}，
-     *       那是两边共有的时序窗口，不进比对。</li>
+     *       之前关掉（对齐 C 的 {@code pclose}）。子进程还在写时，带 shim
+     *       给 {@code nil, "signal", 13}；无 shim 时 {@code Process.waitFor}
+     *       只能报 {@code nil, "exit", 141}（{@code 128+13}，见
+     *       {@link #pcloseUndrainedWriterSigpipe}）。极短的 {@code echo hi}
+     *       不进比对：C 与本实现都会偶发 {@code true, "exit", 0}。</li>
      *   <li><b>{@code setvbuf} 的负的 / 极大的 size。</b> C 把它转成
      *       {@code size_t} 交给 libc 的 {@code setvbuf}，能不能分配出来是 libc
      *       自己定的：同一台机器上 {@code 2^31} 失败而 {@code 2^40} 成功，
@@ -771,24 +771,9 @@ class IoLibTest {
             c("v_stdin", io.stdin.setvbuf, io.stdin, "full")
             os.remove(p)
             print(table.concat(out, "\n"))
-            """,
-            """
-            -- 不排空就 close：子进程仍在写时，两边都必须给 signal 13。
-            -- sleep 保证 close 抢在 echo 前面；大块 printf 把管道灌满后也会堵在 write。
-            -- （极短的 echo hi 不比：C 与本实现都会偶发 exit 0。）
-            local f = assert(io.popen("sleep 0.05; echo hi"))
-            local a, b, c = f:close()
-            print(tostring(a), tostring(b), tostring(c))
-            local f2 = assert(io.popen("printf '%100000s' x"))
-            local a2, b2, c2 = f2:close()
-            print(tostring(a2), tostring(b2), tostring(c2))
-            local f3 = assert(io.popen("true"))
-            print(f3:close())
-            local f4 = assert(io.popen("echo hi"))
-            print("got", f4:read("a"))
-            print(f4:close())
-            """,
-    };
+            """, };
+
+
 
     /**
      * {@code io.open} 的<b>模式矩阵</b>：{@code l_checkmode} 认的是
@@ -1760,6 +1745,45 @@ print("done")
                     true\ttrue\texit\t0
                     """, Diff.javaOnly(src),
                     "兜底路径没有 waitpid：只能把信号死亡报成 (\"exit\", 128+n)");
+        }
+    }
+
+    /**
+     * 不排空管道就 {@code close}：子进程仍在写时必须拿到 SIGPIPE 结局。
+     * <p>
+     * 读端在 {@code waitpid}/{@code waitFor} 之前关掉（对齐 C 的 {@code pclose}）。
+     * {@code sleep; echo} 与大块 {@code printf} 保证 close 抢在写完之前。
+     * 带 shim 时与参考实现一样是 {@code nil, "signal", 13}；无 shim 时
+     * {@code Process.waitFor} 只能报 {@code nil, "exit", 141}（{@code 128+13}），
+     * 与 {@link #pcloseSignalKilledChild} 同一套「两条路各有真断言」安排。
+     */
+    @Test
+    void pcloseUndrainedWriterSigpipe() {
+        String src = """
+                local f = assert(io.popen("sleep 0.05; echo hi"))
+                local a, b, c = f:close()
+                print(tostring(a), tostring(b), tostring(c))
+                local f2 = assert(io.popen("printf '%100000s' x"))
+                local a2, b2, c2 = f2:close()
+                print(tostring(a2), tostring(b2), tostring(c2))
+                local f3 = assert(io.popen("true"))
+                print(f3:close())
+                local f4 = assert(io.popen("echo hi"))
+                print("got", f4:read("a"))
+                print(f4:close())
+                """;
+        if (NativeBridge.AVAILABLE) {
+            Diff.assertMatches(src);
+        } else {
+            assertEquals("""
+                    nil\texit\t141
+                    nil\texit\t141
+                    true\texit\t0
+                    got\thi
+
+                    true\texit\t0
+                    """, Diff.javaOnly(src),
+                    "兜底路径：SIGPIPE 只能报成 (\"exit\", 141)");
         }
     }
 }

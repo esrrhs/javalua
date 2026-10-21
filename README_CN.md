@@ -134,14 +134,14 @@ shim，一遍加 `-Djavalua.nonative=true` 走纯 Java 的 `io` 路径，两条�
   `tonumber`、`tostring`、`string.format`、`io.write`、`io.read("n")` 用的
   小数点（`lua_getlocaledecpoint()`）以及 `os.date` 的 locale 名字（`%A`、
   `%B`、`%c` 等，走 libc `strftime`）都会跟着变。
-- 没有 shim 时，`os.execute` 对被信号杀死的进程只能给
-  `("exit", 128+n)`，`os.setlocale` 只认 `nil`/`"C"`/`"POSIX"`，小数点恒为
+- 没有 shim 时，`os.execute` / `io.popen:close` 对被信号杀死的进程只能给
+  `("exit", 128+n)`（例如不排空就 close → `("exit", 141)` 而不是
+  `("signal", 13)`），`os.setlocale` 只认 `nil`/`"C"`/`"POSIX"`，小数点恒为
   `.`，`os.date` 名字类转换仍走英文表。
-- `io.popen` 在子进程**已经写完**再 `close`（极短的 `echo`）时，C 与本实现
-  都会偶发 `exit 0` 而不是 `signal 13`——两边共有的时序窗口。子进程仍在写
-  （`sleep; echo`、大块 `printf`）时两边都稳定给 `signal 13`。`os.clock`
-  已按进程 CPU 时间对齐 C 的 `clock()`；绝对值仍会因 JVM 启动开销与刚拉起的
-  `lua` 进程不同。
+- 带 shim 时，`io.popen` 在子进程仍在写（`sleep; echo`、大块 `printf`）就
+  `close` 与 C 一样稳定给 `signal 13`。子进程**已经写完**再 close（极短的
+  `echo`）时两边都会偶发 `exit 0`——共有的时序窗口。`os.clock` 已按进程 CPU
+  时间对齐 C 的 `clock()`；绝对值仍会因 JVM 启动开销与刚拉起的 `lua` 进程不同。
 
 ## 构建与测试
 
