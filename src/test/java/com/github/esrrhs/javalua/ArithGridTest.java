@@ -163,4 +163,38 @@ print("END")
 
     private ArithGridTest() {
     }
+
+    /**
+     * {@code 1 ^ ±inf} 与 {@code (-1) ^ ±inf}：C99 规定 {@code pow(1, y)} 恒为 1，
+     * {@code pow(±1, ±inf)} 也是 1，两个 libc 都照这个来；而 Java 的
+     * {@code Math.pow} 把「任一参数 NaN 则 NaN」与「|x|==1 且 y 为无穷 → NaN」
+     * 排在前面，于是 {@code 1 ^ math.huge} 我们曾经是 {@code NaN}。
+     * <p>
+     * 这一档是差分语料扫 {@code ^} 的整/浮点矩阵时咬出来的，{@code math.pow}
+     * 与运算符共用 {@code Arith.powf}，所以两边都盖到。
+     */
+    @Test
+    void oneToInfinitePowerMatchesReference() {
+        Diff.assertMatches("""
+                local inf, nan = math.huge, 0 / 0
+                local cases = {
+                  {1, inf}, {1, -inf}, {-1, inf}, {-1, -inf}, {1, nan}, {-1, nan},
+                  {1, 0}, {1, 2}, {-1, 2}, {-1, 3}, {1, math.maxinteger},
+                  {-1, math.mininteger}, {1.0, inf}, {2, inf}, {-2, inf},
+                  {0.5, inf}, {2, nan}, {0, -1},
+                }
+                for i = 1, #cases do
+                  local a, b = cases[i][1], cases[i][2]
+                  local ok, r = pcall(function() return a ^ b end)
+                  print(i, ok and (tostring(r) .. "/" .. tostring(math.type(r)))
+                             or tostring(r):gsub("^.-:%d+: ", ""))
+                  local ok2, r2 = pcall(math.pow, a, b)
+                  print("p" .. i, ok2 and (tostring(r2) .. "/" .. tostring(math.type(r2)))
+                              or tostring(r2):gsub("^.-:%d+: ", ""))
+                end
+                print("lim", 0.9999 ^ math.huge, 1.0001 ^ math.huge,
+                      math.pow(1, math.mininteger), math.pow(-1, math.huge))
+                """);
+    }
+
 }

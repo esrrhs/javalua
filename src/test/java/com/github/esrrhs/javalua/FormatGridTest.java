@@ -430,4 +430,52 @@ for i = 1, #QV2 do
 end
         """);
     }
+
+    /**
+     * 十六进制浮点（{@code %a} / {@code %A}）逐字节比。
+     * <p>
+     * 这一整块以前<b>比不到</b>：{@link Diff} 的归一化会把 {@code 0x...} 一律
+     * 抹成 {@code 0xADDR}（那是为对象地址准备的），而 {@code %a} 的输出正是
+     * {@code 0x1.8p+00} 这种形状——抹完两边永远相等。所以这里走
+     * {@link Diff#assertMatchesLiteral}：不抹地址，代价是语料里不许出现
+     * 对象地址（本实现是 Java 身份哈希，位数都不一样，比它没有意义）。
+     */
+    @Test
+    void hexFloatFormatsMatchReferenceLiterally() {
+        Diff.assertMatchesLiteral("""
+                -- 次正规（5e-324 / 2^-1074）不在这一档里：%a 怎么写次正规是
+                -- <b>unspecified</b>，glibc 忠实机器编码（0x0.0000000000001p-1022）、
+                -- Apple libc 先规格化（0x1p-1074），本实现取 glibc（约定 #52），
+                -- 所以这条比对在 macOS 上必然红。那份选择由
+                -- StringLibTest#subnormalQuoteFollowsGlibc 钉住。
+                local vals = {0.5, 1, 2, 3, 0.1, 1 / 3, 1e300, -0.0,
+                              2 ^ 53, 1e-5, 123456789.125, 0.75, 1e17,
+                              3.141592653589793, 1e308, 0}
+                // 没有 "%.0a"：prec=0 时 0x1.8 这种「舍弃首位恰为 8」的平局
+                // 落在平台相关那一档（Apple libc 与 glibc 的取舍相反，见
+                // StringLib.roundFrac 的注释），本机参考是 Apple 的。
+                local fmts = {"%a", "%A", "%.3a", "%12a", "%-12a", "%+.2a",
+                              "% .2a", "%#a", "%012.4a", "%5.17a", "%.1A"}
+                for vi = 1, #vals do
+                  for fi = 1, #fmts do
+                    local ok, r = pcall(string.format, fmts[fi], vals[vi])
+                    print(vi, fi, ok, ok and r or tostring(r):sub(1, 60))
+                  end
+                end
+                -- 回环：%a 的默认精度是够精确的，tonumber 回来必须还是同一个数
+                for i = 1, #vals do
+                  local v = vals[i]
+                  local s = string.format("%a", v)
+                  local back = tonumber(s)
+                  print("rt", i, s, back == v or (back ~= back and v ~= v),
+                        math.type(tonumber(string.format("%.3a", v))))
+                end
+                -- 带符号与特殊值
+                print("sp1", string.format("%a %a", 0 / 0, 1 / 0))
+                print("sp2", string.format("%a", -1 / 0))
+                print("sp3", pcall(string.format, "%a", 3))
+                print("sp4", pcall(string.format, "%a", "x"))
+                print("sp5", pcall(string.format, "%aa%Aa", 0.5))
+                """);
+    }
 }
