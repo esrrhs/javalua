@@ -21,7 +21,8 @@
 #include <pthread.h>
 #include <dlfcn.h>
 #include <locale.h>   /* setlocale / localeconv */
-#include <langinfo.h>   /* nl_langinfo_l(RADIXCHAR)：小数点由 locale 自己给 */
+#include <langinfo.h>
+#include <time.h>   /* nl_langinfo_l(RADIXCHAR)：小数点由 locale 自己给 */
 #if defined(__APPLE__)
 /*
  * macOS 的 SDK 只在 {@code __XSI_VISIBLE} 下声明 {@code nl_langinfo_l}，
@@ -1991,6 +1992,61 @@ Java_com_github_esrrhs_javalua_NativeBridge_cCloseFd(JNIEnv *env, jclass cls,
         jlong fd) {
     (void)env; (void)cls;
     if (fd >= 0) close((int) fd);
+}
+
+
+/*
+ * strftime(fmt) with localtime_r / gmtime_r — os.date locale-dependent specs.
+ * fmt is a Java byte[] (no trailing NUL). Buffer starts at 256 and doubles
+ * once if needed (strftime returns 0 both on error and on "did not fit").
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cStrftime(JNIEnv *env, jclass cls,
+        jlong epochSec, jboolean utc, jbyteArray fmt) {
+    (void)cls;
+    struct tm tm;
+    time_t t = (time_t) epochSec;
+    char *fmtBuf = NULL;
+    jsize flen;
+    size_t cap = 256;
+    char *buf = NULL;
+    size_t n;
+    jbyteArray arr;
+    int i;
+
+    if (fmt == NULL) return NULL;
+    flen = (*env)->GetArrayLength(env, fmt);
+    fmtBuf = (char *)malloc((size_t)flen + 1);
+    if (fmtBuf == NULL) return NULL;
+    (*env)->GetByteArrayRegion(env, fmt, 0, flen, (jbyte *)fmtBuf);
+    fmtBuf[flen] = '\0';
+
+    memset(&tm, 0, sizeof tm);
+    if (utc) {
+        if (gmtime_r(&t, &tm) == NULL) { free(fmtBuf); return NULL; }
+    } else {
+        if (localtime_r(&t, &tm) == NULL) { free(fmtBuf); return NULL; }
+    }
+
+    for (i = 0; i < 2; i++) {
+        buf = (char *)malloc(cap);
+        if (buf == NULL) { free(fmtBuf); return NULL; }
+        n = strftime(buf, cap, fmtBuf, &tm);
+        if (n > 0 || (n == 0 && fmtBuf[0] == '\0')) {
+            break; /* success (empty format is empty result) */
+        }
+        free(buf);
+        buf = NULL;
+        cap *= 4;
+    }
+    free(fmtBuf);
+    if (buf == NULL) return NULL;
+
+    arr = (*env)->NewByteArray(env, (jsize)n);
+    if (arr == NULL) { free(buf); return NULL; }
+    (*env)->SetByteArrayRegion(env, arr, 0, (jsize)n, (jbyte *)buf);
+    free(buf);
+    return arr;
 }
 
 /* ==================== 生成的 stub ==================== */

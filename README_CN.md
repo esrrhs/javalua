@@ -116,21 +116,32 @@ shim，一遍加 `-Djavalua.nonative=true` 走纯 Java 的 `io` 路径，两条�
 
 ### 已知差异
 
-- 超越函数（`math.sin` 等）与平台 libc 可能相差几个 ulp。
+下面只保留**有意**或**平台无法对齐**的偏离（其余应对齐 Lua 5.4.7）：
+
+- **GC**：内存交给 JVM（不移植 `lgc.c`）。弱表、`__gc`、`collectgarbage`
+  尽量保留可观测形态，但 `collectgarbage("count")` 报的是 JVM 堆用量
+  （绝对值不同，相对变化仍有意义）。上游 `gc.lua` / 收集器参数类用例不做
+  差分闸门。
+- 超越函数（`math.sin` 等）与平台 libc 可能相差几个 ulp（Java `Math`/fdlibm
+  vs 参考实现链接的 libc）。
 - `%p` 和 userdata/thread 的默认 `tostring` 输出 Java 身份标识，而不是 C
   地址。
-- `collectgarbage("count")` 报告的是 JVM 堆用量，因此绝对值与参考实现不同
-  （相对变化仍有意义）。
-- `io.popen` 的泵线程与 `close` 之间存在极罕见的竞态。
-- `os.clock` 取的是当前线程的 CPU 时间，不是整个进程的。
+- **NaN 文本符号**：C99 不规定 NaN 的符号。glibc 对 x86 默认 NaN（符号位为
+  1）常打 `-nan`；本实现一律打 `nan`（`%+` 下为 `+nan`）。差分测试两侧都会
+  归一化。
 - 带 shim 时 `os.setlocale` 会真的切换 libc 的 locale，而那是<b>进程级</b>
   状态：同一个 JVM 里所有 `LuaState` 共享它，C 那边是一个进程一个状态。
   `tonumber`、`tostring`、`string.format`、`io.write`、`io.read("n")` 用的
-  那个小数点会跟着变（`lua_getlocaledecpoint()`），但 `os.date` 的
-  `strftime` 名字（`%A`、`%B`、`%c`）仍是英文——那一半是 Java 实现的。
+  小数点（`lua_getlocaledecpoint()`）以及 `os.date` 的 locale 名字（`%A`、
+  `%B`、`%c` 等，走 libc `strftime`）都会跟着变。
 - 没有 shim 时，`os.execute` 对被信号杀死的进程只能给
   `("exit", 128+n)`，`os.setlocale` 只认 `nil`/`"C"`/`"POSIX"`，小数点恒为
-  `.`。
+  `.`，`os.date` 名字类转换仍走英文表。
+- `io.popen` 在子进程**已经写完**再 `close`（极短的 `echo`）时，C 与本实现
+  都会偶发 `exit 0` 而不是 `signal 13`——两边共有的时序窗口。子进程仍在写
+  （`sleep; echo`、大块 `printf`）时两边都稳定给 `signal 13`。`os.clock`
+  已按进程 CPU 时间对齐 C 的 `clock()`；绝对值仍会因 JVM 启动开销与刚拉起的
+  `lua` 进程不同。
 
 ## 构建与测试
 

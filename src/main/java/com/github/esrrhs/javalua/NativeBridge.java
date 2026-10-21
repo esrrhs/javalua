@@ -266,6 +266,19 @@ public final class NativeBridge {
      */
     static native int cLocaleDecpoint();
 
+    /**
+     * {@code strftime} for one conversion (or a short format like {@code "%c"}).
+     * <p>
+     * {@code fmt} is the format bytes <b>without</b> a trailing NUL (this method
+     * copies and terminates). {@code utc} selects {@code gmtime_r} vs
+     * {@code localtime_r}. Returns the formatted bytes, or {@code null} on
+     * failure (bad time / empty result).
+     * <p>
+     * Used by {@code os.date} so locale-dependent names ({@code %A}, {@code %B},
+     * {@code %c}, …) follow {@code os.setlocale}, matching C Lua.
+     */
+    static native byte[] cStrftime(long epochSec, boolean utc, byte[] fmt);
+
 
     /**
      * 调 C 的 {@code waitpid(pid, &status, 0)}，拿原始退出状态。
