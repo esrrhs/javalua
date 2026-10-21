@@ -266,11 +266,6 @@ public final class NativeBridge {
      */
     static native int cLocaleDecpoint();
 
-    /**
-     * 只查询、不改状态的一行诊断：libc 眼里的当前 locale 与它自己会用的
-     * 小数点（{@code localeconv} / {@code nl_langinfo} / {@code printf} 三种口径）。
-     */
-    static native String cLocaleDiag();
 
     /**
      * 调 C 的 {@code waitpid(pid, &status, 0)}，拿原始退出状态。

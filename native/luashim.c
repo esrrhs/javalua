@@ -21,7 +21,7 @@
 #include <pthread.h>
 #include <dlfcn.h>
 #include <locale.h>   /* setlocale / localeconv */
-#include <langinfo.h>   /* nl_langinfo(RADIXCHAR) —— 诊断用（macOS 上没有 DECIMAL_POINT 这个名字） */
+#include <langinfo.h>   /* nl_langinfo_l(RADIXCHAR)：小数点由 locale 自己给 */
 #if defined(__APPLE__)
 /*
  * macOS 的 SDK 只在 {@code __XSI_VISIBLE} 下声明 {@code nl_langinfo_l}，
@@ -1586,8 +1586,6 @@ static volatile char luashim_radix = 0;
  * {@code newlocale} 装不出来（这台机器没这份数据）就<b>什么都不记</b>，
  * 让 {@code localeconv()} 继续答话——那时 C 自己也会失败，行为一致。
  */
-static char luashim_nl_status = 0;
-
 /*
  * Lua 的类目<b>下标</b>（{@code os.setlocale} 的第二参在
  * {@code {"all","collate","ctype","monetary","numeric","time"}} 里的位置）
@@ -1634,14 +1632,12 @@ static void luashim_remember_radix(int category, const char *name) {
      */
     l = newlocale(LC_NUMERIC_MASK, name, (locale_t)0);
     if (l == (locale_t)0) {
-        luashim_nl_status = 2;                 /* 这份 locale 连 numeric 都装不出 */
         return;
     }
     rp = nl_langinfo_l(RADIXCHAR, l);
     if (rp != NULL && rp[0] != '\0') {
         luashim_radix = rp[0];
     }
-    luashim_nl_status = 1;
     freelocale(l);
 }
 
@@ -1719,32 +1715,6 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
     return (jint)(unsigned char)lc->decimal_point[0];
 }
 
-/*
- * 纯查询，不改任何状态：把「libc 眼里的当前 locale」和「libc 自己会用的
- * 小数点」四种口径一起打出来，用于定位 {@code os.setlocale} 在 JVM 里
- * 与在 C 进程里表现不一致的那条路（Linux 上 {@code setlocale} 返回了名字，
- * {@code localeconv()} 却仍给 '.'）。
- */
-JNIEXPORT jstring JNICALL
-Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDiag(JNIEnv *env,
-        jclass cls) {
-    (void)cls;
-    char out[512];
-    char probe[16];
-    const char *all = setlocale(LC_ALL, NULL);
-    const char *num = setlocale(LC_NUMERIC, NULL);
-    struct lconv *lc = localeconv();
-    snprintf(probe, sizeof probe, "%.1f", 1.5);
-    snprintf(out, sizeof out, "all=%s|numeric=%s|conv=%c|probe=%s|langinfo=%s|cache=%c",
-             all ? all : "?", num ? num : "?",
-             (lc != NULL && lc->decimal_point != NULL && lc->decimal_point[0] != '\0')
-                     ? lc->decimal_point[0] : '?',
-             probe, nl_langinfo(RADIXCHAR),
-             luashim_radix != 0 ? luashim_radix : '?');
-    snprintf(out + strlen(out), sizeof out - strlen(out), "|nlok=%c",
-             luashim_nl_status == 1 ? 'y' : (luashim_nl_status == 2 ? 'n' : '-'));
-    return (*env)->NewStringUTF(env, out);
-}
 
 /* 定义在本文件末尾的 cSpawn 那一节 */
 static void luashim_pending_take(pid_t pid);
