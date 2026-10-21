@@ -1586,28 +1586,35 @@ static volatile char luashim_radix = 0;
  * {@code newlocale} 装不出来（这台机器没这份数据）就<b>什么都不记</b>，
  * 让 {@code localeconv()} 继续答话——那时 C 自己也会失败，行为一致。
  */
+static char luashim_nl_status = 0;
+
 static void luashim_remember_radix(int category, const char *name) {
-    int mask;
     locale_t l;
     const char *rp;
     if (name == NULL) {
         return;
     }
-    if (category == LC_ALL) {
-        mask = LC_ALL_MASK;
-    } else if (category == LC_NUMERIC) {
-        mask = LC_NUMERIC_MASK;
-    } else {
+    if (category != LC_ALL && category != LC_NUMERIC) {
         return;     /* collate / time / monetary 那些与小数点无关 */
     }
-    l = newlocale(mask, name, (locale_t)0);
+    /*
+     * <b>只按 LC_NUMERIC 建</b>。小数点是这一家的属性，C 的
+     * {@code lua_getlocaledecpoint()} 取的也是 {@code LC_NUMERIC} 的
+     * {@code decimal_point}；用 {@code LC_ALL_MASK} 等于要求「所有类目都得有
+     * 数据」，那比 C 实际要求的宽——CI 那台 runner 上实测就是这样：
+     * {@code newlocale(LC_ALL_MASK, "pt_BR.UTF-8", 0)} 失败（诊断里
+     * {@code cache=?}），而参考进程只把 {@code LC_NUMERIC} 换成逗号就成功了。
+     */
+    l = newlocale(LC_NUMERIC_MASK, name, (locale_t)0);
     if (l == (locale_t)0) {
+        luashim_nl_status = 2;                 /* 这份 locale 连 numeric 都装不出 */
         return;
     }
     rp = nl_langinfo_l(RADIXCHAR, l);
     if (rp != NULL && rp[0] != '\0') {
         luashim_radix = rp[0];
     }
+    luashim_nl_status = 1;
     freelocale(l);
 }
 
@@ -1711,6 +1718,8 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDiag(JNIEnv *env,
                      ? lc->decimal_point[0] : '?',
              probe, nl_langinfo(RADIXCHAR),
              luashim_radix != 0 ? luashim_radix : '?');
+    snprintf(out + strlen(out), sizeof out - strlen(out), "|nlok=%c",
+             luashim_nl_status == 1 ? 'y' : (luashim_nl_status == 2 ? 'n' : '-'));
     return (*env)->NewStringUTF(env, out);
 }
 
