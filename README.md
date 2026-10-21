@@ -129,15 +129,21 @@ Lua 5.4.7):
 - **GC**: memory is owned by the JVM (`lgc.c` is not ported). Weak tables,
   `__gc`, and `collectgarbage` keep Lua-observable shapes where possible, but
   `collectgarbage("count")` reports JVM heap usage (absolute values differ;
-  relative changes are still meaningful). Upstream `gc.lua` / collector-param
-  tests are not differential gates.
+  relative changes are still meaningful), and `collectgarbage("step")` may
+  report cycle completion differently because there is no incremental Lua
+  collector to step. Upstream `gc.lua` / collector-param tests are not
+  differential gates.
 - Transcendental `math` functions can differ from the platform libc by a few
   ulp (Java `Math` / fdlibm vs the reference's libc).
 - `%p` and the default `tostring` of userdata/threads print Java identities,
   not C addresses.
-- **NaN sign in text**: C99 leaves the sign of a NaN unspecified. glibc often
-  prints `-nan` for the default x86 NaN (sign bit set); this port always prints
-  `nan` / `+nan` under `%+`. Differential tests normalize both sides.
+- **NaN sign in text**: C99 leaves the sign of a NaN unspecified. This port
+  follows the IEEE sign bit like glibc (`-nan` when the sign bit is set;
+  `+nan` / ` nan` under `%+` / `% ` for a positive NaN). Apple libc may still
+  print unsigned `nan` for a negative NaN; differential tests normalize both
+  sides so macOS hosts stay comparable. Math-library NaN *payloads* can still
+  differ from libm for some domain errors; `asin`/`acos` are canonicalized to
+  a positive quiet NaN to match glibc.
 - With the shim, `os.setlocale` really switches libc's locale, which is
   **per-process**: every `LuaState` in the same JVM shares it, while C Lua has
   one state per process. The radix character that `tonumber`, `tostring`,

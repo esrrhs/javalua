@@ -1436,9 +1436,15 @@ public final class StringLib {
 
     /* ---------- 浮点 ---------- */
 
-    /** 负号取自符号位，所以 {@code -0.0} 也算负——{@code %f} 要给 {@code -0.000000} */
+    /**
+     * 负号取自符号位，所以 {@code -0.0} 也算负——{@code %f} 要给 {@code -0.000000}。
+     * <p>
+     * NaN 也看符号位：glibc 对符号位置位的 NaN 打 {@code -nan}，对
+     * {@code %+}/{@code % } 下的正 NaN 打 {@code +nan}/{@code  nan}。以前把
+     * NaN 排除在外，于是 {@code string.len(0/0)} 在参考实现上是 4、这里是 3。
+     */
     private static boolean isNeg(double x) {
-        return !Double.isNaN(x) && Double.doubleToRawLongBits(x) < 0;
+        return Double.doubleToRawLongBits(x) < 0;
     }
 
     private static void emitFloat(LuaAux.Buf out, Spec sp, boolean neg, String digits,
