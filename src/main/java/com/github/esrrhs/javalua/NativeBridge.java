@@ -248,9 +248,14 @@ public final class NativeBridge {
      * 取 C 的 {@code localeconv()->decimal_point[0]}，也就是
      * {@code lua_getlocaledecpoint()}（{@code luaconf.h}）。
      * <p>
-     * Lua 的数字进出都过这个字符，所以它是<b>每次都要现问</b>的：
-     * {@code os.setlocale} 一改，答案就变。native 层不在时没人能改 locale，
-     * 调用方直接按 {@code '.'} 走（见 {@link Numeral#decpoint()}）。
+     * Lua 的数字进出都过这个字符，所以 {@code os.setlocale} 一改它就得跟着变。
+     * <p>
+     * shim 里那份记录是<b>设 locale 时顺手记下的</b>（{@code newlocale} +
+     * {@code nl_langinfo_l(RADIXCHAR)}），不是现场问 {@code localeconv()}：
+     * CI 上实测 JVM 进程里 {@code setlocale(LC_ALL, "pt_BR.UTF-8")} 返回了名字
+     * 却只落实 {@code LC_CTYPE}，{@code localeconv} 一直答 {@code '.'}。没人设过
+     * locale 时仍然现场问 {@code localeconv()}，与 C 一致。native 层不在时没人
+     * 能改 locale，调用方直接按 {@code '.'} 走（见 {@link Numeral#decpoint()}）。
      */
     static native int cLocaleDecpoint();
 

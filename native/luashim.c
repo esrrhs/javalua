@@ -22,6 +22,14 @@
 #include <dlfcn.h>
 #include <locale.h>   /* setlocale / localeconv */
 #include <langinfo.h>   /* nl_langinfo(RADIXCHAR) —— 诊断用（macOS 上没有 DECIMAL_POINT 这个名字） */
+#if defined(__APPLE__)
+/*
+ * macOS 的 SDK 只在 {@code __XSI_VISIBLE} 下声明 {@code nl_langinfo_l}，
+ * 而 glibc 一直是公开的。参数类型在两边都是 int（macOS 的 nl_item_t 就是 int），
+ * 这里补一条声明，不改任何行为。
+ */
+extern char *nl_langinfo_l(int item, locale_t loc);
+#endif
 #include <sys/wait.h>   /* luaL_execresult 要用本平台的 WIFEXITED / WTERMSIG */
 #include <unistd.h>   /* pipe / read / write / close */
 #include <spawn.h>    /* posix_spawn：子进程不能归 JVM 管，原因见 cSpawn */
@@ -1560,6 +1568,50 @@ Java_com_github_esrrhs_javalua_NativeBridge_cGetErrno(JNIEnv *env,
 }
 
 /*
+ * 「本进程该用哪个小数点」的记录：{@code 0} = 还没人设过 locale，
+ * 那时照 C 一样现场问 {@code localeconv()}。
+ * <p>
+ * 为什么要有这份记录而不是每次都问 {@code localeconv()}：见
+ * {@link Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale} 的注释——
+ * 在 JVM 进程里 {@code setlocale} 会把小数点那一档<b>留在 C.UTF-8 上</b>。
+ * 单字节的一次写入，Java 侧的读要么是旧值要么是新值，两者都对应当时
+ * 已经生效的那份 locale，不需要锁。
+ */
+static volatile char luashim_radix = 0;
+
+/**
+ * 问 libc：{@code name} 这份 locale 的 {@code RADIXCHAR} 是哪个字符。
+ * <p>
+ * 只处理会影响小数点的两档：{@code LC_ALL} 与 {@code LC_NUMERIC}。
+ * {@code newlocale} 装不出来（这台机器没这份数据）就<b>什么都不记</b>，
+ * 让 {@code localeconv()} 继续答话——那时 C 自己也会失败，行为一致。
+ */
+static void luashim_remember_radix(int category, const char *name) {
+    int mask;
+    locale_t l;
+    const char *rp;
+    if (name == NULL) {
+        return;
+    }
+    if (category == LC_ALL) {
+        mask = LC_ALL_MASK;
+    } else if (category == LC_NUMERIC) {
+        mask = LC_NUMERIC_MASK;
+    } else {
+        return;     /* collate / time / monetary 那些与小数点无关 */
+    }
+    l = newlocale(mask, name, (locale_t)0);
+    if (l == (locale_t)0) {
+        return;
+    }
+    rp = nl_langinfo_l(RADIXCHAR, l);
+    if (rp != NULL && rp[0] != '\0') {
+        luashim_radix = rp[0];
+    }
+    freelocale(l);
+}
+
+/*
  * {@code setlocale(category, locale)} —— 直接调 C 的 setlocale。
  * <p>
  * {@code locale} 为 {@code NULL} 时只查询不设置；返回的字符串是 C 运行时的
@@ -1582,33 +1634,23 @@ Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale(JNIEnv *env,
     }
     char *result = setlocale((int)category, loc);
     /*
-     * <b>glibc 在 JVM 进程里的实测坑</b>：{@code setlocale(LC_ALL, "pt_BR.UTF-8")}
-     * 返回了名字（看着像全成了），可紧接着在同一线程查询却是
-     * {@code LC_CTYPE=pt_BR.UTF-8;LC_NUMERIC=C.UTF-8;...}——只有 LC_CTYPE 真的
-     * 换过去了，于是 {@code localeconv()} / {@code printf} / {@code nl_langinfo}
-     * 三个口径一致报 {@code '.'}，数字的小数点没切过来。同一条命令在单线程的
-     * C 进程里是一次性全换好的（参考实现就是这么做的）。
+     * 记下面要用的那个小数点。为什么不能现场问 {@code localeconv()}：
+     * CI（ubuntu runner）上实测，{@code setlocale(LC_ALL,"pt_BR.UTF-8")}
+     * <b>返回了名字</b>，可同一线程紧接着查回来的是
+     * {@code LC_CTYPE=pt_BR.UTF-8;LC_NUMERIC=C.UTF-8;...}——只有 LC_CTYPE 真换了;
+     * 再退一步，<b>逐类目各设一次也没把它换过去</b>（{@code LC_NUMERIC} 仍是
+     * {@code C.UTF-8}）。于是 {@code localeconv} / {@code printf} /
+     * {@code nl_langinfo} 三个口径一致报 {@code '.'}，数字的小数点切不过去，
+     * 而同一个 runner 上单进程的参考实现却确实是逗号（{@code setlocale} 在
+     * C 进程里能整份装上）。
      * <p>
-     * 这里在 {@code LC_ALL} 声称成功之后，再<b>逐类目各设一次</b>，把没被
-     * LC_ALL 落实的那几类补上。单个类目设不上就保持它原有的值不动：那只能是
-     * 这台机器缺这份 locale 数据，不是我们改坏了。
+     * 所以不再依赖「这个进程/线程的 locale 到底切到哪一份」，改成直接问 libc:
+     * <b>「你要装的这份 locale，它自己的小数点是什么」</b>——
+     * {@code newlocale(mask, name, 0)} + {@code nl_langinfo_l(RADIXCHAR, l)}。
+     * 这与 C 的 {@code lua_getlocaledecpoint()} 在「locale 真的生效了」的进程里
+     * 拿到的是同一个字符，而我们对 locale 的语义要求本来也只是那一个字符。
      */
-    if (result != NULL && loc != NULL && (int)category == LC_ALL) {
-        static const int luashim_cats[] = {LC_COLLATE, LC_CTYPE, LC_MONETARY,
-                LC_NUMERIC, LC_TIME
-#ifdef LC_MESSAGES
-                , LC_MESSAGES
-#endif
-#ifdef LC_PAPER
-                , LC_PAPER, LC_NAME, LC_ADDRESS, LC_TELEPHONE, LC_MEASUREMENT,
-                  LC_IDENTIFICATION
-#endif
-        };
-        size_t ci;
-        for (ci = 0; ci < sizeof luashim_cats / sizeof luashim_cats[0]; ci++) {
-            (void) setlocale(luashim_cats[ci], loc);
-        }
-    }
+    luashim_remember_radix((int)category, loc);
     free(locBuf);
     if (result == NULL) return NULL;
     /*
@@ -1637,7 +1679,11 @@ JNIEXPORT jint JNICALL
 Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
         jclass cls) {
     (void)env; (void)cls;
-    struct lconv *lc = localeconv();
+    struct lconv *lc;
+    if (luashim_radix != 0) {
+        return (jint)(unsigned char)luashim_radix;
+    }
+    lc = localeconv();
     if (lc == NULL || lc->decimal_point == NULL || lc->decimal_point[0] == '\0')
         return (jint)'.';
     return (jint)(unsigned char)lc->decimal_point[0];
@@ -1659,11 +1705,12 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDiag(JNIEnv *env,
     const char *num = setlocale(LC_NUMERIC, NULL);
     struct lconv *lc = localeconv();
     snprintf(probe, sizeof probe, "%.1f", 1.5);
-    snprintf(out, sizeof out, "all=%s|numeric=%s|conv=%c|probe=%s|langinfo=%s",
+    snprintf(out, sizeof out, "all=%s|numeric=%s|conv=%c|probe=%s|langinfo=%s|cache=%c",
              all ? all : "?", num ? num : "?",
              (lc != NULL && lc->decimal_point != NULL && lc->decimal_point[0] != '\0')
                      ? lc->decimal_point[0] : '?',
-             probe, nl_langinfo(RADIXCHAR));
+             probe, nl_langinfo(RADIXCHAR),
+             luashim_radix != 0 ? luashim_radix : '?');
     return (*env)->NewStringUTF(env, out);
 }
 
