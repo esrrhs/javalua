@@ -433,7 +433,7 @@ class StringLibTest {
         // inf / nan 不参与零填充：0 标志被忽略，宽度改用空格补
         assertEquals("                 inf", fmtExpr(L, "%020.5a", "math.huge"));
         assertEquals("                -inf", fmtExpr(L, "%020.5a", "-math.huge"));
-        assertEquals("                 nan", fmtExpr(L, "%020.5a", "0/0"));
+        assertEquals("                -nan", fmtExpr(L, "%020.5a", "0/0"));
         L.close();
     }
 

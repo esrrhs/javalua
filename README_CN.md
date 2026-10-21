@@ -120,15 +120,18 @@ shim，一遍加 `-Djavalua.nonative=true` 走纯 Java 的 `io` 路径，两条�
 
 - **GC**：内存交给 JVM（不移植 `lgc.c`）。弱表、`__gc`、`collectgarbage`
   尽量保留可观测形态，但 `collectgarbage("count")` 报的是 JVM 堆用量
-  （绝对值不同，相对变化仍有意义）。上游 `gc.lua` / 收集器参数类用例不做
-  差分闸门。
+  （绝对值不同，相对变化仍有意义），且 `collectgarbage("step")` 的「本轮是否
+  结束」可能与 C 不同——没有可步进的增量 Lua 收集器。上游 `gc.lua` /
+  收集器参数类用例不做差分闸门。
 - 超越函数（`math.sin` 等）与平台 libc 可能相差几个 ulp（Java `Math`/fdlibm
   vs 参考实现链接的 libc）。
 - `%p` 和 userdata/thread 的默认 `tostring` 输出 Java 身份标识，而不是 C
   地址。
-- **NaN 文本符号**：C99 不规定 NaN 的符号。glibc 对 x86 默认 NaN（符号位为
-  1）常打 `-nan`；本实现一律打 `nan`（`%+` 下为 `+nan`）。差分测试两侧都会
-  归一化。
+- **NaN 文本符号**：C99 不规定 NaN 的符号。本实现按 IEEE 符号位对齐 glibc
+  （符号位置位打 `-nan`；正 NaN 在 `%+` / `% ` 下打 `+nan` / ` nan`）。
+  Apple libc 仍可能对负 NaN 打无符号 `nan`，差分测试两侧都会归一化。
+  部分数学库定义域错误的 NaN 载荷仍可能与 libm 不同；`asin`/`acos` 已
+  收到与 glibc 相同的正 quiet NaN。
 - 带 shim 时 `os.setlocale` 会真的切换 libc 的 locale，而那是<b>进程级</b>
   状态：同一个 JVM 里所有 `LuaState` 共享它，C 那边是一个进程一个状态。
   `tonumber`、`tostring`、`string.format`、`io.write`、`io.read("n")` 用的

@@ -1862,7 +1862,12 @@ public final class Vm {
         }
         double d = v.n;
         if (Double.isNaN(d)) {
-            return "nan";
+            /*
+             * glibc 按 IEEE 符号位打 "-nan" / "nan"；C99 把符号留作
+             * unspecified，但本仓库的差分参考是 ubuntu/glibc 的 lua，
+             * 且 string.len(0/0) / #tostring(0/0) 会把符号变成可观测长度。
+             */
+            return Double.doubleToRawLongBits(d) < 0 ? "-nan" : "nan";
         }
         if (d == Double.POSITIVE_INFINITY) {
             return "inf";
@@ -1907,7 +1912,7 @@ public final class Vm {
      */
     static String formatG(double d, int p) {
         if (Double.isNaN(d)) {
-            return "nan";
+            return Double.doubleToRawLongBits(d) < 0 ? "-nan" : "nan";
         }
         if (d == Double.POSITIVE_INFINITY) {
             return "inf";

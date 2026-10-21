@@ -251,13 +251,26 @@ public final class MathLib {
     }
 
     private static int asin(LuaState L) {
-        L.push(LuaValue.ofFloat(Math.asin(LuaAux.checkNumber(L, 1))));
+        L.push(LuaValue.ofFloat(domainNaN(Math.asin(LuaAux.checkNumber(L, 1)))));
         return 1;
     }
 
     private static int acos(LuaState L) {
-        L.push(LuaValue.ofFloat(Math.acos(LuaAux.checkNumber(L, 1))));
+        L.push(LuaValue.ofFloat(domainNaN(Math.acos(LuaAux.checkNumber(L, 1)))));
         return 1;
+    }
+
+    /**
+     * Java {@code Math.asin}/{@code acos} 对定义域外输入给出符号位置位的 NaN
+     * （{@code 0xfff8…}），而 glibc/fdlibm 给的是正 NaN（{@code 0x7ff8…}）。
+     * 符号位一进 {@code tostring}/{@code string.len} 就能观测到，所以这里把
+     * 「由有限输入算出的 NaN」收到与 libm 相同的正载荷上。
+     */
+    private static double domainNaN(double r) {
+        if (Double.isNaN(r) && Double.doubleToRawLongBits(r) < 0) {
+            return Double.longBitsToDouble(0x7ff8000000000000L);
+        }
+        return r;
     }
 
     /** {@code math.atan(y [, x])}：给第二个参数就是 {@code atan2} */
