@@ -169,8 +169,9 @@ final class Numeral {
     /**
      * {@code lua_getlocaledecpoint()} —— {@code localeconv()->decimal_point[0]}。
      * <p>
-     * <b>每次现问，不能缓存</b>：{@code os.setlocale} 一改，答案就变，而 Lua 的
-     * 数字进出都过它。native 层装不上时没人能改 locale
+     * <b>每次都要现取</b>：{@code os.setlocale} 一改，答案就变，而 Lua 的数字
+     * 进出都过它（真正缓存的是 shim 里那份「设过的 locale 自带的小数点」，
+     * 见 {@link NativeBridge#cLocaleDecpoint()}）。native 层装不上时没人能改 locale
      * （{@code OsLib.setlocale} 只认 {@code nil}/{@code "C"}/{@code "POSIX"}），
      * 所以那条路上小数点恒为 '.'。
      */
