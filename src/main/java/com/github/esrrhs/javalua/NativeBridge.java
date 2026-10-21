@@ -242,6 +242,13 @@ public final class NativeBridge {
      * {@code locale} 为 {@code null} 时只查询不设置。返回的字节数组是 C 运行时
      * 的当前 locale 名字（UTF-8 编码），设置失败返回 {@code null}。
      */
+    /**
+     * @param catIdx {@code os.setlocale} 的类目<b>下标</b>（0=all、1=collate、
+     *     2=ctype、3=monetary、4=numeric、5=time）。shim 内部按 {@code loslib.c}
+     *     那一张表翻成本平台的 {@code LC_*} 常量——<b>编号两边不一样</b>
+     *     （glibc：{@code LC_CTYPE=0 … LC_ALL=6}；macOS：{@code LC_ALL=0 …}），
+     *     所以这个换算必须留在 C 侧。
+     */
     static native byte[] cSetlocale(int category, byte[] locale);
 
     /**
