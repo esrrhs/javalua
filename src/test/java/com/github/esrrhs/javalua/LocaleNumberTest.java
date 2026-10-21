@@ -15,8 +15,9 @@ import org.junit.jupiter.api.TestFactory;
  * {@code tonumber} / {@code tostring} / {@code string.format} / {@code io.write}
  * / {@code io.read("n")} 五条路全跟着变（{@code luaconf.h} 里那一个宏，
  * 调用点是 {@code lobject.c} 的 166/264/363、{@code lstrlib.c} 的 1044/1164、
- * {@code liolib.c} 的 486）。Java 没有进程级 locale，所以这里靠 shim 现问
- * {@code localeconv()}（见 {@link NativeBridge#cLocaleDecpoint()}），
+ * {@code liolib.c} 的 486）；{@code os.date} 的 {@code %A}/{@code %B}/{@code %c}
+ * 等也通过 shim 的 {@code strftime} 跟着变。Java 没有进程级 locale，所以这里
+ * 靠 shim 现问 {@code localeconv()}（见 {@link NativeBridge#cLocaleDecpoint()}），
  * 数字仍统一按 '.' 算、进出时换算。
  * <p>
  * 这批用例<b>只有在装有逗号 locale 的机器上才测得到东西</b>：{@code pt_BR}
@@ -167,6 +168,14 @@ class LocaleNumberTest {
             os.setlocale("C")
             print("c", tostring(tonumber("3,4")), tostring(tonumber("3.4")))
             print("ts", tostring(3.0), string.format("%g", 3.5))
+            """ + RESTORE,
+
+            // os.date 的 locale 名字：有 shim 时走 libc strftime，应对齐参考实现
+            """
+            local t = os.time{year=2024, month=6, day=15, hour=12}
+            print("names", os.date("%A", t), os.date("%B", t), os.date("%a", t), os.date("%b", t))
+            print("c", os.date("%c", t))
+            print("xX", os.date("%x", t), os.date("%X", t))
             """ + RESTORE,
     };
 

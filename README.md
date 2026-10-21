@@ -123,23 +123,37 @@ checked against that merged file.
 
 ### Known divergences
 
+Intentional / unfixable platform notes (everything else is expected to match
+Lua 5.4.7):
+
+- **GC**: memory is owned by the JVM (`lgc.c` is not ported). Weak tables,
+  `__gc`, and `collectgarbage` keep Lua-observable shapes where possible, but
+  `collectgarbage("count")` reports JVM heap usage (absolute values differ;
+  relative changes are still meaningful). Upstream `gc.lua` / collector-param
+  tests are not differential gates.
 - Transcendental `math` functions can differ from the platform libc by a few
-  ulp.
+  ulp (Java `Math` / fdlibm vs the reference's libc).
 - `%p` and the default `tostring` of userdata/threads print Java identities,
   not C addresses.
-- `collectgarbage("count")` reports JVM heap usage, so absolute values differ
-  from the reference (relative changes are still meaningful).
-- `io.popen` has a rare race between the pump thread and `close`.
-- `os.clock` measures the current thread's CPU time, not the whole process.
+- **NaN sign in text**: C99 leaves the sign of a NaN unspecified. glibc often
+  prints `-nan` for the default x86 NaN (sign bit set); this port always prints
+  `nan` / `+nan` under `%+`. Differential tests normalize both sides.
 - With the shim, `os.setlocale` really switches libc's locale, which is
   **per-process**: every `LuaState` in the same JVM shares it, while C Lua has
   one state per process. The radix character that `tonumber`, `tostring`,
   `string.format`, `io.write` and `io.read("n")` use follows it
-  (`lua_getlocaledecpoint()`), but `os.date`'s `strftime` names (`%A`, `%B`,
-  `%c`) stay in English, because that half is implemented in Java.
+  (`lua_getlocaledecpoint()`), and `os.date` locale names (`%A`, `%B`, `%c`,
+  …) follow it too via libc `strftime`.
 - Without the shim, `os.execute` can only report `("exit", 128+n)` for a
-  signal-killed process, `os.setlocale` only accepts `nil`/`"C"`/`"POSIX"`
-  and the radix character is always `.`.
+  signal-killed process, `os.setlocale` only accepts `nil`/`"C"`/`"POSIX"`,
+  the radix character is always `.`, and `os.date` name conversions stay on
+  the English tables.
+- `io.popen` undrained-close of a writer that already finished (tiny `echo`)
+  can yield `exit 0` instead of `signal 13` on **both** C Lua and this port —
+  a shared timing window. When the child is still writing (`sleep; echo`,
+  large `printf`), both sides agree on `signal 13`. Absolute `os.clock` values
+  still differ from a fresh `lua` process because of JVM startup CPU; the
+  function measures process CPU time like C's `clock()`.
 
 ## Build and test
 

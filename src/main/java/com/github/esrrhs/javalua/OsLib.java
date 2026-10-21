@@ -3,7 +3,7 @@ package com.github.esrrhs.javalua;
 import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
+import com.sun.management.OperatingSystemMXBean;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -20,9 +20,10 @@ import java.util.TimeZone;
  * 这一整块是<b>平台相关</b>的，翻译的重点不是「照抄 C」，而是把 C 那些依赖
  * libc 的行为换成 Java 里语义等价的东西，并且<b>如实标出哪里对不上</b>：
  * <ul>
- *   <li>{@code os.date} 要自己实现一套 {@code strftime}——Java 没有。转换符
- *       集合照抄 {@code LUA_STRFTIMEOPTIONS}（含 {@code E} / {@code O} 修饰），
- *       连「不认识的转换符报 {@code invalid conversion specifier '%XX'}」都一致。</li>
+ *   <li>{@code os.date}：转换符集合照抄 {@code LUA_STRFTIMEOPTIONS}（含
+ *       {@code E} / {@code O} 修饰），非法转换符报错措辞与 C 一致。有 shim 时，
+ *       依赖 locale 的那些（{@code %A}/{@code %B}/{@code %c}/…）走 libc
+ *       {@code strftime}；没有 shim 时退回英文表。</li>
  *   <li>{@code os.time} 要自己实现 {@code mktime} 的<b>归一化</b>：
  *       {@code {year=2023, month=13, day=32, hour=25}} 会被正规化成
  *       {@code 2024-02-02 02:00}，并且<b>回写进传入的那张表</b>。
@@ -36,9 +37,10 @@ import java.util.TimeZone;
  *   <li><b>{@code setlocale}</b>：已经能真做——JNI 调 C 的 {@code setlocale}，
  *       查询与设置都走它（见 {@link #setlocale}）。native 层装不上时才退回
  *       「只认 {@code nil} / {@code "C"} / {@code "POSIX"}」。</li>
- *   <li><b>{@code os.clock}</b>：仍然取<b>当前线程</b>的 CPU 时间
- *       （{@code ThreadMXBean}），不是整个进程的——本实现本来就只在一条线程上跑，
- *       这一条是刻意保留的偏离。</li>
+ *   <li><b>{@code os.clock}</b>：取<b>进程</b> CPU 时间
+ *       （{@code OperatingSystemMXBean#getProcessCpuTime}），对齐 C 的
+ *       {@code clock()}。绝对值仍会因 JVM 启动开销与参考实现不同，但语义
+ *       不再是「当前线程」。</li>
  *   <li><b>{@code os.execute} 的信号</b>：已经能报——JNI 调 {@code waitpid}
  *       拿原始 status，被信号杀死给 {@code ("signal", 编号)}（见
  *       {@link #execute}）。native 层装不上时退回 {@code Process.waitFor()}，
@@ -333,8 +335,35 @@ public final class OsLib {
         return sb.toString();
     }
 
+    /**
+     * Locale-dependent {@code strftime} conversions: when the shim is loaded,
+     * ask libc so {@code os.setlocale} changes {@code %A}/{@code %B}/{@code %c}/…
+     * the same way C Lua does. Without the shim, fall back to the English
+     * tables below.
+     */
+    private static final String LOCALE_SPECS = "aAbBhcpPrxXzZ";
+
+    private static boolean emitViaLibc(LuaAux.Buf b, int spec, long epochSec, boolean utc) {
+        if (!NativeBridge.AVAILABLE) {
+            return false;
+        }
+        if (LOCALE_SPECS.indexOf(spec) < 0) {
+            return false;
+        }
+        byte[] out = NativeBridge.cStrftime(epochSec, utc, new byte[] { '%', (byte) spec });
+        if (out == null) {
+            return false;
+        }
+        b.addBytes(out, 0, out.length);
+        return true;
+    }
+
     private static void emit(LuaAux.Buf b, int spec, Calendar c, boolean utc) {
         long ms = c.getTimeInMillis();
+        long epochSec = ms / 1000L;
+        if (emitViaLibc(b, spec, epochSec, utc)) {
+            return;
+        }
         int year = c.get(Calendar.YEAR);
         int mon = c.get(Calendar.MONTH) + 1; // 1..12
         int day = c.get(Calendar.DAY_OF_MONTH);
@@ -665,13 +694,15 @@ public final class OsLib {
     /**
      * {@code os.clock}。
      * <p>
-     * C 的 {@code clock()} 是<b>进程</b> CPU 时间；Java 拿得到的最接近的东西是
-     * 当前线程的时间（{@code ThreadMXBean}）。本实现本来就只在一条线程上跑脚本，
-     * 差别只在 JVM 自己的后台线程上。
+     * C 的 {@code clock()} 是进程 CPU 时间（用户+系统）。这里用
+     * {@link OperatingSystemMXBean#getProcessCpuTime()} 对齐同一口径。
+     * 返回值的绝对值仍会因 JVM 启动与 GC 线程而与参考实现不同，差分用例
+     * 只比类型与非负；语义上不再误报成「当前线程」。
      */
     private static int clock(LuaState L) {
-        ThreadMXBean bean = ManagementFactory.getThreadMXBean();
-        long ns = bean.isCurrentThreadCpuTimeSupported() ? bean.getCurrentThreadCpuTime() : -1;
+        OperatingSystemMXBean bean =
+                (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+        long ns = bean.getProcessCpuTime();
         L.push(LuaValue.ofFloat(ns < 0 ? 0.0 : ns / 1e9));
         return 1;
     }

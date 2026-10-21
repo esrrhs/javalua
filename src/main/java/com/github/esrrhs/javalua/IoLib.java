@@ -1318,13 +1318,19 @@ public final class IoLib {
         }
         int stat;
         try {
+            /*
+             * 与 {@link #pcloseSpawn} 一样：wait 之前先关两端。
+             * 无 shim 时孩子继承 JVM 的 SIG_IGN，关读端通常只能逼出
+             * EPIPE→非零退出，拿不到稳定的 ("signal",13)；但仍必须先关，
+             * 否则管道灌满时 waitFor 会挂死。
+             */
             if (p.out != null) {
                 p.out.close();
             }
-            stat = p.proc.waitFor();
             if (p.in != null) {
                 p.in.close();
             }
+            stat = p.proc.waitFor();
         } catch (IOException e) {
             LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
             return 3;
@@ -1361,16 +1367,26 @@ public final class IoLib {
      * shim 管，JVM 的 reaper 抢不到它，所以状态是<b>确定</b>的。
      */
     private static int pcloseSpawn(LuaState L, LuaFile p) {
+        /*
+         * 必须在 waitpid 之前把管道两端都关掉，顺序对齐 C 的 pclose：
+         * fclose(FILE*) 先关父端 fd，再 waitpid。
+         * <ul>
+         *   <li>写模式：关写端，子进程 stdin 才见到 EOF；</li>
+         *   <li>读模式：关读端。子进程若还在往 stdout 刷（stdio 全缓冲），
+         *       会收到 SIGPIPE——这正是 {@code io.popen("echo hi"):close()}
+         *       不读就关时参考实现给出 {@code nil, "signal", 13} 的原因。
+         *       以前把 {@code p.in.close()} 放在 waitpid 之后，管道一直开着，
+         *       子进程 flush 成功、恒报 {@code true, "exit", 0}；管道被灌满
+         *       时子进程还会堵在 write 上，waitpid 永远不回来。</li>
+         * </ul>
+         */
         try {
             if (p.out != null) {
-                p.out.close();   // 关写端：子进程的 stdin 这才算见到 EOF
+                p.out.close();
             }
         } catch (IOException e) {
             // 已经断了就算了，正题在后面那个 status
         }
-        long[] statusOut = new long[1];
-        int wr = NativeBridge.cWaitpid(p.pid, statusOut);
-        p.pid = -1;
         try {
             if (p.in != null) {
                 p.in.close();
@@ -1378,6 +1394,9 @@ public final class IoLib {
         } catch (IOException e) {
             // 同上
         }
+        long[] statusOut = new long[1];
+        int wr = NativeBridge.cWaitpid(p.pid, statusOut);
+        p.pid = -1;
         joinPumps(p);
         if (wr < 0) {
             LuaAux.fileResult(L, false, null, 10); // ECHILD：这个孩子已被收走
