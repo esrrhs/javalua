@@ -1838,6 +1838,234 @@ class RuntimeTest {
     }
 
     /**
+     * 浮点键的落桶（{@code l_hashfloat} + {@code hashmod}），3 千余行。
+     * <p>
+     * 起因：{@code mainpositionTV} 对浮点走 {@code hashmod(t, l_hashfloat(n))}，
+     * 而这里原本是「另一套公式 + 2 的幂掩码」。两处都偏：(a) 公式不是 C 的
+     * {@code frexp(n,&i) * 2^31} 截断、再与指数按 32 位无符号相加、溢出取反
+     * {@code ~u}（不是取负——{@code INT_MIN} 取负会原地打转）；(b) 取桶用掩码
+     * 会把「尾数×2^指数」这种自带一堆 2 的因子的哈希值堆进同一批桶，C 在
+     * {@code hashmod} 上方专门写了这句注释。
+     * <p>
+     * 为什么这片能比顺序：数值键的 {@code next} 顺序在参考实现里<b>是确定的</b>
+     * ——不像短字符串键，它的哈希带进程级 seed，顺序连参考实现自己都不可复现
+     * （所以上面那道 {@code tableLength} 矩阵与别处只比集合不比顺序）。这里
+     * <b>先打顺序、再打 {@code #t}</b>：落桶偏一点顺序就偏；而「掩码 vs
+     * {@code hashmod}」在小表上往往只剩「谁先撑到 rehash」这种间接表现，
+     * 排完序就看不见了。
+     * <p>
+     * 方块 {@code G} 盯的是实现里那条 {@code frexp} 补丁：Java 没有
+     * {@code frexp}，而 {@code getExponent} 碰上次正规数只会给 {@code -1023}
+     * （那不是能拆下尾数的指数），所以先把次正规乘 {@code 2^54} 抬成规格化。
+     * 次正规、超大、无穷各来一遍，这条分支歪了就在这里露。
+     * <p>
+     * 加这片之前实测过：修之前上面第一块（8 个 {@code x.5} 正序插）输出
+     * {@code 0.5,1.5,2.5,4.5,7.5,6.5,5.5,3.5}，参考实现是
+     * {@code 5.5,0.5,3.5,6.5,7.5,2.5,1.5,4.5}；修之后逐字相同。
+     */
+    @Test
+    void floatKeyPlacementMatchesReference() {
+        Diff.assertMatches("""
+                -- 浮点键的落桶 / next 顺序 / #t：数值键的顺序在参考实现里是确定的
+                local function dump(tag, t)
+                  local ks = {}
+                  for k in pairs(t) do ks[#ks + 1] = tostring(k) end
+                  print(tag, "#" .. tostring(#t), table.concat(ks, ","))
+                end
+
+                local FLOATS = { 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5,
+                                 -0.5, -1.5, -2.5, -3.5 }
+
+                -- F/Frev) 非整值浮点永远进不了数组部分，全靠哈希部分：正序、逆序插入
+                for n = 1, #FLOATS do
+                  local t = {}
+                  for i = 1, n do t[FLOATS[i]] = i end
+                  dump("F n=" .. n, t)
+                end
+                for n = 1, #FLOATS do
+                  local t = {}
+                  for i = n, 1, -1 do t[FLOATS[i]] = i end
+                  dump("Frev n=" .. n, t)
+                end
+
+                -- Fmask) 填满再挖空：走一遍 rehash 的收缩与再扩张
+                for mask = 0, 2 ^ 8 - 1 do
+                  local t = {}
+                  for i = 1, 8 do t[FLOATS[i]] = i end
+                  for i = 1, 8 do
+                    if mask & (1 << (i - 1)) ~= 0 then t[FLOATS[i]] = nil end
+                  end
+                  dump("Fmask m=" .. mask, t)
+                end
+
+                -- M) 整数、0、浮点混在一张表里：两类键在桶里互相挤
+                for n = 0, 6 do
+                  for m = 1, 6 do
+                    local t = {}
+                    for i = 1, n do t[i] = i end
+                    for i = 1, m do t[-FLOATS[i]] = i end
+                    t[0] = 0
+                    dump("M n=" .. n .. " m=" .. m, t)
+                  end
+                end
+
+                -- G) 量级：次正规 / 正常 / 超大 / 无穷 / 大整数域附近的浮点
+                for _, k in ipairs({ 0.5, 1e-310, 5e-324, 2 ^ -1000, 1e300, 1e-300,
+                                     math.huge, -math.huge, 2 ^ 52 + 0.5, 1 / 3, math.pi }) do
+                  local t = {}
+                  t[k] = 1
+                  t[2.5] = 2
+                  t[0.5] = 3
+                  t[1] = 4
+                  t[-1] = 5
+                  dump("G " .. tostring(k), t)
+                end
+                """);
+    }
+
+    /**
+     * 数组部分的记账（{@code alimit} 提示）与整数键的 {@code #t} / {@code rawlen}。
+     * <p>
+     * 起因：C 5.4.7 的数组部分「边界」不是一个数，而是 {@code alimit} 加一位提示位
+     * （{@code lobject.h:725-736}）：{@code isrealasize} 为真时 {@code alimit} 就是
+     * 数组的真实尺寸；为假时真实尺寸是「不小于它的最小 2 的幂」，{@code alimit}
+     * 退化成 {@code #t} 的起步提示。{@code luaH_getn} 从提示起步——
+     * {@code t[#t] = nil} 之后立刻答 {@code limit-1}（并把提示写回）、边界过半就
+     * 把提示换成新边界；{@code luaH_getint} 读一次键还会顺手把提示抬到该键
+     * （C 的原文注释 {@code "probably '#t' is here now"}）。
+     * <p>
+     * 这里原先按「精确尺寸」实现，注释还写着「语义等价」——<b>不等价</b>：{@code #t}
+     * 只承诺返回<b>某个</b>边界，起步点不同，落点就可能不同，而真实程序看得到
+     * 落点是哪个。
+     * <p>
+     * 这一段钉三样：最小复现（键集合 {@code -4,0,2,3,5,7,8,9,12}；参考答
+     * {@code 12 12}）、构造路径（字面量走 {@code OP_SETLIST}，连续/带洞/尾部空三种
+     * 形状，以及构造完再写更大的键）、随机写/删历史（自写 LCG 定序，
+     * {@code table.insert}/{@code table.remove} 夹在中间；种子数可用环境变量
+     * {@code JAVALUA_ARRAY_HISTORY_SEEDS} 放大）。
+     * <p>
+     * 灵敏度：修之前用同一段脚本跑过定点搜索——3000 个种子 × 200 步，795 个种子的
+     * 汇总行与参考对不上，第一处分歧在 seed 1 第 145 步 {@code t[16] = nil}：参考
+     * {@code #t=30}，这边 {@code 2}（C 侧插桩显示当时 {@code alimit=30}、真实尺寸
+     * 32、提示位为假）。修之后全绿。
+     */
+    @Test
+    void arrayBookkeepingMatchesReference() {
+        Diff.assertMatches("""
+                -- 数组部分的记账（alimit 提示）与整数键的 #t / rawlen
+                local function dump(tag, t)
+                  print(tag, #t, rawlen(t))
+                end
+
+                -- 0) 最小复现：9 条写入，键集合 -4,0,2,3,5,7,8,9,12
+                local m = {}
+                m[7.0]=6 m[8.0]=7 m[9]=7 m[-4]=1 m[5]=4
+                m[12]=0 m[3]=7 m[2]=1 m[-0.0]=2
+                print("min", #m, rawlen(m))
+
+                -- 1) 构造路径：字面量（OP_SETLIST）之后取长度
+                for n = 0, 24 do
+                  local parts = {}
+                  for i = 1, n do parts[#parts + 1] = tostring(i) end
+                  local t = load("return {" .. table.concat(parts, ",") .. "}")()
+                  dump("ctor n=" .. n, t)
+                end
+                for n = 1, 16 do
+                  local parts = {}
+                  for i = 1, n do parts[#parts + 1] = (i % 3 == 0) and "nil" or tostring(i) end
+                  local t = load("return {" .. table.concat(parts, ",") .. "}")()
+                  print("ctorhole n=" .. n, #t, rawlen(t), t[n] ~= nil)
+                end
+
+                -- 2) 构造之后再写更大的键：走 luaH_resizearray 与 rehash
+                for n = 1, 16 do
+                  local parts = {}
+                  for i = 1, n do parts[#parts + 1] = tostring(i) end
+                  local t = load("return {" .. table.concat(parts, ",") .. "}")()
+                  local r = {}
+                  for _, k in ipairs({ n + 1, n + 5, n + 16, 1, 2 }) do
+                    t[k] = k
+                    r[#r + 1] = k .. ":" .. #t .. "/" .. rawlen(t)
+                  end
+                  print("grow n=" .. n, table.concat(r, " "))
+                end
+
+                -- 3) 删尾再补键 / 写更大键 / 挖空中间 / table.pack 带 nil / 反复删填尾
+                local a = {1,2,3}
+                print("c1", #a)
+                a[3] = nil
+                print("c1", #a)
+                a[4] = 1
+                print("c1", #a, rawlen(a))
+                a[5] = 1
+                print("c1", #a, rawlen(a))
+
+                local b = {1,2,3}
+                b[5] = 5
+                print("c2", #b, rawlen(b))
+                b[4] = 4
+                print("c2", #b, rawlen(b))
+
+                local c = {1,2,3,4,5,6,7,8}
+                for i = 8, 1, -1 do c[i] = nil; print("c3", i, #c) end
+
+                local p = table.pack(1, nil, 3, nil)
+                print("c4", #p, rawlen(p), p.n)
+
+                local q = {}
+                for i = 1, 16 do q[i] = i end
+                for i = 1, 16 do
+                  q[i] = nil
+                  print("c5 del", i, #q)
+                  q[i] = i
+                  print("c5 set", i, #q)
+                end
+
+                -- 4) 随机写/删历史：LCG 定序（两边跑同一段脚本，不能用 math.random）
+                local function rnd2(s, n)
+                  s = (s * 1103515245 + 12345) % 2147483648
+                  return s % n, s
+                end
+                local SEEDS = tonumber(os.getenv("JAVALUA_ARRAY_HISTORY_SEEDS") or "") or 200
+                local bad = 0
+                local sum = 0
+                for seed = 1, SEEDS do
+                  local t = {}
+                  local s = seed
+                  local function rnd(n)
+                    local v
+                    v, s = rnd2(s, n)
+                    return v
+                  end
+                  local marks = {}
+                  for i = 1, 200 do
+                    local r = rnd(100)
+                    local k
+                    if r < 70 then
+                      k = rnd(40) + 1
+                    elseif r < 85 then
+                      k = -(rnd(10) + 1)
+                    elseif r < 95 then
+                      k = rnd(40) + 1.0
+                    else
+                      k = rnd(3)
+                    end
+                    if rnd(5) == 0 then t[k] = nil else t[k] = i end
+                    if #t ~= rawlen(t) then bad = bad + 1 end
+                    sum = (sum + #t * 31 + rawlen(t)) % 1000000007
+                    if i % 25 == 0 then
+                      marks[#marks + 1] = i .. ":" .. #t .. "/" .. rawlen(t)
+                      table.insert(t, i)
+                      table.remove(t)
+                    end
+                  end
+                  print("h" .. seed, table.concat(marks, " "), sum)
+                end
+                print("###bad", bad, "###sum", sum, "###seeds", SEEDS)
+                """);
+    }
+
+    /**
      * {@code io} 库矩阵：32 种打开模式（含全部非法模式）、{@code read} 的全部格式
      * 与 0–24 字节计数、数字读法、写各类值、{@code seek} 的三 whence、
      * {@code lines}、{@code close} 后再用、{@code io.input/output/read/write/close}、

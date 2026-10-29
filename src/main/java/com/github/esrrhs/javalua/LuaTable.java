@@ -19,10 +19,12 @@ import java.util.List;
  * {@code 1} 与 {@code 1.0} 是同一个键（Lua 里 {@code 1 == 1.0} 为真），
  * 但 {@code 1} 与 {@code "1"} 不是（整数键与字符串键是不同的项）。
  * <p>
- * 一处刻意的简化：C 版 5.4 用「假 alimit」把数组部分的实际边界藏在一个标志位里
- * （{@code isfakealimit}），以省掉部分二分查找。这里直接用精确的
- * {@code alimit == array.length}，语义等价、代码好读，代价是 {@code #t}
- * 偶尔多一次二分。
+ * 数组部分的边界提示照抄 C 5.4.7 的 {@code alimit}，见 {@link #alimit}。
+ * 它<b>不是</b>可以省掉的优化：{@code luaH_getn} 从 {@code alimit} 起步而不是从
+ * 数组的真实尺寸起步，而 {@code #t} 只承诺返回<b>某个</b>边界——起步点不同，
+ * 落在的合法边界就可能不同，真实程序（{@code #t} / {@code rawlen}）看得见差别。
+ * 曾经判断过「精确的 {@code alimit == array.length} 语义等价」，那个判断是错的，
+ * 病历见 {@link #length()}。
  */
 public final class LuaTable {
 
@@ -30,6 +32,22 @@ public final class LuaTable {
 
     /** 数组部分。下标 k（1 起）对应 array[k-1]，槽永不为空（nil 用 isNil() 表示） */
     LuaValue[] array = EMPTY_ARRAY;
+
+    /**
+     * C {@code Table.alimit}（{@code lobject.h:736}）：数组部分的边界提示。
+     * <p>
+     * {@code lobject.h:725-736} 写得明白：{@link #alimitIsReal} 为真时它就是
+     * 数组部分的真实尺寸；为假时数组部分的真实尺寸是「不小于它的最小 2 的幂」，
+     * 而它本身只是 {@code #t} 的<b>提示</b>——提示能不查表就报出边界。
+     * <p>
+     * 提示由 {@link #length()}（{@code luaH_getn} 的 (1a)/(1b)/(2) 三条出口）
+     * 与 {@link #getInt}（{@code luaH_getint} 的提示修正）写入，被 {@link #length()}
+     * 当作起点读取。读它、写它都会改变 {@code #t} 的答案，所以两边都要照抄。
+     */
+    int alimit = 0;
+
+    /** 对应 C 的 {@code BITRAS} 位：{@code luaH_getint} 的语意是 {@code !isrealasize(t)} */
+    boolean alimitIsReal = true;
 
     /** 哈希部分，长度为 2 的幂；为 null 表示为空（对应 C 的 dummy node） */
     Node[] node = null;
@@ -272,7 +290,8 @@ public final class LuaTable {
     /**
      * C {@code hashmod}：{@code ((n) % ((sizenode(t)-1)|1))}。
      * <p>
-     * 整数必须走这条而不是 2 的幂掩码（见 {@link #mainPosition}）。
+     * 数值键（整数与浮点）必须走这条而不是 2 的幂掩码（见 {@link #mainPosition}），
+     * 字符串与布尔才是掩码。
      * {@code n} 按无符号解释，与 {@code l_castS2U} 一致——负的
      * {@code math.mininteger} 也要落在非负余数上。
      */
@@ -297,7 +316,13 @@ public final class LuaTable {
              */
             return hashMod(key.i);
         case Lua.VNUMFLT:
-            return hashFloat(key.n) & (nodeSize - 1);
+            /*
+             * C {@code mainpositionTV} 对浮点走的是 {@code hashmod(t, l_hashfloat(n))}，
+             * 与整数同一条——<b>不是</b>掩码。理由就是 C 写在 {@code hashmod} 上方
+             * 那句注释：键的哈希值里 2 的因子多的时候，按 2 的幂取模会把它们堆进
+             * 同一批桶，而浮点的哈希值是「尾数 × 2^指数」拼出来的，正是这种形状。
+             */
+            return hashMod(hashFloat(key.n));
         case Lua.VSHRSTR:
         case Lua.VLNGSTR:
             return key.asString().hash() & (nodeSize - 1);
@@ -327,26 +352,46 @@ public final class LuaTable {
     }
 
     /**
-     * {@code ltable.c: l_hashfloat}：把浮点拆成尾数×2^指数再映射到整数。
+     * {@code ltable.c: l_hashfloat} 的逐字直译：把浮点拆成尾数×2^指数，
+     * 把这两半拼成一个整数哈希值。
      * <p>
-     * {@code -0.0} 与 {@code 0.0} 必须哈希到同一处——Lua 里二者相等
-     * （{@code luai_numeq}），因此必须是同一个键。
+     * C 的原式是 {@code ni = (lua_Integer)(frexp(n, &i) * 2^31)}，然后把
+     * {@code i} 和 {@code ni} 按 <b>32 位无符号</b>相加得到 {@code u}，
+     * 最后 {@code u <= INT_MAX ? cast_int(u) : cast_int(~u)}。这里必须
+     * 一模一样：
+     * <ul>
+     * <li>{@code frexp} 的指数是<b>真</b>指数（{@code n = m·2^e}，
+     * {@code 0.5 ≤ |m| < 1}），不是 {@code getExponent} 那个「规格化指数」；
+     * <li>溢出时取的是按位取反 {@code ~u}，<b>不是</b>取负 {@code -u}——
+     * C 这句注释写明了原因：{@code INT_MIN} 取负会原地打转（{@code -INT_MIN == INT_MIN}，
+     * 仍是负数，违反「返回非负」的前提），取反则一定落在非负区间；
+     * <li>返回值恒为非负，所以能直接喂给 {@link #hashMod}，而 {@code hashMod}
+     * 要求入参无符号解释。
+     * </ul>
+     * {@code inf}/{@code NaN} 走 C 里 {@code lua_numbertointeger} 失败那条，返回 0。
+     * {@code -0.0} 与整值浮点到不了这里：它们写入时就被规范化成整数键了。
      */
     private static int hashFloat(double n) {
-        if (Double.isNaN(n) || Double.isInfinite(n)) {
+        if (!Double.isFinite(n) || n == 0.0) {
             return 0;
         }
-        if (n == 0.0) {
-            return 0; // 归一化 -0.0
+        /*
+         * Java 没有 frexp，而 {@code getExponent} 碰上次正规数只会给
+         * {@code -1023}（那不是「能拆下尾数」的指数），所以次正规先乘 2^54
+         * 抬成规格化、指数上补回 -54。乘的是 2 的幂，结果精确、不引入误差。
+         */
+        double v = n;
+        int adj = 0;
+        if (Math.abs(v) < Double.MIN_NORMAL) {
+            v *= 0x1p54;
+            adj = -54;
         }
-        int e = Math.getExponent(n) + 1;
-        double m = Math.scalb(n, -e); // 0.5 <= |m| < 1
-        long ni = (long) (m * (Integer.MAX_VALUE - Double.MAX_EXPONENT));
-        ni += e;
-        if (ni < 0) {
-            ni = -ni;
-        }
-        return (int) (ni & 0x7FFFFFFF);
+        int exp = Math.getExponent(v); // v = 1.f × 2^exp
+        double m = Math.scalb(v, -exp) * 0.5; // 0.5 <= |m| < 1
+        int e = exp + 1 + adj;
+        long ni = (long) (m * 0x1p31); // 截断；|m| < 1，故 |ni| < 2^31
+        int u = e + (int) ni; // cast_uint(i) + cast_uint(ni)，按 32 位环绕
+        return u >= 0 ? u : ~u; // 无符号比较 u <= INT_MAX 就是符号位为 0
     }
 
     /* ==================== 取 ==================== */
@@ -386,9 +431,25 @@ public final class LuaTable {
         return getFromHash(key);
     }
 
-    /** 整数键查找：先数组部分，再哈希部分 */
+    /**
+     * {@code ltable.c:745 luaH_getint}：先数组部分，再哈希部分。
+     * <p>
+     * 第二条分支是 5.4.7 的「提示修正」：{@code alimit} 只是提示
+     * （{@code !isrealasize}）时，与提示同处一个 2 的幂块内的键仍可能在数组部分，
+     * 于是顺手把提示抬到该键——C 的原文注释是 {@code "probably '#t' is here now"}。
+     * 它<b>不是</b>纯优化：读一次 {@code t[k]} 就会改提示，进而改后续 {@code #t}。
+     * <p>
+     * 比较照抄无符号口径：{@code l_castS2U(key) - 1u} 按 64 位回绕，
+     * {@code alimit} 按 {@code unsigned int} 零扩展后参与运算。
+     */
     private LuaValue getInt(long k) {
-        if (k > 0 && k <= array.length) {
+        long limit = Integer.toUnsignedLong(alimit);
+        long u = k - 1; // C 的 l_castS2U(key) - 1u
+        if (Long.compareUnsigned(u, limit) < 0) { // key 落在 [1, alimit] 里
+            return array[(int) k - 1];
+        }
+        if (!alimitIsReal && Long.compareUnsigned(u & ~(limit - 1), limit) < 0) {
+            alimit = (int) k; // C: t->alimit = cast_uint(key)
             return array[(int) k - 1];
         }
         return getFromHash(LuaValue.ofInteger(k));
@@ -880,6 +941,13 @@ public final class LuaTable {
             a[i] = new LuaValue();
         }
         array = a;
+        /*
+         * 重新分配数组部分就等于 C 的 setlimittosize + luaH_resize 收尾：
+         * 提示换成真实尺寸，{@code isrealasize} 置真——「提示」是旧数组的边界，
+         * 换了数组就不再成立。
+         */
+        alimit = size;
+        alimitIsReal = true;
     }
 
     private void setNodeVector(int size) {
@@ -906,12 +974,21 @@ public final class LuaTable {
     /**
      * 直接写数组部分的第 {@code k} 项（1 起），必要时只把数组部分扩到 {@code k}。
      * <p>
-     * 对应 {@code OP_SETLIST} 的 {@code luaH_resizearray + 直接写}。与
-     * {@link #set} 的差别是<b>不走 rehash</b>：表构造的路径已经从字节码里知道
-     * 该分配多大，再走一次 rehash 纯属浪费，而且会把刚攒起来的字段搅乱。
+     * 对应 {@code lvm.c: OP_SETLIST} 的 {@code luaH_resizearray} + 直接写
+     * {@code &h->array[last - 1]}。与 {@link #set} 的差别是<b>不走 rehash</b>：
+     * 表构造的路径已经从字节码里知道该分配多大，再走一次 rehash 纯属浪费，
+     * 而且会把刚攒起来的字段搅乱。
      * <p>
-     * 不搬哈希部分里落在 {@code [1, k]} 的整数键——C 版也是这样，两边行为一致
-     * （数组部分优先于哈希部分，读的时候只会看到数组里的那份）。
+     * 扩容走 {@code luaH_resizearray} 的算式 {@code luaH_resize(L, t, nasize,
+     * allocsizenode(t))}：<b>尺寸就是 {@code k}，不向上取整到 2 的幂</b>——C 里
+     * {@code {1,2,3}} 构造完数组部分恰好 3 槽、{@code alimit} 恰好 3，这个确切值
+     * 会一路影响后面 {@code #t} 的落点（提示能否生效看它是不是 2 的幂）。
+     * {@code allocsizenode} 对 dummy 哈希取 0（{@code ltable.h:31}），所以哈希
+     * 部分按真实槽数传。
+     * <p>
+     * 这里<b>不</b>单独搬哈希部分里落在 {@code [1, k]} 的整数键；但 {@code resize}
+     * 会把旧哈希重新插一遍，落进新数组段的整数键顺手就位——与 C 的 {@code reinsert}
+     * 一致（数组部分优先于哈希部分，读的时候只会看到数组里的那份）。
      */
     public void setArrayRaw(long k, LuaValue value) {
         if (k <= 0 || isWeak()) {
@@ -919,20 +996,8 @@ public final class LuaTable {
             set(LuaValue.ofInteger(k), value);
             return;
         }
-        if (k > array.length) {
-            int n = array.length;
-            if (n == 0) {
-                n = 1;
-            }
-            while (n < k) {
-                n *= 2;
-            }
-            LuaValue[] bigger = new LuaValue[n];
-            System.arraycopy(array, 0, bigger, 0, array.length);
-            for (int i = array.length; i < n; i++) {
-                bigger[i] = new LuaValue();
-            }
-            array = bigger;
+        if (k > realAsize()) { // C: if (last > luaH_realasize(h))
+            resize((int) k, nodeSize); // C: luaH_resizearray → luaH_resize(L, t, k, allocsizenode(t))
         }
         array[(int) k - 1].set(value);
     }
@@ -940,21 +1005,34 @@ public final class LuaTable {
     /* ==================== 长度（#t）==================== */
 
     /**
-     * {@code luaH_getn}：返回一个「边界」——{@code t[n]} 非 nil 且 {@code t[n+1]} 为 nil。
+     * {@code ltable.c:935 luaH_getn}（5.4.7）：返回一个「边界」——
+     * {@code t[n]} 非 nil 且 {@code t[n+1]} 为 nil。
      * <p>
      * Lua 的手册只要求返回<b>某个</b>边界，所以「二分查找落在某个合法边界上」
      * 听起来就够了。<b>不够</b>：目标是与参考实现逐字节一致，而真实程序会观察到
-     * 具体是哪一个。{@code ltable.c} 在这里特意不走二分：
+     * 具体是哪一个。C 在这里靠 {@link #alimit} 提示绕开二分，起步点不同，落点
+     * 就可能不同：
      *
      * <pre>
-     * if (limit &gt; 0 &amp;&amp; isempty(&amp;t-&gt;array[limit - 1])) {   // (1)
-     *   if (limit &gt;= 2 &amp;&amp; !isempty(&amp;t-&gt;array[limit - 2])) {
-     *     return limit - 1;             // (1a) 常见情形，别去二分
-     *   }
-     *   else { ... binsearch ... }      // (1b)
-     * }
+     * limit = alimit
+     * limit &gt; 0 &amp;&amp; array[limit-1] 空？                     // (1)
+     *   limit &gt;= 2 &amp;&amp; array[limit-2] 非空？                // (1a) 边界＝limit-1
+     *     允许时顺手把提示写成 limit-1（提示模式从此生效）
+     *   否则 boundary = binsearch(0, limit)                 // (1b)
+     *     boundary 过半时把它写成新提示
+     * 否则（数组满或空）
+     *   !limitequalsasize？                                // (2) 提示有效且数组还有后段
+     *     array[limit] 空？→ 返回 limit
+     *     否则 limit = 真实尺寸；array[limit-1] 空？→
+     *       boundary = binsearch(alimit, 真实尺寸)，写成提示并返回
+     *   (3) isdummy 或 limit+1 缺席？→ 返回 limit
+     *       否则 hash_search
      * </pre>
      *
+     * 三条出口的「写回提示」不是缓存优化，它们是<b>状态</b>：下一次
+     * {@code t[k]} 读（{@link #getInt} 的提示修正）或再取一次 {@code #t}
+     * 都会读到它。少了这套提示机制，稀疏数组就只能从真实尺寸开始二分。
+     * <p>
      * 少了 (1a) 会差多少：数组 {@code [1, nil, 3, nil]} —— 二分给 {@code 1}
      * （{@code i=0,j=4 → m=2 空 → j=2 → m=1 非空 → i=1}），而参考实现给
      * {@code 3}。实测 {@code table.pack(1, nil, 3, nil)} 之后
@@ -962,59 +1040,163 @@ public final class LuaTable {
      * t[4]=nil} 同样是 {@code 3}。C 的注释写明了动机：{@code t[#t] = nil}
      * 之后立刻再取长度是最常见的一串操作，直接答 {@code limit-1}。
      * <p>
-     * 数组部分满且哈希部分非空时，边界可能藏在哈希里，走 {@code unbound_search}：
-     * 先指数级试探再二分。
+     * 数组部分满且哈希部分非空时，边界可能藏在哈希里：先确认 {@code limit + 1}
+     * 确实存在，再交给 {@link #hashSearch}。
+     * <p>
+     * <b>这一节先后写错过两次，症状都是一张表在两边 {@code #t} 不同。</b>
+     * 第一次是把 5.4.7 的 {@code hash_search} 写成了 5.3 的 {@code unbound_search}
+     * （二分区间差一步、落点差一截，详见 {@link #hashSearch}）。第二次是整套
+     * {@link #alimit} 提示机制压根没有：两边数组与哈希的尺寸、{@code rehash}
+     * 的时机、{@code computesizes} 的计数都一致，只是这边从真实尺寸起步，
+     * 于是落在更靠前的边界上。最小复现（键集合 {@code -4,0,2,3,5,7,8,9,12}，
+     * 写入顺序 {@code 7,8,9,-4,5,12,3,2,0}）：
+     * <pre>
+     * local t = {}
+     * t[7.0]=6 t[8.0]=7 t[9]=7 t[-4]=1 t[5]=4
+     * t[12]=0 t[3]=7 t[2]=1 t[-0.0]=2
+     * print(#t, rawlen(t))       -- 参考 12 12
+     * </pre>
+     * 更小的一例来自随机写/删定点搜索（seed 1 的第 145 步 {@code t[16]=nil}）：
+     * 参考 {@code #t=30}、这里 {@code 2}。C 侧插桩显示当时
+     * {@code alimit=30、真实尺寸 32、realflag=0}——靠提示在 (2) 分支答
+     * {@code 30}；没有提示就只能从 32 开始二分。
      */
     public long length() {
-        int j = array.length;
-        if (j > 0 && array[j - 1].isNil()) {
-            // (1a)：倒数第二格还在，那 limit-1 就是边界，别去二分
-            if (j >= 2 && !array[j - 2].isNil()) {
-                return j - 1;
-            }
-            // (1b)：在 [0, limit] 里二分
-            int i = 0;
-            while (j - i > 1) {
-                int m = (i + j) / 2;
-                if (array[m - 1].isNil()) {
-                    j = m;
-                } else {
-                    i = m;
+        int limit = alimit;
+        if (limit > 0 && array[limit - 1].isNil()) { // (1)
+            if (limit >= 2 && !array[limit - 2].isNil()) { // (1a)
+                if (isPow2RealAsize() && !isPow2(limit - 1)) {
+                    alimit = limit - 1;
+                    alimitIsReal = false; // 此后 'alimit' 不再等于真实尺寸
                 }
+                return limit - 1;
             }
-            return i;
+            // (1b)：在 [0, limit] 里找边界
+            int boundary = binSearch(0, limit);
+            if (isPow2RealAsize() && boundary > realAsize() / 2) {
+                alimit = boundary; // 它够大，可以顶替提示
+                alimitIsReal = false;
+            }
+            return boundary;
         }
-        if (nodeSize == 0) {
-            return j;
+        if (!limitequalsAsize()) { // (2)
+            // 提示模式下 limit < 真实尺寸（提示不是 2 的幂，真实尺寸是不小于它的最小 2 的幂）
+            if (array[limit].isNil()) { // 'limit + 1' 为空
+                return limit; // 那它就是边界
+            }
+            limit = realAsize(); // 旧提示不可信，改用真实尺寸
+            if (array[limit - 1].isNil()) { // 真实尺寸那一格为空
+                int boundary = binSearch(alimit, limit);
+                alimit = boundary; // 这个边界一定能当提示
+                return boundary;
+            }
         }
-        return unboundSearch(j);
+        // (3)：'limit' 是零、或在表里
+        if (nodeSize == 0 || absent(limit + 1L)) { // isdummy(t) 或 'limit + 1' 缺席
+            return limit;
+        }
+        return hashSearch(limit);
     }
 
-    /** {@code unbound_search}：边界在哈希部分，先翻倍试探上界再二分 */
-    private long unboundSearch(long j) {
-        long i = j;
-        j++;
-        while (true) {
-            LuaValue v = get(LuaValue.ofInteger(j));
-            if (v == null || v.isNil()) {
-                break;
-            }
-            i = j;
-            if (j > Integer.MAX_VALUE / 2) {
-                return i; // 表过大，无法继续翻倍（C 版在此报 "table too big"）
-            }
-            j *= 2;
-        }
+    /**
+     * {@code ltable.c:895 binsearch}：在 {@code (i, j]} 里找「最后一个非空槽」。
+     * 中点是 C 的无符号除法 {@code (i + j) / 2}，这里用 {@code >>>} 照抄。
+     */
+    private int binSearch(int i, int j) {
         while (j - i > 1) {
-            long m = (i + j) / 2;
-            LuaValue v = get(LuaValue.ofInteger(m));
-            if (v == null || v.isNil()) {
+            int m = (i + j) >>> 1;
+            if (array[m - 1].isNil()) {
                 j = m;
             } else {
                 i = m;
             }
         }
         return i;
+    }
+
+    /** {@code llimits.h:66 ispow2}；{@code ispow2(0)} 为真，C 也是 */
+    private static boolean isPow2(int x) {
+        return (x & (x - 1)) == 0;
+    }
+
+    /**
+     * {@code ltable.c:278 ispow2realasize}：提示模式下恒真，真实尺寸模式下要求
+     * 尺寸本身是 2 的幂——只有这时提示才「与真实尺寸同处一个 2 的幂块」。
+     */
+    private boolean isPow2RealAsize() {
+        return !alimitIsReal || isPow2(alimit);
+    }
+
+    /** {@code ltable.c:244 limitequalsasize}：{@code alimit} 是否就等于数组真实尺寸 */
+    private boolean limitequalsAsize() {
+        return alimitIsReal || isPow2(alimit);
+    }
+
+    /**
+     * {@code ltable.c:250 luaH_realasize}：数组部分的真实尺寸。
+     * <p>
+     * C 是从 {@code alimit} 反推的（提示模式下＝不小于它的最小 2 的幂）；本实现
+     * 分配多少就是多少。两种算法在可达状态下同值：{@link #setArrayVector} 在
+     * 每次重新分配时把 {@code alimit} 对齐到真实尺寸，而提示只在
+     * {@link #isPow2RealAsize} 成立时写入，写出的提示与真实尺寸同处一个 2 的幂块。
+     */
+    private int realAsize() {
+        return array.length;
+    }
+
+    /**
+     * {@code ltable.c: hash_search}：边界在哈希部分时，先指数级试探上界再二分。
+     * <p>
+     * <b>与 5.3 的 {@code unbound_search} 差在最前面那一步。</b>5.3 是
+     * {@code j++; while (t[j] 在) { i = j; j *= 2; }} —— 于是检验的第一个候选是
+     * {@code limit + 1}，二分区间从 {@code (limit, limit+1)} 起。5.4.7 改成
+     * {@code do { i = j; j *= 2; } while (t[j] 在)}：它<b>跳过</b> {@code limit + 1}
+     * （调用方已经确认过那个键在表里），检验的第一个候选是 {@code limit * 2}，
+     * 二分区间因此是 {@code (limit, limit * 2)}。
+     * <p>
+     * 区间一变，二分落点就变。上例两个键集合完全相同的表：新写法
+     * {@code i=8, j=16 → m=12 在 → i=12 → m=14 不在 → j=14 → m=13 不在}，
+     * 得 12；旧写法 {@code i=9, j=18 → m=13 不在 → j=13 → m=11 不在 → j=11 →
+     * m=10 不在}，得 9。
+     * <p>
+     * 无符号口径照抄：{@code j} 以 {@code lua_Unsigned} 参与比较与相加，所以
+     * 「翻倍会不会溢出」的判据是 {@code j <= LUA_MAXINTEGER / 2}，中点是
+     * 无符号中点 {@code (i + j) >>> 1}（对应 C 的 {@code (i + j) / 2}，其中
+     * {@code i + j} 按 64 位无符号回绕）。
+     */
+    private long hashSearch(long j) {
+        if (j == 0) {
+            j++; // 调用方保证 'j + 1' 在表里
+        }
+        long i;
+        do {
+            i = j; // 'i' 是「在表里」的下标
+            if (j <= Long.MAX_VALUE / 2) {
+                j *= 2;
+            } else {
+                j = Long.MAX_VALUE; // LUA_MAXINTEGER
+                if (absent(j)) {
+                    break; // 'j' 现在是一个缺席的下标
+                }
+                return j; // 最大整数都是边界
+            }
+        } while (!absent(j));
+        // i < j && t[i] 在 && t[j] 不在
+        while (j - i > 1) {
+            long m = (i + j) >>> 1;
+            if (absent(m)) {
+                j = m;
+            } else {
+                i = m;
+            }
+        }
+        return i;
+    }
+
+    /** 整数键 {@code k} 在表里是否缺席（{@code isempty(luaH_getint(t, k))}） */
+    private boolean absent(long k) {
+        LuaValue v = get(LuaValue.ofInteger(k));
+        return v == null || v.isNil();
     }
 
     /* ==================== 遍历（pairs/next）==================== */
