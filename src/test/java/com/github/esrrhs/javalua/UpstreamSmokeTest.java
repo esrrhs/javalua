@@ -15,8 +15,12 @@ import org.junit.jupiter.params.provider.ValueSource;
  * 与 {@link UpstreamSuiteTest} 的分工：那边断言与参考实现<b>逐字节一致</b>，
  * 这边只断言<b>能正常结束</b>——跑完并打印 {@code OK}。不进严格表的理由写在
  * {@link UpstreamSuiteTest} 的类注释里（{@code cstack.lua} 打印随实现而变的
- * 递归层数，{@code gc.lua} 与 {@code constructs.lua} 打印随机数与耗时，
- * {@code math.lua} / {@code sort.lua} 打印种子与计时）。
+ * 递归层数，{@code gc.lua} 打印收集器参数，{@code math.lua} / {@code sort.lua}
+ * 打印种子与计时）。
+ * <p>
+ * {@code constructs.lua} 现在<b>两边都在</b>：严格表把它钉上种子跑两遍
+ * （见 {@code UpstreamSuiteTest#seedFiles}），而这里留一份<b>不预置种子</b>的
+ * ——那一路不需要参考二进制，保证没有 lua5.4 的机器上也还能确认它跑得完。
  * <p>
  * {@code literals.lua} 是个例外，它<b>两边都在</b>：小数点那段在有 shim 时
  * 可以逐字节比（见 {@link UpstreamSuiteTest}），但那只覆盖 native 那一路，

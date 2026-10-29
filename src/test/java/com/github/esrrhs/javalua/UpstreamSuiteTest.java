@@ -29,13 +29,33 @@ import org.junit.jupiter.params.provider.MethodSource;
  * <ul>
  *   <li>{@code all.lua} 是总驱动，它要 {@code ltests.c} 编出来的 {@code T} 模块、
  *       还要写 {@code time.txt}、打印内存与耗时，天生不可比；</li>
- *   <li>{@code main.lua} / {@code files.lua} / {@code attrib.lua} / {@code big.lua}
+ *   <li>{@code main.lua} / {@code files.lua} / {@code attrib.lua}
  *       依赖 {@code all.lua} 建的全局环境，单跑就失败；</li>
  *   <li>{@code math.lua} 与 {@code sort.lua} 打印随机种子、随机数范围与耗时，
  *       两次运行都不一样；</li>
  *   <li>{@code bwcoercion.lua} 单跑没有输出（它被 {@code bitwise.lua}
  *       {@code require}，内容在那儿被覆盖）；</li>
  *   <li>{@code heavy.lua} 要跑好几分钟。</li>
+ * </ul>
+ * <p>
+ * 另有两份是<b>钉死或接受确定性失败之后反而可比</b>的，也进了表：
+ * <ul>
+ *   <li>{@code big.lua} 在 {@code all.lua} 里是<b>被协程驱动</b>的——第 56 行
+ *       就是顶层 {@code coroutine.yield'b'}，单跑必然报 {@code attempt to
+ *       yield from outside a coroutine}。但那条错误在两边的消息与回溯逐字节
+ *       相同，而在它之前整份文件已经造完一张
+ *       {@code local y = {0, 1, ..., 2^18 + 1000}} 的字面量表、
+ *       走完 {@code load(..., env)} + {@code _ENV} 元方法的报错路径
+ *       （{@code global 'X'}、{@code 'newindex'} 两条消息都在），所以照进不误；
+ *       它此前在两边都<b>没被跑过</b>（严格表嫌它失败，smoke 表要末行
+ *       {@code OK}，它到不了）；</li>
+ *   <li>{@code constructs.lua} 第 317 行是
+ *       {@code _ENV.GLOB1 = math.random(0, 1)}，紧跟着把 {@code GLOB1} 打出来，
+ *       后面几百条用例还按它走不同的分支。默认种子取自时间，两进程不可能一样，
+ *       于是这一行每次都有约一半概率对不上。把种子上游钉死之后就完全可比，
+ *       于是它进表<b>两次</b>：两个种子分别落两条分支——见
+ *       {@link #seedFiles()}。它同时仍在 {@link UpstreamSmokeTest} 里
+ *       （那一路不需要参考二进制，兜住「不预置种子也跑得完」）。</li>
  * </ul>
  * 剩下来的那些里，{@code api.lua} 与 {@code code.lua} 在没有 {@code T} 时会自己
  * 跳过 C API 那几段，但剩下部分照跑，所以仍然有价值。
@@ -57,13 +77,6 @@ import org.junit.jupiter.params.provider.MethodSource;
  *       打印 skipped），而 {@code -Djavalua.nonative} 那一路设不上 locale，
  *       参考实现照样设得上，输出天然多一行。这一路仍由
  *       {@link UpstreamSmokeTest} 跑它，兜「大量分配会不会把自动收集跑死」。</li>
- *   <li>{@code constructs.lua}：第 319 行是
- *       {@code _ENV.GLOB1 = math.random(0, 1)}，紧跟着就
- *       {@code print('testing short-circuit optimizations (' .. _ENV.GLOB1 .. ')')}。
- *       Lua 5.4 的种子取自时间与地址，<b>两个进程不可能一样</b>，于是这一行
- *       每次都有约一半的概率对不上，后面几百条用例还要按 GLOB1 走不同的分支。
- *       它由 {@link UpstreamSmokeTest} 只断言「跑完并打印 OK」——
- *       这本来就是上游注释里写的「sometimes will be 0, sometimes will not」。</li>
  * </ul>
  */
 final class UpstreamSuiteTest {
@@ -101,6 +114,7 @@ final class UpstreamSuiteTest {
     static List<String> suiteFiles() {
         List<String> files = new ArrayList<>();
         files.add("api.lua");
+        files.add("big.lua");
         files.add("bitwise.lua");
         files.add("calls.lua");
         files.add("closure.lua");
@@ -138,5 +152,37 @@ final class UpstreamSuiteTest {
     @org.junit.jupiter.api.Timeout(value = 10, unit = java.util.concurrent.TimeUnit.MINUTES)
     void suite(String name) {
         Diff.assertFileMatches(dir, name);
+    }
+
+    /**
+     * 需要把初始随机种子钉死才能逐字节比的文件 —— 见类注释里的
+     * {@code constructs.lua}。
+     * <p>
+     * 挑种子的办法：{@code GLOB1 = math.random(0, 1)} 只看发生器状态的高位，
+     * 所以跑一遍看落哪边即可。这里取 {@code (5,0)} → {@code GLOB1 == 0} 与
+     * {@code (42,0)} → {@code GLOB1 == 1}，两条分支都走到。
+     * <p>
+     * 两边序列能一致不是碰巧：{@code MathLib} 照抄了 {@code lmathlib.c} 的
+     * xoshiro256**，显式设种之后逐位相同——所以种子一样，输出就得一样。
+     */
+    static List<InitedCase> seedFiles() {
+        return List.of(
+                new InitedCase("constructs.lua", "math.randomseed(5,0)"),
+                new InitedCase("constructs.lua", "math.randomseed(42,0)"));
+    }
+
+    /** 一个「带预置种子的文件」用例：先跑 {@code init}，再跑文件 {@code file} */
+    record InitedCase(String file, String init) {
+        @Override
+        public String toString() {
+            return file + " [" + init + "]";
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("seedFiles")
+    @org.junit.jupiter.api.Timeout(value = 10, unit = java.util.concurrent.TimeUnit.MINUTES)
+    void seedPinned(InitedCase c) {
+        Diff.assertFileMatchesWithInit(dir, c.file(), c.init());
     }
 }

@@ -32,13 +32,24 @@ ALWAYS_REQUIRED = [
     "OsLibTest",            # os 库差分
     "DebugTest",            # debug 库与 traceback 差分
     "BinaryChunkTest",      # 二进制 chunk 兼容
+    # 表结构快照差分：C 侧 tblstruct 转储器与本实现的字段逐字节比。
+    # 它不依赖 native 层（只要 tblstruct 二进制在就出活），两条路径都要跑，
+    # 所以是 ALWAYS。历史上它靠 assumeTrue 找二进制，找不到就整类静默跳过——
+    # 那正是这个脚本要盯的形状。
+    "TableStructTest",
+    # 上游套件（lua-5.4.x/tests）的逐字节 stdout 比对。它<b>两条路径都跑</b>：
+    # 只有 literals.lua 那一份依赖 native 层（要 os.setlocale 真能改 libc 的
+    # locale 才能跟参考实现逐字节对上），其余十几份文件 + 两个钉死种子的
+    # constructs.lua（见 UpstreamSuiteTest#seedFiles）在 -Djavalua.nonative
+    # 那一路照跑。放在 ALWAYS 才能让两条路径都不许整类消失——它排在
+    # NATIVE_REQUIRED 里时，nonative 那一路就算整类跳过也没人说话。
+    "UpstreamSuiteTest",
 ]
 
 # 只有 native 层装得起来才有意义的类。
 NATIVE_REQUIRED = [
     "NativeApiTest",
     "NativeExtTest",
-    "UpstreamSuiteTest",
     "FuzzTest",
     # locale 小数点那批：既要有 shim（os.setlocale 得真能改 libc 的 locale），
     # 也要机器上装了 pt_BR。CI 的 locale-gen 步骤一漏，这个类就变成零用例。
@@ -94,8 +105,8 @@ def main():
         die("%d 条用例失败或报错，本该由 maven 拦下——报告却走到了这一步" % failed)
     if executed < min_tests:
         die("执行的用例只有 %d，低于下限 %d：八成是差分用例整类跳过了"
-            "（检查 LUA54_BIN / FKDUMP_BIN / LUA54_TESTS 是否透传）"
-            % (executed, min_tests))
+            "（检查 LUA54_BIN / FKDUMP_BIN / TBLSTRUCT_BIN / LUA54_TESTS"
+            " 是否透传）" % (executed, min_tests))
 
     missing = [c for c in ALWAYS_REQUIRED if per_class.get(c, (0, 0, 0))[0]
                - per_class.get(c, (0, 0, 0))[1] <= 0]
@@ -106,11 +117,13 @@ def main():
     if missing:
         die("这些闸门类一条用例都没执行: %s" % ", ".join(sorted(set(missing))))
 
-    # 跳过率单独报一句：assumeTrue 的合法跳过只有
-    # CodegenTest 那一条（上游套件的编译比对），多了就说明有东西没接通。
+    # 跳过率单独报一句：assumeTrue 的合法跳过只有两条——CodegenTest
+    # （上游套件的编译比对）与 TableStructTest（缺 tblstruct 转储器时），
+    # 多了就说明有东西没接通。
     if skipped > 5:
-        die("跳过了 %d 条用例（正常只有 1 条：CodegenTest 在缺 LUA54_TESTS 时"
-            "跳过）——跳过不是通过，得看清是哪一条" % skipped)
+        die("跳过了 %d 条用例（正常只有 CodegenTest / TableStructTest 那两条："
+            "缺 LUA54_TESTS 或 TBLSTRUCT_BIN 时跳过）——跳过不是通过，"
+            "得看清是哪一条" % skipped)
 
     print("闸门自检通过。")
 

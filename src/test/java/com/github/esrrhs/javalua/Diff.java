@@ -237,6 +237,39 @@ final class Diff {
                 + "\n两份输出见 " + SCRATCH + "/" + name + ".ref 与 .mine");
     }
 
+    /**
+     * 断言一个<b>文件</b>在本实现与参考实现上的输出一致，并在文件之前先跑一段
+     * 预置片段。
+     * <p>
+     * 存在的理由只有一个：上游有些用例的<b>打印内容</b>取决于初始随机种子。
+     * 最典型的是 {@code constructs.lua}——它把
+     * {@code _ENV.GLOB1 = math.random(0, 1)} 打出来，而 {@code math.random}
+     * 的初始种子在 C 里来自 {@code time(NULL)}，于是同一个文件每次跑出来
+     * 「{@code (0)}」或「{@code (1)}」都可能，压根不可比。把种子上游钉死之后，
+     * 它反而成了一块好料：两个种子分别覆盖 {@code GLOB1} 的两条分支
+     * （{@code if _ENV.GLOB1 == 0} 走 {@code F} 还是 {@code k10}）。
+     * <p>
+     * 两边用<b>同一种</b>机制预置：参考实现吃环境变量 {@code LUA_INIT}
+     * （{@code lua.c: handle_luainit} 在库打开之后、脚本之前跑它），
+     * 本实现把同一段片段当一个 chunk 先跑掉。这样被比的依然是<b>文件本体</b>，
+     * 它的 chunk 名、行号、回溯都不受影响。
+     *
+     * @param init 预置片段（一段 chunk 源码）
+     */
+    static void assertFileMatchesWithInit(File dir, String name, String init) {
+        requireReference();
+        String r = normalize(refFileRaw(dir, name, init), false);
+        assertEquals(true, !r.isEmpty(),
+                "用例在参考实现上没有产生任何输出，等于没测。file: " + name);
+        String m = normalize(mineFileRaw(dir, name, init), false);
+        if (!r.equals(m)) {
+            dump(name + ".ref", r);
+            dump(name + ".mine", m);
+        }
+        assertEquals(r, m, "file: " + name
+                + "\n两份输出见 " + SCRATCH + "/" + name + ".ref 与 .mine");
+    }
+
     /** 把一份输出写到 {@link #SCRATCH} 下；写失败不影响判定 */
     private static void dump(String name, String content) {
         try {
@@ -340,7 +373,17 @@ final class Diff {
 
     /** 在参考实现上跑一个文件：工作目录设为用例目录，参考实现才有 {@code ./?.lua} */
     private static String refFileRaw(File dir, String name) {
-        String out = ReferenceLua.runFile(new File(dir, name).getAbsolutePath(), dir).output;
+        return refFileRaw(dir, name, null);
+    }
+
+    /**
+     * 在参考实现上跑一个文件，可先经 {@code LUA_INIT} 预置一段 chunk。
+     *
+     * @param init {@code LUA_INIT} 的取值；{@code null} 表示不设
+     */
+    private static String refFileRaw(File dir, String name, String init) {
+        String out = ReferenceLua.runFile(
+                new File(dir, name).getAbsolutePath(), dir, init).output;
         String bin = ReferenceLua.find();
         if (bin != null) {
             out = out.replace(new File(bin).getAbsolutePath() + ": ", "");
@@ -386,6 +429,15 @@ final class Diff {
 
     /** 在本实现上跑一个文件，返回<b>原始</b>输出 */
     private static String mineFileRaw(File dir, String name) {
+        return mineFileRaw(dir, name, null);
+    }
+
+    /**
+     * 在本实现上跑一个文件，返回<b>原始</b>输出；可先跑一段预置片段。
+     *
+     * @param init 预置片段；{@code null} 表示不预置
+     */
+    private static String mineFileRaw(File dir, String name, String init) {
         File f = new File(dir, name);
         byte[] bytes;
         try {
@@ -400,6 +452,7 @@ final class Diff {
         L.err = ps;
         LuaValue err;
         try {
+            runInit(L, init);
             err = runFileLikeLuaC(L, dir, f.getAbsolutePath(), bytes);
         } catch (LuaError e) {
             return messageOf(e) + "\n";
@@ -407,6 +460,26 @@ final class Diff {
         L.close();
         String stdout = latin1(bos.toByteArray());
         return (err == null) ? stdout : stdout + messageOf(err) + "\n";
+    }
+
+    /**
+     * {@code lua.c: handle_luainit}：把预置片段当一个 chunk 跑掉。
+     * <p>
+     * chunk 名取 {@code =LUA_INIT_5_4}（{@code lua.c} 里
+     * {@code "=" LUA_INITVARVERSION}），照搬是为了万一这段片段报错，
+     * 错误消息与参考实现一致。片段本身不该报错，名字只是保持同构。
+     */
+    private static void runInit(LuaState L, String init) {
+        if (init == null) {
+            return;
+        }
+        int base = L.top;
+        L.pushClosure(L.load(init.getBytes(StandardCharsets.UTF_8), "=LUA_INIT_5_4"));
+        int func = pushMsgHandler(L, base);
+        LuaValue err = L.pcall(func, 0, L.stack[base]);
+        if (err != null) {
+            throw new LuaError(err, "");
+        }
     }
 
     /**
