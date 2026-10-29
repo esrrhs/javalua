@@ -9,6 +9,8 @@
 #   make -C target/lua54 -j4 posix MYCFLAGS=-DLUA_USE_DLOPEN
 #   clang -O2 -I target/lua54/src -o target/lua54/src/fkdump \
 #     src/test/resources/fkdump.c target/lua54/src/liblua.a -lm
+#   clang -O2 -I target/lua54/src -o target/lua54/src/tblstruct \
+#     src/test/resources/tblstruct.c target/lua54/src/liblua.a -lm
 #   curl -sL -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.4.7-tests.tar.gz
 #   mkdir -p target/lua54-tests && tar xzf /tmp/tests.tar.gz -C target/lua54-tests --strip-components=1
 #   sh native/build.sh
@@ -18,6 +20,7 @@ cd "$(dirname "$0")/.."
 export JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}
 export LUA54_BIN=${LUA54_BIN:-target/lua54/src/lua}
 export FKDUMP_BIN=${FKDUMP_BIN:-target/lua54/src/fkdump}
+export TBLSTRUCT_BIN=${TBLSTRUCT_BIN:-target/lua54/src/tblstruct}
 export LUA54_TESTS=${LUA54_TESTS:-target/lua54-tests}
 
 ratio() {

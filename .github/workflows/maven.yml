@@ -30,6 +30,9 @@ jobs:
     # 5.1/5.3/5.5),拿错版本当参考会得出错误的「不一致」结论,那比没有参考更糟。
     runs-on: ubuntu-latest
     name: Conformance (against lua5.4)
+    # 兜底用。两个测试步各自套了 tools/run_bounded.py（到点先抓线程栈再杀），
+    # 真走到这一层说明整条流水线已经跑飞——别再让它去吃 GitHub 的 6 小时上限。
+    timeout-minutes: 120
     steps:
     - uses: actions/checkout@v7
     - name: Set up JDK 21
@@ -62,6 +65,20 @@ jobs:
         # 再也没跑过(连续 8 次 push 全是这个错,一致性闸门形同虚设)。
         gcc -O2 -I target/lua54/src -o target/lua54/src/fkdump src/test/resources/fkdump.c target/lua54/src/liblua.a -lm
         test -x target/lua54/src/fkdump
+    #
+    # 表结构快照的裁判:另一个挂在参考实现上的小转储器(见
+    # src/test/resources/tblstruct.c)。参考实现的 lua 二进制只能看到脚本的
+    # stdout,看不到某张表内部的「数组真实尺寸 / alimit / isrealasize /
+    # 哈希节点分配尺寸」——而移植时数组记账曾经恰好错在这四个字段上(见
+    # af63dd5)。所以让被跑的 chunk 交出全局 TBLSTRUCT_RESULT/TBLSTRUCT_COUNT,
+    # 由这个转储器把每张表的四个字段打出来,TableStructTest 再拿本实现的
+    # 字段逐字节比。同样必须与参考二进制同目录,测试才知道去哪儿找。
+    # 同样必须写成一行(原因见上一步)。
+    - name: Build tblstruct (table structure dumper)
+      run: |
+        set -e
+        gcc -O2 -I target/lua54/src -o target/lua54/src/tblstruct src/test/resources/tblstruct.c target/lua54/src/liblua.a -lm
+        test -x target/lua54/src/tblstruct
     #
     # 编译期差分的语料:上游自带的测试套件。这批脚本是 Lua 作者自己写的、
     # 专门用来压边界的,比手写几十条用例强得多。落到 target/lua54-tests,
@@ -108,19 +125,28 @@ jobs:
       env:
         LUA54_BIN: target/lua54/src/lua
         FKDUMP_BIN: target/lua54/src/fkdump
+        TBLSTRUCT_BIN: target/lua54/src/tblstruct
         LUA54_TESTS: target/lua54-tests
       # 覆盖率校验留到两遍合并之后再算(见下面 coverage 那步):
       # 单拿 native 这一遍去卡合并门槛,等价于逼人删掉兜底代码。
-      run: ./mvnw -B test -Djacoco.check.skip=true
+      #
+      # 外面那层 tools/run_bounded.py 是为了「有界超时 + 到点留现场」:纯 Java io
+      # 那一遍曾经卡满 GitHub 的 6 小时上限,而这期间日志一个字节都取不到(gh 要等
+      # job 结束才有日志),于是既不知道卡在哪条用例也不知道卡在哪个线程。30 分钟
+      # 对本仓库绰绰有余——本机带 jacoco 的整遍实测 185s——真超了就先 SIGQUIT 整组
+      # 进程、再用 jstack 补一份,然后才以 124 退出。timeout-minutes 只是它的兜底,
+      # 必须比 30 分钟大,否则先被 GitHub 掐掉,现场又没了。
+      timeout-minutes: 40
+      run: python3 tools/run_bounded.py --seconds 1800 -- ./mvnw -B test -Djacoco.check.skip=true
     # maven 只会因为「有用例失败」而红。用例<b>消失</b>它是看不见的:
     # assumeTrue 的跳过在报告里和跑过长得一样,而 @TestFactory 里没建成用例
     # 更是什么痕迹都不留。这一步数一遍执行数,并点名几类必须出活的闸门。
     #
-    # 下限取「本地实测值留 30 条余量」:这一遍实测 1109 条(带 shim 的
-    # tools/local_conformance.sh 量出来的)。余量是给平台差异留的——真 C 扩展
-    # 那批用例会因编译器/网络而异;而<b>一整类</b>没了是几十条的量级,
-    # 卡得住。别把下限调到等于实测值:那会让每次加用例都要改 CI,
-    # 也让人倾向于删用例。
+    # 下限取「本地实测值再留一截余量」:这一遍实测 1130 条(带 shim 的
+    # tools/local_conformance.sh 量出来的),下限 1080 即留 50 条。余量是给
+    # 平台差异留的——真 C 扩展那批用例会因编译器/网络而异;而<b>一整类</b>
+    # 没了是几十条的量级,卡得住。别把下限调到等于实测值:那会让每次加
+    # 用例都要改 CI,也让人倾向于删用例。
     - name: Check the gates actually ran
       run: python3 tools/check_ci_gates.py 1080
     #
@@ -135,12 +161,15 @@ jobs:
       env:
         LUA54_BIN: target/lua54/src/lua
         FKDUMP_BIN: target/lua54/src/fkdump
+        TBLSTRUCT_BIN: target/lua54/src/tblstruct
         LUA54_TESTS: target/lua54-tests
-      run: ./mvnw -B test -Djavalua.nonative=true -Djacoco.check.skip=true
+      # 就是这一步卡过 6 小时(见上面那段的注释)。同样的有界超时 + 取证。
+      timeout-minutes: 40
+      run: python3 tools/run_bounded.py --seconds 1800 -- ./mvnw -B test -Djavalua.nonative=true -Djacoco.check.skip=true
     # 这一遍没有 C API 那批用例,下限另算(-Djavalua.nonative 下
     # NativeApiTest / NativeExtTest 是零用例返回,不是跳过;locale 小数点那批
-    # 同理,那条路上小数点恒为 '.')。实测 927 条,同样留 30 条余量。
-    # 927 比 native 那遍少 182 条,其中一条是 UpstreamSuiteTest 的
+    # 同理,那条路上小数点恒为 '.')。实测 940 条,下限 900 即留 40 条。
+    # 940 比 native 那遍少 190 条,其中一条是 UpstreamSuiteTest 的
     # literals.lua:它要 os.setlocale 真的能改 libc 的 locale 才能逐字节比,
     # 没有 shim 时只有参考实现设得上,输出天然多一行,所以那条用例在
     # 这一遍<b>根本不存在</b>(UpstreamSuiteTest#suiteFiles)。
@@ -159,6 +188,7 @@ jobs:
       env:
         LUA54_BIN: target/lua54/src/lua
         FKDUMP_BIN: target/lua54/src/fkdump
+        TBLSTRUCT_BIN: target/lua54/src/tblstruct
         LUA54_TESTS: target/lua54-tests
       run: ./mvnw -B -DskipTests test -Djacoco.line.minimum=0.95
 

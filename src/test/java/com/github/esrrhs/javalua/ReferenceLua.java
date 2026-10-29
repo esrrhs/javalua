@@ -253,16 +253,26 @@ final class ReferenceLua {
 
     /** 跑一个已存在的脚本文件 */
     static Result runFile(String path) {
-        return runFile(path, null);
+        return runFile(path, null, null);
+    }
+
+    /** 跑一个已存在的脚本文件，工作目录由调用方给 */
+    static Result runFile(String path, File cwd) {
+        return runFile(path, cwd, null);
     }
 
     /**
-     * 跑一个已存在的脚本文件。
+     * 跑一个已存在的脚本文件，并在它之前先跑一段 {@code LUA_INIT} 预置脚本。
+     * <p>
+     * {@code lua.c: handle_luainit} 在 {@code handle_script} 之前执行：
+     * 库已打开、{@code arg} 已建好，此时把 {@code LUA_INIT} 环境变量的值当一个
+     * chunk 跑掉（值不以 {@code @} 开头，所以是<b>字符串</b>而不是文件名）。
+     * 上游 {@code constructs.lua} 的 {@code _ENV.GLOB1 = math.random(0, 1)}
+     * 直接吃初始种子，靠这一手把它钉死。
      *
-     * @param cwd 工作目录；上游测试套件靠它把 {@code ./?.lua} 落在用例目录上，
-     *            从而 {@code require} 到同目录里的同伴文件
+     * @param init {@code LUA_INIT} 的取值（一段 chunk 源码）；{@code null} 表示不设
      */
-    static Result runFile(String path, File cwd) {
+    static Result runFile(String path, File cwd, String init) {
         String bin = find();
         if (bin == null) {
             throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
@@ -271,6 +281,9 @@ final class ReferenceLua {
             ProcessBuilder pb = new ProcessBuilder(new File(bin).getAbsolutePath(), path);
             if (cwd != null) {
                 pb.directory(cwd);
+            }
+            if (init != null) {
+                pb.environment().put("LUA_INIT", init);
             }
             pb.redirectErrorStream(true);
             /*
@@ -330,6 +343,27 @@ final class ReferenceLua {
         if (bin == null) {
             return null;
         }
+        return runHelper(bin, content, path);
+    }
+
+    /**
+     * 用参考实现的 {@code tblstruct} 跑脚本，把脚本交出的那几张表的内部结构
+     * （数组真实尺寸、{@code alimit}、提示位、哈希节点分配尺寸）转储出来。
+     * <p>
+     * 二进制的来源与 {@code fkdump} 同一套规则，只是环境变量叫
+     * {@code TBLSTRUCT_BIN}。找不到返回 {@code null}，测试跳过——CI 的
+     * conformance job 会把它和 {@code fkdump} 一起编出来。
+     */
+    static String dumpTableStructs(byte[] content, String path) {
+        String bin = findTblstruct();
+        if (bin == null) {
+            return null;
+        }
+        return runHelper(bin, content, path);
+    }
+
+    /** 把 {@code content} 落到 {@code path}，交给 {@code bin} 跑，收它合并捕获的 stdout */
+    private static String runHelper(String bin, byte[] content, String path) {
         try {
             java.nio.file.Path p = Paths.get(path);
             java.nio.file.Path parent = p.getParent();
@@ -344,7 +378,7 @@ final class ReferenceLua {
             pr.waitFor();
             return out;
         } catch (Exception e) {
-            throw new IllegalStateException("failed to run fkdump: " + e, e);
+            throw new IllegalStateException("failed to run " + bin + ": " + e, e);
         }
     }
 
@@ -371,6 +405,38 @@ final class ReferenceLua {
             if (f.canExecute()) {
                 fkdumpCached = f.getAbsolutePath();
                 return fkdumpCached;
+            }
+        }
+        return null;
+    }
+
+    private static String tblstructCached;
+    private static boolean tblstructLookedUp;
+
+    /**
+     * 找 {@code tblstruct} 转储器 —— 与 {@link #findFkdump()} 完全同一套查找规则，
+     * 只把环境变量换成 {@code TBLSTRUCT_BIN}、文件名换成 {@code tblstruct}。
+     */
+    static synchronized String findTblstruct() {
+        if (tblstructLookedUp) {
+            return tblstructCached;
+        }
+        tblstructLookedUp = true;
+        List<String> candidates = new ArrayList<>();
+        String env = System.getenv("TBLSTRUCT_BIN");
+        if (env != null && !env.isEmpty()) {
+            candidates.add(env);
+        }
+        String lua = find();
+        if (lua != null && lua.contains(File.separator)) {
+            candidates.add(new File(lua).getParent() + File.separator + "tblstruct");
+        }
+        candidates.add("tblstruct");
+        for (String c : candidates) {
+            File f = new File(c.contains(File.separator) ? c : c);
+            if (f.canExecute()) {
+                tblstructCached = f.getAbsolutePath();
+                return tblstructCached;
             }
         }
         return null;
