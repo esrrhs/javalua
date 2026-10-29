@@ -1034,11 +1034,21 @@ class FuzzTest {
         }
 
         private String keyExpr() {
-            switch (pick(3)) {
+            switch (pick(4)) {
             case 0:
                 return String.valueOf(pick(4) + 1);
             case 1:
                 return "'" + ("key" + pick(3)) + "'";
+            case 2:
+                /*
+                 * 非整值的浮点键：整值浮点在写入时会被规范化成整数键
+                 * （{@code t[2.0]} 与 {@code t[2]} 是同一项），所以只有这种键
+                 * 才真的走到 {@code LuaTable.hashFloat} 与 {@code mainPosition}
+                 * 的浮点分支——C 里 {@code hashint} 和 {@code l_hashfloat}
+                 * 都走 {@code hashmod}（不是掩码），而生成器原先只造整数与
+                 * 字符串键，浮点这一条一直没进过这片 fuzz。
+                 */
+                return String.valueOf(pick(21) - 10) + ".5";
             default:
                 return String.valueOf(pick(3) + 1);
             }
