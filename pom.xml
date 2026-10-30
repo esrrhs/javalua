@@ -153,9 +153,25 @@
                       （gh 要等 job 结束才有日志），于是既不知道是哪条、也不知道
                       卡在哪。设了超时之后它会变成一条 FAILURE，带着线程栈指名
                       是哪条用例。3 分钟对本仓库够了：最慢的 FuzzTest 本机 20 秒。
+
+                      不过超时要真的管用，还得指定<b>它怎么抢</b>。JUnit 5.10 的
+                      键名是 junit.jupiter.execution.timeout.thread.mode.default，
+                      之前一个都没设，于是按 INFERRED 推断出 SAME_THREAD：测试体
+                      内联跑在测试线程上、到点只给这条线程发一次 interrupt()，
+                      谁卡在不可中断的管道读上就永远收不到。2026-10-21 那次「纯
+                      Java io」步骤挂到 6 小时上限、一行日志都没留下，就是这条
+                      机制：具体卡点没能证实（job 日志取不到），但这个逃逸口是真的。
+                      这里<b>显式写 SAME_THREAD</b>（与实际生效的值一致，只是不再
+                      靠推断），并把纯 Java io 路径上那处不可中断的管道读改成可
+                      中断的（IoLib#PopenReader）—— 超时这才真的落成一条带线程栈的
+                      FAILURE。SEPARATE_THREAD 不是更好的选择：它是另起一条非 daemon
+                      线程跑测试体，超时虽然报得出来，卡死的线程却留在那里，只能等
+                      surefire 杀 fork。测试驱动里读参考实现输出的那几处仍是普通
+                      阻塞读，不在这次改动范围内。
                     -->
                     <systemPropertyVariables>
                         <junit.jupiter.execution.timeout.default>180s</junit.jupiter.execution.timeout.default>
+                        <junit.jupiter.execution.timeout.thread.mode.default>SAME_THREAD</junit.jupiter.execution.timeout.thread.mode.default>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
