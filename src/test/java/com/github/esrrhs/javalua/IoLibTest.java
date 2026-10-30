@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * io 库的差分用例 —— 阶段 7。
@@ -1785,5 +1787,55 @@ print("done")
                     """, Diff.javaOnly(src),
                     "兜底路径：SIGPIPE 只能报成 (\"exit\", 141)");
         }
+    }
+
+    /**
+     * {@code popen} 的读必须<b>可被打断</b>。
+     * <p>
+     * 这条用例盯的是一次真实的挂死：{@code Process.getInputStream().read(...)}
+     * 与 {@code cPipeRead(2)} 都<b>不可中断</b>，而 JUnit 的超时（{@code SAME_THREAD}
+     * 模式下，见 {@code pom.xml}）只给测试线程发一次 {@code interrupt()} ——
+     * 一个「不写也不退出」的子进程就能把整条用例无声地挂住，日志一行都没有，
+     * 唯一能给出结论的是 job 那 6 小时上限。
+     * <p>
+     * 构造：子进程 {@code sleep 3} 期间一个字节都不产出，脚本卡在
+     * {@code f:read("a")} 上；主线程打断跑脚本的那条线程。<b>判据是读的「结局」</b>：
+     * 被打断的读要以错误返回（{@code nil} + {@code EIO}），而不是一直等到子进程
+     * 自己退出、读到一个干净的 EOF —— 后者的形状是空串，那也是老实现「悄悄挂住」
+     * 的证明。所以这里断言两件事：跑脚本的线程在有界时间内结束，且读的结果是
+     * {@code nil}。
+     * <p>
+     * 两条 io 路径都覆盖：装了 shim 是 {@code FdInput}，装不上是
+     * {@code Process} 的流，两条都经 {@code IoLib#PopenReader}。
+     */
+    @Test
+    void popenBlockedReadIsInterruptible() throws Exception {
+        String src = """
+                local f = assert(io.popen("sleep 3"))
+                local s = f:read("a")
+                print("after", tostring(s))
+                """;
+        String[] out = new String[1];
+        Throwable[] boom = new Throwable[1];
+        Thread runner = new Thread(() -> {
+            try {
+                out[0] = Diff.javaOnly(src);
+            } catch (Throwable e) {
+                boom[0] = e;
+            }
+        }, "popen-blocked-read");
+        runner.setDaemon(true);
+        runner.start();
+        Thread.sleep(500); // 让 popen 起来、读请求真的发出去
+        runner.interrupt();
+        runner.join(10_000);
+        assertFalse(runner.isAlive(),
+                "读被挪到后台线程后 interrupt 应当立刻把它解开，不该等子进程自己退出");
+        if (boom[0] != null) {
+            throw new AssertionError("跑脚本的线程不该抛异常", boom[0]);
+        }
+        assertTrue(out[0].contains("after\tnil"),
+                "被打断的读应当以 nil 的形状返回；出现空串说明它只是等到了子进程退出"
+                        + "（老实现就是这条路上挂住的）: " + out[0]);
     }
 }
