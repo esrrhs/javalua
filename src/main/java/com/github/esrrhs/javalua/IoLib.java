@@ -1,8 +1,10 @@
 package com.github.esrrhs.javalua;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
@@ -1040,7 +1042,10 @@ public final class IoLib {
          * </pre>
          * Java 的 {@code ProcessBuilder} 默认是<b>三条全接成管道</b>，于是这两
          * 边全被吞掉；更糟的是读模式下子进程的 {@code stdin} 也是管道且没人关
-         * ——{@code io.popen("cat", "r")} 会一直等到天荒地老。
+         * ——{@code io.popen("cat", "r")} 会一直等到天荒地老。所以两条路都把读
+         * 模式那条 {@code stdin} 钉成「立刻 EOF」：Java 路是
+         * {@code Redirect.from(/dev/null)}，native 路是照常
+         * {@code inPipe} 起来、随即关掉父端（见 {@link #popenSpawn}）。
          * <p>
          * 目标流用 {@code LuaState#out} / {@code #err} 而不是
          * {@code Redirect.INHERIT}：INHERIT 走的是 <b>JVM 进程</b>的 fd 1 / fd 2，
@@ -1056,22 +1061,30 @@ public final class IoLib {
                 /*
                  * 重定向必须在 {@code start()} <b>之前</b>设好 —— {@code ProcessBuilder}
                  * 是在 {@code start} 那一刻才照这份配置去摆 fd 的，之后再改不影响已
-                 * 经起来的子进程。读模式要把 {@code stdin} 设为 INHERIT：子进程的
-                 * 输入应当来自 lua 自己的标准输入（{@code cat} 这类命令才读得到东西），
-                 * 而不是一条没人写也没人关的管道。
+                 * 经起来的子进程。读模式下子进程的 {@code stdin} 接 <b>/dev/null</b>：
+                 * C 的 {@code popen} 只 {@code dup2} 一条流，子进程的 {@code stdin}
+                 * 是<b>继承来的 fd 0</b>，而参考实现在差分驱动里 stdin 定向
+                 * {@code /dev/null}（{@code ReferenceLua#runFile}）、本实现的
+                 * {@code LuaState#in} 默认也是空流 —— 只有这里以前给的是 INHERIT，
+                 * 子进程于是拿到了 <b>JVM 的 stdin</b>：本地是终端，CI 是一条开着的
+                 * 管道，{@code io.popen("cat", "r")} 在两边都等不到 EOF。
+                 * {@code Redirect.DISCARD} 只能当<b>输出</b>用（拿它当输入
+                 * {@code start()} 会抛 {@code IllegalArgumentException: Redirect
+                 * invalid for reading}），读侧要用 {@code Redirect.from(/dev/null)}：
+                 * 打开 {@code /dev/null} 立刻就是 EOF，与参考实现那一侧对齐。
                  */
                 if (forRead) {
-                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectInput(new File("/dev/null"));
                 }
                 java.lang.Process p = pb.start();
                 f.proc = p;
                 java.util.List<Thread> ps = new java.util.ArrayList<>();
                 if (forRead) {
-                    f.in = p.getInputStream();
+                    f.in = new PopenReader(p.getInputStream());
                     f.readable = true;
                     ps.add(pump(p.getErrorStream(), L.err));
                 } else {
-                    f.out = p.getOutputStream();
+                    f.out = new PopenWriter(p.getOutputStream());
                     f.writable = true;
                     ps.add(pump(p.getInputStream(), L.out));
                     ps.add(pump(p.getErrorStream(), L.err));
@@ -1104,11 +1117,15 @@ public final class IoLib {
      * 接管的流与原来<b>完全一致</b>（读模式：stdout 交给句柄、stderr 搬到
      * {@code L.err}；写模式：stdout / stderr 都搬，stdin 由 {@code f:write} 灌），
      * 只换了「谁起的孩子、谁来收尸」。
+     * <p>
+     * 与 Java 路不同的一点：这里<b>读模式也接管子进程的 {@code stdin}</b>（三条流
+     * 一律 {@code inPipe}），随后立刻把父端关掉（见下）——效果等于 {@code /dev/null}，
+     * 与 Java 路的 {@code Redirect.from(/dev/null)}、参考实现 stdin 的定向一一对应。
      */
     private static void popenSpawn(LuaState L, LuaFile f, String filename, boolean forRead) {
         long[] fds = new long[3];
         long pid = NativeBridge.cSpawn(filename.getBytes(StandardCharsets.UTF_8),
-                true, true, !forRead, fds);
+                true, true, true, fds);
         if (pid < 0) {
             f.err = true;
             f.errno = NativeBridge.cGetErrno();
@@ -1119,14 +1136,23 @@ public final class IoLib {
         }
         f.pid = pid;
         f.fdChildOut = fds[0];
-        f.fdChildIn = fds[2];
         java.util.List<Thread> ps = new java.util.ArrayList<>();
         if (forRead) {
-            f.in = new FdInput(fds[0]);
+            /*
+             * 子进程的 stdin 这根管道的父端<b>当场关掉</b>：它随即见到 EOF，
+             * 与 {@code /dev/null} 等价（见 {@link #ioPopen} 里那段「读模式的
+             * stdin 必须立刻 EOF」）。父端只留这一份，关掉之后没有任何人还
+             * 握着写端，所以不会像从前 {@code Redirect.INHERIT} 那样把 JVM 的
+             * stdin（本地是终端、CI 是一条开着的管道）暴露给子进程。
+             */
+            NativeBridge.cCloseFd(fds[2]);
+            f.fdChildIn = -1;
+            f.in = new PopenReader(new FdInput(fds[0]));
             f.readable = true;
             ps.add(fdPump(fds[1], L.err));
         } else {
-            f.out = new FdOutput(fds[2]);
+            f.fdChildIn = fds[2];
+            f.out = new PopenWriter(new FdOutput(fds[2]));
             f.writable = true;
             ps.add(fdPump(fds[0], L.out));
             ps.add(fdPump(fds[1], L.err));
@@ -1262,6 +1288,406 @@ public final class IoLib {
             if (!closed) {
                 closed = true;
                 NativeBridge.cCloseFd(fd);
+            }
+        }
+    }
+
+    /**
+     * {@code io.popen} 读端的外衣：把<b>阻塞读</b>挪到一条守护线程上，调用线程
+     * 只在监视器上做<b>可被打断</b>的等待。
+     * <p>
+     * 为什么要这样：{@code Process.getInputStream().read(...)} 与
+     * {@code cPipeRead(2)} 都是<b>不可中断</b>的调用 —— 子进程不写也不退出，
+     * 读就永远不返回。而 JUnit 的
+     * {@code junit.jupiter.execution.timeout.default}（见 {@code pom.xml}）在
+     * {@code SAME_THREAD} 模式下是把测试体<b>内联</b>跑在测试线程上、到点只给
+     * 这条线程发一次 {@code interrupt()}：卡在不可中断读上的测试线程什么都收不到，
+     * 于是超时<b>不生效</b>，只能一路挂到 job 的 6 小时上限，期间一行日志都没有
+     * （实测就是这么挂的）。换 {@code SEPARATE_THREAD} 也不解决：那条路是起一条
+     * <b>非 daemon</b> 线程跑测试体，超时确实报得出来，但卡死的线程照样留着。
+     * <p>
+     * 这里换的是「谁做阻塞读」：后台线程负责真正的 {@code read}，调用线程
+     * {@code wait()} 着等它 —— {@code wait()} 可被 {@code interrupt()} 打断，
+     * 打断后抛 {@link java.io.InterruptedIOException}，读因此以
+     * {@code nil, …, EIO} 的形状返回，测试体得以走完，超时这才变成一条带线程栈的
+     * FAILURE。
+     * <p>
+     * 两条纪律，缺一不可：
+     * <ol>
+     *   <li><b>绝不主动预读。</b>只有调用线程要数据时才发一次读请求，请求之外
+     *       一个字节都不从管道上取。{@code pcloseUndrainedWriterSigpipe} 那条
+     *       用例正靠「父进程没读、子进程写完 64KiB 管道缓冲后堵在 {@code write}
+     *       上、父进程再关读端」才拿到 {@code ("signal", 13)}（无 shim 时兜底
+     *       {@code ("exit", 141)}）；后台线程若自作主张一直抽干，子进程会从容
+     *       写完并正常退出，那条断言立刻翻。</li>
+     *   <li><b>只负责一条句柄。</b>线程是 daemon，且只在调用线程等它的时候动；
+     *       句柄关掉就退出。留在阻塞读上那种情况只可能发生在「读者已经被打断、
+     *       句柄被放弃」之后，它不该拖住 JVM 退出。</li>
+     * </ol>
+     */
+    private static final class PopenReader extends InputStream {
+
+        /** 预取块大小：与 {@link FdInput} 一致，换个外衣不改每次从管道上取的量 */
+        private static final int CAP = 4096;
+
+        private final InputStream src;
+
+        private final Object lock = new Object();
+
+        private final byte[] buf = new byte[CAP];
+
+        /** {@code buf} 里还没交给调用线程的区间；{@code at == have} 表示空 */
+        private int at;
+        private int have;
+
+        /** 有一个读请求在等后台线程 */
+        private boolean requested;
+
+        /** 后台线程读出来的异常，原样交给调用线程抛 */
+        private IOException fail;
+
+        private boolean eof;
+        private boolean closed;
+
+        private final Thread reader;
+
+        PopenReader(InputStream src) {
+            this.src = src;
+            this.reader = new Thread(this::pumpLoop, "lua-popen-read");
+            this.reader.setDaemon(true);
+            this.reader.start();
+        }
+
+        /** 后台线程：等一个读请求、读一块、通知；{@code close()} 后退出 */
+        private void pumpLoop() {
+            while (true) {
+                synchronized (lock) {
+                    while (!requested && !closed) {
+                        try {
+                            lock.wait();
+                        } catch (InterruptedException e) {
+                            // close() 会先置 closed 再 notify，这里重新判一次即可
+                        }
+                    }
+                    if (closed) {
+                        return;
+                    }
+                    requested = false;
+                }
+                int n;
+                try {
+                    n = src.read(buf, 0, buf.length);
+                } catch (IOException e) {
+                    synchronized (lock) {
+                        fail = e;
+                        lock.notifyAll();
+                    }
+                    return;
+                }
+                synchronized (lock) {
+                    at = 0;
+                    have = Math.max(n, 0);
+                    eof = n < 0;
+                    lock.notifyAll();
+                }
+            }
+        }
+
+        /** 等一块数据；{@code false} 表示 EOF 或已关闭 */
+        private boolean more() throws IOException {
+            synchronized (lock) {
+                while (true) {
+                    if (at < have) {
+                        return true;
+                    }
+                    if (fail != null) {
+                        throw fail;
+                    }
+                    if (eof || closed) {
+                        return false;
+                    }
+                    if (!requested) {
+                        requested = true;
+                        lock.notifyAll();
+                    }
+                    try {
+                        lock.wait();
+                    } catch (InterruptedException e) {
+                        /*
+                         * 超时的 interrupt 会落到这里。中断标志留着不放：
+                         * 万一脚本还接着读，下一次 wait 立刻再抛，不会再挂住。
+                         */
+                        Thread.currentThread().interrupt();
+                        InterruptedIOException ie =
+                                new InterruptedIOException("interrupted while reading from child process");
+                        ie.initCause(e);
+                        throw ie;
+                    }
+                }
+            }
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (at >= have && !more()) {
+                return -1;
+            }
+            return buf[at++] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (len == 0) {
+                return 0;
+            }
+            if (at >= have && !more()) {
+                return -1;
+            }
+            int n = Math.min(len, have - at);
+            System.arraycopy(buf, at, b, off, n);
+            at += n;
+            return n;
+        }
+
+        /**
+         * 关掉外衣：先让后台线程退出，再关底层流。
+         * <p>
+         * 顺序有讲究：底层那一关是 {@code pclose} 逼子进程吃到 EOF / SIGPIPE
+         * 的那一手（见 {@link #pcloseSpawn}），必须真的传到管道上。
+         */
+        @Override
+        public void close() {
+            synchronized (lock) {
+                closed = true;
+                lock.notifyAll();
+            }
+            reader.interrupt();
+            try {
+                src.close();
+            } catch (IOException ignored) {
+                // 关不掉就算了，正题是那股 EOF/SIGPIPE 要传下去
+            }
+        }
+    }
+
+    /**
+     * {@code io.popen} 写端的外衣：与 {@link #PopenReader} 同一套办法 —— 把
+     * <b>阻塞写</b>挪到一条守护线程上，调用线程只在监视器上做<b>可被打断</b>的等待。
+     * <p>
+     * 为什么要这样：写端那两条底层调用同样<b>不可中断</b> ——
+     * {@code Process.getOutputStream().write(...)} 是管道 fd 上的 {@code write(2)}，
+     * shim 那边的 {@code cPipeWrite(2)} 也是。子进程不读而写量又超过管道缓冲时
+     * （{@code io.popen("sleep 60", "w")} 之后写进去几万个字节），{@code f:write}
+     * 就永远不返回；JUnit 的超时（{@code SAME_THREAD} 模式下，见 {@code pom.xml}）
+     * 只给测试线程发一次 {@code interrupt()}，卡在不可中断写上的测试线程什么都
+     * 收不到，于是整条用例无声挂住 —— 与读端那次 6 小时挂死是同一个形状。
+     * {@code pclose} 里那次 {@code f.out.close()} 也一样：C 的 {@code fclose}
+     * 先 flush 缓冲，管道灌满时它照样堵在 {@code write(2)} 上；这里堵的是
+     * {@code BufferedOutputStream} 的 flush，同样收不到 interrupt。
+     * <p>
+     * 纪律与读端逐条对应：
+     * <ol>
+     *   <li><b>绝不主动预写。</b>只有调用线程交出一块字节之后，后台线程才动那一次
+     *       {@code write}；调用线程没交的东西，一个字节都不往管道里送。字节内容、
+     *       分块边界和「写完即 flush」都和改造前一致，所以 {@code pclose} 那几条
+     *       退出状态 / SIGPIPE 的断言不受影响。</li>
+     *   <li><b>只负责一条句柄。</b>线程是 daemon，且只在调用线程等它的时候动；
+     *       句柄关掉就退出。留在阻塞写上那种情况只可能发生在「写者已经被打断、
+     *       句柄被放弃」之后，它不该拖住 JVM 退出。</li>
+     * </ol>
+     */
+    private static final class PopenWriter extends java.io.OutputStream {
+
+        private final OutputStream dst;
+
+        private final Object lock = new Object();
+
+        /** 调用线程交出来、后台线程正在写（或还没取走）的那一块 */
+        private byte[] buf;
+
+        private int len;
+
+        /** {@code true} 表示上面那块还没落到管道上；落下去之后才置回 {@code false} */
+        private boolean pending;
+
+        /** 后台线程写出来的异常，原样交给调用线程抛 */
+        private IOException fail;
+
+        private boolean closed;
+
+        private final Thread writer;
+
+        PopenWriter(OutputStream dst) {
+            this.dst = dst;
+            this.writer = new Thread(this::pumpLoop, "lua-popen-write");
+            this.writer.setDaemon(true);
+            this.writer.start();
+        }
+
+        /** 后台线程：等一块数据、写一块、通知；{@code close()} 后退出 */
+        private void pumpLoop() {
+            while (true) {
+                byte[] b;
+                int n;
+                synchronized (lock) {
+                    while (!pending) {
+                        if (closed) {
+                            return;
+                        }
+                        try {
+                            lock.wait();
+                        } catch (InterruptedException e) {
+                            // close() 会先置 closed 再 notify，这里重新判一次即可
+                        }
+                    }
+                    b = buf;
+                    n = len;
+                }
+                try {
+                    dst.write(b, 0, n);
+                    dst.flush(); // 与改造前一致：交出去一块就推一块
+                } catch (IOException e) {
+                    synchronized (lock) {
+                        fail = e;
+                        buf = null;
+                        len = 0;
+                        pending = false;
+                        lock.notifyAll();
+                    }
+                    return;
+                }
+                synchronized (lock) {
+                    buf = null;
+                    len = 0;
+                    pending = false;
+                    lock.notifyAll();
+                }
+            }
+        }
+
+        /** 等当前那块写完；被打断即抛 {@link java.io.InterruptedIOException}。调用方须持有 {@code lock} */
+        private void awaitDone() throws IOException {
+            while (true) {
+                if (fail != null) {
+                    throw fail;
+                }
+                if (!pending) {
+                    return;
+                }
+                try {
+                    lock.wait();
+                } catch (InterruptedException e) {
+                    /*
+                     * 超时的 interrupt 会落到这里。中断标志留着不放：
+                     * 万一脚本还接着写，下一次 wait 立刻再抛，不会再挂住。
+                     */
+                    Thread.currentThread().interrupt();
+                    InterruptedIOException ie =
+                            new InterruptedIOException("interrupted while writing to child process");
+                    ie.initCause(e);
+                    throw ie;
+                }
+            }
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            write(new byte[] {(byte) b}, 0, 1);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (len <= 0) {
+                return;
+            }
+            byte[] block = java.util.Arrays.copyOfRange(b, off, off + len);
+            synchronized (lock) {
+                if (fail != null) {
+                    throw fail;
+                }
+                if (closed) {
+                    throw new IOException("stream closed");
+                }
+                // 上一次交出去的块可能还在飞（只可能是被 interrupt 打断留下的），先让它落地
+                while (pending) {
+                    awaitDone();
+                }
+                buf = block;
+                this.len = block.length;
+                pending = true;
+                lock.notifyAll();
+                awaitDone();
+            }
+        }
+
+        /** 交出去的字节都落到管道上才算 flush —— 与改造前「写完即 flush」等价 */
+        @Override
+        public void flush() throws IOException {
+            synchronized (lock) {
+                awaitDone();
+            }
+        }
+
+        /**
+         * 关掉外衣：先把在飞的那块写完，再关底层。
+         * <p>
+         * 顺序与读端同源：底层那一关是 {@code pclose} 逼子进程吃到 EOF 的那一手，
+         * 必须真的传到管道上。等那块落地是<b>可打断</b>的 —— 被打断就不再等，
+         * 直接关（宁可丢尾部字节，也不做一次不可中断的等待）；C 的 {@code fclose}
+         * 在管道灌满、子进程不读时本来也会堵在 {@code write(2)} 上，被信号打断即
+         * 半途而废。
+         */
+        @Override
+        public void close() {
+            boolean idle;
+            synchronized (lock) {
+                closed = true;
+                idle = !pending; // 后台线程此刻不在写，也就没占着底层流
+                lock.notifyAll();
+                try {
+                    awaitDone();
+                } catch (IOException ignored) {
+                    // 被 interrupt 打断：不再等，下面直接关底层
+                }
+            }
+            writer.interrupt();
+            if (idle) {
+                /*
+                 * 后台线程此刻在等（没占着底层流），直接关不会撞监视器。
+                 * 常见路径就在这里同步关掉，不必为它起线程。
+                 */
+                try {
+                    dst.close();
+                } catch (IOException ignored) {
+                    // 关不掉就算了，正题是那股 EOF 要传下去
+                }
+                return;
+            }
+            /*
+             * 否则后台线程还卡在<b>写满的管道</b>上，握着底层流的监视器 ——
+             * Process 那条路拿到的 {@code BufferedOutputStream} 把 flush / close
+             * 都做成了 {@code synchronized}，此刻在调用线程上调 {@code dst.close()}
+             * 会是一次<b>不可中断</b>的 {@code BLOCKED}（{@code interrupt()} 对
+             * 监视器竞争无效），与读端那条不可中断的 {@code read(2)} 同形。
+             * 所以把「关底层」挪到一条守护线程上，调用线程只做<b>可打断</b>的
+             * 有界等待：等不到就撒手，子进程迟早会退出，由进程收尸线程收尾。
+             * <p>
+             * 这一手也正是 {@code pclose} 逼子进程吃到 EOF 的那一步，必须真的
+             * 传到管道上 —— 它照常会落到管道上，只是不再拿调用线程去堵。
+             */
+            Thread closer = new Thread(() -> {
+                try {
+                    dst.close();
+                } catch (IOException ignored) {
+                    // 同上
+                }
+            }, "lua-popen-close");
+            closer.setDaemon(true);
+            closer.start();
+            try {
+                closer.join(PUMP_JOIN_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
     }
