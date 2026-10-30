@@ -1838,4 +1838,61 @@ print("done")
                 "被打断的读应当以 nil 的形状返回；出现空串说明它只是等到了子进程退出"
                         + "（老实现就是这条路上挂住的）: " + out[0]);
     }
+
+    /**
+     * {@code popen} 的<b>写</b>也必须可被打断 —— 上一条用例的镜像。
+     * <p>
+     * 构造：子进程 {@code sleep 5} 期间一个字节都不从 {@code stdin} 读，而脚本交
+     * 出去的那块超过管道缓冲（Linux 与 macOS 都是 64KiB），{@code f:write} 于是
+     * 堵在 {@code write(2)} 上；主线程打断跑脚本的那条线程。
+     * <p>
+     * 判据是<b>打断的代价</b>：读端那条路能靠「{@code nil} 还是空串」区分新旧实现，
+     * 写端不行 —— 子进程一退出，管道就废掉，那块写照样以 {@code nil} 收场，形状
+     * 一样。旧实现与新实现的分别只在<b>它等到什么时候才返回</b>：旧实现必须等子
+     * 进程自己走完（这里 5 秒），新实现被 interrupt 当场解开。所以脚本自己在写前后
+     * 掐一次 {@code os.time()} 记下这段写的耗时、打印出来：断言写以 {@code nil}
+     * 收场，且这次写耗时 {@code < 3} 秒（旧实现恒为 5 秒上下）。
+     * <p>
+     * 脚本末尾不显式关句柄，让 {@code L.close()} 的 {@code __gc} 去 {@code pclose}：
+     * <b>那条关停等待也必须是可打断的</b>——纯 Java 路里它要先 {@code BufferedOutputStream.close()}
+     * （会把写缓冲 flush 到底层管道），后台写线程还卡在满管道上时那是一次不可中断的
+     * 监视器等待，{@code PopenWriter} 因此把「关底层」也挪到了守护线程上。
+     * <p>
+     * 两条 io 路径都覆盖：装了 shim 是 {@code FdOutput}，装不上是 {@code Process}
+     * 的流，两条都经 {@code IoLib#PopenWriter}。
+     */
+    @Test
+    void popenBlockedWriteIsInterruptible() throws Exception {
+        String src = """
+                local f = assert(io.popen("sleep 5", "w"))
+                local t0 = os.time()
+                local ok = f:write(string.rep("x", 150000))
+                local dt = os.time() - t0
+                print("after", tostring(ok), dt)
+                """;
+        String[] out = new String[1];
+        Throwable[] boom = new Throwable[1];
+        Thread runner = new Thread(() -> {
+            try {
+                out[0] = Diff.javaOnly(src);
+            } catch (Throwable e) {
+                boom[0] = e;
+            }
+        }, "popen-blocked-write");
+        runner.setDaemon(true);
+        runner.start();
+        Thread.sleep(500); // 让 popen 起来、那块数据真的堵在管道上
+        runner.interrupt();
+        runner.join(15_000);
+        assertFalse(runner.isAlive(), "整段脚本应当在子进程退出后收尾，不该拖更久");
+        if (boom[0] != null) {
+            throw new AssertionError("跑脚本的线程不该抛异常", boom[0]);
+        }
+        assertTrue(out[0].startsWith("after\tnil\t"),
+                "被堵住又被打断的写应当以 nil 的形状返回: " + out[0]);
+        int dt = Integer.parseInt(out[0].strip().split("\t")[2]);
+        assertTrue(dt < 3,
+                "写应当被 interrupt 当场解开、立刻返回，而不是陪 sleep 5 的子进程走完那 5 秒"
+                        + "（老实现就是这条路上挂住的）；实测 dt=" + dt + "s: " + out[0]);
+    }
 }
