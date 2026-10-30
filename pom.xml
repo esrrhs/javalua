@@ -24,9 +24,11 @@
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <jazzer.version>0.30.0</jazzer.version>
         <!--
-          阶段性门禁值:每完成一个阶段往上抬一档,目标 0.85。
+          阶段性门禁值:每完成一个阶段往上抬一档,只抬不降。
           0.94 是<b>单跑一条 io 路径</b>（native 那一遍）实测的量;CI 两遍
-          合并后按 0.95 卡(见 .github/workflows/maven.yml 最后一步)。
+          合并后按 0.95 卡(见 .github/workflows/maven.yml 最后一步,本机两遍
+          合并实测 0.9568 也过得了,所以本地镜像 tools/local_conformance.sh
+          用同一组值卡单遍与合并两个口径)。
         -->
         <jacoco.line.minimum>0.94</jacoco.line.minimum>
         <!--
@@ -165,7 +167,7 @@
                   覆盖率门禁在新实现落地初期会长期不满足:Lua 5.4 完整实现有
                   几万行,而可用的测试用例要等解释器能跑起来之后才写得出来。
                   所以门禁值(见 jacoco.line.minimum)随阶段推进逐步抬升,
-                  而不是一开始就设成 0.85 让它永远红着——永远红的门禁等于
+                  而不是一开始就定到当期够不着的高度让它永远红着——永远红的门禁等于
                   没有门禁,反而会掩盖真正的覆盖率下降。
                 -->
                 <executions>
@@ -197,7 +199,7 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <!-- 随实施阶段推进逐步抬高,目标 0.85;见上方注释 -->
+                                            <!-- 随实施阶段推进逐步抬高;见上方注释 -->
                                             <minimum>${jacoco.line.minimum}</minimum>
                                         </limit>
                                     </limits>

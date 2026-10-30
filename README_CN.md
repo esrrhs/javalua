@@ -189,7 +189,7 @@ LUA54_BIN=$PWD/lua-5.4.7/src/lua ./mvnw test
 | `native/` | `luashim.c`、生成的 C API stub、构建脚本 |
 | `src/test/java/...` | 单元、差分、fuzz 和原生扩展测试 |
 | `benchmark/` | 本机的量级计时，不是 CI 闸门（理由见该目录 README） |
-| `tools/` | `check_ci_gates.py`：闸门类一条用例都没跑时直接判失败；`local_conformance.sh`：本地镜像 CI 的 conformance job（两条 `io` 路径各跑一遍、覆盖率合并后统计） |
+| `tools/` | `check_ci_gates.py`：闸门类一条用例都没跑时直接判失败；`local_conformance.sh`：本地镜像 CI 的 conformance job（两条 `io` 路径各有界地各跑一遍，再用与 CI 相同的用例数下限和覆盖率门槛卡单遍与合并两个口径） |
 
 Java 类与 C 源码一一对应：`Lexer` ↔ `llex.c`、`Parser` ↔ `lparser.c`、
 `Codegen` ↔ `lcode.c`、`Vm` ↔ `lvm.c`、`LuaState` ↔ `lstate.c`/`ldo.c`、

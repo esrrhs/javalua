@@ -206,7 +206,7 @@ LUA54_BIN=$PWD/lua-5.4.7/src/lua ./mvnw test
 | `native/` | `luashim.c`, generated C API stubs, build script |
 | `src/test/java/...` | unit, differential, fuzz, and native-extension tests |
 | `benchmark/` | local ballpark timing; not a CI gate (see its README) |
-| `tools/` | `check_ci_gates.py` — fails when a gate class silently ran zero tests; `local_conformance.sh` — mirrors the CI conformance job locally (both `io` paths, merged coverage) |
+| `tools/` | `check_ci_gates.py` — fails when a gate class silently ran zero tests; `local_conformance.sh` — mirrors the CI conformance job locally (both `io` paths, bounded runs, the same gate counts and coverage thresholds for the single pass and the merged data) |
 
 The Java classes mirror the C sources: `Lexer` ↔ `llex.c`, `Parser` ↔
 `lparser.c`, `Codegen` ↔ `lcode.c`, `Vm` ↔ `lvm.c`, `LuaState` ↔
