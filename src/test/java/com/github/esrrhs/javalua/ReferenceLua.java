@@ -94,8 +94,15 @@ final class ReferenceLua {
                 return false;
             }
             ProcessBuilder pb = new ProcessBuilder(f.getAbsolutePath(), "-v");
+            /*
+             * 与其余 spawn 一样先合并 stderr 再一次性读干：分开读（先 stdout
+             * 再 stderr）就是这里曾经唯一一处「读序不对称」——{@code lua -v}
+             * 走的是 stderr，真要把它撑满管道的只有病态的二进制，但这套驱动
+             * 没有理由为它留一条例外。
+             */
+            pb.redirectErrorStream(true);
             Process p = pb.start();
-            String out = readAll(p.getInputStream()) + readAll(p.getErrorStream());
+            String out = readAll(p.getInputStream());
             p.waitFor();
             return out.contains("Lua 5.4.7");
         } catch (Exception e) {
@@ -150,6 +157,8 @@ final class ReferenceLua {
                             ? f.getAbsolutePath() : bin),
                     "-v");
             pb.redirectErrorStream(true);
+            // stdin 一律 /dev/null：理由见 run(String) 那段注释
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             p.waitFor();
@@ -179,6 +188,8 @@ final class ReferenceLua {
             Files.write(src, source);
             ProcessBuilder pb = new ProcessBuilder(luac, "-o", outPath, src.toString());
             pb.redirectErrorStream(true);
+            // stdin 一律 /dev/null：理由见 run(String) 那段注释
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             readAll(p.getInputStream());
             int code = p.waitFor();
@@ -201,6 +212,14 @@ final class ReferenceLua {
             ProcessBuilder pb = new ProcessBuilder(new File(bin).getAbsolutePath(),
                     tmp.getAbsolutePath());
             pb.redirectErrorStream(true);
+            /*
+             * stdin 与 {@link #runFile} 一样定向 {@code /dev/null}：参考实现那边
+             * 只要有一条读 stdin 的路径（{@code io.read}、{@code debug.debug}）
+             * 就会挂在本进程继承来的 stdin 上。本实现的 {@code LuaState#in}
+             * 默认是空流，两边必须一致 —— 顺带也不再依赖 CI 运行器的 stdin
+             * 是什么形状。
+             */
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             int code = p.waitFor();
@@ -373,6 +392,8 @@ final class ReferenceLua {
             Files.write(p, content);
             ProcessBuilder pb = new ProcessBuilder(bin, path);
             pb.redirectErrorStream(true);
+            // stdin 一律 /dev/null：理由见 run(String) 那段注释
+            pb.redirectInput(new File("/dev/null"));
             Process pr = pb.start();
             String out = readAll(pr.getInputStream());
             pr.waitFor();
