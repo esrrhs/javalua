@@ -21,7 +21,11 @@
           改写成显式状态机。代价就是放弃了 Java 8 兼容。
         -->
         <maven.compiler.release>21</maven.compiler.release>
-        <junit.jupiter.version>5.10.2</junit.jupiter.version>
+        <!--
+          JUnit 6 起 Platform / Jupiter / Vintage 共用同一版本号。
+          项目下限已是 Java 21，满足 JUnit 6 的 Java 17 基线。
+        -->
+        <junit.version>6.1.3</junit.version>
         <jazzer.version>0.30.0</jazzer.version>
         <!--
           阶段性门禁值:每完成一个阶段往上抬一档,只抬不降。
@@ -75,25 +79,20 @@
     <dependencyManagement>
         <dependencies>
             <!--
-              锁定 JUnit Platform 版本。jazzer-junit 会传递引入 junit-platform
-              1.9.0，与 junit-jupiter 5.10.2 所需的 1.10.2 并存时，engine 与
-              commons 版本错配，表现为 "TestEngine with ID 'junit-jupiter'
-              failed to discover tests"。统一到 1.10.2 即可。
+              用 junit-bom 对齐 Platform / Jupiter / Vintage 到同一 6.x。
+              jazzer-junit 0.30.0 仍传递依赖 junit-jupiter 5.9.0 与
+              junit-platform 1.9.0；若不整栈升到 6，只抬 Platform（Dependabot
+              #9/#11/#12）会再次触发 "TestEngine with ID 'junit-jupiter'
+              failed to discover tests"。BOM import 强制覆盖 jazzer 的传递版本。
+              源码侧 FuzzTest 是手写差分 fuzz（普通 @Test），未用 @FuzzTest；
+              保留 jazzer 依赖以便日后启用，待其正式声明 JUnit 6 支持后再跟进。
             -->
             <dependency>
-                <groupId>org.junit.platform</groupId>
-                <artifactId>junit-platform-commons</artifactId>
-                <version>1.10.2</version>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.platform</groupId>
-                <artifactId>junit-platform-engine</artifactId>
-                <version>1.10.2</version>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.platform</groupId>
-                <artifactId>junit-platform-launcher</artifactId>
-                <version>1.10.2</version>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -102,12 +101,14 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>${junit.jupiter.version}</version>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <!--
           覆盖率引导的模糊测试引擎(基于 libFuzzer,OSS-Fuzz 对 JVM 项目的官方方案)。
-          字节码是 Java 8 级别,因此不影响 JDK 8 起编。
+          当前测试源未使用 @FuzzTest；依赖保留以便日后启用。
+          jazzer-junit 0.30.0 的 POM 仍声明 JUnit 5.9 / Platform 1.9，由上方
+          junit-bom 强制对齐到 JUnit 6；上游尚未发布正式声明 JUnit 6 的版本。
 
           两种运行模式:
           - 默认(不设 JAZZER_FUZZ):只回放 inputs 目录中已保存的输入,当作回归测试,
@@ -143,7 +144,8 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <!-- JUnit 6 文档推荐 >= 3.0；跟官方 starter 对齐到 3.5.5 -->
+                <version>3.5.5</version>
                 <configuration>
                     <!--
                       给每一条用例设一个 3 分钟的全局超时。
