@@ -162,7 +162,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.16</version>
                 <!--
                   覆盖率门禁在新实现落地初期会长期不满足:Lua 5.4 完整实现有
                   几万行,而可用的测试用例要等解释器能跑起来之后才写得出来。
