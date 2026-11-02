@@ -259,7 +259,7 @@
                     <plugin>
                         <groupId>com.github.spotbugs</groupId>
                         <artifactId>spotbugs-maven-plugin</artifactId>
-                        <version>4.8.6.4</version>
+                        <version>4.10.5.0</version>
                         <configuration>
                             <!--
                               只把 HIGH 优先级当成闸门：本仓库有一批<b>刻意为之</b>的
