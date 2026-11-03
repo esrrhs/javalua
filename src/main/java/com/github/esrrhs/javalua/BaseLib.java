@@ -412,7 +412,8 @@ public final class BaseLib {
      */
     private static int rawlen(LuaState L) {
         int t = L.argBaseType(1);
-        LuaAux.argExpected(L, t == Lua.TTABLE || t == Lua.TSTRING, 1, "table or string");
+        /* 5.3.4 luaB_rawlen: luaL_argcheck bare message */
+        LuaAux.argCheck(L, t == Lua.TTABLE || t == Lua.TSTRING, 1, "table or string expected");
         LuaValue v = L.arg(0);
         if (v.isTable()) {
             L.push(LuaValue.ofInteger(v.asTable().length()));

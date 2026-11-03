@@ -1189,9 +1189,7 @@ public final class StringLib {
                 break;
             }
             case 'q': {
-                if (form.length() > 2) {
-                    throw L.libError("specifier '%q' cannot have modifiers");
-                }
+                /* 5.3.4: addliteral ignores width/precision/flags on %q */
                 addLiteral(L, out, arg);
                 break;
             }
@@ -1239,22 +1237,13 @@ public final class StringLib {
      * {@code lauxlib.c: checkformat}：格式项里除了 flags / width / precision，
      * 最后必须落到一个字母（转换字符）上。
      */
+    /**
+     * 5.4 lauxlib checkformat — not present in 5.3.4. scanformat already caps
+     * width/precision digits; unknown conversions hit "invalid option".
+     */
     private static void checkFormat(LuaState L, String form, String spec, String flags,
             boolean precision) {
-        int p = 0;
-        while (p < spec.length() && flags.indexOf(spec.charAt(p)) >= 0) {
-            p++;
-        }
-        if (p < spec.length() && spec.charAt(p) != '0') {
-            p = twoDigits(spec, p);
-            if (p < spec.length() && spec.charAt(p) == '.' && precision) {
-                p++;
-                p = twoDigits(spec, p);
-            }
-        }
-        if (p >= spec.length() || !isAlpha(spec.charAt(p))) {
-            throw L.libError("invalid conversion specification: '" + form + "'");
-        }
+        /* no-op under Lua 5.3.4 */
     }
 
     private static boolean isDigit(int c) {

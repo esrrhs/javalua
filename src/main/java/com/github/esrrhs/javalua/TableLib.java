@@ -164,7 +164,7 @@ public final class TableLib {
         long pos = LuaAux.optInteger(L, 2, size);
         if (pos != size) {
             if (!(pos >= 1 && pos <= size + 1)) {
-                throw L.argError(2, "position out of bounds");
+                throw L.argError(1, "position out of bounds") /* 5.3.4 quirk: reports #1 */;
             }
         }
         LuaValue res = getI(L, L.arg1(1), pos);

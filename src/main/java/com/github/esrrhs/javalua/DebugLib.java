@@ -634,10 +634,8 @@ public final class DebugLib {
                     : LuaValue.ofString(LuaString.latin1(ar.name)));
             t.set("namewhat", LuaValue.ofString(LuaString.latin1(ar.namewhat)));
         }
-        if (options.indexOf('r') >= 0) {
-            t.set("ftransfer", LuaValue.ofInteger(ar.ftransfer));
-            t.set("ntransfer", LuaValue.ofInteger(ar.ntransfer));
-        }
+                /* 5.3.4: no getinfo "r" / ftransfer / ntransfer */
+
         if (options.indexOf('t') >= 0) {
             t.set("istailcall", LuaValue.ofBoolean(ar.istailcall));
         }
@@ -953,8 +951,7 @@ public final class DebugLib {
         int mask = L1.getHookMask();
         LuaHook hook = L1.getHook();
         if (hook == null) {
-            L.push(LuaValue.ofNil()); // luaL_pushfail
-            return 1; // 没有钩子时<b>只有一个</b>返回值
+            L.push(LuaValue.ofNil()); // 5.3.4 still returns mask+count after nil
         } else if (hook != HOOKF) {
             L.push(LuaValue.ofString(LuaString.utf8("external hook")));
         } else {
@@ -1224,7 +1221,7 @@ public final class DebugLib {
             L.push(new LuaValue(m)); // 非字符串原样返回
             return 1;
         }
-        // luaL_traceback 用 strlen(msg) 取长度：  之后的内容不进回溯
+        // luaL_traceback 用 strlen(msg) 取长度： 之后的内容不进回溯
         LuaString msg = m.isNil() ? null : LuaAux.asString(m).toCString();
         int level = (int) LuaAux.optInteger(L, arg + 2, (L == L1) ? 1 : 0);
         L.push(LuaValue.ofString(traceback(L, L1, msg, level)));

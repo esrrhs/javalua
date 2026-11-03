@@ -263,7 +263,8 @@ final class LuaTm {
                 }
                 throw L.typeError(p1.isNumber() ? p2 : p1, "perform bitwise operation on");
             default:
-                throw L.typeError(p1.isNumber() ? p2 : p1, "perform arithmetic on");
+                /* 5.3.4 luaG_opinterror: tonumber() includes numeric strings */
+                throw L.typeError(Vm.toNumber(p1) != null ? p2 : p1, "perform arithmetic on");
             }
         }
     }

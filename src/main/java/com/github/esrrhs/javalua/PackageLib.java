@@ -194,37 +194,6 @@ public final class PackageLib {
      * 又是拿未切分的整条 {@code path} 拼的（{@code #errorNotFound}），不是拿
      * 这张表拼的。这里照样照 C 写，省得哪天有人拿这张表干别的事时对不上。
      */
-    private static List<String> splitPath(String path) {
-        List<String> out = new ArrayList<>();
-        char[] s = path.toCharArray();
-        int end = s.length;
-        int p = 0;
-        while (true) {
-            if (p >= end) {
-                break; // name == end：没有更多模板了
-            }
-            if (s[p] == '\0') { // 上一轮把分隔符改成了 '\0'：还原并跳过
-                s[p] = PATH_SEP.charAt(0);
-                p++;
-            }
-            int sep = p;
-            while (sep < end && s[sep] != PATH_SEP.charAt(0)) {
-                sep++;
-            }
-            /*
-             * 这步不能省。C 是把分隔符位置写成 '\0' 来切出当前模板的，
-             * 下一轮正是靠「这个位置是 \0」认出「刚切过」并跳过它。不写就会
-             * 在遇到连续分隔符（{@code ";;"}）时停在原地死循环。
-             */
-            if (sep < end) {
-                s[sep] = '\0';
-            }
-            out.add(new String(s, p, sep - p));
-            p = sep;
-        }
-        return out;
-    }
-
     /**
      * {@code readable}：能打开读就算数。
      * <p>
@@ -244,16 +213,12 @@ public final class PackageLib {
         }
     }
 
-    /** {@code pusherrornotfound}：{@code no file 'a'\n\tno file 'b'} */
-    private static String errorNotFound(String path) {
-        StringBuilder b = new StringBuilder("no file '");
-        b.append(path.replace(PATH_SEP, "'\n\tno file '"));
-        b.append("'");
-        return b.toString();
-    }
-
     /**
-     * {@code searchpath}。
+     * {@code searchpath} (5.3.4 loadlib.c).
+     * <p>
+     * {@code pushnexttemplate} skips consecutive {@code ;} so empty templates
+     * never produce {@code no file ''}. Each miss appends
+     * {@code \n\tno file 'filename'} (leading newline on the first entry).
      *
      * @return 找到的文件名；找不到返回 {@code null} 且<b>错误消息已压栈</b>
      */
@@ -263,13 +228,30 @@ public final class PackageLib {
         if (!sep.isEmpty() && name.indexOf(sep.charAt(0)) >= 0) {
             name = name.replace(sep, dirsep);
         }
-        String pathname = path.replace(PATH_MARK, name);
-        for (String f : splitPath(pathname)) {
-            if (readable(f)) {
-                return f;
+        StringBuilder msg = new StringBuilder();
+        int p = 0;
+        final int end = path.length();
+        char sepCh = PATH_SEP.charAt(0);
+        while (p < end) {
+            while (p < end && path.charAt(p) == sepCh) {
+                p++; // skip separators (empty templates)
             }
+            if (p >= end) {
+                break;
+            }
+            int sepAt = path.indexOf(sepCh, p);
+            if (sepAt < 0) {
+                sepAt = end;
+            }
+            String tmpl = path.substring(p, sepAt);
+            String filename = tmpl.replace(PATH_MARK, name);
+            if (readable(filename)) {
+                return filename;
+            }
+            msg.append("\n\tno file '").append(filename).append("'");
+            p = sepAt;
         }
-        L.push(LuaValue.ofString(LuaString.latin1(errorNotFound(pathname))));
+        L.push(LuaValue.ofString(LuaString.latin1(msg.toString())));
         return null;
     }
 
@@ -405,7 +387,7 @@ public final class PackageLib {
         LuaValue v = preloadTable(L).get(name);
         if (v == null || v.isNil()) {
             L.push(LuaValue.ofString(LuaString.latin1(
-                    "no field package.preload['" + name + "']")));
+                    "\n\tno field package.preload['" + name + "']")));
             return 1;
         }
         L.push(v);
@@ -482,7 +464,7 @@ public final class PackageLib {
                 return checkLoad(L, false, filename);
             }
             L.push(LuaValue.ofString(LuaString.latin1(
-                    "no module '" + name + "' in file '" + filename + "'")));
+                    "\n\tno module '" + name + "' in file '" + filename + "'")));
             return 1;
         }
         L.push(LuaValue.ofString(LuaString.latin1(filename)));
@@ -519,12 +501,11 @@ public final class PackageLib {
             throw L.libError("'package.searchers' must be a table");
         }
         LuaTable searchers = sv.asTable();
+        /* 5.3.4 findloader: searchers already include "\n\t..." in messages */
         StringBuilder msg = new StringBuilder();
         for (int i = 1;; i++) {
-            msg.append("\n\t");
             LuaValue s = searchers.get(LuaValue.ofInteger(i));
             if (s == null || s.isNil()) {
-                msg.setLength(msg.length() - 2); // 去掉刚加的前缀
                 throw L.libError("module '" + name + "' not found:" + msg);
             }
             LuaValue[] r = callGet(L, s, LuaValue.ofString(LuaString.latin1(name)), 2);
@@ -537,9 +518,8 @@ public final class PackageLib {
              */
             if (r[0].isString() || r[0].isNumber()) {
                 msg.append(LuaAux.asString(r[0]).toLatin1String());
-            } else {
-                msg.setLength(msg.length() - 2); // 这个搜索器没给消息
             }
+            /* else: searcher returned neither loader nor message — skip */
         }
     }
 
@@ -578,7 +558,7 @@ public final class PackageLib {
             mod = LuaValue.ofBoolean(true);
         }
         L.push(mod);
-        L.push(loaderData);
-        return 2;
+        /* 5.3.4 ll_require returns only the module (5.4 also returns loaderdata) */
+        return 1;
     }
 }

@@ -1895,7 +1895,8 @@ public final class IoLib {
         LuaValue v = L.registry.get(findex);
         LuaFile p = fileOfValue(v);
         if (p == null || p.closef == null) {
-            throw L.libError("default " + findex.substring("_IO_".length())
+            /* 5.3.4 getiofile: "standard %s file is closed" */
+            throw L.libError("standard " + findex.substring("_IO_".length()).toLowerCase()
                     + " file is closed");
         }
         return v;

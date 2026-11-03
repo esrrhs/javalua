@@ -937,6 +937,8 @@ public final class Codegen {
     }
 
     public static void semError(FuncState fs, String msg) {
+        /* 5.3.4 semerror: clear token so message has no "near ..." suffix */
+        fs.ls.t.token = 0;
         throw fs.ls.syntaxError(msg);
     }
 

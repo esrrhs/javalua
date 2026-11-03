@@ -3142,10 +3142,9 @@ public final class LuaState {
      * 只用其中一条就会在另一类场景丢掉 {@code (method 'xxx')} 后缀。
      */
     public LuaError callError(LuaValue v) {
-        String[] name = new String[1];
-        String kind = funcNameFromCall(name);
-        String extra = (kind != null) ? formatVarInfo(kind, name[0]) : varInfo(v);
-        return runError("attempt to call a " + LuaTm.objTypeName(this, v) + " value" + extra);
+        /* 5.3.4 ldo.c: luaG_typeerror(L, func, "call") — varinfo only, no
+         * funcnamefromcode (that path is 5.4 luaG_callerror). */
+        return typeError(v, "call");
     }
 
     /** {@code ldebug.c: funcnamefromcall} */
@@ -3252,7 +3251,8 @@ public final class LuaState {
      * 而不是把两个类型都打进去。
      */
     public LuaError opInterror(LuaValue p1, LuaValue p2, String op) {
-        return typeError(p1.isNumber() ? p2 : p1, op);
+        /* 5.3.4: tonumber includes numeric strings when picking the bad operand */
+        return typeError(Vm.toNumber(p1) != null ? p2 : p1, op);
     }
 
     /**
@@ -3596,8 +3596,8 @@ public final class LuaState {
      * ——上游 {@code errors.lua} 有一整组这样的断言。
      */
     public LuaError forError(LuaValue v, String what) {
-        return runError("bad 'for' " + what + " (number expected, got "
-                + LuaTm.objTypeName(this, v) + ")");
+        /* 5.3.4 lvm.c: luaG_runerror(L, "'for' limit must be a number"); */
+        return runError("'for' " + what + " must be a number");
     }
 
     /**
