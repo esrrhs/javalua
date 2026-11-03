@@ -3888,7 +3888,8 @@ public final class LuaState {
             int i = p.code[pc];
             switch (OpCode.getOpCode(i)) {
             case OpCode.OP_GETTABUP:
-                kName(p, OpCode.getArgC(i), name);
+                /* 5.3.4 kname: C may be register when K index > MAXINDEXRK */
+                rkName(p, pc, i, name);
                 return isEnv(p, pc, i, true);
             case OpCode.OP_GETTABLE:
                 rkName(p, pc, i, name);
