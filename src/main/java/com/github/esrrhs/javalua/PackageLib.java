@@ -83,7 +83,12 @@ public final class PackageLib {
      * {@code "init"} 没动。本实现照 {@code "open"} 写：走 dlopen 时本来就该是
      * {@code "open"}，走兜底时参考实现在同一台机器上也给 {@code "open"}。
      */
-    private static final String LIB_FAIL = "open";
+    /*
+     * Reference binary is built with {@code make posix} (LUA_USE_POSIX only,
+     * no LUA_USE_DLOPEN), so loadlib.c's fallback defines LIB_FAIL as "absent".
+     * Linux/macos "make linux/macosx" would use "open"; we match the Diff reference.
+     */
+    private static final String LIB_FAIL = "absent";
 
     private static final int ERRLIB = 1;
     private static final int ERRFUNC = 2;

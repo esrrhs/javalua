@@ -656,7 +656,7 @@ public final class IoLib {
         if (sp != 0) {
             FILE_MAP.put(sp, f);
         }
-        L.push(LuaValue.ofUserdata(new LuaUserdata(m != null ? m : f, 0, FILE_UDATA_LEN)));
+        L.push(LuaValue.ofUserdata(new LuaUserdata(m != null ? m : f, 1, FILE_UDATA_LEN))); /* 5.3: always 1 uservalue */
         LuaAux.setMetatableByName(L, FILE_HANDLE);
         return new LuaValue(L.stack[L.top - 1]);
     }

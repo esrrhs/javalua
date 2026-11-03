@@ -52,7 +52,8 @@ public final class LuaUserdata {
     public int len;
 
     public LuaUserdata(Object data) {
-        this(data, 0);
+        /* Lua 5.3.4 luaS_newudata always installs one uservalue (nil). */
+        this(data, 1);
     }
 
     public LuaUserdata(Object data, int nuvalue) {
