@@ -463,14 +463,14 @@ public final class DebugLib {
             }
             /*
              * 这里<b>不能</b>用 {@link LuaState#upvalName}。C 版有两个不同的函数：
-             * {@code lapi.c: aux_upvalue} 在名字为空时给 {@code "(no name)"}，
+             * {@code lapi.c: aux_upvalue} 在名字为空时给 {@code "(*no name)"}，
              * 而 {@code ldebug.c: upvalname} 给 {@code "?"}。差别只在调试信息被
              * {@code string.dump(f, true)} 剥掉时才看得见——上游
              * {@code db.lua} 断言 {@code debug.getupvalue(f, 1)} 拿到
-             * {@code "(no name)"}，给 {@code "?"} 就过不去。
+             * {@code "(*no name)"}，给 {@code "?"} 就过不去。
              */
             LuaString nm = (p.upvalues[n - 1] != null) ? p.upvalues[n - 1].name : null;
-            return (nm == null) ? "(no name)" : nm.toLatin1String();
+            return (nm == null) ? "(*no name)" : nm.toLatin1String();
         }
         return null;
     }
