@@ -3198,6 +3198,20 @@ public final class LuaState {
         case OpCode.OP_SETTABLE:
             tm = Tm.TM_NEWINDEX;
             break;
+        case OpCode.OP_ADD:
+        case OpCode.OP_SUB:
+        case OpCode.OP_MUL:
+        case OpCode.OP_MOD:
+        case OpCode.OP_POW:
+        case OpCode.OP_DIV:
+        case OpCode.OP_IDIV:
+        case OpCode.OP_BAND:
+        case OpCode.OP_BOR:
+        case OpCode.OP_BXOR:
+        case OpCode.OP_SHL:
+        case OpCode.OP_SHR:
+            tm = Tm.TM_ADD + (OpCode.getOpCode(i) - OpCode.OP_ADD);
+            break;
         case OpCode.OP_UNM:
             tm = Tm.TM_UNM;
             break;
@@ -3224,8 +3238,9 @@ public final class LuaState {
         default:
             return null;
         }
+        // 5.3.4: name is full tmname including "__"
         String ev = (tm >= 0 && tm < Tm.EVENT_NAMES.length) ? Tm.EVENT_NAMES[tm] : null;
-        name[0] = (ev != null && ev.startsWith("__")) ? ev.substring(2) : "?";
+        name[0] = (ev != null) ? ev : "?";
         return "metamethod";
     }
 
@@ -3544,7 +3559,7 @@ public final class LuaState {
             key = r[0];
             LuaValue k = r[0];
             LuaValue v = r[1];
-            if (k.isString()) {
+            if (k != null && k.isString()) {
                 if (LuaValue.rawEqual(obj, v)) {
                     return LuaString.cutAtNul(k.asString().toLatin1String());
                 }
@@ -3715,12 +3730,18 @@ public final class LuaState {
      * 高字节<b>不</b>截断：实测 {@code t['\255\254']} 参考实现原样报
      * {@code (field '<FF><FE>')}。
      */
-    static String kName(Proto p, int index, String[] name) {
+    /** Lua 5.3.4 {@code kname}: {@code c} is RK; strip BITRK to index K. */
+    static String kName(Proto p, int c, String[] name) {
+        int index = OpCode.isK(c) ? OpCode.indexK(c) : c;
         if (index < 0 || index >= p.k.length) {
             name[0] = "?";
             return null;
         }
         LuaValue kv = p.k[index];
+        if (kv == null) {
+            name[0] = "?";
+            return null;
+        }
         if (kv.isString()) {
             name[0] = kv.asString().toCString().toLatin1String();
             return "constant";
@@ -3832,9 +3853,10 @@ public final class LuaState {
     }
 
     /** {@code ldebug.c: rkname}：RK 操作数，可能是常量也可能是寄存器 */
+    /** Lua 5.3.4: RK uses BITRK on C, not a separate k bit. */
     static void rkName(Proto p, int pc, int i, String[] name) {
         int c = OpCode.getArgC(i);
-        if (OpCode.getArgK(i) != 0) {
+        if (OpCode.isK(c)) {
             kName(p, c, name);
         } else {
             rName(p, pc, c, name);
@@ -3869,7 +3891,7 @@ public final class LuaState {
                 kName(p, OpCode.getArgC(i), name);
                 return isEnv(p, pc, i, true);
             case OpCode.OP_GETTABLE:
-                rName(p, pc, OpCode.getArgC(i), name);
+                rkName(p, pc, i, name);
                 return isEnv(p, pc, i, false);
             case OpCode.OP_SELF:
                 rkName(p, pc, i, name);

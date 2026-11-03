@@ -314,11 +314,8 @@ final class DebugTest {
 
     @Test
     void cStackLimit() {
-        Diff.assertFullMatches(""
-                + "print(debug.setcstacklimit(10))\n"
-                + "print(debug.setcstacklimit(1000000))\n"
-                + "print(pcall(debug.setcstacklimit))\n"
-                + "print(pcall(debug.setcstacklimit, \"x\"))\n");
+        // Lua 5.3.4 has no debug.setcstacklimit (5.4-only)
+        Diff.assertFullMatches("print(debug.setcstacklimit)\n");
     }
 
     /**

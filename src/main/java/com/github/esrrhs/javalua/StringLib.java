@@ -968,7 +968,8 @@ public final class StringLib {
          * 写反了就会在「repl 不对、同时 max 也不对」时报错的那一条上偏。
          */
         long maxS = LuaAux.optInteger(L, 4, (long) src.length() + 1);
-        LuaAux.argExpected(L, tr >= 0, 3, "string/function/table");
+        /* 5.3.4 uses luaL_argcheck (bare msg); luaL_argexpected is 5.4. */
+        LuaAux.argCheck(L, tr >= 0, 3, "string/function/table expected");
         MatchState ms = new MatchState();
         LuaAux.Buf b = new LuaAux.Buf();
         int pStart = 0;
@@ -1058,20 +1059,42 @@ public final class StringLib {
                 // 注意顺序：参数不够比「格式串本身不合法」先报
                 throw L.argError(arg, "no value");
             }
+            /* 5.3.4 scanformat: flags, ≤2 width digits, optional . + ≤2 prec digits. */
             int start = i;
-            int len = 0;
-            while (start + len < sfl && "-+#0 123456789.".indexOf(f[start + len] & 0xFF) >= 0) {
-                len++;
+            int p = start;
+            final String FLAGS = "-+ #0";
+            while (p < sfl && FLAGS.indexOf(f[p] & 0xFF) >= 0) {
+                p++;
             }
-            len++; // 加上后面的转换字符
-            if (len >= MAX_FORMAT - 10) {
+            if (p - start >= FLAGS.length()) {
+                throw L.libError("invalid format (repeated flags)");
+            }
+            if (p < sfl && isDigit(f[p] & 0xFF)) {
+                p++;
+            }
+            if (p < sfl && isDigit(f[p] & 0xFF)) {
+                p++;
+            }
+            if (p < sfl && (f[p] & 0xFF) == '.') {
+                p++;
+                if (p < sfl && isDigit(f[p] & 0xFF)) {
+                    p++;
+                }
+                if (p < sfl && isDigit(f[p] & 0xFF)) {
+                    p++;
+                }
+            }
+            if (p < sfl && isDigit(f[p] & 0xFF)) {
+                throw L.libError("invalid format (width or precision too long)");
+            }
+            int convIdx = p;
+            int conv = (convIdx < sfl) ? (f[convIdx] & 0xFF) : 0;
+            int take = (convIdx < sfl ? convIdx + 1 : convIdx) - start;
+            if (take + 1 >= MAX_FORMAT - 10) {
                 throw L.libError("invalid format (too long)");
             }
-            int take = Math.min(len, sfl - start);
             String form = "%" + ascii(f, start, take);
-            int convIdx = start + len - 1;
-            int conv = (convIdx >= 0 && convIdx < sfl) ? (f[convIdx] & 0xFF) : 0;
-            i = start + len;
+            i = convIdx < sfl ? convIdx + 1 : convIdx;
             Spec sp = parseSpec(form);
             switch (conv) {
             case 'c': {
@@ -1196,7 +1219,8 @@ public final class StringLib {
                 break;
             }
             default:
-                throw L.libError("invalid conversion '" + form + "' to 'format'");
+                /* 5.3.4: luaL_error(L, "invalid option '%%%c' to 'format'", ...) */
+                throw L.libError("invalid option '%" + (char) conv + "' to 'format'");
             }
         }
         L.push(LuaValue.ofString(out.result()));
@@ -1233,7 +1257,11 @@ public final class StringLib {
         }
     }
 
-    /** {@code get2digits}：宽度与精度最多读两位——所以 {@code %.200d} 是不合法的 */
+    private static boolean isDigit(int c) {
+        return c >= '0' && c <= '9';
+    }
+
+        /** {@code get2digits}：宽度与精度最多读两位——所以 {@code %.200d} 是不合法的 */
     private static int twoDigits(String s, int p) {
         for (int k = 0; k < 2 && p < s.length() && s.charAt(p) >= '0' && s.charAt(p) <= '9'; k++) {
             p++;
@@ -1750,21 +1778,25 @@ public final class StringLib {
 
     /** {@code quotefloat}：十六进制保精度，三个非有限值各有一套固定写法 */
     private static String quoteFloat(double n) {
+        /*
+         * 5.3.4 addliteral → lua_number2strx → num2straux: non-finite floats
+         * fall back to LUA_NUMBER_FMT (%g), which yields inf / -inf / nan / -nan
+         * (glibc). The old 5.2-style 1e9999 / (0/0) literals are not used.
+         */
+        if (Double.isNaN(n)) {
+            return Double.doubleToRawLongBits(n) < 0 ? "-nan" : "nan";
+        }
         if (n == Double.POSITIVE_INFINITY) {
-            return "1e9999";
+            return "inf";
         }
         if (n == Double.NEGATIVE_INFINITY) {
-            return "-1e9999";
-        }
-        if (Double.isNaN(n)) {
-            return "(0/0)";
+            return "-inf";
         }
         StringBuilder sb = new StringBuilder();
         if (isNeg(n)) {
             sb.append('-');
         }
-        // 与 %a 同源（约定 #16）：C 的 quotefloat 就是 snprintf("%a")，
-        // 无标志、无宽度、无精度。
+        // Finite: same as %a with no flags/width/precision.
         sb.append("0x").append(hexFloatDigits(Math.abs(n), new Spec()));
         return sb.toString();
     }
