@@ -1,6 +1,8 @@
 name: Java CI
 
-on: [push]
+on:
+  push:
+  pull_request:
 
 jobs:
   build:
@@ -142,13 +144,13 @@ jobs:
     # assumeTrue 的跳过在报告里和跑过长得一样,而 @TestFactory 里没建成用例
     # 更是什么痕迹都不留。这一步数一遍执行数,并点名几类必须出活的闸门。
     #
-    # 下限取「本地实测值再留一截余量」:这一遍实测 1130 条(带 shim 的
-    # tools/local_conformance.sh 量出来的),下限 1080 即留 50 条。余量是给
+    # 下限取「本地实测值再留一截余量」:下限含 SyntaxE2eTest 扩容后的余量：大约 1300+
+    # 量级，下限 1300 留几十条给平台差异。余量是给
     # 平台差异留的——真 C 扩展那批用例会因编译器/网络而异;而<b>一整类</b>
     # 没了是几十条的量级,卡得住。别把下限调到等于实测值:那会让每次加
     # 用例都要改 CI,也让人倾向于删用例。
     - name: Check the gates actually ran
-      run: python3 tools/check_ci_gates.py 1080
+      run: python3 tools/check_ci_gates.py 1300
     #
     # io 的第二条路径:native 层装不上时走 RandomAccessFile(见 IoLib#openJavaFile)。
     #
@@ -168,13 +170,13 @@ jobs:
       run: python3 tools/run_bounded.py --seconds 1800 -- ./mvnw -B test -Djavalua.nonative=true -Djacoco.check.skip=true
     # 这一遍没有 C API 那批用例,下限另算(-Djavalua.nonative 下
     # NativeApiTest / NativeExtTest 是零用例返回,不是跳过;locale 小数点那批
-    # 同理,那条路上小数点恒为 '.')。实测 940 条,下限 900 即留 40 条。
-    # 940 比 native 那遍少 190 条,其中一条是 UpstreamSuiteTest 的
+    # 同理,那条路上小数点恒为 '.')。下限 1120（含 SyntaxE2eTest）。
+    # 比 native 那遍少一截,其中一条是 UpstreamSuiteTest 的
     # literals.lua:它要 os.setlocale 真的能改 libc 的 locale 才能逐字节比,
     # 没有 shim 时只有参考实现设得上,输出天然多一行,所以那条用例在
     # 这一遍<b>根本不存在</b>(UpstreamSuiteTest#suiteFiles)。
     - name: Check the gates actually ran (pure-Java io path)
-      run: python3 tools/check_ci_gates.py 900 --nonative
+      run: python3 tools/check_ci_gates.py 1120 --nonative
     #
     # 覆盖率:两条 io 路径<b>合并</b>后的行覆盖率才是门禁对象。
     # 上面两遍各写了一份 jacoco.exec(append),这里不再跑测试,
