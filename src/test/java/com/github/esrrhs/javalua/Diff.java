@@ -537,7 +537,11 @@ final class Diff {
         int func = pushMsgHandler(L, base);
         LuaValue err = L.pcall(func, 0, L.stack[base]);
         if (err != null) {
-            throw new LuaError(err, "");
+            /* lua.c handle_script: report then return status; pmain returns 0.
+             * Must not throw — a return hook left installed (mask "r") fires on
+             * this C return and may error again without msghandler (bare line). */
+            reportError(L, err);
+            return 0;
         }
         return 0;
     }
@@ -625,9 +629,28 @@ final class Diff {
         int func = pushMsgHandler(L, base);
         LuaValue err = L.pcall(func, 0, L.stack[base]);
         if (err != null) {
-            throw new LuaError(err, "");
+            /* lua.c: handle_script → report(L,status); pmain returns 0 on failure.
+             * Throwing would skip poscall return hooks; stock still runs them. */
+            reportError(L, err);
+            return 0;
         }
         return 0;
+    }
+
+    /**
+     * {@code lua.c: report} / {@code l_message} without progname (Diff strips it on ref).
+     */
+    private static void reportError(LuaState L, LuaValue err) {
+        byte[] msg;
+        if (err.isString()) {
+            msg = err.asString().bytes;
+        } else {
+            msg = ("(error object is a " + err.typeName() + " value)")
+                    .getBytes(StandardCharsets.ISO_8859_1);
+        }
+        L.err.write(msg, 0, msg.length);
+        L.err.write('\n');
+        L.err.flush();
     }
 
     /**

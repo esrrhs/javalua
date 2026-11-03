@@ -173,46 +173,32 @@ public final class DebugLib {
         ar.shortSrc = LuaString.of(LuaState.chunkId(ar.source.bytes));
     }
 
-    /** {@code getfuncname}：被调函数是怎么被<b>上一帧</b>调的 */
-    private static String getFuncName(LuaState L, CallInfo ci, String[] name) {
-        if (ci != null && !ci.tail) {
-            return funcNameFromCall(L, ci.previous, name);
-        }
-        return null;
-    }
-
     /**
-     * {@code funcnamefromcall}。
+     * {@code getfuncname} — Lua 5.3.4 {@code ldebug.c}.
+     * <p>
+     * 只有 {@code previous} 是 Lua 帧时才进 {@code funcnamefromcode}（含
+     * {@code CIST_HOOKED}→{@code hook '?'}）。钩子挂在 C 帧（{@code sethook}/
+     * {@code pcall}）上时 {@code isLua(previous)} 为假，回溯印
+     * {@code function <file:line>}——与 5.4 把 hook 名提到本层不同。
      */
-    private static String funcNameFromCall(LuaState L, CallInfo ci, String[] name) {
-        /*
-         * 顺序照抄上游：{@code CIST_HOOKED} 在 {@code isLua} <b>之前</b>判。
-         * 这不是风格问题——被钩子跟踪的那一帧常常是 <b>C 帧</b>（比如
-         * {@code pcall} 的调用钩子是在 pcall 自己的 C 帧上打的标记），
-         * 挪到 {@code isLua} 之后就永远走不到，回溯里那一层会错印成
-         * {@code in function <文件:行>} 而不是 {@code in hook '?'}。
-         */
+    private static String getFuncName(LuaState L, CallInfo ci, String[] name) {
         if (ci == null) {
             return null;
-        }
-        if (ci.hooked) {
-            name[0] = "?";
-            return "hook";
         }
         if (ci.fin) {
             name[0] = "__gc";
             return "metamethod";
         }
-        // base_ci 就是这条分支的常客：它的 isLua 为 false，等价于 C 的
-        // "ci->callstatus & CIST_C"，于是「主 chunk 是被谁调的」永远没有名字
-        if (!ci.isLua) {
-            return null;
+        if (!ci.tail && ci.previous != null && ci.previous.isLua) {
+            if (ci.previous.hooked) {
+                name[0] = "?";
+                return "hook";
+            }
+            return LuaState.funcNameFromCode(
+                    ((LClosure) L.stack[ci.previous.func].o).p,
+                    currentPc(ci.previous), name);
         }
-        LuaValue f = L.stack[ci.func];
-        if (f.tt != Lua.VLIF) {
-            return null;
-        }
-        return LuaState.funcNameFromCode(((LClosure) f.o).p, currentPc(ci), name);
+        return null;
     }
 
     /* ==================== ldebug.c：getinfo ==================== */
@@ -569,8 +555,7 @@ public final class DebugLib {
          * 于是凭空多出一条 "invalid option"。
          */
         String options = optStr.toCString().toJavaString();
-        LuaAux.argCheck(L, options.isEmpty() || options.charAt(0) != '>', arg + 2,
-                "invalid option '>'");
+        /* 5.3.4: leading '>' is valid for lua_getinfo (function at stack top) */
         LuaDebug ar = new LuaDebug();
         if (!L.isNoneArg(arg + 1) && L.arg1(arg + 1).baseType() == Lua.TFUNCTION) {
             options = ">" + options;
@@ -1249,11 +1234,9 @@ public final class DebugLib {
         LuaDebug ar = new LuaDebug();
         while (getStack(L1, level++, ar)) {
             if (limit2show-- == 0) {
-                int n = last - level - LEVELS2 + 1;
-                b.addAscii("\n\t...\t(skipping ");
-                b.addAscii(Integer.toString(n));
-                b.addAscii(" levels)");
-                level += n;
+                /* Lua 5.3.4 lauxlib.c:luaL_traceback — plain "..." only (5.4 adds skipping N). */
+                b.addAscii("\n\t...");
+                level = last - LEVELS2 + 1;
             } else {
                 getInfo(L1, "Slnt", ar);
                 b.addAscii("\n\t");
