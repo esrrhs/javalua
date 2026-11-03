@@ -165,4 +165,63 @@ do
 end
 """);
   }
+
+  /** Independent re-review follow-ups: bitwise float int-check, load reader noyield. */
+  @Test void bitwiseAndLoadReaderNoyield() {
+    assumeTrue(ReferenceLua.find()!=null);
+    Diff.assertMatches("""
+local rawts = tostring
+local function dump(tag, ...)
+  local n = select("#", ...)
+  io.write(tag)
+  for i = 1, n do
+    local v = select(i, ...)
+    local s
+    if type(v) == "string" then s = v
+    elseif type(v) == "boolean" or type(v) == "number" or type(v) == "nil" then s = rawts(v)
+    else s = type(v) end
+    io.write("\t", s)
+  end
+  io.write("\n")
+end
+local function go(tag, f)
+  local r = table.pack(pcall(f))
+  dump(tag, table.unpack(r, 1, r.n))
+end
+
+-- bitwise ops require integer representation
+go("BA1", function() return (3.5 & 1) end)
+go("BA2", function() return (3.0 | 4.0) end)
+go("BA3", function() return (~0.0) end)
+go("BA4", function() return (3.0 & 1.0) end)
+
+-- load reader: lua_call noyield; non-string (table) errors; string then nil OK
+do
+  local co = coroutine.create(function()
+    return load(function() return coroutine.yield("chunk") end, "=rd")
+  end)
+  dump("LR1", coroutine.resume(co))
+  dump("LR1st", coroutine.status(co))
+end
+go("LR2", function() return load(function() return {} end, "=rd") end)
+go("LR3", function()
+  local n = 0
+  local f = assert(load(function()
+    n = n + 1
+    if n == 1 then return "return 7" end
+  end, "=rd"))
+  return f()
+end)
+
+-- dump strip / truncated undump shape
+go("SD1", function()
+  local f = function() local x = 1; return x end
+  return #string.dump(f) > #string.dump(f, true), load(string.dump(f, true))()
+end)
+go("UD1", function()
+  local d = string.dump(function() end)
+  return load(d:sub(1, #d - 1))
+end)
+""");
+  }
 }
