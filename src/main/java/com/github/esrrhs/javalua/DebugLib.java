@@ -1018,10 +1018,18 @@ public final class DebugLib {
     static void dHookCall(LuaState L, CallInfo ci) {
         L.oldpc = 0;
         if ((L.hookmask & Lua.LUA_MASKCALL) != 0) {
-            int event = ci.tail ? Lua.LUA_HOOKTAILCALL : Lua.LUA_HOOKCALL;
-            Proto p = ((LClosure) L.stack[ci.func].o).p;
+            /* 5.3.4 callhook: TAILCALL if previous frame's last opcode was OP_TAILCALL */
+            int event = Lua.LUA_HOOKCALL;
+            CallInfo prev = ci.previous;
+            if (prev != null && prev.isLua && prev.savedpc > 0) {
+                int op = OpCode.getOpCode(((LClosure) L.stack[prev.func].o).p.code[prev.savedpc - 1]);
+                if (op == OpCode.OP_TAILCALL) {
+                    ci.tail = true;
+                    event = Lua.LUA_HOOKTAILCALL;
+                }
+            }
             ci.savedpc++;
-            dHook(L, event, -1, 1, p.numparams);
+            dHook(L, event, -1, 0, 0);
             ci.savedpc--;
         }
     }
