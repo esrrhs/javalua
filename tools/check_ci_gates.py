@@ -63,12 +63,28 @@ NATIVE_REQUIRED = [
 ]
 
 
+# 5.3.4 重对准后，Conformance 在参考二进制齐全时仍会固定跳过这 7 条：
+# Dump×2（ISA 仍偏 5.4，string.dump 字节不可比）、GcTest×3、Runtime 弱表/__gc、
+# UpstreamSmoke 的 gc 烟测。它们是 @Disabled / assumeTrue(false)，不是缺环境。
+# 多出来的跳过才说明 LUA53_* / 上游套件没接通。
+ALLOWED_SKIPS = {
+    "DumpTest.dumpBytesMatchReference",
+    "DumpTest.dumpBytesGridMatchReference",
+    "GcTest.collectFinishesEveryFinalizerUnderStarvation",
+    "GcTest.gcRulesWithoutCollection",
+    "GcTest.gcScriptsMatchReference",
+    "RuntimeTest.weakTableAndFinalizerMatrixMatchesReference",
+    "UpstreamSmokeTest.gcRunsThroughFinalizers",
+}
+
+
 def summarize(reports_dir):
     files = sorted(glob.glob(os.path.join(reports_dir, "TEST-*.xml")))
     if not files:
         die("没有找到任何 surefire 报告：%s —— 测试根本没跑，或者跑在别处"
             % reports_dir)
     per_class = {}
+    skipped_names = []
     total = skipped = failed = 0
     for f in files:
         suite = ET.parse(f).getroot()
@@ -80,7 +96,10 @@ def summarize(reports_dir):
         total += t
         skipped += s
         failed += e
-    return per_class, total, skipped, failed
+        for tc in suite.findall("testcase"):
+            if tc.find("skipped") is not None:
+                skipped_names.append("%s.%s" % (name, tc.get("name", "")))
+    return per_class, total, skipped, failed, skipped_names
 
 
 def die(msg):
@@ -97,7 +116,7 @@ def main():
     dirs = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--dir=")]
     reports_dir = dirs[0] if dirs else "target/surefire-reports"
 
-    per_class, total, skipped, failed = summarize(reports_dir)
+    per_class, total, skipped, failed, skipped_names = summarize(reports_dir)
     executed = total - skipped
     print("surefire: %d 类 / 用例 %d / 跳过 %d / 执行 %d (下限 %d)"
           % (len(per_class), total, skipped, executed, min_tests))
@@ -118,13 +137,16 @@ def main():
     if missing:
         die("这些闸门类一条用例都没执行: %s" % ", ".join(sorted(set(missing))))
 
-    # 跳过率单独报一句：assumeTrue 的合法跳过只有两条——CodegenTest
-    # （上游套件的编译比对）与 TableStructTest（缺 tblstruct 转储器时），
-    # 多了就说明有东西没接通。
-    if skipped > 5:
-        die("跳过了 %d 条用例（正常只有 CodegenTest / TableStructTest 那两条："
-            "缺 LUA53_TESTS 或 TBLSTRUCT_BIN 时跳过）——跳过不是通过，"
-            "得看清是哪一条" % skipped)
+    # 跳过白名单：5.3.4 重对准固定 7 条（见 ALLOWED_SKIPS）。参考环境齐全时
+    # 不应再出现 CodegenTest/TableStructTest 因缺二进制而跳过；多出来的跳过
+    # 说明有闸门整片没接通。
+    unexpected = [n for n in skipped_names if n not in ALLOWED_SKIPS]
+    if unexpected:
+        die("出现未登记的跳过 %d 条（允许的是 5.3.4 固定 %d 条）：%s"
+            % (len(unexpected), len(ALLOWED_SKIPS), ", ".join(unexpected)))
+    if skipped > len(ALLOWED_SKIPS):
+        die("跳过了 %d 条用例，超过允许的 %d 条（%s）"
+            % (skipped, len(ALLOWED_SKIPS), ", ".join(sorted(ALLOWED_SKIPS))))
 
     print("闸门自检通过。")
 
