@@ -1022,10 +1022,15 @@ public final class DebugLib {
             int event = Lua.LUA_HOOKCALL;
             CallInfo prev = ci.previous;
             if (prev != null && prev.isLua && prev.savedpc > 0) {
-                int op = OpCode.getOpCode(((LClosure) L.stack[prev.func].o).p.code[prev.savedpc - 1]);
-                if (op == OpCode.OP_TAILCALL) {
-                    ci.tail = true;
-                    event = Lua.LUA_HOOKTAILCALL;
+                LuaValue pf = L.stack[prev.func];
+                if (pf.tt == Lua.VLIF) {
+                    Proto pp = ((LClosure) pf.o).p;
+                    int pci = prev.savedpc - 1;
+                    if (pci >= 0 && pci < pp.code.length
+                            && OpCode.getOpCode(pp.code[pci]) == OpCode.OP_TAILCALL) {
+                        ci.tail = true;
+                        event = Lua.LUA_HOOKTAILCALL;
+                    }
                 }
             }
             ci.savedpc++;
