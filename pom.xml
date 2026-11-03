@@ -144,8 +144,8 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <!-- JUnit 6 文档推荐 >= 3.0；跟官方 starter 对齐到 3.5.5 -->
-                <version>3.5.5</version>
+                <!-- JUnit 6 文档推荐 >= 3.0；跟官方 starter 对齐到 3.6.1 -->
+                <version>3.6.1</version>
                 <configuration>
                     <!--
                       给每一条用例设一个 3 分钟的全局超时。
