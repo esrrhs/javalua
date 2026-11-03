@@ -49,7 +49,6 @@ local function mk()
 end
 print(mk()())
 """);
-        // stripped dump bytes must match stock (print as decimal bytes)
         Diff.assertMatches("""
 local function dumpbytes(src)
   local f = assert(load(src, "=T"))
@@ -149,4 +148,103 @@ print(pcall(function() return w2(1) end))
 """);
     }
 
+    @Test
+    void undumpHeaderWhyStrings() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+local d = string.dump(function() return 1 end)
+print(select(2, load(d:sub(1,1)..string.rep("\\0",40))))
+local bad = d:sub(1,6) .. string.rep("X", #d-6)
+print(select(2, load(bad)))
+print(select(2, load(d:sub(1,20))))
+""");
+    }
+
+    @Test
+    void loadErrMemSurvivesMsghandler() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+local g = load("return function() return 'hi' end", "=X")()
+local base = string.dump(g)
+local s = base:sub(1, 34) .. string.char(255) .. base:sub(36)
+local f, e = load(s, "=C")
+print(f and "ok" or ("err "..tostring(e)))
+print("still alive")
+""");
+    }
+
+    @Test
+    void xpcallLoadReaderError() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+local function H(err) return "H:"..tostring(err) end
+print(xpcall(function()
+  return load(function() error("boom") end)
+end, H))
+print(xpcall(function()
+  return load("x = =")
+end, H))
+""");
+    }
+
+    @Test
+    void bit32AndUtf8Edges() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+print(bit32.arshift(-1, 1))
+print(bit32.extract(0xFFFFFFFF, 0, 32))
+print(bit32.btest(1, 2), bit32.btest(3, 1))
+print(#utf8.charpattern)
+print(utf8.len("A\\x80B"))
+print(utf8.offset("abc", 2), utf8.offset("abc", -1))
+""");
+    }
+
+    @Test
+    void packageSearchersAndRequire() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+print(type(package.searchers), #package.searchers)
+package.preload.m = function(mod) return {name=mod}, "extra" end
+local a,b = require("m")
+print(a.name, tostring(b), package.loaded.m == a)
+""");
+    }
+
+    @Test
+    void numericForEdges() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+local n=0
+for i=0.5, 2.5, 0.5 do n=n+1 end
+print(n)
+local m=0
+for i=1, 0, -0.5 do m=m+i end
+print(m)
+print(pcall(function() for i=1,10,0 do end end))
+""");
+    }
+
+    @Test
+    void ioLinesReturnArityAndUpvalues() {
+        assumeTrue(ReferenceLua.find() != null);
+        Diff.assertMatches("""
+local f = io.tmpfile(); f:write("a\nb\n"); f:seek("set")
+local x,y,z,w = f:lines()
+print(type(x), type(y), type(z), type(w))
+for line in f:lines() do print("L", line) end
+f:close()
+local function outer()
+  local a,b = 1,2
+  return function() return a+b end
+end
+local cl = outer()
+print(debug.getupvalue(cl, 1))
+print(debug.setupvalue(cl, 2, 9))
+print(cl())
+local d = string.dump(function() return 1 end)
+print(pcall(function() assert(load(d, "=x", "t")) end))
+print(assert(load(d, "=x", "b"))())
+""");
+    }
 }
