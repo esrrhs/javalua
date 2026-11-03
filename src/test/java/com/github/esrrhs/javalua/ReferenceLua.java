@@ -94,11 +94,19 @@ final class ReferenceLua {
                 return false;
             }
             ProcessBuilder pb = new ProcessBuilder(f.getAbsolutePath(), "-v");
+            /*
+             * 与其余 spawn 一样先合并 stderr 再一次性读干：分开读（先 stdout
+             * 再 stderr）就是这里曾经唯一一处「读序不对称」——{@code lua -v}
+             * 走的是 stderr，真要把它撑满管道的只有病态的二进制，但这套驱动
+             * 没有理由为它留一条例外。
+             */
+            pb.redirectErrorStream(true);
             Process p = pb.start();
-            String out = readAll(p.getInputStream()) + readAll(p.getErrorStream());
-            p.waitFor();
+            String out = readAll(p.getInputStream());
+            waitForKeepingInterrupt(p);
             return out.contains("Lua 5.4.7");
         } catch (Exception e) {
+            restoreInterrupt(e);
             return false;
         }
     }
@@ -150,12 +158,56 @@ final class ReferenceLua {
                             ? f.getAbsolutePath() : bin),
                     "-v");
             pb.redirectErrorStream(true);
+            // stdin 一律 /dev/null：理由见 run(String) 那段注释
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             String out = readAll(p.getInputStream());
-            p.waitFor();
+            waitForKeepingInterrupt(p);
             return out.contains("Lua 5.4");
         } catch (Exception ex) {
+            restoreInterrupt(ex);
             return false;
+        }
+    }
+
+    /**
+     * 等一次探针进程结束，<b>等完再把中断标志放回去</b>。
+     * <p>
+     * 不能直接 {@code p.waitFor()}：中断标志已置时它立刻抛
+     * {@code InterruptedException}，并顺手把标志清掉。本类的探路式调用
+     * （{@link #find()} → {@link #isLua54}/{@link #canRun}/…）全都用
+     * {@code catch (Exception)} 兜底，于是 JUnit 超时（或测试自己）打进来的那次
+     * 中断就被静默吞掉：探针被判成「跑不起来」，标志也从此消失，后面真正该被打断的
+     * 阻塞点再也等不到它。这里把这次短探针的等待做完、在 {@code finally} 里把标志
+     * 放回去 —— 查找结果不受中断影响（{@link #find()} 一旦把 {@code null} 缓存下来，
+     * 整个 fork 的参考实现查找就废了），中断也不会丢。
+     */
+    private static int waitForKeepingInterrupt(Process p) {
+        boolean interrupted = false;
+        try {
+            for (;;) {
+                try {
+                    return p.waitFor();
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * 兜底 catch 不得吞掉中断：是 {@code InterruptedException} 就把标志还给当前线程。
+     * <p>
+     * 与 {@link #waitForKeepingInterrupt(Process)} 配套：那条路把等待做完了，
+     * 标志不会丢；这里挡住的是别的阻塞步骤（以及将来新加进来的）漏出去的中断。
+     */
+    private static void restoreInterrupt(Throwable e) {
+        if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -179,12 +231,15 @@ final class ReferenceLua {
             Files.write(src, source);
             ProcessBuilder pb = new ProcessBuilder(luac, "-o", outPath, src.toString());
             pb.redirectErrorStream(true);
+            // stdin 一律 /dev/null：理由见 run(String) 那段注释
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             readAll(p.getInputStream());
-            int code = p.waitFor();
+            int code = waitForKeepingInterrupt(p);
             Files.deleteIfExists(src);
             return (code == 0) ? out.toFile() : null;
         } catch (Exception e) {
+            restoreInterrupt(e);
             return null;
         }
     }
@@ -201,12 +256,21 @@ final class ReferenceLua {
             ProcessBuilder pb = new ProcessBuilder(new File(bin).getAbsolutePath(),
                     tmp.getAbsolutePath());
             pb.redirectErrorStream(true);
+            /*
+             * stdin 与 {@link #runFile} 一样定向 {@code /dev/null}：参考实现那边
+             * 只要有一条读 stdin 的路径（{@code io.read}、{@code debug.debug}）
+             * 就会挂在本进程继承来的 stdin 上。本实现的 {@code LuaState#in}
+             * 默认是空流，两边必须一致 —— 顺带也不再依赖 CI 运行器的 stdin
+             * 是什么形状。
+             */
+            pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             String out = readAll(p.getInputStream());
-            int code = p.waitFor();
+            int code = waitForKeepingInterrupt(p);
             tmp.delete();
             return new Result(code, out);
         } catch (Exception e) {
+            restoreInterrupt(e);
             throw new IllegalStateException("failed to run reference lua: " + e, e);
         }
     }
@@ -240,13 +304,14 @@ final class ReferenceLua {
             }
             Process p = pb.start();
             String out = readAll(p.getInputStream());
-            int code = p.waitFor();
+            int code = waitForKeepingInterrupt(p);
             Files.deleteIfExists(tmp.toPath());
             if (in != null) {
                 Files.deleteIfExists(in.toPath());
             }
             return new Result(code, out);
         } catch (Exception e) {
+            restoreInterrupt(e);
             throw new IllegalStateException("failed to run reference lua: " + e, e);
         }
     }
@@ -294,9 +359,10 @@ final class ReferenceLua {
             pb.redirectInput(new File("/dev/null"));
             Process p = pb.start();
             String out = readAll(p.getInputStream());
-            int code = p.waitFor();
+            int code = waitForKeepingInterrupt(p);
             return new Result(code, out);
         } catch (Exception e) {
+            restoreInterrupt(e);
             throw new IllegalStateException("failed to run reference lua: " + e, e);
         }
     }
@@ -327,6 +393,7 @@ final class ReferenceLua {
             Result r = runFile(path);
             return new FileResult(r, path);
         } catch (Exception e) {
+            restoreInterrupt(e);
             throw new IllegalStateException("failed to run reference lua: " + e, e);
         }
     }
@@ -373,11 +440,14 @@ final class ReferenceLua {
             Files.write(p, content);
             ProcessBuilder pb = new ProcessBuilder(bin, path);
             pb.redirectErrorStream(true);
+            // stdin 一律 /dev/null：理由见 run(String) 那段注释
+            pb.redirectInput(new File("/dev/null"));
             Process pr = pb.start();
             String out = readAll(pr.getInputStream());
-            pr.waitFor();
+            waitForKeepingInterrupt(pr);
             return out;
         } catch (Exception e) {
+            restoreInterrupt(e);
             throw new IllegalStateException("failed to run " + bin + ": " + e, e);
         }
     }
@@ -469,6 +539,7 @@ final class ReferenceLua {
              */
             return new String(bos.toByteArray(), StandardCharsets.ISO_8859_1);
         } catch (Exception e) {
+            restoreInterrupt(e);
             return "";
         }
     }
