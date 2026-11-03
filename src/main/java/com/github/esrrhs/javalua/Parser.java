@@ -606,6 +606,26 @@ public final class Parser {
         return null;
     }
 
+    /**
+     * {@code findlabel}: try to close pending goto {@code g} with a label in the
+     * current block. Returns true if the goto was removed.
+     */
+    private boolean tryCloseGoto(int g) {
+        BlockCnt bl = fs.bl;
+        DynData.Labeldesc gt = dyd.gt.get(g);
+        for (int i = bl.firstlabel; i < dyd.label.size(); i++) {
+            DynData.Labeldesc lb = dyd.label.get(i);
+            if (eqstr(lb.name, gt.name)) {
+                if (gt.nactvar > lb.nactvar && (bl.upval || dyd.label.size() > bl.firstlabel)) {
+                    Codegen.patchClose(fs, gt.pc, lb.nactvar);
+                }
+                solveGoto(g, lb);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** {@code newlabelentry} */
     private int newLabelEntry(boolean isGoto, LuaString name, int line, int pc) {
         DynData.Labeldesc l = new DynData.Labeldesc();
@@ -657,14 +677,19 @@ public final class Parser {
 
     /** {@code movegotosout} */
     private void moveGotosOut(FuncState fs, BlockCnt bl) {
-        for (int i = bl.firstgoto; i < dyd.gt.size(); i++) {
+        /* 5.3.4 movegotosout: adjust nactvar then findlabel against outer labels */
+        int i = bl.firstgoto;
+        while (i < dyd.gt.size()) {
             DynData.Labeldesc gt = dyd.gt.get(i);
-            if (FuncState.reglevel(fs, gt.nactvar) > FuncState.reglevel(fs, bl.nactvar)) {
+            if (gt.nactvar > bl.nactvar) {
                 if (bl.upval) {
-                    gt.close = true; // 跳转可能需要 close
+                    Codegen.patchClose(fs, gt.pc, bl.nactvar);
                 }
+                gt.nactvar = bl.nactvar;
             }
-            gt.nactvar = bl.nactvar;
+            if (!tryCloseGoto(i)) {
+                i++;
+            }
         }
     }
 
@@ -1365,20 +1390,11 @@ public final class Parser {
 
     /** {@code gotostat} */
     private void gotoStat() {
-        FuncState fs = this.fs;
+        /* 5.3.4 gotostat: always enqueue pending goto, then findlabel */
         int line = ls.linenumber;
         LuaString name = strCheckName();
-        DynData.Labeldesc lb = findLabel(name);
-        if (lb == null) {
-            // 向前跳，等标签声明时再解决
-            newLabelEntry(true, name, line, Codegen.jump(fs));
-        } else {
-            int lblevel = FuncState.reglevel(fs, lb.nactvar);
-            if (fs.nvarstack() > lblevel) { // 离开了某个变量的作用域
-                Codegen.closeUpvals(fs, lblevel);
-            }
-            Codegen.patchList(fs, Codegen.jump(fs), lb.pc);
-        }
+        int g = newLabelEntry(true, name, line, Codegen.jump(fs));
+        tryCloseGoto(g);
     }
 
     /** {@code breakstat} */
