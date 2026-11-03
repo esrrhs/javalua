@@ -119,7 +119,7 @@ public final class BaseLib {
                     L.stack[i].set(L.stack[i - 1]);
                 }
                 L.stack[f1].set(moved);
-                L.call(f1, 1); // C 版是 lua_call，允许 yield
+                L.callNoYield(f1, 1); // C 版 lua_call = luaD_callnoyield
                 return 1;
             }
         }
@@ -155,8 +155,8 @@ public final class BaseLib {
             L.stack[func].set(tostring);
             L.stack[func + 1].set(arg);
             L.top = func + 2;
-            /* lbaselib.c 用 lua_call */
-            L.call(func, 1);
+            /* lbaselib.c: lua_call → luaD_callnoyield：自定义 tostring 里 yield 必须报跨 C 边界 */
+            L.callNoYield(func, 1);
             LuaValue res = L.stack[L.top - 1];
             /*
              * lua_tolstring：字符串或数字；其余报
@@ -488,24 +488,16 @@ public final class BaseLib {
     }
 
     /**
-     * {@code lbaselib.c: pairscont}。
-     * <p>
-     * yield 恢复之后被调用，三个返回值（迭代器、状态、初值）那时候已经在栈上，
-     * 这里只要报出「有 3 个结果」。
-     */
-    private static final LuaKFunction PAIRS_CONT = (L, status, ctx) -> 3;
-
-    /**
      * {@code lbaselib.c: pairsmeta}（{@code LUA_COMPAT_IPAIRS} / {@code LUA_COMPAT_5_2}）。
      * <p>
      * C 只做 {@code luaL_checkany(L, 1)}——<b>不</b>要求是表。没有对应元方法时
      * 照样返回 {@code (iter, 值, iszero ? 0 : nil)}；真正炸是在迭代时。
      * 曾经 {@code pairs} 多加了「必须是表」的校验，把 {@code pairs(5)} 变成报错。
      * <p>
-     * 元方法路径用 {@code callK(..., pairscont)}：带续体，所以 {@code __pairs}/
-     * {@code __ipairs} 里 yield 是允许的。用不带续体的 {@code call} 会在恢复时炸，
-     * 因为那时 {@code ci.k} 是 {@code null}。（C 的 {@code pairsmeta} 写的是
-     * {@code lua_call}；本实现对齐可 yield 的行为。）
+     * 元方法路径必须用 {@code callNoYield}：5.3.4 的 {@code pairsmeta} 写的是
+     * {@code lua_call}（= {@code luaD_callnoyield}）。{@code __pairs}/{@code __ipairs}
+     * 里 yield 要报「attempt to yield across a C-call boundary」。
+     * （5.4 才改成 {@code lua_callk(..., pairscont)} 允许 yield——本实现跟 5.3.4。）
      */
     private static int pairsmeta(LuaState L, String method, boolean iszero, LuaFunction iter) {
         LuaAux.checkAny(L, 1);
@@ -517,7 +509,7 @@ public final class BaseLib {
             L.stack[func].set(pf);
             L.stack[func + 1].set(t);
             L.top = func + 2;
-            L.callK(func, 3, 0, PAIRS_CONT);
+            L.callNoYield(func, 3);
             return 3;
         }
         L.pushFunction(iter);

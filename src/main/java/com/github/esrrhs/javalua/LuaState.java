@@ -1987,10 +1987,9 @@ public final class LuaState {
      * across a C-call boundary」。这正是 C 版 {@code lua_call}（{@code k} 为
      * {@code NULL}）与 {@code lua_callk} 的分界。
      * <p>
-     * 标准库里只有两处需要它：{@code pairs} 调 {@code __pairs}
-     * （{@code lbaselib.c: pairscont}）与 {@code dofile} 调加载出来的 chunk
-     * （{@code dofilecont}）。少了它，{@code __pairs} 里 yield 就会在恢复时
-     * 撞上 {@code c.k == null}（上游 {@code nextvar.lua} 专门测这一条）。
+     * 5.3.4 标准库里需要它的是 {@code dofile}（{@code dofilecont}）。
+     * {@code pairs}/{@code ipairs} 的元方法路径在 5.3.4 用的是 {@code lua_call}
+     * （不可 yield）；5.4 才改成 {@code lua_callk(..., pairscont)}。
      */
     /**
      * {@code ltm.c} 里反复出现的那句
@@ -2632,7 +2631,15 @@ public final class LuaState {
         }
     }
 
-    /** {@code ldo.c: finishCcall}：补完一个被 yield 打断的 C 帧 */
+    /**
+     * {@code ldo.c: finishCcall}：补完一个被 yield 打断的 C 帧。
+     * <p>
+     * C 版 {@code lua_assert(ci->u.c.k != NULL)}——无续体的 {@code lua_call}
+     * 帧本不该走到这里（{@code nny} 会挡 yield）。Java 里若仍撞上
+     * {@code k == null}（例如某条 stdlib 误用了可 yield 的 {@link #call}），
+     * 不能 NPE：按 {@link #doResume} 对首帧的处理，直接用栈上已有结果做
+     * {@code poscall}，让协程以确定语义继续/结束，而不是把 JVM 打穿。
+     */
     private void finishCcall(CallInfo c) {
         int n;
         if (c.clsret) {
@@ -2646,7 +2653,12 @@ public final class LuaState {
             if (c.top < top) {
                 c.top = top;
             }
-            n = c.k.call(this, st, c.ctx);
+            if (c.k != null) {
+                n = c.k.call(this, st, c.ctx);
+            } else {
+                /* 无续体：结果已在栈上（与 doResume 对 ci.k==null 同形） */
+                n = top - (c.func + 1);
+            }
         }
         poscall(c, n);
     }

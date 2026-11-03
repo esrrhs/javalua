@@ -1,7 +1,7 @@
 package com.github.esrrhs.javalua;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import org.junit.jupiter.api.Test;
-/** Final independent re-review vs Lua 5.3.4 after ipairs/undump/ERRMEM fixes. */
+/** Final independent re-review vs Lua 5.3.4 (non-GC strict alignment). */
 class FinalAlignReviewTest {
   @Test void stdlibMetamethods() {
     assumeTrue(ReferenceLua.find()!=null);
@@ -58,6 +58,111 @@ local co = coroutine.create(function() coroutine.yield(1,2); return 3 end)
 print(coroutine.resume(co))
 print(coroutine.resume(co))
 print(coroutine.status(co))
+""");
+  }
+
+  /**
+   * 5.3.4 {@code lua_call} = {@code luaD_callnoyield} 边界：
+   * {@code pairs}/{@code ipairs} 元方法、{@code print}→全局 {@code tostring}、
+   * {@code require} 搜索器/加载器。误用可 yield 的 {@code call}/{@code callK}
+   * 会先「成功 yield」再在 resume 时 NPE（{@code c.k==null}）。
+   */
+  @Test void cCallBoundaryNoyield() {
+    assumeTrue(ReferenceLua.find()!=null);
+    Diff.assertMatches("""
+local rawts = tostring
+local function dump(tag, ...)
+  local n = select("#", ...)
+  io.write(tag)
+  for i = 1, n do
+    local v = select(i, ...)
+    local s
+    if type(v) == "string" then s = v
+    elseif type(v) == "boolean" or type(v) == "number" or type(v) == "nil" then s = rawts(v)
+    else s = type(v) end
+    io.write("\\t", s)
+  end
+  io.write("\\n")
+end
+
+-- 1) __pairs yield → C-call boundary
+do
+  local co = coroutine.create(function()
+    local t = setmetatable({}, {__pairs = function()
+      coroutine.yield("in-pairs")
+      return next, {}, nil
+    end})
+    return pairs(t)
+  end)
+  dump("PA", coroutine.resume(co))
+  dump("PAst", coroutine.status(co))
+end
+
+-- 2) __ipairs yield → C-call boundary
+do
+  local co = coroutine.create(function()
+    local t = setmetatable({}, {__ipairs = function()
+      coroutine.yield("in-ipairs")
+      return function() end, {}, 0
+    end})
+    return ipairs(t)
+  end)
+  dump("IP", coroutine.resume(co))
+  dump("IPst", coroutine.status(co))
+end
+
+-- 3) print → custom tostring yield → C-call boundary (not success+NPE)
+do
+  local co = coroutine.create(function()
+    tostring = function(x)
+      return coroutine.yield("in-tostring-" .. type(x))
+    end
+    print(42)
+    return "after-print"
+  end)
+  dump("PR", coroutine.resume(co))
+  dump("PRst", coroutine.status(co))
+  if coroutine.status(co) == "suspended" then
+    dump("PRb", coroutine.resume(co, "X"))
+    dump("PRstb", coroutine.status(co))
+  end
+end
+tostring = rawts
+
+-- 4) print → __tostring yield (via default tostring / luaL_tolstring)
+do
+  local co = coroutine.create(function()
+    print(setmetatable({}, {__tostring = function()
+      return coroutine.yield("ts")
+    end}))
+    return "done"
+  end)
+  dump("PT", coroutine.resume(co))
+  dump("PTst", coroutine.status(co))
+end
+
+-- 5) require searcher yield → C-call boundary
+do
+  local old = package.searchers[1]
+  package.searchers[1] = function(name)
+    coroutine.yield("search-" .. name)
+    return function() return true end
+  end
+  local co = coroutine.create(function()
+    return require("noyield_mod_x")
+  end)
+  dump("RQ", coroutine.resume(co))
+  dump("RQst", coroutine.status(co))
+  package.searchers[1] = old
+  package.loaded["noyield_mod_x"] = nil
+end
+
+-- 6) positive: __pairs without yield still works
+do
+  local t = setmetatable({a = 1}, {__pairs = function(x) return next, x, nil end})
+  local k, v = pairs(t)
+  dump("OK", type(k), type(v))
+end
 """);
   }
 }

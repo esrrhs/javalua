@@ -485,7 +485,7 @@ public final class PackageLib {
         L.stack[idx].set(f);
         L.stack[idx + 1].set(a1);
         L.top = idx + 2;
-        L.call(idx, nres);
+        L.callNoYield(idx, nres); /* loadlib.c: lua_call */
         LuaValue[] r = new LuaValue[nres];
         for (int i = 0; i < nres; i++) {
             r[i] = new LuaValue(L.stack[idx + i]);
@@ -549,7 +549,7 @@ public final class PackageLib {
         L.stack[idx + 1].set(LuaValue.ofString(LuaString.latin1(name)));
         L.stack[idx + 2].set(loaderData);
         L.top = idx + 3;
-        L.call(idx, 1);
+        L.callNoYield(idx, 1); /* loadlib.c: lua_call */
         LuaValue res = new LuaValue(L.stack[idx]);
         L.top = idx;
 
