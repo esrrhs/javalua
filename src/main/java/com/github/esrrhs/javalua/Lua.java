@@ -34,8 +34,9 @@ public final class Lua {
      * 要求编译期常量，而方法调用不满足——可读性损失可以接受，注释补上算出来的值。
      */
 
-    public static final int VNUMINT = TNUMBER | (0 << 4); // 3：整数
-    public static final int VNUMFLT = TNUMBER | (1 << 4); // 19：浮点
+    /* 5.3.4：浮点变体 0、整数变体 1（与 5.4 相反） */
+    public static final int VNUMFLT = TNUMBER | (0 << 4); // 3：浮点
+    public static final int VNUMINT = TNUMBER | (1 << 4); // 19：整数
 
     /*
      * nil 与布尔的变体：这三个只有 dump / undump 用得上（二进制 chunk 的常量表

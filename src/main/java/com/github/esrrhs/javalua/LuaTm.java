@@ -353,7 +353,7 @@ final class LuaTm {
          * 而不是 {@code variable 'x' got a non-closable value}
          * （上游 {@code locals.lua} 有一整条断言对着这句）。
          */
-        LuaValue tm = getTmByObj(L, obj, Tm.TM_CLOSE);
+        LuaValue tm = getTmByObj(L, obj, Tm.TM_GC /* was TM_CLOSE; 5.3 has no __close */);
         if (tm == null) {
             /*
              * 没有元表时 C 版给的是 {@code luaO_nilobject}（一个 nil 的 TValue），

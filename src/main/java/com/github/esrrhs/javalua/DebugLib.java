@@ -1126,8 +1126,7 @@ public final class DebugLib {
         case OpCode.OP_TAILCALL:
         case OpCode.OP_RETURN:
         case OpCode.OP_SETLIST:
-        case OpCode.OP_VARARGPREP:
-            return OpCode.getArgB(instr) == 0;
+                    return OpCode.getArgB(instr) == 0;
         default:
             return false;
         }

@@ -429,7 +429,7 @@ public final class Undump {
 
     private static void loadDebug(LoadState S, Proto f) {
         int n = loadInt(S);
-        f.lineinfo = new byte[Math.min(Math.max(n, 0), MIN_CAP)];
+        f.lineinfo = new int[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizelineinfo = n;
         /*
          * 行号表是<b>整块</b> loadBlock 的，不像上面那几段可以「读一个建一个」。
@@ -580,6 +580,13 @@ public final class Undump {
     }
 
     /** 把 {@code long} 按小端写进 8 字节（{@link #undump} 的对称操作，{@link Dump} 也用） */
+    static void putInt32(byte[] b, int off, int v) {
+        b[off] = (byte) (v & 0xFF);
+        b[off + 1] = (byte) ((v >>> 8) & 0xFF);
+        b[off + 2] = (byte) ((v >>> 16) & 0xFF);
+        b[off + 3] = (byte) ((v >>> 24) & 0xFF);
+    }
+
     static void putInteger(byte[] b, int off, long v) {
         for (int i = 0; i < SIZE_INTEGER; i++) {
             b[off + i] = (byte) ((v >>> (8 * i)) & 0xFF);

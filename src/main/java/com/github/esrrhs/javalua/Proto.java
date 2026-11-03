@@ -91,7 +91,7 @@ public final class Proto {
     public int sizelocvars;
 
     /** 相对行号（与上一条的差值），{@link #ABSLINEINFO} 表示走绝对行号 */
-    public byte[] lineinfo = new byte[0];
+    public int[] lineinfo = new int[0];
     public int sizelineinfo;
 
     public AbsLineInfo[] abslineinfo = new AbsLineInfo[0];
@@ -126,8 +126,8 @@ public final class Proto {
         }
     }
 
-    /** 写第 {@code pc} 条的行号信息（{@code lineinfo} 与 {@code code} 一一对应） */
-    public void setLineInfo(int pc, byte v) {
+    /** 写第 {@code pc} 条的绝对行号（5.3.4：lineinfo 是 int 数组） */
+    public void setLineInfo(int pc, int v) {
         if (pc >= lineinfo.length) {
             int n = Math.max(8, lineinfo.length);
             while (n <= pc) {
@@ -207,30 +207,10 @@ public final class Proto {
      * {@code abslineinfo} 的作用就是让这个锚点不要离得太远。
      */
     public int getFuncline(int pc) {
-        if (sizelineinfo == 0) {
-            return -1; // 没有调试信息
+        if (sizelineinfo == 0 || pc < 0 || pc >= sizelineinfo) {
+            return -1;
         }
-        int[] basepcHolder = new int[1];
-        int baseline = getBaseline(pc, basepcHolder);
-        int basepc = basepcHolder[0];
-        while (basepc++ < pc) {
-            baseline += lineinfo[basepc];
-        }
-        return baseline;
-    }
-
-    /** {@code getbaseline} */
-    private int getBaseline(int pc, int[] basepcOut) {
-        if (sizeabslineinfo == 0 || pc < abslineinfo[0].pc) {
-            basepcOut[0] = -1; // 从头开始
-            return linedefined;
-        }
-        int i = pc / MAXIWTHABS - 1; // 估算（必须是正确锚点的下界）
-        while (i + 1 < sizeabslineinfo && pc >= abslineinfo[i + 1].pc) {
-            i++;
-        }
-        basepcOut[0] = abslineinfo[i].pc;
-        return abslineinfo[i].line;
+        return lineinfo[pc];
     }
 
     /** {@code lfunc.c: luaF_getlocalname} */

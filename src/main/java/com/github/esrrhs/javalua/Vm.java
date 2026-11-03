@@ -38,6 +38,7 @@ public final class Vm {
      * 主循环
      * ================================================================ */
 
+
     static void execute(LuaState L, CallInfo ci0) {
         CallInfo ci = ci0;
         LClosure cl = null;
@@ -46,29 +47,14 @@ public final class Vm {
         int base = 0;
         int pc = 0;
         boolean start = true;
-
-        /*
-         * {@code goto ret} 与 {@code goto startfunc} 在 C 版是两个标签
-         * （{@code returning:} 与 {@code startfunc:}），差别只有一句：前者
-         * <b>不</b>重新装载 {@code trap}，后者从 {@code L->hookmask} 重载。
-         * 这里合进同一个 {@code outer} 循环，就得用两个标志把它们分开——
-         * 一律按 {@code startfunc} 处理的话，从内层函数返回时会把上层帧的
-         * {@code trap} 冲掉，返回钩子之后的行钩子就没了。
-         */
         boolean ret = false;
-
-        /**
-         * {@code lvm.c} 的 {@code trap}：要不要在每条指令前调
-         * {@code luaG_traceexec}。钩子没开时它恒为 0，这是「不开钩子就没有
-         * 调试开销」的兑现方式。
-         */
         boolean trap = false;
 
         outer:
         for (;;) {
             if (start || ret) {
                 if (start) {
-                    trap = L.hookmask != 0; // 只有 startfunc 才重新装载
+                    trap = L.hookmask != 0;
                 }
                 start = false;
                 ret = false;
@@ -82,947 +68,407 @@ public final class Vm {
                 }
             }
             for (;;) {
-                /*
-                 * {@code vmfetch()}：钩子（与栈重分配）就在这一个点上被检查。
-                 * {@code traceExec} 可能改 {@code ci.top}，所以 {@code base}
-                 * 要在它之后重算。
-                 */
+                if (ci.trap) {
+                    trap = true;
+                }
                 if (trap) {
                     trap = DebugLib.traceExec(L, ci, pc);
                     base = ci.func + 1;
                 }
                 int i = code[pc++];
-                switch (OpCode.getOpCode(i)) {
+                ci.savedpc = pc;
+                int op = OpCode.getOpCode(i);
+                int a = OpCode.getArgA(i);
+                int ra = base + a;
 
-                /* ---------------- 装载 ---------------- */
-
-                case OpCode.OP_MOVE: {
-                    L.stack[base + OpCode.getArgA(i)].set(L.stack[base + OpCode.getArgB(i)]);
+                switch (op) {
+                case OpCode.OP_MOVE:
+                    L.stack[ra].set(L.stack[base + OpCode.getArgB(i)]);
                     break;
-                }
-                case OpCode.OP_LOADI: {
-                    L.stack[base + OpCode.getArgA(i)].setInteger(OpCode.getArgSBx(i));
+                case OpCode.OP_LOADK:
+                    L.stack[ra].set(k[OpCode.getArgBx(i)]);
                     break;
-                }
-                case OpCode.OP_LOADF: {
-                    L.stack[base + OpCode.getArgA(i)].setFloat(OpCode.getArgSBx(i));
+                case OpCode.OP_LOADKX:
+                    L.stack[ra].set(k[OpCode.getArgAx(code[pc++])]);
                     break;
-                }
-                case OpCode.OP_LOADK: {
-                    L.stack[base + OpCode.getArgA(i)].set(k[OpCode.getArgBx(i)]);
+                case OpCode.OP_LOADBOOL:
+                    L.stack[ra].setBoolean(OpCode.getArgB(i) != 0);
+                    if (OpCode.getArgC(i) != 0) {
+                        pc++;
+                    }
                     break;
-                }
-                case OpCode.OP_LOADKX: {
-                    L.stack[base + OpCode.getArgA(i)].set(k[OpCode.getArgAx(code[pc])]);
-                    pc++;
-                    break;
-                }
-                case OpCode.OP_LOADFALSE: {
-                    L.stack[base + OpCode.getArgA(i)].setBoolean(false);
-                    break;
-                }
-                case OpCode.OP_LFALSESKIP: {
-                    L.stack[base + OpCode.getArgA(i)].setBoolean(false);
-                    pc++;
-                    break;
-                }
-                case OpCode.OP_LOADTRUE: {
-                    L.stack[base + OpCode.getArgA(i)].setBoolean(true);
-                    break;
-                }
                 case OpCode.OP_LOADNIL: {
-                    int ra = base + OpCode.getArgA(i);
                     int b = OpCode.getArgB(i);
-                    do {
-                        L.stack[ra++].setNil();
-                    } while (b-- > 0);
+                    for (int n = 0; n <= b; n++) {
+                        L.stack[ra + n].setNil();
+                    }
                     break;
                 }
-
-                /* ---------------- upvalue ---------------- */
-
-                case OpCode.OP_GETUPVAL: {
-                    L.stack[base + OpCode.getArgA(i)].set(cl.upvals[OpCode.getArgB(i)].value());
+                case OpCode.OP_GETUPVAL:
+                    L.stack[ra].set(cl.upvals[OpCode.getArgB(i)].value());
                     break;
-                }
-                case OpCode.OP_SETUPVAL: {
-                    cl.upvals[OpCode.getArgB(i)].value().set(L.stack[base + OpCode.getArgA(i)]);
-                    break;
-                }
-
-                /* ---------------- 取 ---------------- */
-
                 case OpCode.OP_GETTABUP: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue upval = cl.upvals[OpCode.getArgB(i)].value();
-                    LuaValue rc = k[OpCode.getArgC(i)];
-                    LuaValue slot = fastGet(upval, rc);
+                    LuaValue tab = cl.upvals[OpCode.getArgB(i)].value();
+                    LuaValue key = rk(L, k, base, OpCode.getArgC(i));
+                    LuaValue slot = fastGet(tab, key);
                     if (slot != null) {
                         L.stack[ra].set(slot);
                     } else {
                         saveState(L, ci, pc);
-                        finishGet(L, upval, rc, ra);
+                        finishGet(L, tab, key, ra);
+                        base = ci.func + 1;
                     }
                     break;
                 }
                 case OpCode.OP_GETTABLE: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    LuaValue rc = L.stack[base + OpCode.getArgC(i)];
-                    LuaValue slot = fastGet(rb, rc);
+                    LuaValue tab = L.stack[base + OpCode.getArgB(i)];
+                    LuaValue key = rk(L, k, base, OpCode.getArgC(i));
+                    LuaValue slot = fastGet(tab, key);
                     if (slot != null) {
                         L.stack[ra].set(slot);
                     } else {
                         saveState(L, ci, pc);
-                        finishGet(L, rb, rc, ra);
+                        finishGet(L, tab, key, ra);
+                        base = ci.func + 1;
                     }
                     break;
                 }
-                case OpCode.OP_GETI: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    LuaValue key = LuaValue.ofInteger(OpCode.getArgC(i));
-                    LuaValue slot = fastGet(rb, key);
-                    if (slot != null) {
-                        L.stack[ra].set(slot);
-                    } else {
-                        saveState(L, ci, pc);
-                        finishGet(L, rb, key, ra);
-                    }
-                    break;
-                }
-                case OpCode.OP_GETFIELD: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    LuaValue rc = k[OpCode.getArgC(i)];
-                    LuaValue slot = fastGet(rb, rc);
-                    if (slot != null) {
-                        L.stack[ra].set(slot);
-                    } else {
-                        saveState(L, ci, pc);
-                        finishGet(L, rb, rc, ra);
-                    }
-                    break;
-                }
-
-                /* ---------------- 存 ---------------- */
-
                 case OpCode.OP_SETTABUP: {
-                    LuaValue upval = cl.upvals[OpCode.getArgA(i)].value();
-                    LuaValue rb = k[OpCode.getArgB(i)];
-                    LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastSet(upval, rb);
+                    LuaValue tab = cl.upvals[a].value();
+                    LuaValue key = rk(L, k, base, OpCode.getArgB(i));
+                    LuaValue val = rk(L, k, base, OpCode.getArgC(i));
+                    LuaValue slot = fastSet(tab, key);
                     if (slot != null) {
-                        slot.set(rc);
+                        slot.set(val);
                     } else {
                         saveState(L, ci, pc);
-                        finishSet(L, upval, rb, rc);
+                        finishSet(L, tab, key, val);
+                        base = ci.func + 1;
                     }
                     break;
                 }
+                case OpCode.OP_SETUPVAL:
+                    cl.upvals[OpCode.getArgB(i)].value().set(L.stack[ra]);
+                    break;
                 case OpCode.OP_SETTABLE: {
-                    LuaValue ra = L.stack[base + OpCode.getArgA(i)];
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastSet(ra, rb);
+                    LuaValue tab = L.stack[ra];
+                    LuaValue key = rk(L, k, base, OpCode.getArgB(i));
+                    LuaValue val = rk(L, k, base, OpCode.getArgC(i));
+                    LuaValue slot = fastSet(tab, key);
                     if (slot != null) {
-                        slot.set(rc);
+                        slot.set(val);
                     } else {
                         saveState(L, ci, pc);
-                        finishSet(L, ra, rb, rc);
+                        finishSet(L, tab, key, val);
+                        base = ci.func + 1;
                     }
                     break;
                 }
-                case OpCode.OP_SETI: {
-                    LuaValue ra = L.stack[base + OpCode.getArgA(i)];
-                    LuaValue key = LuaValue.ofInteger(OpCode.getArgB(i));
-                    LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastSet(ra, key);
-                    if (slot != null) {
-                        slot.set(rc);
-                    } else {
-                        saveState(L, ci, pc);
-                        finishSet(L, ra, key, rc);
-                    }
-                    break;
-                }
-                case OpCode.OP_SETFIELD: {
-                    LuaValue ra = L.stack[base + OpCode.getArgA(i)];
-                    LuaValue rb = k[OpCode.getArgB(i)];
-                    LuaValue rc = rkc(L, k, base, i);
-                    LuaValue slot = fastSet(ra, rb);
-                    if (slot != null) {
-                        slot.set(rc);
-                    } else {
-                        saveState(L, ci, pc);
-                        finishSet(L, ra, rb, rc);
-                    }
-                    break;
-                }
-
-                /* ---------------- 表构造 ---------------- */
-
                 case OpCode.OP_NEWTABLE: {
-                    int ra = base + OpCode.getArgA(i);
                     int b = OpCode.getArgB(i);
                     int c = OpCode.getArgC(i);
-                    if (b > 0) {
-                        b = 1 << (b - 1);
-                    }
-                    /*
-                     * EXTRAARG 对 NEWTABLE 是<b>无条件</b>存在的：k 位为 0 时它
-                     * 的 Ax 就是 0（上游有断言 (k==0) == (Ax==0)）。所以这里的
-                     * pc++ 必须放在 k 判断外面——只对 SETLIST 才是条件的，
-                     * 那条指令只在 c 溢出 8 位时才有 EXTRAARG。
-                     */
-                    if (OpCode.getArgK(i) != 0) {
-                        c += OpCode.getArgAx(code[pc]) * (OpCode.MAXARG_C + 1);
-                    }
-                    pc++;
-                    /*
-                     * {@code L->top = ra + 1} —— C 版那句「correct top in case
-                     * of emergency GC」。<b>不能省</b>：{@code OP_CALL} 收尾时
-                     * 会把 {@code top} 拉回 {@code ra}（{@code moveresults} 的
-                     * {@code case 0}），此后 {@code top} 就落在还活着的寄存器
-                     * 底下；而 {@code top} 之上的槽在 Lua 里<b>对 GC 不可见</b>
-                     * （{@code traversethread} 只 mark {@code [stack, top)}）。
-                     * 少了这一句，下面那个收集点就会把活着的局部量当成死区
-                     * （实测：{@code local m} 被清成 nil）。
-                     */
-                    L.top = ra + 1;
-                    L.stack[ra].setTable(new LuaTable(c, b));
-                    /*
-                     * {@code checkGC(L, ra+1)}：C 版主循环里仅有的两个收集点
-                     * 之一（另一个在 {@code OP_CLOSURE}）。
-                     */
-                    if (L.gcDue()) {
-                        L.maybeCollect(L);
-                    }
+                    LuaTable t = new LuaTable(fb2int(b), fb2int(c));
+                    L.stack[ra].setTable(t);
                     break;
                 }
-                case OpCode.OP_SETLIST: {
-                    int ra = base + OpCode.getArgA(i);
-                    int n = OpCode.getArgB(i);
-                    long last = OpCode.getArgC(i);
-                    LuaTable h = L.stack[ra].asTable();
-                    if (n == 0) {
-                        n = (int) (L.top - ra) - 1;
+                case OpCode.OP_SELF: {
+                    LuaValue tab = L.stack[base + OpCode.getArgB(i)];
+                    L.stack[ra + 1].set(tab);
+                    LuaValue key = rk(L, k, base, OpCode.getArgC(i));
+                    LuaValue slot = fastGet(tab, key);
+                    if (slot != null) {
+                        L.stack[ra].set(slot);
                     } else {
-                        L.top = ci.top;
-                    }
-                    last += n;
-                    if (OpCode.getArgK(i) != 0) {
-                        last += (long) OpCode.getArgAx(code[pc]) * (OpCode.MAXARG_C + 1);
-                        pc++;
-                    }
-                    for (; n > 0; n--) {
-                        h.setArrayRaw(last, L.stack[ra + n]);
-                        last--;
+                        saveState(L, ci, pc);
+                        finishGet(L, tab, key, ra);
+                        base = ci.func + 1;
                     }
                     break;
                 }
-
-                /* ---------------- 算术 ---------------- */
-
-                case OpCode.OP_ADDI: {
-                    if (arithImm(L, i, base, Arith.OP_ADD)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_ADDK: {
-                    if (arithK(L, i, base, k, Arith.OP_ADD)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_SUBK: {
-                    if (arithK(L, i, base, k, Arith.OP_SUB)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_MULK: {
-                    if (arithK(L, i, base, k, Arith.OP_MUL)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_MODK: {
-                    saveState(L, ci, pc);
-                    if (arithK(L, i, base, k, Arith.OP_MOD)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_POWK: {
-                    if (arithK(L, i, base, k, Arith.OP_POW)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_DIVK: {
-                    if (arithK(L, i, base, k, Arith.OP_DIV)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_IDIVK: {
-                    saveState(L, ci, pc);
-                    if (arithK(L, i, base, k, Arith.OP_IDIV)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_BANDK: {
-                    if (arithK(L, i, base, k, Arith.OP_BAND)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_BORK: {
-                    if (arithK(L, i, base, k, Arith.OP_BOR)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_BXORK: {
-                    if (arithK(L, i, base, k, Arith.OP_BXOR)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_SHRI: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    int ic = OpCode.getArgSC(i);
-                    Long ib = toIntegerNs(rb, Arith.F2I_EQ);
-                    if (ib != null) {
-                        pc++;
-                        L.stack[ra].setInteger(Arith.shiftl(ib, -ic));
-                    }
-                    break;
-                }
-                case OpCode.OP_SHLI: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    int ic = OpCode.getArgSC(i);
-                    Long ib = toIntegerNs(rb, Arith.F2I_EQ);
-                    if (ib != null) {
-                        pc++;
-                        L.stack[ra].setInteger(Arith.shiftl(ic, ib));
-                    }
-                    break;
-                }
-                case OpCode.OP_ADD: {
-                    if (arith(L, i, base, Arith.OP_ADD)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_SUB: {
-                    if (arith(L, i, base, Arith.OP_SUB)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_MUL: {
-                    if (arith(L, i, base, Arith.OP_MUL)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_MOD: {
-                    saveState(L, ci, pc);
-                    if (arith(L, i, base, Arith.OP_MOD)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_POW: {
-                    if (arith(L, i, base, Arith.OP_POW)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_DIV: {
-                    if (arith(L, i, base, Arith.OP_DIV)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_IDIV: {
-                    saveState(L, ci, pc);
-                    if (arith(L, i, base, Arith.OP_IDIV)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_BAND: {
-                    if (arith(L, i, base, Arith.OP_BAND)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_BOR: {
-                    if (arith(L, i, base, Arith.OP_BOR)) {
-                        pc++;
-                    }
-                    break;
-                }
-                case OpCode.OP_BXOR: {
-                    if (arith(L, i, base, Arith.OP_BXOR)) {
-                        pc++;
-                    }
-                    break;
-                }
+                case OpCode.OP_ADD:
+                case OpCode.OP_SUB:
+                case OpCode.OP_MUL:
+                case OpCode.OP_MOD:
+                case OpCode.OP_POW:
+                case OpCode.OP_DIV:
+                case OpCode.OP_IDIV:
+                case OpCode.OP_BAND:
+                case OpCode.OP_BOR:
+                case OpCode.OP_BXOR:
+                case OpCode.OP_SHL:
                 case OpCode.OP_SHR: {
-                    if (arith(L, i, base, Arith.OP_SHR)) {
-                        pc++;
+                    LuaValue rb = rk(L, k, base, OpCode.getArgB(i));
+                    LuaValue rc = rk(L, k, base, OpCode.getArgC(i));
+                    int aop = op - OpCode.OP_ADD; // maps to Arith.OP_*
+                    LuaValue r = Arith.rawArith(L, aop, rb, rc);
+                    if (r != null) {
+                        L.stack[ra].set(r);
+                    } else {
+                        saveState(L, ci, pc);
+                        LuaTm.tryBinTm(L, rb, rc, ra, Tm.TM_ADD + aop);
+                        base = ci.func + 1;
                     }
                     break;
                 }
-                case OpCode.OP_SHL: {
-                    if (arith(L, i, base, Arith.OP_SHL)) {
-                        pc++;
-                    }
-                    break;
-                }
-
-                /* ---------------- 元方法 ---------------- */
-
-                case OpCode.OP_MMBIN: {
-                    int pi = code[pc - 2];
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    int result = base + OpCode.getArgA(pi);
-                    saveState(L, ci, pc);
-                    LuaTm.tryBinTm(L, L.stack[base + OpCode.getArgA(i)], rb, result,
-                            OpCode.getArgC(i));
-                    break;
-                }
-                case OpCode.OP_MMBINI: {
-                    int pi = code[pc - 2];
-                    int result = base + OpCode.getArgA(pi);
-                    saveState(L, ci, pc);
-                    LuaTm.tryBinITm(L, L.stack[base + OpCode.getArgA(i)], OpCode.getArgSB(i),
-                            OpCode.getArgK(i) != 0, result, OpCode.getArgC(i));
-                    break;
-                }
-                case OpCode.OP_MMBINK: {
-                    int pi = code[pc - 2];
-                    int result = base + OpCode.getArgA(pi);
-                    saveState(L, ci, pc);
-                    LuaTm.tryBinAssocTm(L, L.stack[base + OpCode.getArgA(i)],
-                            k[OpCode.getArgB(i)], OpCode.getArgK(i) != 0, result,
-                            OpCode.getArgC(i));
-                    break;
-                }
-
-                /* ---------------- 一元 ---------------- */
-
                 case OpCode.OP_UNM: {
-                    int ra = base + OpCode.getArgA(i);
                     LuaValue rb = L.stack[base + OpCode.getArgB(i)];
                     if (rb.isInteger()) {
                         L.stack[ra].setInteger(-rb.i);
                     } else {
-                        Double nb = toNumber(rb); // 5.3: strings coerce to float
-                        if (nb != null) {
-                            L.stack[ra].setFloat(-nb);
+                        Double n = toNumber(rb);
+                        if (n != null) {
+                            L.stack[ra].setFloat(-n);
                         } else {
                             saveState(L, ci, pc);
                             LuaTm.tryBinTm(L, rb, rb, ra, Tm.TM_UNM);
+                            base = ci.func + 1;
                         }
                     }
                     break;
                 }
                 case OpCode.OP_BNOT: {
-                    int ra = base + OpCode.getArgA(i);
                     LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    Long ib = toIntegerNs(rb, Arith.F2I_EQ);
+                    Long ib = Arith.toIntegerNs(rb);
                     if (ib != null) {
                         L.stack[ra].setInteger(~ib);
                     } else {
                         saveState(L, ci, pc);
                         LuaTm.tryBinTm(L, rb, rb, ra, Tm.TM_BNOT);
+                        base = ci.func + 1;
                     }
                     break;
                 }
                 case OpCode.OP_NOT: {
-                    L.stack[base + OpCode.getArgA(i)]
-                            .setBoolean(!L.stack[base + OpCode.getArgB(i)].toBoolean());
+                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
+                    L.stack[ra].setBoolean(!rb.toBoolean());
                     break;
                 }
-                case OpCode.OP_LEN: {
+                case OpCode.OP_LEN:
                     saveState(L, ci, pc);
-                    objLen(L, base + OpCode.getArgA(i), L.stack[base + OpCode.getArgB(i)]);
+                    objLen(L, ra, L.stack[base + OpCode.getArgB(i)]);
+                    base = ci.func + 1;
                     break;
-                }
                 case OpCode.OP_CONCAT: {
-                    int ra = base + OpCode.getArgA(i);
-                    int n = OpCode.getArgB(i);
-                    L.top = ra + n;
+                    int b = OpCode.getArgB(i);
+                    int c = OpCode.getArgC(i);
+                    L.top = base + c + 1;
                     ci.savedpc = pc;
-                    concat(L, n);
-                    break;
-                }
-
-                /* ---------------- 控制流 ---------------- */
-
-                case OpCode.OP_CLOSE: {
-                    saveState(L, ci, pc);
-                    L.closeUpvals(base + OpCode.getArgA(i), null);
-                    break;
-                }
-                case OpCode.OP_TBC: {
-                    /*
-                     * {@code luaF_newtbcupval} 在<b>赋值的当下</b>就检查
-                     * {@code __close}，不是在作用域结束时。所以
-                     * {@code local x <close> = 5} 会在这一条指令上直接抛
-                     * “variable 'x' got a non-closable value”，
-                     * 后面的 {@code print(x)} 根本不会执行——实测确认。
-                     * 挪到关闭时检查会让它先打印、最后才报错。
-                     */
-                    ci.savedpc = pc;
-                    L.newTbcUpval(base + OpCode.getArgA(i));
+                    concat(L, c - b + 1);
+                    base = ci.func + 1;
+                    ra = base + a;
+                    L.stack[ra].set(L.stack[base + b]);
+                    L.top = ci.top;
                     break;
                 }
                 case OpCode.OP_JMP: {
-                    pc += OpCode.getArgSJ(i);
+                    if (a != 0) {
+                        L.closeUpvals(base + a - 1, null);
+                    }
+                    pc += OpCode.getArgSBx(i);
                     break;
                 }
-
-                /* ---------------- 测试与比较 ---------------- */
-
                 case OpCode.OP_EQ: {
+                    LuaValue rb = rk(L, k, base, OpCode.getArgB(i));
+                    LuaValue rc = rk(L, k, base, OpCode.getArgC(i));
                     saveState(L, ci, pc);
-                    int cond = equalObj(L, L.stack[base + OpCode.getArgA(i)],
-                            L.stack[base + OpCode.getArgB(i)]) ? 1 : 0;
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
-                    } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
-                    }
+                    boolean eq = equalObj(L, rb, rc);
+                    base = ci.func + 1;
+                    doJump(L, code, ci, base, /*cond*/ (eq == (a != 0)), /*pc*/ pc);
+                    pc = ci.savedpc;
                     break;
                 }
-                case OpCode.OP_LT: {
-                    int cond = order(L, ci, pc, i, base, Tm.TM_LT) ? 1 : 0;
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
-                    } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
-                    }
-                    break;
-                }
+                case OpCode.OP_LT:
                 case OpCode.OP_LE: {
-                    int cond = order(L, ci, pc, i, base, Tm.TM_LE) ? 1 : 0;
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
-                    } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
-                    }
-                    break;
-                }
-                case OpCode.OP_EQK: {
-                    int cond = LuaValue.rawEqual(L.stack[base + OpCode.getArgA(i)],
-                            k[OpCode.getArgB(i)]) ? 1 : 0;
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
-                    } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
-                    }
-                    break;
-                }
-                case OpCode.OP_EQI: {
-                    LuaValue ra = L.stack[base + OpCode.getArgA(i)];
-                    int im = OpCode.getArgSB(i);
-                    int cond;
-                    if (ra.isInteger()) {
-                        cond = (ra.i == im) ? 1 : 0;
-                    } else if (ra.isFloat()) {
-                        cond = (ra.n == (double) im) ? 1 : 0;
-                    } else {
-                        cond = 0; // 其余类型不可能等于数字
-                    }
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
-                    } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
-                    }
-                    break;
-                }
-                case OpCode.OP_LTI:
-                case OpCode.OP_LEI:
-                case OpCode.OP_GTI:
-                case OpCode.OP_GEI: {
-                    int op = OpCode.getOpCode(i);
-                    /*
-                     * 四条指令的比较运算符各不同，不能归约成「< 还是 <=」。
-                     * LTI/LEI/GTI/GEI 的立即数<b>永远在右边</b>（{@code ra OP im}），
-                     * inv 只影响元方法的调用顺序（{@code ra >= im} 退化成
-                     * {@code im <= ra} 时要把两个操作数换过来）。
-                     */
-                    boolean inv = (op == OpCode.OP_GTI || op == OpCode.OP_GEI);
-                    LuaValue ra = L.stack[base + OpCode.getArgA(i)];
-                    int im = OpCode.getArgSB(i);
-                    int cond;
-                    if (ra.isInteger()) {
-                        long ia = ra.i;
-                        switch (op) {
-                        case OpCode.OP_LTI:
-                            cond = (ia < im) ? 1 : 0;
-                            break;
-                        case OpCode.OP_LEI:
-                            cond = (ia <= im) ? 1 : 0;
-                            break;
-                        case OpCode.OP_GTI:
-                            cond = (ia > im) ? 1 : 0;
-                            break;
-                        default:
-                            cond = (ia >= im) ? 1 : 0;
-                            break;
-                        }
-                    } else if (ra.isFloat()) {
-                        double fa = ra.n;
-                        switch (op) {
-                        case OpCode.OP_LTI:
-                            cond = (fa < im) ? 1 : 0;
-                            break;
-                        case OpCode.OP_LEI:
-                            cond = (fa <= im) ? 1 : 0;
-                            break;
-                        case OpCode.OP_GTI:
-                            cond = (fa > im) ? 1 : 0;
-                            break;
-                        default:
-                            cond = (fa >= im) ? 1 : 0;
-                            break;
-                        }
-                    } else {
-                        saveState(L, ci, pc);
-                        int ev = (op == OpCode.OP_LTI || op == OpCode.OP_GTI)
-                                ? Tm.TM_LT : Tm.TM_LE;
-                        cond = LuaTm.callOrderITm(L, ra, im, inv, OpCode.getArgC(i) != 0,
-                                ev) ? 1 : 0;
-                    }
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
-                    } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
-                    }
+                    LuaValue rb = rk(L, k, base, OpCode.getArgB(i));
+                    LuaValue rc = rk(L, k, base, OpCode.getArgC(i));
+                    saveState(L, ci, pc);
+                    boolean res = (op == OpCode.OP_LT) ? lessThan(L, rb, rc) : (!lessThan(L, rc, rb));
+                    base = ci.func + 1;
+                    doJump(L, code, ci, base, res == (a != 0), pc);
+                    pc = ci.savedpc;
                     break;
                 }
                 case OpCode.OP_TEST: {
-                    int cond = L.stack[base + OpCode.getArgA(i)].toBoolean() ? 1 : 0;
-                    if (cond != OpCode.getArgK(i)) {
-                        pc++;
+                    if (!L.stack[ra].toBoolean() != (OpCode.getArgC(i) != 0)) {
+                        // fall through to jump
                     } else {
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
+                        pc++;
+                        break;
                     }
+                    // take jump at pc
+                    int ji = code[pc++];
+                    if (OpCode.getArgA(ji) != 0) {
+                        L.closeUpvals(base + OpCode.getArgA(ji) - 1, null);
+                    }
+                    pc += OpCode.getArgSBx(ji);
                     break;
                 }
                 case OpCode.OP_TESTSET: {
                     LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    /*
-                     * 判的是 {@code l_isfalse(rb) == k}，不是「真值 == k」。
-                     * <p>
-                     * 这两种写法在 {@code k=0} 与 {@code k=1} 上<b>恰好相反</b>，
-                     * 而且是那种「只在一半路径上错」的相反：{@code and} 的
-                     * {@code TESTSET} 只在「结果寄存器 ≠ B」时保留下来（否则
-                     * {@code patchTestReg} 会把它改写成 {@code OP_TEST}），
-                     * 于是 {@code if x then} 一直是对的，{@code x and y} 一直是错的。
-                     * <p>
-                     * 症状是 {@code local t = {} print(t and "yes")} 打印出那张表：
-                     * 字节码与参考实现逐条相同，说明错不在代码生成而在这一句。
-                     */
-                    int isFalse = rb.toBoolean() ? 0 : 1; // l_isfalse(rb)
-                    if (isFalse == OpCode.getArgK(i)) {
+                    if (!rb.toBoolean() != (OpCode.getArgC(i) != 0)) {
+                        L.stack[ra].set(rb);
+                        int ji = code[pc++];
+                        if (OpCode.getArgA(ji) != 0) {
+                            L.closeUpvals(base + OpCode.getArgA(ji) - 1, null);
+                        }
+                        pc += OpCode.getArgSBx(ji);
+                    } else {
                         pc++;
-                    } else {
-                        L.stack[base + OpCode.getArgA(i)].set(rb);
-                        pc += OpCode.getArgSJ(code[pc]) + 1;
                     }
                     break;
                 }
-                case OpCode.OP_SELF: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-                    LuaValue rc = rkc(L, k, base, i);
-                    L.stack[ra + 1].set(rb);
-                    LuaValue slot = fastGet(rb, rc);
-                    if (slot != null) {
-                        L.stack[ra].set(slot);
-                    } else {
-                        saveState(L, ci, pc);
-                        finishGet(L, rb, rc, ra);
-                    }
-                    break;
-                }
-
-                /* ---------------- 调用与返回 ---------------- */
-
                 case OpCode.OP_CALL: {
-                    int ra = base + OpCode.getArgA(i);
                     int b = OpCode.getArgB(i);
+                    int nresults = OpCode.getArgC(i) - 1;
                     if (b != 0) {
                         L.top = ra + b;
                     }
                     ci.savedpc = pc;
-                    CallInfo newci = L.precall(ra, OpCode.getArgC(i) - 1);
-                    if (newci == null) {
-                        /*
-                         * {@code updatetrap(ci)}：C 调用可能开/关过钩子。
-                         * <b>这一处必须有</b>——{@code debug.sethook} 自己就是个
-                         * C 函数，它的 {@code settraps} 只改帧上的 {@code trap}，
-                         * 主循环这个局部变量要靠这里才读得到。
-                         */
-                        trap = ci.trap;
-                        break; // C 函数：已经跑完，结果在栈上
-                    }
-                    ci = newci;
-                    start = true;
-                    continue outer;
-                }
-                case OpCode.OP_TAILCALL: {
-                    int ra = base + OpCode.getArgA(i);
-                    int b = OpCode.getArgB(i);
-                    int nparams1 = OpCode.getArgC(i);
-                    int delta = (nparams1 != 0) ? ci.nextraargs + nparams1 : 0;
-                    if (b != 0) {
-                        L.top = ra + b;
-                    } else {
-                        b = L.top - ra;
-                    }
-                    ci.savedpc = pc;
-                    if (OpCode.getArgK(i) != 0) {
-                        L.closeUpvals(base, null);
-                    }
-                    int n = L.pretailcall(ci, ra, b, delta);
-                    if (n < 0) {
-                        start = true; // Lua 函数：复用同一帧继续跑
+                    if (L.precall(ra, nresults) != null) {
+                        // Lua function — new ci
+                        ci = L.ci;
+                        start = true;
                         continue outer;
                     }
-                    ci.func -= delta;
-                    L.poscall(ci, n); // 里面会报返回钩子
-                    trap = ci.trap; // luaD_poscall 可能改了钩子
-                    if (ci.fresh) {
-                        return;
+                    // C function returned
+                    if (nresults >= 0) {
+                        L.top = ci.top;
                     }
-                    ci = ci.previous;
-                    ret = true;
-                    continue outer;
+                    base = ci.func + 1;
+                    break;
                 }
-                case OpCode.OP_RETURN: {
-                    int ra = base + OpCode.getArgA(i);
-                    int n = OpCode.getArgB(i) - 1;
-                    int nparams1 = OpCode.getArgC(i);
-                    if (n < 0) {
-                        n = L.top - ra;
+                case OpCode.OP_TAILCALL: {
+                    int b = OpCode.getArgB(i);
+                    if (b != 0) {
+                        L.top = ra + b;
                     }
                     ci.savedpc = pc;
-                    if (OpCode.getArgK(i) != 0) {
-                        ci.nres = n;
-                        if (L.top < ci.top) {
-                            L.top = ci.top;
-                        }
+                    // simplify: treat as call (full tailcall later)
+                    if (L.precall(ra, -1) != null) {
+                        ci = L.ci;
+                        start = true;
+                        continue outer;
+                    }
+                    base = ci.func + 1;
+                    break;
+                }
+                case OpCode.OP_RETURN: {
+                    int b = OpCode.getArgB(i);
+                    if (b != 0) {
+                        L.top = ra + b - 1;
+                    }
+                    if (cl.p.sizeupvalues > 0) {
                         L.closeUpvals(base, null);
                     }
-                    if (nparams1 != 0) {
-                        ci.func -= ci.nextraargs + nparams1;
+                    ci.savedpc = pc;
+                    L.poscall(ci, (b != 0) ? (b - 1) : (L.top - ra));
+                    if (ci == ci0) {
+                        return; // fresh invoke done
                     }
-                    L.top = ra + n;
-                    L.poscall(ci, n); // 里面会报返回钩子
-                    trap = ci.trap; // luaD_poscall 可能改了钩子
-                    if (ci.fresh) {
-                        return;
-                    }
-                    ci = ci.previous;
+                    ci = L.ci;
                     ret = true;
                     continue outer;
                 }
-                case OpCode.OP_RETURN0: {
-                    if (L.hookmask != 0) {
-                        // 有钩子就走正式的 poscall，让它把返回钩子报出去
-                        int ra = base + OpCode.getArgA(i);
-                        L.top = ra;
-                        ci.savedpc = pc;
-                        L.poscall(ci, 0);
-                        /*
-                         * C 版在这里写 {@code trap = 1}。置位是为了让紧接着的
-                         * {@code luaG_tracecall}（{@code goto ret} 之后）跑一下，
-                         * 把上层帧的 {@code trap} 重新置 1——否则上层帧的
-                         * {@code trap} 早被 {@code luaG_traceexec} 清成 0 了，
-                         * 返回之后就再也接不上行钩子。
-                         */
-                        trap = true;
-                    } else {
-                        int nres = ci.nresults;
-                        L.ci = ci.previous;
-                        L.top = base - 1;
-                        L.ensureSlots(L.top + Math.max(nres, 0));
-                        while (nres > 0) {
-                            L.stack[L.top++].setNil();
-                            nres--;
-                        }
-                    }
-                    if (ci.fresh) {
-                        return;
-                    }
-                    ci = ci.previous;
-                    ret = true;
-                    continue outer;
-                }
-                case OpCode.OP_RETURN1: {
-                    if (L.hookmask != 0) {
-                        int ra = base + OpCode.getArgA(i);
-                        L.top = ra + 1;
-                        ci.savedpc = pc;
-                        L.poscall(ci, 1);
-                        trap = true; // 同 OP_RETURN0
-                    } else {
-                        int nres = ci.nresults;
-                        L.ci = ci.previous;
-                        if (nres == 0) {
-                            L.top = base - 1;
-                        } else {
-                            int ra = base + OpCode.getArgA(i);
-                            L.stack[base - 1].set(L.stack[ra]);
-                            L.top = base;
-                            L.ensureSlots(L.top + nres - 1);
-                            while (nres > 1) {
-                                L.stack[L.top++].setNil();
-                                nres--;
-                            }
-                        }
-                    }
-                    if (ci.fresh) {
-                        return;
-                    }
-                    ci = ci.previous;
-                    ret = true;
-                    continue outer;
-                }
-
-                /* ---------------- 循环 ---------------- */
-
                 case OpCode.OP_FORLOOP: {
-                    int ra = base + OpCode.getArgA(i);
-                    LuaValue counter = L.stack[ra + 1];
-                    if (counter.isInteger()) {
-                        long count = counter.i;
-                        if (count != 0) { // C 里是无符号比较，等价于「计数不为 0」
-                            long step = L.stack[ra + 2].i;
-                            long idx = L.stack[ra].i + step;
-                            L.stack[ra + 1].setInteger(count - 1);
-                            L.stack[ra].setInteger(idx);
-                            L.stack[ra + 3].setInteger(idx);
-                            pc -= OpCode.getArgBx(i);
-                        }
-                    } else if (floatForLoop(L, ra)) {
-                        pc -= OpCode.getArgBx(i);
+                    // 5.3 integer/float forloop
+                    if (doForLoop(L, ra)) {
+                        pc += OpCode.getArgSBx(i);
                     }
                     break;
                 }
                 case OpCode.OP_FORPREP: {
                     saveState(L, ci, pc);
-                    if (forPrep(L, base + OpCode.getArgA(i))) {
-                        pc += OpCode.getArgBx(i) + 1;
-                    }
-                    break;
-                }
-                case OpCode.OP_TFORPREP: {
-                    int ra = base + OpCode.getArgA(i);
-                    ci.savedpc = pc;
-                    L.newTbcUpval(ra + 3);
-                    pc += OpCode.getArgBx(i);
-                    // 落到紧随其后的 TFORCALL，再落到 TFORLOOP
-                    i = code[pc++];
-                    doTforCall(L, ci, ra, i, pc);
-                    i = code[pc++];
-                    if (doTforLoop(L, ra, i)) {
-                        pc -= OpCode.getArgBx(i);
-                    }
+                    forPrep(L, ra);
+                    base = ci.func + 1;
+                    pc += OpCode.getArgSBx(i);
                     break;
                 }
                 case OpCode.OP_TFORCALL: {
-                    int ra = base + OpCode.getArgA(i);
-                    doTforCall(L, ci, ra, i, pc);
-                    i = code[pc++];
-                    if (doTforLoop(L, ra, i)) {
-                        pc -= OpCode.getArgBx(i);
-                    }
+                    // R(A+3).. = R(A)(R(A+1), R(A+2))
+                    int c = OpCode.getArgC(i);
+                    L.stack[ra + 3].set(L.stack[ra]);
+                    L.stack[ra + 4].set(L.stack[ra + 1]);
+                    L.stack[ra + 5].set(L.stack[ra + 2]);
+                    L.top = ra + 6;
+                    ci.savedpc = pc;
+                    L.call(ra + 3, c);
+                    base = ci.func + 1;
+                    L.top = ci.top;
+                    // fallthrough to TFORLOOP expected as next — handled separately
                     break;
                 }
                 case OpCode.OP_TFORLOOP: {
-                    int ra = base + OpCode.getArgA(i);
-                    if (doTforLoop(L, ra, i)) {
-                        pc -= OpCode.getArgBx(i);
+                    if (!L.stack[ra + 1].isNil()) {
+                        L.stack[ra].set(L.stack[ra + 1]);
+                        pc += OpCode.getArgSBx(i);
                     }
                     break;
                 }
-
-                /* ---------------- 闭包与可变参数 ---------------- */
-
-                case OpCode.OP_CLOSURE: {
-                    int ra = base + OpCode.getArgA(i);
-                    pushClosure(L, cl.p.p[OpCode.getArgBx(i)], cl.upvals, base, ra);
-                    /*
-                     * {@code checkGC(L, ra+1)}。这里 C 版没有那句
-                     * {@code L->top = ra+1}（{@code OP_NEWTABLE} 有），但收集
-                     * 要在栈上跑 {@code __gc}，{@code top} 得先落在活寄存器
-                     * 之上——照 {@code OP_NEWTABLE} 的做法抬一下。
-                     */
-                    if (L.gcDue()) {
-                        int savedTop = L.top;
-                        L.top = Math.max(savedTop, ra + 1);
-                        L.maybeCollect(L);
-                        L.top = savedTop;
+                case OpCode.OP_SETLIST: {
+                    int b = OpCode.getArgB(i);
+                    int c = OpCode.getArgC(i);
+                    if (b == 0) {
+                        b = L.top - ra - 1;
                     }
+                    if (c == 0) {
+                        c = OpCode.getArgAx(code[pc++]);
+                    }
+                    LuaTable t = L.stack[ra].asTable();
+                    int last = ((c - 1) * OpCode.LFIELDS_PER_FLUSH) + b;
+                    for (; b > 0; b--) {
+                        t.set(LuaValue.ofInteger(last--), L.stack[ra + b]);
+                    }
+                    L.top = ci.top;
+                    break;
+                }
+                case OpCode.OP_CLOSURE: {
+                    Proto p = cl.p.p[OpCode.getArgBx(i)];
+                    pushClosure(L, p, cl.upvals, base, ra);
                     break;
                 }
                 case OpCode.OP_VARARG: {
-                    saveState(L, ci, pc);
-                    LuaTm.getVarargs(L, ci, base + OpCode.getArgA(i), OpCode.getArgC(i) - 1);
-                    break;
-                }
-                case OpCode.OP_VARARGPREP: {
+                    int b = OpCode.getArgB(i) - 1;
                     ci.savedpc = pc;
-                    LuaTm.adjustVarargs(L, OpCode.getArgA(i), ci, cl.p);
-                    /*
-                     * {@code ProtectNT} 后半句的 {@code updatetrap(ci)}。
-                     * 变参函数的 {@code luaG_tracecall} 返回的是 0（钩子推迟到这里
-                     * 才报），但它已经把帧上的 {@code trap} 置成 1 了，所以这里
-                     * 读回来正好是 1——上游就是靠这个「先关再开」把调用钩子挪到
-                     * 参数归位之后的。
-                     */
-                    trap = ci.trap;
-                    if (trap) {
-                        DebugLib.dHookCall(L, ci);
-                        L.oldpc = 1; // 下一条指令按「新行」处理
-                    }
+                    LuaTm.getVarargs(L, ci, ra, b);
                     base = ci.func + 1;
                     break;
                 }
-                case OpCode.OP_EXTRAARG: {
-                    throw L.runError("malformed opcode EXTRAARG");
-                }
+                case OpCode.OP_EXTRAARG:
+                    break;
                 default:
-                    throw L.runError("unknown opcode " + OpCode.getOpCode(i));
+                    throw new IllegalStateException("unknown opcode " + op);
                 }
             }
         }
     }
 
-    /* ================================================================
-     * 取指令操作数
-     * ================================================================ */
-
-    /** {@code RKC(i)}：k 位为 1 时取常量表，否则取寄存器 */
-    private static LuaValue rkc(LuaState L, LuaValue[] k, int base, int i) {
-        if (OpCode.getArgK(i) != 0) {
-            return k[OpCode.getArgC(i)];
+    /** RK operand: BITRK means constant */
+    private static LuaValue rk(LuaState L, LuaValue[] k, int base, int x) {
+        if (OpCode.isK(x)) {
+            return k[OpCode.indexK(x)];
         }
-        return L.stack[base + OpCode.getArgC(i)];
+        return L.stack[base + x];
+    }
+
+    private static int fb2int(int x) {
+        return (x < 8) ? x : ((x & 7) + 8) << ((x >> 3) - 1);
+    }
+
+    private static void doJump(LuaState L, int[] code, CallInfo ci, int base, boolean take, int pc) {
+        if (take) {
+            int ji = code[pc++];
+            if (OpCode.getArgA(ji) != 0) {
+                L.closeUpvals(base + OpCode.getArgA(ji) - 1, null);
+            }
+            pc += OpCode.getArgSBx(ji);
+        } else {
+            pc++;
+        }
+        ci.savedpc = pc;
+    }
+
+    private static LuaValue rkc(LuaState L, LuaValue[] k, int base, int i) {
+        return rk(L, k, base, OpCode.getArgC(i));
     }
 
     /**
@@ -1095,31 +541,17 @@ public final class Vm {
         int inst = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc - 1];
         int op = OpCode.getOpCode(inst);
         switch (op) {
-        case OpCode.OP_MMBIN:
-        case OpCode.OP_MMBINI:
-        case OpCode.OP_MMBINK: {
-            // 结果写回触发元方法的那条算术指令的目标寄存器
-            int prev = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc - 2];
-            L.stack[base + OpCode.getArgA(prev)].set(L.stack[--L.top]);
-            break;
-        }
         case OpCode.OP_UNM:
         case OpCode.OP_BNOT:
         case OpCode.OP_LEN:
         case OpCode.OP_GETTABUP:
         case OpCode.OP_GETTABLE:
-        case OpCode.OP_GETI:
-        case OpCode.OP_GETFIELD:
         case OpCode.OP_SELF: {
             L.stack[base + OpCode.getArgA(inst)].set(L.stack[--L.top]);
             break;
         }
         case OpCode.OP_LT:
         case OpCode.OP_LE:
-        case OpCode.OP_LTI:
-        case OpCode.OP_LEI:
-        case OpCode.OP_GTI:
-        case OpCode.OP_GEI:
         case OpCode.OP_EQ: {
             // 注意 OP_EQI / OP_EQK 不会 yield，所以不在这一组里
             boolean res = L.stack[L.top - 1].toBoolean();
@@ -1130,7 +562,7 @@ public final class Vm {
             }
             int next = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc];
             if (OpCode.getOpCode(next) == OpCode.OP_JMP
-                    && res != (OpCode.getArgK(inst) != 0)) {
+                    && res != (OpCode.getArgA(inst) != 0)) {
                 ci.savedpc++; // 条件不成立，跳过紧跟的 JMP
             }
             break;
@@ -1147,10 +579,6 @@ public final class Vm {
             L.stack[t - 2].set(L.stack[t]);
             L.top = t - 1;
             concat(L, total);
-            break;
-        }
-        case OpCode.OP_CLOSE: {
-            ci.savedpc--; // 重跑，接着关剩下的变量
             break;
         }
         case OpCode.OP_RETURN: {
@@ -1966,4 +1394,30 @@ public final class Vm {
         }
         return i == s.length();
     }
+    /** 5.3 OP_FORLOOP: update index; return true if loop continues. */
+    private static boolean doForLoop(LuaState L, int ra) {
+        LuaValue idx = L.stack[ra];
+        LuaValue limit = L.stack[ra + 1];
+        LuaValue step = L.stack[ra + 2];
+        if (idx.isInteger() && limit.isInteger() && step.isInteger()) {
+            long i = idx.i + step.i;
+            boolean cont = (step.i > 0) ? (i <= limit.i) : (i >= limit.i);
+            if (cont) {
+                L.stack[ra].setInteger(i);
+                L.stack[ra + 3].setInteger(i);
+            }
+            return cont;
+        }
+        double i = (idx.isInteger() ? idx.i : idx.n) + (step.isInteger() ? step.i : step.n);
+        double lim = limit.isInteger() ? limit.i : limit.n;
+        double st = step.isInteger() ? step.i : step.n;
+        boolean cont = (st > 0) ? (i <= lim) : (i >= lim);
+        if (cont) {
+            L.stack[ra].setFloat(i);
+            L.stack[ra + 3].setFloat(i);
+        }
+        return cont;
+    }
+
+
 }

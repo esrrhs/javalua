@@ -1,11 +1,10 @@
 package com.github.esrrhs.javalua;
 
 /**
- * 元方法编号 —— 对应 {@code ltm.h} 的 {@code TMS} 与 {@code ltm.c} 的
- * {@code luaT_eventname}。
+ * 元方法编号 —— 对应 Lua 5.3.4 {@code ltm.h} 的 {@code TMS} 与
+ * {@code ltm.c} 的 {@code luaT_eventname}。
  * <p>
- * 顺序不能动：{@code OP_MMBIN} 系列指令把 TMS 编号直接编进 C 字段，
- * 而 {@code binopr2TM} 又是靠「ORDER OPR 与 ORDER TM 对齐」做减法算出来的。
+ * 顺序不能动：ORDER TM 与 ORDER OP（算术）对齐。无 {@code TM_CLOSE}（5.4）。
  */
 public final class Tm {
 
@@ -37,8 +36,7 @@ public final class Tm {
     public static final int TM_LE = 21;
     public static final int TM_CONCAT = 22;
     public static final int TM_CALL = 23;
-    public static final int TM_CLOSE = 24;
-    public static final int TM_N = 25;
+    public static final int TM_N = 24;
 
     /** ORDER TM —— 与上面的编号严格同序 */
     public static final String[] EVENT_NAMES = {
@@ -48,6 +46,6 @@ public final class Tm {
         "__div", "__idiv",
         "__band", "__bor", "__bxor", "__shl", "__shr",
         "__unm", "__bnot", "__lt", "__le",
-        "__concat", "__call", "__close"
+        "__concat", "__call"
     };
 }

@@ -406,7 +406,7 @@ public final class Parser {
         if (varname != null) {
             String msg = String.format(Locale.ROOT,
                     "attempt to assign to const variable '%s'", varname.toJavaString());
-            throw Codegen.semError(fs, msg);
+            Codegen.semError(fs, msg);
         }
     }
 
@@ -579,7 +579,7 @@ public final class Parser {
         String msg = String.format(Locale.ROOT,
                 "<goto %s> at line %d jumps into the scope of local '%s'",
                 gt.name.toJavaString(), gt.line, varname.toJavaString());
-        throw Codegen.semError(fs, msg);
+        Codegen.semError(fs, msg);
     }
 
     /** {@code solvegoto} */
@@ -646,7 +646,7 @@ public final class Parser {
             dyd.label.get(l).nactvar = fs.bl.nactvar; // 认为局部变量已出作用域
         }
         if (solveGotos(dyd.label.get(l))) {
-            Codegen.codeABC(fs, OpCode.OP_CLOSE, fs.nvarstack(), 0, 0);
+            Codegen.closeUpvals(fs, fs.nvarstack());
             return true;
         }
         return false;
@@ -686,7 +686,7 @@ public final class Parser {
             msg = String.format(Locale.ROOT, "no visible label '%s' for <goto> at line %d",
                     gt.name.toJavaString(), gt.line);
         }
-        throw Codegen.semError(fs, msg);
+        Codegen.semError(fs, msg);
     }
 
     /** {@code leaveblock} */
@@ -699,7 +699,7 @@ public final class Parser {
             hasclose = createLabel(breakName, 0, false);
         }
         if (!hasclose && bl.previous != null && bl.upval) {
-            Codegen.codeABC(fs, OpCode.OP_CLOSE, stklevel, 0, 0);
+            Codegen.closeUpvals(fs, stklevel);
         }
         fs.freereg = stklevel;
         while (dyd.label.size() > bl.firstlabel) {
@@ -921,7 +921,7 @@ public final class Parser {
     /** {@code setvararg} */
     private static void setVararg(FuncState fs, int nparams) {
         fs.f.isVararg = true;
-        Codegen.codeABC(fs, OpCode.OP_VARARGPREP, nparams, 0, 0);
+        /* no VARARGPREP in 5.3.4 */
     }
 
     /** {@code parlist} */
@@ -1373,7 +1373,7 @@ public final class Parser {
         } else {
             int lblevel = FuncState.reglevel(fs, lb.nactvar);
             if (fs.nvarstack() > lblevel) { // 离开了某个变量的作用域
-                Codegen.codeABC(fs, OpCode.OP_CLOSE, lblevel, 0, 0);
+                Codegen.closeUpvals(fs, lblevel);
             }
             Codegen.patchList(fs, Codegen.jump(fs), lb.pc);
         }
@@ -1392,7 +1392,7 @@ public final class Parser {
         if (lb != null) {
             String msg = String.format(Locale.ROOT, "label '%s' already defined on line %d",
                     name.toJavaString(), lb.line);
-            throw Codegen.semError(fs, msg);
+            Codegen.semError(fs, msg);
         }
     }
 
@@ -1409,7 +1409,7 @@ public final class Parser {
             dyd.label.get(l).nactvar = fs.bl.nactvar;
         }
         if (solveGotos(dyd.label.get(l))) {
-            Codegen.codeABC(fs, OpCode.OP_CLOSE, fs.nvarstack(), 0, 0);
+            Codegen.closeUpvals(fs, fs.nvarstack());
         }
     }
 
@@ -1448,7 +1448,7 @@ public final class Parser {
         if (bl2.upval) {
             int exit = Codegen.jump(fs); // 正常出口要跳过 fix
             Codegen.patchToHere(fs, condexit);
-            Codegen.codeABC(fs, OpCode.OP_CLOSE, FuncState.reglevel(fs, bl2.nactvar), 0, 0);
+            Codegen.closeUpvals(fs, FuncState.reglevel(fs, bl2.nactvar));
             condexit = Codegen.jump(fs);
             Codegen.patchToHere(fs, exit);
         }
@@ -1482,7 +1482,7 @@ public final class Parser {
         int prep;
         int endfor;
         checkNext(Lexer.TK_DO);
-        prep = Codegen.codeABx(fs, (isgen == 1) ? OpCode.OP_TFORPREP : OpCode.OP_FORPREP, base, 0);
+        prep = (isgen == 1) ? Codegen.codeAsBxPublic(fs, OpCode.OP_JMP, 0, 0) : Codegen.codeAsBxPublic(fs, OpCode.OP_FORPREP, base, 0);
         enterBlock(fs, bl, false);
         adjustLocalVars(nvars);
         Codegen.reserveRegs(fs, nvars);
@@ -1652,7 +1652,7 @@ public final class Parser {
         if (level != -1) {
             FuncState fs = this.fs;
             markToBeClosed(fs);
-            Codegen.codeABC(fs, OpCode.OP_TBC, FuncState.reglevel(fs, level), 0, 0);
+            /* no TBC in 5.3.4 */
         }
     }
 
@@ -1670,7 +1670,7 @@ public final class Parser {
             getLocalVarDesc(fs, vidx).kind = kind;
             if (kind == DynData.RDKTOCLOSE) {
                 if (toclose != -1) {
-                    throw Codegen.semError(fs, "multiple to-be-closed variables in local list");
+                    Codegen.semError(fs, "multiple to-be-closed variables in local list");
                 }
                 toclose = fs.nactvar + nvars;
             }

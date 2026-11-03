@@ -1606,7 +1606,7 @@ public final class LuaState {
             // false / nil 不需要关闭，也不建 upvalue（C 版直接 return）
             return null;
         }
-        LuaValue tm = LuaTm.getTmByObj(this, v, Tm.TM_CLOSE);
+        LuaValue tm = LuaTm.getTmByObj(this, v, Tm.TM_GC /* no TM_CLOSE in 5.3 */);
         if (tm == null || tm.isNil()) {
             LuaString vn = localNameAt(stackIdx - ci.func);
             // "%s" 是 C 字符串：局部名（只有二进制 chunk 能带 NUL）在这里被砍断
@@ -3183,20 +3183,11 @@ public final class LuaState {
         case OpCode.OP_SELF:
         case OpCode.OP_GETTABUP:
         case OpCode.OP_GETTABLE:
-        case OpCode.OP_GETI:
-        case OpCode.OP_GETFIELD:
             tm = Tm.TM_INDEX;
             break;
         case OpCode.OP_SETTABUP:
         case OpCode.OP_SETTABLE:
-        case OpCode.OP_SETI:
-        case OpCode.OP_SETFIELD:
             tm = Tm.TM_NEWINDEX;
-            break;
-        case OpCode.OP_MMBIN:
-        case OpCode.OP_MMBINI:
-        case OpCode.OP_MMBINK:
-            tm = OpCode.getArgC(i);
             break;
         case OpCode.OP_UNM:
             tm = Tm.TM_UNM;
@@ -3214,21 +3205,13 @@ public final class LuaState {
             tm = Tm.TM_EQ;
             break;
         case OpCode.OP_LT:
-        case OpCode.OP_LTI:
-        case OpCode.OP_GTI:
             tm = Tm.TM_LT;
             break;
         case OpCode.OP_LE:
-        case OpCode.OP_LEI:
-        case OpCode.OP_GEI:
             tm = Tm.TM_LE;
             break;
-        case OpCode.OP_CLOSE:
         case OpCode.OP_RETURN:
-        case OpCode.OP_RETURN0:
-        case OpCode.OP_RETURN1:
-            tm = Tm.TM_CLOSE;
-            break;
+            return null;
         default:
             return null;
         }
@@ -3753,7 +3736,7 @@ public final class LuaState {
         int setreg = -1;
         int jmptarget = 0;
         int[] code = p.code;
-        if (lastpc >= 0 && lastpc < code.length && OpCode.testMMMode(OpCode.getOpCode(code[lastpc]))) {
+        if (lastpc >= 0 && lastpc < code.length && (false) /* testMMMode removed; 5.3 */ || OpCode.testTMode(OpCode.getOpCode(code[lastpc]))) {
             lastpc--; // 前一条指令其实没执行（那是落空的 MMBIN）
         }
         for (int pc = 0; pc < lastpc && pc < code.length; pc++) {
@@ -3878,12 +3861,6 @@ public final class LuaState {
                 return isEnv(p, pc, i, true);
             case OpCode.OP_GETTABLE:
                 rName(p, pc, OpCode.getArgC(i), name);
-                return isEnv(p, pc, i, false);
-            case OpCode.OP_GETI:
-                name[0] = "integer index";
-                return "field";
-            case OpCode.OP_GETFIELD:
-                kName(p, OpCode.getArgC(i), name);
                 return isEnv(p, pc, i, false);
             case OpCode.OP_SELF:
                 rkName(p, pc, i, name);
