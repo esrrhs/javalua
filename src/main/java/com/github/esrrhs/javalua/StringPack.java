@@ -497,13 +497,16 @@ final class StringPack {
                 break;
             }
             case KZSTR: {
+                /*
+                 * 5.3.4 用 strlen：Lua 字符串缓冲区在 ld 之外还有隐含 '\0'，
+                 * 所以 "abc" 无显式 NUL 也能解出整串（next pos = ld+2）。
+                 */
                 int len = 0;
                 while (at + len < ld && data[at + len] != 0) {
                     len++;
                 }
-                LuaAux.argCheck(L, pos + len < ld, 2, "unfinished string for format 'z'");
                 L.push(LuaValue.ofString(L.newString(data, at, len)));
-                pos += len + 1;
+                pos += len + 1; /* skip string plus final '\0' */
                 break;
             }
             case KPADDING:

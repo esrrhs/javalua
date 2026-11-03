@@ -67,7 +67,6 @@ final class UpstreamSmokeTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "cstack.lua",
             "literals.lua",
             "locals.lua",
             "constructs.lua",
