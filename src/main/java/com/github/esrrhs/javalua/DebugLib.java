@@ -358,7 +358,8 @@ public final class DebugLib {
 
     /** {@code luaG_findlocal} */
     private static String findLocal(LuaState L, CallInfo ci, int n, int[] posOut) {
-        int base = ci.func + 1;
+        /* 5.3.4: Lua 帧用 u.l.base（vararg 已把固定参数搬到 base） */
+        int base = ci.isLua ? ci.base : (ci.func + 1);
         String name = null;
         if (ci.isLua) {
             if (n < 0) {
