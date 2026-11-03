@@ -1803,7 +1803,9 @@ public final class LuaState {
     /** {@code tryfuncTM}：不可调用的值，找 {@code __call} 元方法顶上 */
     private int tryFuncTM(int funcIdx) {
         LuaValue tm = LuaTm.getTmByObj(this, stack[funcIdx], Tm.TM_CALL);
-        if (tm == null || tm.isNil()) {
+        /* 5.3.4: if (!ttisfunction(tm)) luaG_typeerror(L, func, "call") —
+         * error names the *original* value, not a non-function __call. */
+        if (tm == null || !tm.isFunction()) {
             throw callError(stack[funcIdx]);
         }
         // 把元方法插到 func 位置，其余整体右移一格

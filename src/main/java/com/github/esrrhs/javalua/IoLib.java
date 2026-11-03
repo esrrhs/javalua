@@ -2061,9 +2061,9 @@ public final class IoLib {
              * {@code luaM_error}（{@code LUA_ERRMEM}）——
              * {@code xpcall} 的处理函数<b>接不到</b>。
              */
-            LuaError e = new LuaError(LuaValue.ofString(LuaString.latin1("not enough memory")));
-            e.errMem = true;
-            throw e;
+            /* lauxlib resizebox: pushliteral + lua_error — not G(L)->memerrmsg,
+             * so ERRRUN with location prefix, not LUA_ERRMEM. */
+            throw L.libError("not enough memory for buffer allocation");
         }
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[CHUNK];

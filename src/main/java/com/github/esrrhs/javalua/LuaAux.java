@@ -86,7 +86,10 @@ public final class LuaAux {
             return v.asString();
         }
         if (v.isNumber()) {
-            return LuaString.latin1(Vm.numberToString(v));
+            /* lua_tolstring converts the stack slot in place */
+            LuaString s = LuaString.latin1(Vm.numberToString(v));
+            L.arg1(arg).set(LuaValue.ofString(s));
+            return s;
         }
         throw L.typeArgError(arg, "string");
     }
