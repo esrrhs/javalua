@@ -315,9 +315,14 @@ public final class LuaTable {
         case Lua.VLNGSTR:
             return key.asString().hash() & (nodeSize - 1);
         case Lua.TBOOLEAN:
-            return (int) key.i & (nodeSize - 1);
+            return (int) key.i & (nodeSize - 1); // hashboolean → hashpow2
         default:
-            return objectHash(key.o) & (nodeSize - 1);
+            /*
+             * C 5.3.4 {@code hashpointer} → {@code hashmod}（lightuserdata /
+             * LCF / GC 对象）。不能用 2 的幂掩码：与 hashint 同理，会改变
+             * 碰撞与 rehash 时机。
+             */
+            return hashMod(objectHash(key.o) & 0xffffffffL);
         }
     }
 
