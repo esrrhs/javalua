@@ -59,20 +59,7 @@ final class NativeSymbolTest {
      * shim 相对 5.3.4 liblua 多导出的 5.4 符号。语言与库语义已按 5.3.4 对齐，
      * 这些入口或是空桩或是 *uv 超集，留给仍链 5.4 头的扩展；不计入「多出来」失败。
      */
-    private static final java.util.Set<String> LUA54_EXTRAS = new java.util.TreeSet<>(
-            java.util.Arrays.asList(
-                    "luaL_addgsub",
-                    "luaL_typeerror",
-                    "lua_closeslot",
-                    "lua_closethread",
-                    "lua_getiuservalue",
-                    "lua_newuserdatauv",
-                    "lua_resetthread",
-                    "lua_setcstacklimit",
-                    "lua_setiuservalue",
-                    "lua_setwarnf",
-                    "lua_toclose",
-                    "lua_warning"));
+    private static final java.util.Set<String> LUA54_EXTRAS = java.util.Set.of();
 
     @TestFactory
     List<DynamicTest> symbolsMatchReference() {

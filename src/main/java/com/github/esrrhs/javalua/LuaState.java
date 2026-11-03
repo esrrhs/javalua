@@ -185,7 +185,7 @@ public final class LuaState {
 
     /**
      * {@code lua.h: LUA_ERRMEM}：内存错误（编号照抄 lua.h：
-     * {@code OK=0, YIELD=1, ERRRUN=2, ERRSYNTAX=3, ERRMEM=4, ERRERR=5}）。
+     * {@code OK=0, YIELD=1, ERRRUN=2, ERRSYNTAX=3, ERRMEM=4, ERRGCMM=5, ERRERR=6}）。
      * <p>
      * 为什么非得有这个常量：{@code lcorolib.c: luaB_auxwrap} 补位置前要先看
      * <b>状态</b> —— {@code if (stat != LUA_ERRMEM && lua_type(L,-1) == LUA_TSTRING)}。
@@ -195,6 +195,15 @@ public final class LuaState {
      * {@code case.lua:40: } 前缀。
      */
     public static final int LUA_ERRMEM = 4;
+
+    /** Lua 5.3.4 {@code LUA_ERRGCMM} */
+    public static final int LUA_ERRGCMM = 5;
+
+    /** Lua 5.3.4 {@code LUA_ERRERR} (6; 5.4 dropped ERRGCMM and renumbered). */
+    public static final int LUA_ERRERR = 6;
+
+    /** {@code lauxlib.h: LUA_ERRFILE} = LUA_ERRERR + 1 */
+    public static final int LUA_ERRFILE = 7;
 
     /**
      * {@code lua_closethread} 的返回值：关完 {@code <close>} 变量之后的状态。
@@ -592,13 +601,12 @@ public final class LuaState {
     private LuaState(LuaState main) {
         mainThread = (main == null) ? this : main;
         /*
-         * 主线程<b>永远不可 yield</b>——{@code lstate.c: lua_newstate} 里那句
-         * {@code incnny(L); /* main thread is always non yieldable * /}。
-         * 实测：主协程里 {@code coroutine.isyieldable()} 是 false，即使在
-         * 最外层、一个 C 调用都没有的时候。协程起自 0，每次 resume 也重置为 0
-         * （C 版 {@code L->nCcalls = getCcalls(from)} 只拷低 16 位，高位清零）。
+         * Lua 5.3.4 {@code preinit_thread}: {@code L->nny = 1} for every thread
+         * (main and {@code lua_newthread}). Resume sets nny to 0 and restores
+         * the previous value on the way out — so a fresh/suspended/dead
+         * coroutine reports {@code lua_isyieldable == 0}.
          */
-        nNy = (main == null) ? 1 : 0;
+        nNy = 1;
         if (main == null) {
             strings = new StringPool();
             globals = new LuaTable();
@@ -2512,9 +2520,11 @@ public final class LuaState {
          * 在 {@code table.sort} 的回调里 resume 另一个协程，那个协程照样能
          * yield（实测如此）。
          */
-        nNy = 0;
+        int oldnny = nNy; /* 5.3.4 lua_resume: save/restore nny */
+        nNy = 0; /* allow yields while running */
         nCcalls = (from == null) ? 0 : from.nCcalls;
         if (nCcalls >= MAXCCALLS) {
+            nNy = oldnny;
             return resumeError("C stack overflow", nargs);
         }
         nCcalls++;
@@ -2557,6 +2567,7 @@ public final class LuaState {
              */
             deadErr = (top > 0) ? new LuaValue(stack[top - 1]) : LuaValue.ofNil();
         }
+        nNy = oldnny; /* restore after resume (5.3.4) */
         nresultsOut[0] = (st == LUA_YIELD) ? ci.nyield
                 : (top - (ci.func + 1));
         return st;

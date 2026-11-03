@@ -63,13 +63,12 @@ NATIVE_REQUIRED = [
 ]
 
 
-# 5.3.4 重对准后，Conformance 在参考二进制齐全时仍会固定跳过这 7 条：
-# Dump×2（ISA 仍偏 5.4，string.dump 字节不可比）、GcTest×3、Runtime 弱表/__gc、
+# 5.3.4 重对准后，Conformance 在参考二进制齐全时仍会固定跳过这 5 条（GC 相关）：
+# GcTest×3、Runtime 弱表/__gc、
 # UpstreamSmoke 的 gc 烟测。它们是 @Disabled / assumeTrue(false)，不是缺环境。
 # 多出来的跳过才说明 LUA53_* / 上游套件没接通。
 ALLOWED_SKIPS = {
-    "DumpTest.dumpBytesMatchReference",
-    "DumpTest.dumpBytesGridMatchReference",
+    # Dump byte compares re-enabled after 5.3.4 codegen align.
     "GcTest.collectFinishesEveryFinalizerUnderStarvation",
     "GcTest.gcRulesWithoutCollection",
     "GcTest.gcScriptsMatchReference",
@@ -137,7 +136,7 @@ def main():
     if missing:
         die("这些闸门类一条用例都没执行: %s" % ", ".join(sorted(set(missing))))
 
-    # 跳过白名单：5.3.4 重对准固定 7 条（见 ALLOWED_SKIPS）。参考环境齐全时
+    # 跳过白名单：5.3.4 重对准固定 5 条（见 ALLOWED_SKIPS）。参考环境齐全时
     # 不应再出现 CodegenTest/TableStructTest 因缺二进制而跳过；多出来的跳过
     # 说明有闸门整片没接通。
     unexpected = [n for n in skipped_names if n not in ALLOWED_SKIPS]

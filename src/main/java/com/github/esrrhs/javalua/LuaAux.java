@@ -350,13 +350,11 @@ public final class LuaAux {
         }
         L.pushNil();
         /*
-         * {@code lauxlib.c} 是 {@code (en != 0) ? strerror(en) : "(no extra info)"}。
-         * errno 为 0 时<b>没有</b> strerror 文本，参考实测
-         * {@code luaL_fileresult(L, 0, NULL)}（errno 事先清成 0）给的就是
-         * {@code nil, "(no extra info)", 0}。早先这里一律走 {@code strError}，
-         * 于是 {@code strError(0)} 兜底成了 {@code "Input/output error"}。
+         * Lua 5.3.4 {@code lauxlib.c}: always {@code strerror(en)}.
+         * On glibc, {@code strerror(0)} is {@code "Success"} (5.4 uses
+         * "(no extra info)" when en == 0 — do not use that here).
          */
-        String msg = (en == 0) ? "(no extra info)" : strError(en);
+        String msg = strError(en);
         if (fname != null) {
             // 文件名可以是任意字节：消息里那一段必须原样是字节，
             // 不能绕 Java String（UTF-8 解码会把 0xFF 变成 U+FFFD）
@@ -545,6 +543,8 @@ public final class LuaAux {
     /** {@code strerror}：只备了文件操作真正会碰到的那几个 errno */
     public static String strError(int en) {
         switch (en) {
+        case 0: // strerror(0) on glibc
+            return "Success";
         case 1: // EPERM
             return "Operation not permitted";
         case 2:

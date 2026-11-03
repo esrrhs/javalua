@@ -72,9 +72,9 @@ final class Api {
         return NativeBridge.strToNative(s.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
     }
 
-    /** {@code %p} 的文本：C 的 {@code lua_topointer} 打出来是 {@code 0x...} */
+    /** glibc {@code %p}: NULL → {@code (nil)}, else {@code 0x...} without leading zeros. */
     private static String ptrText(long p) {
-        return "0x" + Long.toHexString(p);
+        return p == 0 ? "(nil)" : "0x" + Long.toHexString(p);
     }
 
     /**
@@ -1040,20 +1040,11 @@ final class Api {
     static long lua_error(long L) {
         LuaState S = st(L);
         /*
-         * {@code lapi.c: lua_error} 干两件事：取栈顶那个值当错误对象，然后
-         * {@code luaG_errormsg}。<b>位置是 {@code luaL_error} 自己用
-         * {@code luaL_where} 拼好的</b>，{@code lua_error} 一律不加——所以
-         * 这里 {@code where} 给 {@code ""}（「已定稿」），保保护边界别再补一次。
-         * <p>
-         * 唯一的特判是内存错误：错误对象<b>恰好</b>是驻留短串
-         * {@code "not enough memory"} 时，C 走 {@code luaM_error} 而不是
-         * {@code luaG_errormsg}。可观测——{@code LUA_ERRMEM} 这一档
-         * {@code xpcall} 的处理器<b>接不到</b>（见 {@link LuaState#errorAt}）。
+         * Lua 5.3.4 {@code lapi.c: lua_error} always {@code luaG_errormsg(L)} —
+         * no memerrmsg special-case (that is 5.4). Where is already final.
          */
         LuaValue v = new LuaValue(S.stack[S.top - 1]);
-        LuaError e = new LuaError(v, "");
-        e.errMem = LuaState.isMemErr(v);
-        throw e;
+        throw new LuaError(v, "");
     }
 
     static long lua_gc(long L, long what, long a2) {
@@ -1210,6 +1201,11 @@ final class Api {
         return ok ? 1 : 0;
     }
 
+    /** Lua 5.3.4 {@code lua_getuservalue}. */
+    static long lua_getuservalue(long L, long idx) {
+        return lua_getiuservalue(L, idx, 1);
+    }
+
     static long lua_getiuservalue(long L, long idx, long n) {
         LuaState S = st(L);
         LuaValue v = val(S, (int) idx);
@@ -1302,23 +1298,21 @@ final class Api {
      * 这里按下标给值，改任何一边都必须两边一起改。
      */
     static void fillDebug(long arPtr, DebugLib.LuaDebug ar) {
-        long[] v = new long[15];
+        /* Lua 5.3.4 lua_Debug field order (see luashim.c DBG_FIELD). */
+        long[] v = new long[12];
         v[0] = ar.event;
         v[1] = strToNative(ar.name == null ? "" : ar.name);
         v[2] = strToNative(ar.namewhat == null ? "" : ar.namewhat);
         v[3] = strToNative(ar.what == null ? "" : ar.what);
         LuaString src = (ar.source == null) ? LuaString.latin1("=?") : ar.source;
         v[4] = NativeBridge.strToNative(src.bytes);
-        v[5] = src.length();
-        v[6] = ar.currentline;
-        v[7] = ar.linedefined;
-        v[8] = ar.lastlinedefined;
-        v[9] = ar.nups;
-        v[10] = ar.nparams;
-        v[11] = ar.isvararg ? 1 : 0;
-        v[12] = ar.istailcall ? 1 : 0;
-        v[13] = ar.ftransfer;
-        v[14] = ar.ntransfer;
+        v[5] = ar.currentline;
+        v[6] = ar.linedefined;
+        v[7] = ar.lastlinedefined;
+        v[8] = ar.nups;
+        v[9] = ar.nparams;
+        v[10] = ar.isvararg ? 1 : 0;
+        v[11] = ar.istailcall ? 1 : 0;
         NativeBridge.dbgFill(arPtr, v);
         NativeBridge.dbgShortSrc(arPtr,
                 (ar.shortSrc == null) ? new byte[0] : ar.shortSrc.bytes);
@@ -1451,6 +1445,11 @@ final class Api {
         LuaState co = S.newThread();
         pushVal(S, LuaValue.ofThread(co));
         return NativeBridge.handle(co);
+    }
+
+    /** Lua 5.3.4 {@code lua_newuserdata} — one uservalue slot. */
+    static long lua_newuserdata(long L, long sz) {
+        return lua_newuserdatauv(L, sz, 1);
     }
 
     static long lua_newuserdatauv(long L, long sz, long nuvalue) {
@@ -1718,6 +1717,11 @@ final class Api {
      * 这里拿到的那个值用不上。返回值打包成 {@code status << 32 | nresults}，
      * C 侧再拆开。
      */
+    /** Lua 5.3.4 {@code lua_resume} — results stay on the stack (no nres out-param). */
+    static long lua_resume(long L, long from, long narg) {
+        return lua_resume(L, from, narg, 0);
+    }
+
     static long lua_resume(long L, long from, long narg, long nres) {
         LuaState S = st(L);
         LuaState f = (from == 0) ? null : st(from);
@@ -1789,6 +1793,11 @@ final class Api {
         LuaValue val_ = new LuaValue(S.stack[S.top - 1]);
         Vm.setTable(S, t, LuaValue.ofInteger(n), val_);
         S.top -= 1;
+    }
+
+    /** Lua 5.3.4 {@code lua_setuservalue}. */
+    static void lua_setuservalue(long L, long idx) {
+        lua_setiuservalue(L, idx, 1);
     }
 
     static long lua_setiuservalue(long L, long idx, long n) {
@@ -2076,8 +2085,13 @@ final class Api {
         }
         switch (v.baseType()) {
         case Lua.TTABLE:
-        case Lua.TFUNCTION:
         case Lua.TTHREAD:
+            return NativeBridge.handle(v.o);
+        case Lua.TFUNCTION:
+            /* 5.3.4: light C function → fvalue; C/Lua closure → object ptr */
+            if (v.tt == Lua.VLCF && v.o instanceof LuaNativeFunction) {
+                return ((LuaNativeFunction) v.o).fn;
+            }
             return NativeBridge.handle(v.o);
         default:
             return 0;
@@ -2185,8 +2199,15 @@ final class Api {
      * 几乎所有 C 扩展的 {@code luaopen_xxx} 开头都有
      * {@code luaL_checkversion(L)}，那个宏展开就是调它。
      */
-    static double lua_version(long L) {
-        return Lua.VERSION_NUM;
+    /** Lua 5.3.4: returns {@code const lua_Number *} to a static 503.0. */
+    private static final long VERSION_PTR = NativeBridge.alloc(8);
+
+    static {
+        NativeBridge.put64(VERSION_PTR, Double.doubleToRawLongBits(Lua.VERSION_NUM));
+    }
+
+    static long lua_version(long L) {
+        return VERSION_PTR;
     }
 
     static void lua_warning(long L, long msg, long tocont) {
@@ -2222,6 +2243,15 @@ final class Api {
         S.ci.k = (k == 0) ? null : new NativeKFunction(k);
         S.ci.ctx = (int) ctx;
         return 0;
+    }
+
+    /** LUA_COMPAT_MODULE leftovers in 5.3 headers — unsupported. */
+    static void luaL_openlib(long L, long libname, long l, long nup) {
+        throw new UnsupportedOperationException("luaL_openlib (LUA_COMPAT_MODULE) not implemented");
+    }
+
+    static void luaL_pushmodule(long L, long modname, long sizehint) {
+        throw new UnsupportedOperationException("luaL_pushmodule (LUA_COMPAT_MODULE) not implemented");
     }
 
     static void luaL_openlibs(long L) {

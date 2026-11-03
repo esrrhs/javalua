@@ -2,11 +2,6 @@
 /* 手写符号（变参/结构体遍历/数据符号）在 luashim.c 里 */
 
 /* lauxlib.h */
-LUALIB_API void (luaL_addgsub) (luaL_Buffer *b, const char *s, const char *p, const char *r) {
-  luashim_call(ID_luaL_addgsub, (intptr_t)b, (intptr_t)s, (intptr_t)p, (intptr_t)r, 0, 0, 0);
-}
-
-/* lauxlib.h */
 LUALIB_API int (luaL_argerror) (lua_State *L, int arg, const char *extramsg) {
   return (int)luashim_call(ID_luaL_argerror, LUASHIM_HANDLE(L), (jint)arg, (intptr_t)extramsg, 0, 0, 0, 0);
   luashim_throw();
@@ -139,13 +134,6 @@ LUALIB_API void (luaL_traceback) (lua_State *L, lua_State *L1, const char *msg, 
 }
 
 /* lauxlib.h */
-LUALIB_API int (luaL_typeerror) (lua_State *L, int arg, const char *tname) {
-  return (int)luashim_call(ID_luaL_typeerror, LUASHIM_HANDLE(L), (jint)arg, (intptr_t)tname, 0, 0, 0, 0);
-  luashim_throw();
-  return 0;
-}
-
-/* lauxlib.h */
 LUALIB_API void (luaL_unref) (lua_State *L, int t, int ref) {
   luashim_call(ID_luaL_unref, LUASHIM_HANDLE(L), (jint)t, (jint)ref, 0, 0, 0, 0);
 }
@@ -183,16 +171,6 @@ LUA_API int (lua_checkstack) (lua_State *L, int n) {
 /* lua.h */
 LUA_API void (lua_close) (lua_State *L) {
   luashim_call(ID_lua_close, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API void (lua_closeslot) (lua_State *L, int idx) {
-  luashim_call(ID_lua_closeslot, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API int (lua_closethread) (lua_State *L, lua_State *from) {
-  return (int)luashim_call(ID_lua_closethread, LUASHIM_HANDLE(L), LUASHIM_HANDLE(from), 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -263,11 +241,6 @@ LUA_API int (lua_getinfo) (lua_State *L, const char *what, lua_Debug *ar) {
 }
 
 /* lua.h */
-LUA_API int (lua_getiuservalue) (lua_State *L, int idx, int n) {
-  return (int)luashim_call(ID_lua_getiuservalue, LUASHIM_HANDLE(L), (jint)idx, (jint)n, 0, 0, 0, 0);
-}
-
-/* lua.h */
 LUA_API const char * (lua_getlocal) (lua_State *L, const lua_Debug *ar, int n) {
   return (const char *)(intptr_t)luashim_call(ID_lua_getlocal, LUASHIM_HANDLE(L), (intptr_t)ar, (jint)n, 0, 0, 0, 0);
 }
@@ -295,6 +268,11 @@ LUA_API int (lua_gettop) (lua_State *L) {
 /* lua.h */
 LUA_API const char * (lua_getupvalue) (lua_State *L, int funcindex, int n) {
   return (const char *)(intptr_t)luashim_call(ID_lua_getupvalue, LUASHIM_HANDLE(L), (jint)funcindex, (jint)n, 0, 0, 0, 0);
+}
+
+/* lua.h */
+LUA_API int (lua_getuservalue) (lua_State *L, int idx) {
+  return (int)luashim_call(ID_lua_getuservalue, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -338,8 +316,8 @@ LUA_API lua_State * (lua_newthread) (lua_State *L) {
 }
 
 /* lua.h */
-LUA_API void * (lua_newuserdatauv) (lua_State *L, size_t sz, int nuvalue) {
-  return (void *)(intptr_t)luashim_call(ID_lua_newuserdatauv, LUASHIM_HANDLE(L), (jlong)sz, (jint)nuvalue, 0, 0, 0, 0);
+LUA_API void * (lua_newuserdata) (lua_State *L, size_t sz) {
+  return (void *)(intptr_t)luashim_call(ID_lua_newuserdata, LUASHIM_HANDLE(L), (jlong)sz, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -423,8 +401,8 @@ LUA_API int (lua_rawgetp) (lua_State *L, int idx, const void *p) {
 }
 
 /* lua.h */
-LUA_API lua_Unsigned (lua_rawlen) (lua_State *L, int idx) {
-  return (lua_Unsigned)luashim_call(ID_lua_rawlen, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
+LUA_API size_t (lua_rawlen) (lua_State *L, int idx) {
+  return (size_t)luashim_call(ID_lua_rawlen, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -443,18 +421,8 @@ LUA_API void (lua_rawsetp) (lua_State *L, int idx, const void *p) {
 }
 
 /* lua.h */
-LUA_API int (lua_resetthread) (lua_State *L) {
-  return (int)luashim_call(ID_lua_resetthread, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
 LUA_API void (lua_rotate) (lua_State *L, int idx, int n) {
   luashim_call(ID_lua_rotate, LUASHIM_HANDLE(L), (jint)idx, (jint)n, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API int (lua_setcstacklimit) (lua_State *L, unsigned int limit) {
-  return (int)luashim_call(ID_lua_setcstacklimit, LUASHIM_HANDLE(L), (jint)limit, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -475,11 +443,6 @@ LUA_API void (lua_sethook) (lua_State *L, lua_Hook func, int mask, int count) {
 /* lua.h */
 LUA_API void (lua_seti) (lua_State *L, int idx, lua_Integer n) {
   luashim_call(ID_lua_seti, LUASHIM_HANDLE(L), (jint)idx, (jlong)n, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API int (lua_setiuservalue) (lua_State *L, int idx, int n) {
-  return (int)luashim_call(ID_lua_setiuservalue, LUASHIM_HANDLE(L), (jint)idx, (jint)n, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -508,8 +471,8 @@ LUA_API const char * (lua_setupvalue) (lua_State *L, int funcindex, int n) {
 }
 
 /* lua.h */
-LUA_API void (lua_setwarnf) (lua_State *L, lua_WarnFunction f, void *ud) {
-  luashim_call(ID_lua_setwarnf, LUASHIM_HANDLE(L), (intptr_t)f, (intptr_t)ud, 0, 0, 0, 0);
+LUA_API void (lua_setuservalue) (lua_State *L, int idx) {
+  luashim_call(ID_lua_setuservalue, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -530,11 +493,6 @@ LUA_API int (lua_toboolean) (lua_State *L, int idx) {
 /* lua.h */
 LUA_API lua_CFunction (lua_tocfunction) (lua_State *L, int idx) {
   return (lua_CFunction)(intptr_t)luashim_call(ID_lua_tocfunction, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API void (lua_toclose) (lua_State *L, int idx) {
-  luashim_call(ID_lua_toclose, LUASHIM_HANDLE(L), (jint)idx, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -588,13 +546,8 @@ LUA_API void (lua_upvaluejoin) (lua_State *L, int fidx1, int n1, int fidx2, int 
 }
 
 /* lua.h */
-LUA_API lua_Number (lua_version) (lua_State *L) {
-  return (lua_Number)luashim_callD(ID_lua_version, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
-}
-
-/* lua.h */
-LUA_API void (lua_warning) (lua_State *L, const char *msg, int tocont) {
-  luashim_call(ID_lua_warning, LUASHIM_HANDLE(L), (intptr_t)msg, (jint)tocont, 0, 0, 0, 0);
+LUA_API const lua_Number * (lua_version) (lua_State *L) {
+  return (const lua_Number *)(intptr_t)luashim_call(ID_lua_version, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
 }
 
 /* lua.h */
@@ -610,6 +563,11 @@ LUALIB_API void (luaL_openlibs) (lua_State *L) {
 /* lualib.h */
 LUAMOD_API int (luaopen_base) (lua_State *L) {
   return (int)luashim_call(ID_luaopen_base, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}
+
+/* lualib.h */
+LUAMOD_API int (luaopen_bit32) (lua_State *L) {
+  return (int)luashim_call(ID_luaopen_bit32, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
 }
 
 /* lualib.h */

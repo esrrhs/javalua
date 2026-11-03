@@ -33,6 +33,14 @@ JAVA_DIR = os.path.join(ROOT, "src/main/java/com/github/esrrhs/javalua")
 HEADERS = ["lua.h", "lauxlib.h", "lualib.h"]
 
 # 需要手写的符号：变参 / 遍历 C 结构体 / 填 lua_Debug / 数据符号 / 不返回
+# Default PUC-Rio 5.3.4 build uses -DLUA_COMPAT_5_2 only (Makefile), not
+# LUA_COMPAT_5_1 / LUA_COMPAT_MODULE. join_lines drops #if lines but still
+# sees decls inside the block — exclude them so shim symbol set matches liblua.a.
+SKIP_UNLESS_COMPAT_MODULE = {
+    "luaL_openlib",
+    "luaL_pushmodule",
+}
+
 HAND_WRITTEN = {
     "lua_pushfstring",    # ... 变参，要 vsnprintf
     "lua_pushvfstring",   # va_list
@@ -181,6 +189,8 @@ def extract():
             if name in ARG_OVERRIDE:
                 args = [{"type": t, "ptr": 0, "name": n, "const": False}
                         for t, n in ARG_OVERRIDE[name]]
+            if name in SKIP_UNLESS_COMPAT_MODULE:
+                continue
             funcs.append({
                 "header": h,
                 "api": m.group("api"),

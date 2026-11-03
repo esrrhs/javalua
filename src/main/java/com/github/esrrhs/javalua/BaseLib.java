@@ -257,7 +257,8 @@ public final class BaseLib {
              * {@code cjson.null} 是 {@code lua_pushlightuserdata(L, NULL)}
              * 推出来的，参考实现打 {@code userdata: 0x0}。
              */
-            String ptr = "0x" + Long.toHexString(Api.topointer(v));
+            long tp = Api.topointer(v);
+            String ptr = (tp == 0) ? "(nil)" : ("0x" + Long.toHexString(tp));
             return kind.concat(LuaString.latin1(": " + ptr));
         }
         }

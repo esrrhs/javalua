@@ -785,7 +785,7 @@ public final class Parser {
     private void closeFunc() {
         FuncState fs = this.fs;
         Proto f = fs.f;
-        Codegen.ret(fs, fs.nvarstack(), 0); // 末尾的 return
+        Codegen.ret(fs, 0, 0); // final return (5.3.4 close_func: luaK_ret(fs, 0, 0))
         leaveBlock(fs);
         Codegen.finish(fs);
         f.truncateCode(fs.pc);
@@ -1146,7 +1146,7 @@ public final class Parser {
             if (!fs.f.isVararg) {
                 throw ls.syntaxError("cannot use '...' outside a vararg function");
             }
-            initExp(v, ExpDesc.VVARARG, Codegen.codeABC(fs, OpCode.OP_VARARG, 0, 0, 1));
+            initExp(v, ExpDesc.VVARARG, Codegen.codeABC(fs, OpCode.OP_VARARG, 0, 1, 0));
             break;
         }
         case '{':
@@ -1389,20 +1389,25 @@ public final class Parser {
         return v.f;
     }
 
-    /** {@code gotostat} */
-    private void gotoStat() {
-        /* 5.3.4 gotostat: always enqueue pending goto, then findlabel */
+    /** {@code gotostat} — Lua 5.3.4 {@code lparser.c}: uses supplied jump pc. */
+    private void gotoStat(int pc) {
         int line = ls.linenumber;
-        LuaString name = strCheckName();
-        int g = newLabelEntry(true, name, line, Codegen.jump(fs));
-        tryCloseGoto(g);
+        LuaString label;
+        if (testNext(Lexer.TK_GOTO)) {
+            label = strCheckName();
+        } else {
+            ls.next(); /* skip break */
+            label = breakName;
+        }
+        int g = newLabelEntry(true, label, line, pc);
+        tryCloseGoto(g); /* close it if label already defined */
     }
 
-    /** {@code breakstat} */
-    private void breakStat() {
-        int line = ls.linenumber;
-        ls.next();
-        newLabelEntry(true, breakName, line, Codegen.jump(fs));
+    /** skip no-op statements ({@code skipnoopstat}) */
+    private void skipNoOpStat() {
+        while (ls.t.token == ';' || ls.t.token == Lexer.TK_DBCOLON) {
+            statement();
+        }
     }
 
     /** {@code checkrepeated} */
@@ -1585,38 +1590,35 @@ public final class Parser {
         leaveBlock(fs);
     }
 
-    /** {@code test_then_block} */
+    /** {@code test_then_block} — Lua 5.3.4 (special-case then goto/break). */
     private void testThenBlock(int[] escapelist) {
         BlockCnt bl = new BlockCnt();
         FuncState fs = this.fs;
         ExpDesc v = new ExpDesc();
-        int jf;
-        ls.next(); // 跳过 IF / ELSEIF
-        expr(v);
+        int jf; /* instruction to skip 'then' code (if condition is false) */
+        ls.next(); /* skip IF or ELSEIF */
+        expr(v); /* read condition */
         checkNext(Lexer.TK_THEN);
-        if (ls.t.token == Lexer.TK_BREAK) { // 'if x then break' ?
-            int line = ls.linenumber;
-            Codegen.goIfFalse(fs, v);
-            ls.next();
-            enterBlock(fs, bl, false);
-            newLabelEntry(true, breakName, line, v.t);
-            while (testNext(';')) {
-                // 跳过分号
-            }
-            if (blockFollow(false)) { // 整个块就是这条跳转
+        if (ls.t.token == Lexer.TK_GOTO || ls.t.token == Lexer.TK_BREAK) {
+            Codegen.goIfFalse(fs, v); /* will jump to label if condition is true */
+            enterBlock(fs, bl, false); /* must enter block before 'goto' */
+            gotoStat(v.t); /* handle goto/break */
+            skipNoOpStat(); /* skip other no-op statements */
+            if (blockFollow(false)) { /* 'goto' is the entire block? */
                 leaveBlock(fs);
-                return;
+                return; /* and that is it */
+            } else { /* must skip over 'then' part if condition is false */
+                jf = Codegen.jump(fs);
             }
-            jf = Codegen.jump(fs); // 条件为假时要跳过 then 部分
-        } else {
-            Codegen.goIfTrue(fs, v);
+        } else { /* regular case (not goto/break) */
+            Codegen.goIfTrue(fs, v); /* skip over block if condition is false */
             enterBlock(fs, bl, false);
             jf = v.f;
         }
-        statList();
+        statList(); /* 'then' part */
         leaveBlock(fs);
         if (ls.t.token == Lexer.TK_ELSE || ls.t.token == Lexer.TK_ELSEIF) {
-            Codegen.concat(fs, escapelist, Codegen.jump(fs));
+            Codegen.concat(fs, escapelist, Codegen.jump(fs)); /* must jump over it */
         }
         Codegen.patchToHere(fs, jf);
     }
@@ -1753,33 +1755,33 @@ public final class Parser {
         }
     }
 
-    /** {@code retstat} */
+    /** {@code retstat} — Lua 5.3.4 {@code lparser.c} {@code retstat} */
     private void retStat() {
         FuncState fs = this.fs;
         ExpDesc e = new ExpDesc();
-        int nret;
-        int first = fs.nvarstack();
+        int first, nret; /* registers with returned values */
         if (blockFollow(true) || ls.t.token == ';') {
-            nret = 0;
+            first = nret = 0; /* return no values */
         } else {
-            nret = expList(e);
+            nret = expList(e); /* optional return values */
             if (hasMultRet(e.k)) {
                 Codegen.setMultiRet(fs, e);
-                if (e.k == ExpDesc.VCALL && nret == 1 && !fs.bl.insidetbc) {
-                    // 尾调用
+                if (e.k == ExpDesc.VCALL && nret == 1) { /* tail call? */
                     fs.f.code[e.info] = OpCode.setOpCode(fs.f.code[e.info], OpCode.OP_TAILCALL);
                 }
-                nret = Codegen.MULTRET;
+                first = fs.nactvar;
+                nret = Codegen.MULTRET; /* return all values */
             } else {
-                if (nret == 1) {
+                if (nret == 1) { /* only one single value? */
                     first = Codegen.exp2AnyReg(fs, e);
                 } else {
-                    Codegen.exp2NextReg(fs, e);
+                    Codegen.exp2NextReg(fs, e); /* values must go to the stack */
+                    first = fs.nactvar; /* return all active values */
                 }
             }
         }
         Codegen.ret(fs, first, nret);
-        testNext(';');
+        testNext(';'); /* skip optional semicolon */
     }
 
     /** {@code statement} */
@@ -1826,13 +1828,11 @@ public final class Parser {
             ls.next();
             retStat();
             break;
-        case Lexer.TK_BREAK:
-            breakStat();
+        case Lexer.TK_BREAK: /* stat -> breakstat */
+        case Lexer.TK_GOTO: { /* stat -> 'goto' NAME */
+            gotoStat(Codegen.jump(fs));
             break;
-        case Lexer.TK_GOTO:
-            ls.next();
-            gotoStat();
-            break;
+        }
         default:
             exprStat();
             break;

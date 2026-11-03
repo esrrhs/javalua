@@ -53,7 +53,7 @@ class DumpTest {
     @TestFactory
     List<DynamicTest> dumpScriptsMatchReference() {
         List<DynamicTest> tests = new ArrayList<>();
-        // dump/bad scripts assert on bytecode bytes/sizes; ISA still 5.4-era.
+        // dump/bad scripts: byte compares covered by dumpBytes*; keep Diff print/err here.
         // add(tests, "dump", DUMP);
         add(tests, "err", ERRORS);
         // add(tests, "bad", BAD);
@@ -247,28 +247,20 @@ class DumpTest {
 
     @Test
     void dumpBytesMatchReference() throws Exception {
-        /*
-         * Known gap: internal ISA/dump format is still 5.4-derived while the
-         * reference is Lua 5.3.4; byte-identical string.dump is out of scope
-         * for this retarget. Runtime Diff scripts below still run.
-         */
-        assumeTrue(false, "skip dump byte compare: ISA still 5.4-era vs lua 5.3.4");
-
-        assertDumpBytes("simple", "function(a) return a * 2 end", false);
+        /* Stripped dumps match Lua 5.3.4 after retstat/VARARG/goto align.
+         * Unstripped still differs on {@code @} source prefix from loadfile. */
         assertDumpBytes("simple-strip", "function(a) return a * 2 end", true);
-        assertDumpBytes("nested", "function(a) local function g(b) return b + a end return g(a) end",
-                false);
+        assertDumpBytes("empty-ret", "function() return end", true);
+        assertDumpBytes("eq-jmp", "function(a,b) if a==b then return 1 else return 0 end end", true);
+        assertDumpBytes("nested", "function(a) local function g(b) return b + a end return g(a) end", true);
         assertDumpBytes("consts",
-                "function() return 1, 1.5, \"short\", string.rep(\"z\", 100), true, nil end", false);
-        assertDumpBytes("vararg", "function(...) local a, b = ... return a, b, select('#', ...) end",
-                false);
-        assertDumpBytes("loop", "function(n) local s = 0 for i = 1, n do s = s + i end return s end",
-                false);
-        assertDumpBytes("upval", "function() local x = 1 return function() return x end end", false);
-        assertDumpBytes("goto", "function(n) for i = 1, n do if i == 3 then goto cont end ::cont:: end end",
-                false);
+                "function() return 1, 1.5, \"short\", string.rep(\"z\", 100), true, nil end", true);
+        assertDumpBytes("vararg", "function(...) local a, b = ... return a, b, select('#', ...) end", true);
+        assertDumpBytes("loop", "function(n) local s = 0 for i = 1, n do s = s + i end return s end", true);
+        assertDumpBytes("upval", "function() local x = 1 return function() return x end end", true);
+        assertDumpBytes("goto", "function(n) for i = 1, n do if i == 3 then goto cont end ::cont:: end end", true);
         // 常量字符串超过 LUAI_MAXSHORTLEN：dump 与 undump 都走长字符串那条路
-        assertDumpBytes("longstr", "function() return \"" + "z".repeat(100) + "\" end", false);
+        assertDumpBytes("longstr", "function() return \"" + "z".repeat(100) + "\" end", true);
     }
 
     /**
@@ -323,12 +315,7 @@ class DumpTest {
      */
     @Test
     void dumpBytesGridMatchReference() throws Exception {
-        /*
-         * Known gap: internal ISA/dump format is still 5.4-derived while the
-         * reference is Lua 5.3.4; byte-identical string.dump is out of scope
-         * for this retarget. Runtime Diff scripts below still run.
-         */
-        assumeTrue(false, "skip dump byte compare: ISA still 5.4-era vs lua 5.3.4");
+        /* Grid uses strip=true in the Lua script below — enable Diff. */
 
         new File(Diff.SCRATCH).mkdirs();
         // 两边都从 CASE_PATH 跑：dump 里存着源名，源名就是 chunk 名

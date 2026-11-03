@@ -750,31 +750,10 @@ LUA_API const char *(lua_pushfstring) (lua_State *L, const char *fmt, ...) {
     return r;
 }
 
-LUA_API int (lua_gc) (lua_State *L, int what, ...) {
-    /* 只有这四个 what 带变参，乱读 va_arg 会拿到垃圾 */
-    jlong e0 = 0, e1 = 0, e2 = 0;
-    va_list ap;
-    va_start(ap, what);
-    switch (what) {
-        case LUA_GCSTEP:
-        case LUA_GCSETPAUSE:
-        case LUA_GCSETSTEPMUL:
-            e0 = va_arg(ap, int);
-            break;
-        case LUA_GCGEN:
-            e0 = va_arg(ap, int);
-            e1 = va_arg(ap, int);
-            break;
-        case LUA_GCINC:
-            e0 = va_arg(ap, int);
-            e1 = va_arg(ap, int);
-            e2 = va_arg(ap, int);
-            break;
-        default:
-            break;
-    }
-    va_end(ap);
-    return (int)luashim_call(ID_lua_gc, LUASHIM_HANDLE(L), (jint)what, e0, e1, e2, 0, 0.0);
+/* Lua 5.3.4: lua_gc(L, what, data) — fixed arity, not varargs. */
+LUA_API int (lua_gc) (lua_State *L, int what, int data) {
+    return (int)luashim_call(ID_lua_gc, LUASHIM_HANDLE(L), (jint)what,
+            (jint)data, 0, 0, 0, 0.0);
 }
 
 /*
@@ -808,18 +787,16 @@ LUALIB_API int (luaL_fileresult) (lua_State *L, int stat, const char *fname) {
 }
 
 LUALIB_API int (luaL_execresult) (lua_State *L, int stat) {
+    /* Lua 5.3.4 lauxlib.c: only stat == -1 goes through fileresult. */
     static const char exitw[] = "exit";
     static const char signalw[] = "signal";
     const char *what = exitw;
     int en = errno;
-    if (stat != 0 && en != 0) {
+    if (stat == -1) {
         return luaL_fileresult(L, 0, NULL);
     }
     /*
-     * lauxlib.c 的 l_inspectstat。用<b>本平台</b>的 wait 宏，别自己造位运算：
-     * 实测（macOS）execresult(-1) 给 "exit",-1 而不是 "signal",127 ——
-     * 因为 BSD 的 WIFSIGNALED 排除了 _W_STOPPED(0177)，而 (x & 0x7f) 恰好
-     * 是 0177。照 Linux 那套位运算写就会错在这一条上。
+     * l_inspectstat: use this platform's wait macros (not hand-rolled masks).
      */
     if (WIFEXITED(stat)) {
         stat = WEXITSTATUS(stat);
@@ -833,22 +810,17 @@ LUALIB_API int (luaL_execresult) (lua_State *L, int stat) {
 
 /* luaL_Reg 数组在 C 侧，Java 读不到：照 lauxlib.c 逐个注册 */
 LUALIB_API void (luaL_setfuncs) (lua_State *L, const luaL_Reg *l, int nup) {
-    static const char noslots[] = "not enough slots";
+    /* Lua 5.3.4: always lua_pushcclosure, including func == NULL placeholders. */
+    static const char noslots[] = "too many upvalues";
     luashim_call(ID_luaL_checkstack, LUASHIM_HANDLE(L), (jint)nup,
             (intptr_t)noslots, 0, 0, 0, 0.0);
     for (; l->name != NULL; l++) {
         int i;
-        if (l->func == NULL) {
-            /* lauxlib.c 的「占位」分支：压一个 false，不开闭包 */
-            luashim_call(ID_lua_pushboolean, LUASHIM_HANDLE(L), (jint)0,
-                    0, 0, 0, 0, 0.0);
-        } else {
-            for (i = 0; i < nup; i++) {
-                luashim_call(ID_lua_pushvalue, LUASHIM_HANDLE(L), (jint)(-nup), 0, 0, 0, 0, 0.0);
-            }
-            luashim_call(ID_lua_pushcclosure, LUASHIM_HANDLE(L),
-                    (intptr_t)(intptr_t)l->func, (jint)nup, 0, 0, 0, 0.0);
+        for (i = 0; i < nup; i++) {
+            luashim_call(ID_lua_pushvalue, LUASHIM_HANDLE(L), (jint)(-nup), 0, 0, 0, 0, 0.0);
         }
+        luashim_call(ID_lua_pushcclosure, LUASHIM_HANDLE(L),
+                (intptr_t)(intptr_t)l->func, (jint)nup, 0, 0, 0, 0.0);
         luashim_call(ID_lua_setfield, LUASHIM_HANDLE(L), (jint)(-nup - 2),
                 (intptr_t)l->name, 0, 0, 0, 0.0);
     }
@@ -857,11 +829,23 @@ LUALIB_API void (luaL_setfuncs) (lua_State *L, const luaL_Reg *l, int nup) {
 
 /* const char *const lst[]：打包成 "a\0b\0c\0" 连长度一起交给 Java */
 /* 整个照 lauxlib.c：buffinit + addgsub + pushresult 全在 C 侧 */
+/* 5.3.4 has no public luaL_addgsub; keep a local helper for luaL_gsub. */
+static void addgsub(luaL_Buffer *b, const char *s, const char *p, const char *r) {
+    const char *e;
+    size_t l = strlen(p);
+    while ((e = strstr(s, p)) != NULL) {
+        luaL_addlstring(b, s, e - s);
+        luaL_addstring(b, r);
+        s = e + l;
+    }
+    luaL_addstring(b, s);
+}
+
 LUALIB_API const char *(luaL_gsub) (lua_State *L, const char *s,
         const char *p, const char *r) {
     luaL_Buffer b;
     luaL_buffinit(L, &b);
-    luaL_addgsub(&b, s, p, r);
+    addgsub(&b, s, p, r);
     luaL_pushresult(&b);
     return lua_tostring(L, -1);
 }
@@ -1060,7 +1044,7 @@ static void buffgrow(luaL_Buffer *B, size_t extra) {
     while (ns < want) {
         ns *= 2;
     }
-    if (B->b == B->init.b) {
+    if (B->b == B->initb) {
         nb = (char *)malloc(ns);
         if (nb == NULL) {
             return;
@@ -1077,17 +1061,17 @@ static void buffgrow(luaL_Buffer *B, size_t extra) {
 }
 
 static void buffreset(luaL_Buffer *B) {
-    if (B->b != B->init.b) {
+    if (B->b != B->initb) {
         free(B->b);
     }
-    B->b = B->init.b;
+    B->b = B->initb;
     B->size = LUAL_BUFFERSIZE;
     B->n = 0;
 }
 
 LUALIB_API void (luaL_buffinit) (lua_State *L, luaL_Buffer *B) {
     B->L = L;
-    B->b = B->init.b;
+    B->b = B->initb;
     B->size = LUAL_BUFFERSIZE;
     B->n = 0;
 }
@@ -1264,34 +1248,29 @@ LUA_API int (lua_yieldk) (lua_State *L, int nresults, lua_KContext ctx,
 }
 
 /*
- * {@code lua_resume} 的 {@code nres} 是<b>出参</b>（{@code int *}），而 Java 那头
- * 只能回一个 long。所以打包：高 32 位是 status，低 32 位是该从协程栈上搬走的
- * 结果个数。
+ * Lua 5.3.4 {@code lua_resume(L, from, nargs)} — no nres out-param.
+ * Java still packs status in the high 32 bits (low 32 = nresults, ignored here;
+ * callers pull results from the stack like PUC-Rio 5.3).
  */
-LUA_API int (lua_resume) (lua_State *L, lua_State *from, int nargs,
-        int *nres) {
+LUA_API int (lua_resume) (lua_State *L, lua_State *from, int nargs) {
     jlong r = luashim_call(ID_lua_resume, LUASHIM_HANDLE(L),
             LUASHIM_HANDLE(from), (jint)nargs, 0, 0, 0, 0.0);
-    int status = (int)(r >> 32);
-    if (nres != NULL) {
-        *nres = (int)(r & 0xffffffffL);
-    }
-    return status;
+    return (int)(r >> 32);
 }
 
 /* ---- lua_Debug：C 侧的 struct，Java 按固定下标给值，C 按 offsetof 落字段 ---- */
 
-#define DBG_N 15
+#define DBG_N 12
 static const struct {
     size_t off;
     size_t size;
 } DBG_FIELD[DBG_N] = {
+    /* Lua 5.3.4 lua_Debug — no srclen / ftransfer / ntransfer */
     {offsetof(lua_Debug, event), sizeof(int)},
     {offsetof(lua_Debug, name), sizeof(const char *)},
     {offsetof(lua_Debug, namewhat), sizeof(const char *)},
     {offsetof(lua_Debug, what), sizeof(const char *)},
     {offsetof(lua_Debug, source), sizeof(const char *)},
-    {offsetof(lua_Debug, srclen), sizeof(size_t)},
     {offsetof(lua_Debug, currentline), sizeof(int)},
     {offsetof(lua_Debug, linedefined), sizeof(int)},
     {offsetof(lua_Debug, lastlinedefined), sizeof(int)},
@@ -1299,8 +1278,6 @@ static const struct {
     {offsetof(lua_Debug, nparams), sizeof(unsigned char)},
     {offsetof(lua_Debug, isvararg), sizeof(char)},
     {offsetof(lua_Debug, istailcall), sizeof(char)},
-    {offsetof(lua_Debug, ftransfer), sizeof(unsigned short)},
-    {offsetof(lua_Debug, ntransfer), sizeof(unsigned short)},
 };
 
 /** 把 Java 给的 DBG_N 个值按各自宽度写进 lua_Debug */
@@ -2052,34 +2029,3 @@ Java_com_github_esrrhs_javalua_NativeBridge_cStrftime(JNIEnv *env, jclass cls,
 /* ==================== 生成的 stub ==================== */
 
 #include "luashim_stubs.inc"
-
-/*
- * Lua 5.3.4 兼容导出：官方头文件里这些是真函数；本仓库 native/lua 头仍混有
- * 5.4 的 *uv 宏别名。对撞闸门（NativeSymbolTest）按 5.3.4 liblua.a 比符号，
- * 这里取消宏后给出与 5.3.4 同名的导出，并转发到已有实现。
- */
-#ifdef lua_newuserdata
-#undef lua_newuserdata
-#endif
-#ifdef lua_getuservalue
-#undef lua_getuservalue
-#endif
-#ifdef lua_setuservalue
-#undef lua_setuservalue
-#endif
-
-LUA_API void *(lua_newuserdata)(lua_State *L, size_t sz) {
-  return lua_newuserdatauv(L, sz, 1);
-}
-
-LUA_API int (lua_getuservalue)(lua_State *L, int idx) {
-  return lua_getiuservalue(L, idx, 1);
-}
-
-LUA_API void (lua_setuservalue)(lua_State *L, int idx) {
-  lua_setiuservalue(L, idx, 1);
-}
-
-LUAMOD_API int (luaopen_bit32)(lua_State *L) {
-  return (int)luashim_call(ID_luaopen_bit32, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
-}
