@@ -412,12 +412,19 @@ public final class Undump {
         if (f.locvars.length != n) {
             f.locvars = Arrays.copyOf(f.locvars, Math.max(n, 0));
         }
+        /*
+         * Lua 5.3.4 lundump.c LoadDebug: loop count is the dumped int itself.
+         * (5.4 replaced a non-zero count with f->sizeupvalues — do NOT copy that.)
+         * LoadString runs before the array store in C, so a huge corrupt count
+         * hits truncated on the first string without indexing upvalues[i].
+         */
         n = loadInt(S);
-        if (n != 0) { // 有调试信息就必须给出全部 upvalue 名
-            n = f.sizeupvalues;
-        }
         for (int i = 0; i < n; i++) {
-            f.upvalues[i].name = loadStringN(S, f);
+            LuaString name = loadStringN(S, f);
+            if (i < f.sizeupvalues) {
+                f.upvalues[i].name = name;
+            }
+            /* else: C would be UB on a corrupt count; stream already consumed */
         }
     }
 

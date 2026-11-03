@@ -280,7 +280,8 @@ final class Api {
         grow(S, 3);
         S.stack[S.top++].set(f);
         S.stack[S.top++].set(o);
-        S.call(S.top - 2, 1);
+        /* lauxlib.c:luaL_callmeta uses lua_call = luaD_callnoyield */
+        S.callNoYield(S.top - 2, 1);
         return 1;
     }
 

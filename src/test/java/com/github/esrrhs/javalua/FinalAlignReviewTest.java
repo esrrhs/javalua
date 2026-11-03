@@ -224,4 +224,21 @@ go("UD1", function()
 end)
 """);
   }
+
+  /** Undump must use 5.3.4 LoadDebug upvalue-name count (not 5.4 remap). */
+  @Test void undumpDebugUpvalueCount() {
+    assumeTrue(ReferenceLua.find()!=null);
+    Diff.assertMatches("""
+local d=string.dump(function() return 1 end, true)
+local function go(tag, pos)
+  local x = d:sub(1,pos-1) .. string.char((string.byte(d,pos)+1)%256) .. d:sub(pos+1)
+  local f, err = load(x)
+  print(tag, f~=nil, err)
+end
+go("T", #d)
+go("U", #d-1)
+go("V", #d-2)
+go("M", math.floor(#d/2))
+""");
+  }
 }
