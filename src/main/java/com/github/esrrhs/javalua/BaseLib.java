@@ -750,7 +750,8 @@ public final class BaseLib {
          * 不属于，所以 {@code setmetatable({})} 报错，报的是 {@code got no value}。
          */
         int t2 = L.argBaseType(2);
-        LuaAux.argExpected(L, t2 == Lua.TNIL || t2 == Lua.TTABLE, 2, "nil or table");
+        /* 5.3.4: luaL_argcheck bare message (no got) */
+        LuaAux.argCheck(L, t2 == Lua.TNIL || t2 == Lua.TTABLE, 2, "nil or table expected");
         LuaValue t = L.arg(0);
         LuaValue mt = L.arg(1);
         if (metamethodByName(L, t, "__metatable") != null) {

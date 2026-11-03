@@ -20,8 +20,8 @@ standard library, binary chunks, debug hooks, and native C modules.
   integer/float subtypes, and every metamethod including `__gc` and
   `__mode`.
 - **Complete standard library** — `base`, `coroutine`, `package`, `string`
-  (including `pack`/`unpack`), `table`, `math`, `io`, `os`, `utf8`, and
-  `debug` with hooks.
+  (including `pack`/`unpack`), `table`, `math`, `io`, `os`, `utf8`, `bit32`
+  (`LUA_COMPAT_5_2`), and `debug` with hooks.
 - **Memory by the JVM** — `lgc.c` is not ported. Weak tables use
   `WeakReference`/`ReferenceQueue`, `__gc` uses a resurrection sentinel, and
   string interning uses a weak pool. `collectgarbage` keeps Lua's observable
@@ -127,9 +127,8 @@ Intentional / unfixable platform notes (everything else is expected to match
 Lua 5.3.4):
 
 
-- **Bytecode ISA / `string.dump`**: the compiler and dump/undump path are still largely 5.4-derived (opcodes, some header fields). Version byte is advertised as 5.3 (`0x53`), but byte-identical dumps against stock Lua 5.3.4 are **not** guaranteed yet. Related Diff suites are `@Disabled` pending a full ISA retarget.
-- **Large Diff matrices temporarily disabled**: `RuntimeTest`, `DebugTest`, `PackageLibTest`, upstream suite/smoke, and several lib grids are `@Disabled` on this branch while 5.3.4-specific edges (table hash visit order, `warn`/`<close>` leftovers, libc `rand` sequences, etc.) are finished. Core suites (`ParserTest`, `SyntaxE2eTest`, `LexerTest`, `Utf8LibTest`, `MathLibTest`, `GcParamTest`, `ConformanceTest`, …) stay enforced.
-- **`math.random` / `randomseed`**: API matches 5.3.4 (one seed argument, no dual-seed return, `random(0)` is an empty interval). Sequences use `java.util.Random`, not libc `rand`, so they are not Diff-compared to the reference binary.
+- **`math.random` / `randomseed`** (**accepted platform note**): API matches 5.3.4 (one seed argument, no dual-seed return, `random(0)` is an empty interval). Sequences use `java.util.Random`, not libc `rand`/`srand`, so numeric streams differ from the reference binary by design and are not treated as alignment gaps.
+- **Table hash visit order / `#t` border**: Open-addressed hash placement for non-integer keys can differ from PUC-Rio's `ltable.c` when insertion histories diverge; length-border edge cases that depend on that layout may still Diff until the array/hash bookkeeping matches byte-for-byte.
 
 - **GC**: memory is owned by the JVM (`lgc.c` is not ported). Weak tables,
   `__gc`, and `collectgarbage` keep Lua-observable shapes where possible, but

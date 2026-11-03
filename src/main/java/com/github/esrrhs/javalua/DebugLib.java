@@ -397,7 +397,7 @@ public final class DebugLib {
         if (name == null) {
             int limit = (ci == L.ci) ? L.top : nextFrameFunc(L, ci);
             if (limit - base >= n && n > 0) {
-                name = ci.isLua ? "(temporary)" : "(C temporary)";
+                name = ci.isLua ? "(*temporary)" : "(*temporary)"; /* 5.3.4 findlocal */
             } else {
                 return null;
             }

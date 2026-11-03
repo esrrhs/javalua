@@ -226,7 +226,7 @@ final class LuaTm {
             case Tm.TM_SHL:
             case Tm.TM_SHR:
             case Tm.TM_BNOT:
-                if (p1.isNumber() && p2.isNumber()) {
+                if (Vm.toNumber(p1) != null && Vm.toNumber(p2) != null) {
                     /*
                      * {@code ldebug.c: luaG_tointerror}：
                      * <pre>
@@ -257,7 +257,7 @@ final class LuaTm {
                      *       'huge'", "return math.huge << 1")} 就对不上。</li>
                      * </ul>
                      */
-                    LuaValue bad = (Vm.toIntegerNs(p1, Arith.F2I_EQ) == null) ? p1 : p2;
+                    LuaValue bad = (Vm.toInteger(p1, Arith.F2I_EQ) == null) ? p1 : p2; /* 5.3 tointeger */
                     throw L.runError("number" + L.varInfo(bad)
                             + " has no integer representation");
                 }

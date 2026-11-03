@@ -104,7 +104,8 @@ public final class OsLib {
     }
 
     private static LuaError badDate(LuaState L) {
-        return L.libError("date result cannot be represented in this installation");
+        /* 5.3.4 os_date uses the same wording as os_time */
+        return L.libError("time result cannot be represented in this installation");
     }
 
     private static LuaError badTime(LuaState L) {
@@ -582,12 +583,13 @@ public final class OsLib {
         }
         LuaAux.checkType(L, 1, Lua.TTABLE);
         LuaValue t = L.arg1(1);
-        int tmYear = getField(L, t, "year", -1, 1900);
-        int tmMon = getField(L, t, "month", -1, 1);
-        int tmDay = getField(L, t, "day", -1, 0);
-        int tmHour = getField(L, t, "hour", 12, 0);
-        int tmMin = getField(L, t, "min", 0, 0);
+        /* 5.3.4 os_time: sec,min,hour,day,month,year — missing field follows this order */
         int tmSec = getField(L, t, "sec", 0, 0);
+        int tmMin = getField(L, t, "min", 0, 0);
+        int tmHour = getField(L, t, "hour", 12, 0);
+        int tmDay = getField(L, t, "day", -1, 0);
+        int tmMon = getField(L, t, "month", -1, 1);
+        int tmYear = getField(L, t, "year", -1, 1900);
         int isdst = getBoolField(L, t, "isdst");
 
         TimeZone tz = TimeZone.getDefault();
