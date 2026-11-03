@@ -15,6 +15,9 @@ public final class CallInfo {
     /** 被调用函数在栈上的下标；参数紧跟其后 */
     int func;
 
+    /** Lua 帧寄存器基址（5.3 {@code u.l.base}）；非 vararg 时为 {@code func+1} */
+    int base;
+
     /** 本帧可用的栈顶（下标），对应 {@code ci->top.p} */
     int top;
 

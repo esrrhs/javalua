@@ -35,7 +35,6 @@ import org.junit.jupiter.api.Disabled;
  * 不比对的：{@code os.clock} 的数值（只比类型）、{@code os.tmpname} 的路径、
  * 无参 {@code os.time} / {@code os.date} 的当前时刻。
  */
-@Disabled("Lua 5.3.4 retarget: os.date/time matrix diffs vs 5.3.4; retarget follow-up")
 class OsLibTest {
 
     @TestFactory

@@ -68,7 +68,6 @@ import org.junit.jupiter.api.Disabled;
  *       一抛就整个脚本断在半路——两端输出还「一致」，是假的一致。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: format grid vs 5.3.4; retarget follow-up")
 class FormatGridTest {
 
     @BeforeAll

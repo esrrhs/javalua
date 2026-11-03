@@ -411,35 +411,46 @@ final class LuaTm {
      * {@code ci.func - nextra .. ci.func - 1}，正好在帧的下方——这就是
      * {@code OP_VARARG} 取值的地方。
      */
-    static void adjustVarargs(LuaState L, int nfixparams, CallInfo c, Proto p) {
-        int actual = L.top - c.func - 1;
-        int nextra = actual - nfixparams;
-        c.nextraargs = nextra;
-        L.ensureSlots(c.top + p.maxstacksize + 1);
-        L.stack[L.top++].set(L.stack[c.func]); // 把函数拷到栈顶
-        for (int i = 1; i <= nfixparams; i++) {
-            L.stack[L.top++].set(L.stack[c.func + i]);
-            L.stack[c.func + i].setNil(); // 抹掉原位置
+    /**
+     * Lua 5.3.4 {@code adjust_varargs}: copy fixed params to top; leave extras
+     * below the new base. Returns the new base index.
+     */
+    static int adjustVarargs(LuaState L, Proto p, int actual) {
+        int nfixargs = p.numparams;
+        int fixed = L.top - actual; // first fixed argument
+        int base = L.top; // final position of first argument
+        int i = 0;
+        for (; i < nfixargs && i < actual; i++) {
+            L.stack[L.top++].set(L.stack[fixed + i]);
+            L.stack[fixed + i].setNil();
         }
-        c.func += actual + 1;
-        c.top += actual + 1;
+        for (; i < nfixargs; i++) {
+            L.stack[L.top++].setNil();
+        }
+        return base;
     }
 
-    /** {@code luaT_getvarargs}：取 {@code wanted} 个可变参数写到 {@code where} */
+    /** Lua 5.3.4 {@code OP_VARARG}. */
     static void getVarargs(LuaState L, CallInfo c, int where, int wanted) {
-        int nextra = c.nextraargs;
+        LClosure cl = (LClosure) L.stack[c.func].o;
+        int numparams = cl.p.numparams;
+        int n = (c.base - c.func) - numparams - 1;
+        if (n < 0) {
+            n = 0;
+        }
         if (wanted < 0) {
-            wanted = nextra;
-            L.ensureSlots(where + nextra);
-            L.top = where + nextra; // 下一条指令要用到 top
+            wanted = n;
+            L.ensureSlots(where + n);
+            L.top = where + n;
         }
         L.ensureSlots(where + wanted);
-        int i = 0;
-        for (; i < wanted && i < nextra; i++) {
-            L.stack[where + i].set(L.stack[c.func - nextra + i]);
+        int j = 0;
+        for (; j < wanted && j < n; j++) {
+            L.stack[where + j].set(L.stack[c.base - n + j]);
         }
-        for (; i < wanted; i++) {
-            L.stack[where + i].setNil();
+        for (; j < wanted; j++) {
+            L.stack[where + j].setNil();
         }
     }
+
 }

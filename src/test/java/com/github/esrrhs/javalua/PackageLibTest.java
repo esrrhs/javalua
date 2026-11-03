@@ -38,7 +38,6 @@ import org.junit.jupiter.api.Disabled;
  *       替换与 {@code no file '...'} 消息的拼法。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: package.searchpath message matrix vs 5.3.4; retarget follow-up")
 class PackageLibTest {
 
     @TestFactory

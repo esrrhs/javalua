@@ -62,7 +62,7 @@ public final class Vm {
                 k = cl.p.k;
                 code = cl.p.code;
                 pc = ci.savedpc;
-                base = ci.func + 1;
+                base = ci.base;
                 if (trap) {
                     trap = DebugLib.traceCall(L, ci);
                 }
@@ -73,7 +73,7 @@ public final class Vm {
                 }
                 if (trap) {
                     trap = DebugLib.traceExec(L, ci, pc);
-                    base = ci.func + 1;
+                    base = ci.base;
                 }
                 int i = code[pc++];
                 ci.savedpc = pc;
@@ -116,7 +116,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         finishGet(L, tab, key, ra);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -129,7 +129,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         finishGet(L, tab, key, ra);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -143,7 +143,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         finishSet(L, tab, key, val);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -160,7 +160,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         finishSet(L, tab, key, val);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -181,7 +181,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         finishGet(L, tab, key, ra);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -206,7 +206,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         LuaTm.tryBinTm(L, rb, rc, ra, Tm.TM_ADD + aop);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -221,7 +221,7 @@ public final class Vm {
                         } else {
                             saveState(L, ci, pc);
                             LuaTm.tryBinTm(L, rb, rb, ra, Tm.TM_UNM);
-                            base = ci.func + 1;
+                            base = ci.base;
                         }
                     }
                     break;
@@ -234,7 +234,7 @@ public final class Vm {
                     } else {
                         saveState(L, ci, pc);
                         LuaTm.tryBinTm(L, rb, rb, ra, Tm.TM_BNOT);
-                        base = ci.func + 1;
+                        base = ci.base;
                     }
                     break;
                 }
@@ -246,7 +246,7 @@ public final class Vm {
                 case OpCode.OP_LEN:
                     saveState(L, ci, pc);
                     objLen(L, ra, L.stack[base + OpCode.getArgB(i)]);
-                    base = ci.func + 1;
+                    base = ci.base;
                     break;
                 case OpCode.OP_CONCAT: {
                     int b = OpCode.getArgB(i);
@@ -254,7 +254,7 @@ public final class Vm {
                     L.top = base + c + 1;
                     ci.savedpc = pc;
                     concat(L, c - b + 1);
-                    base = ci.func + 1;
+                    base = ci.base;
                     ra = base + a;
                     L.stack[ra].set(L.stack[base + b]);
                     L.top = ci.top;
@@ -272,7 +272,7 @@ public final class Vm {
                     LuaValue rc = rk(L, k, base, OpCode.getArgC(i));
                     saveState(L, ci, pc);
                     boolean eq = equalObj(L, rb, rc);
-                    base = ci.func + 1;
+                    base = ci.base;
                     doJump(L, code, ci, base, /*cond*/ (eq == (a != 0)), /*pc*/ pc);
                     pc = ci.savedpc;
                     break;
@@ -282,8 +282,10 @@ public final class Vm {
                     LuaValue rb = rk(L, k, base, OpCode.getArgB(i));
                     LuaValue rc = rk(L, k, base, OpCode.getArgC(i));
                     saveState(L, ci, pc);
-                    boolean res = (op == OpCode.OP_LT) ? lessThan(L, rb, rc) : (!lessThan(L, rc, rb));
-                    base = ci.func + 1;
+                    boolean res = (op == OpCode.OP_LT)
+                            ? lessThan(L, rb, rc)
+                            : lessEqual(L, rb, rc);
+                    base = ci.base;
                     doJump(L, code, ci, base, res == (a != 0), pc);
                     pc = ci.savedpc;
                     break;
@@ -334,7 +336,7 @@ public final class Vm {
                     if (nresults >= 0) {
                         L.top = ci.top;
                     }
-                    base = ci.func + 1;
+                    base = ci.base;
                     break;
                 }
                 case OpCode.OP_TAILCALL: {
@@ -349,7 +351,7 @@ public final class Vm {
                         start = true;
                         continue outer;
                     }
-                    base = ci.func + 1;
+                    base = ci.base;
                     break;
                 }
                 case OpCode.OP_RETURN: {
@@ -357,7 +359,8 @@ public final class Vm {
                     if (b != 0) {
                         L.top = ra + b - 1;
                     }
-                    if (cl.p.sizeupvalues > 0) {
+                    // Lua 5.3.4: close if this proto has nested functions (sizep)
+                    if (cl.p.sizep > 0) {
                         L.closeUpvals(base, null);
                     }
                     ci.savedpc = pc;
@@ -379,7 +382,7 @@ public final class Vm {
                 case OpCode.OP_FORPREP: {
                     saveState(L, ci, pc);
                     forPrep(L, ra);
-                    base = ci.func + 1;
+                    base = ci.base;
                     pc += OpCode.getArgSBx(i);
                     break;
                 }
@@ -392,7 +395,7 @@ public final class Vm {
                     L.top = ra + 6;
                     ci.savedpc = pc;
                     L.call(ra + 3, c);
-                    base = ci.func + 1;
+                    base = ci.base;
                     L.top = ci.top;
                     // fallthrough to TFORLOOP expected as next — handled separately
                     break;
@@ -430,7 +433,7 @@ public final class Vm {
                     int b = OpCode.getArgB(i) - 1;
                     ci.savedpc = pc;
                     LuaTm.getVarargs(L, ci, ra, b);
-                    base = ci.func + 1;
+                    base = ci.base;
                     break;
                 }
                 case OpCode.OP_EXTRAARG:
@@ -537,7 +540,7 @@ public final class Vm {
      */
     static void finishOp(LuaState L) {
         CallInfo ci = L.ci;
-        int base = ci.func + 1;
+        int base = ci.base;
         int inst = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc - 1];
         int op = OpCode.getOpCode(inst);
         switch (op) {
@@ -708,6 +711,21 @@ public final class Vm {
         }
         return LuaTm.callOrderTm(L, a, b, Tm.TM_LT);
     }
+
+    /** Lua 5.3.4 {@code luaV_lessequal}: try __le, else !(r < l) via __lt. */
+    static boolean lessEqual(LuaState L, LuaValue a, LuaValue b) {
+        if (a.isInteger() && b.isInteger()) {
+            return a.i <= b.i;
+        }
+        if (a.isNumber() && b.isNumber()) {
+            return leNum(a, b);
+        }
+        if (a.isString() && b.isString()) {
+            return lStrcmp(a.asString(), b.asString()) <= 0;
+        }
+        return LuaTm.callOrderTm(L, a, b, Tm.TM_LE);
+    }
+
 
     /** {@code LTnum} */
     static boolean ltNum(LuaValue l, LuaValue r) {

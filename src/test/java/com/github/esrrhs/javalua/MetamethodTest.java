@@ -43,7 +43,6 @@ import org.junit.jupiter.api.Disabled;
  * @see Vm#finishSet
  * @see Vm#objLen
  */
-@Disabled("Lua 5.3.4 retarget: metamethod grids vs 5.3.4; retarget follow-up")
 class MetamethodTest {
 
     @BeforeAll

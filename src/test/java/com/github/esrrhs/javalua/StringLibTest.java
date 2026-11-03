@@ -26,7 +26,6 @@ import org.junit.jupiter.api.Disabled;
  *        {@code %q} 的转义、{@code %c} 写单字节。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: string lib matrix diffs vs 5.3.4; retarget follow-up")
 class StringLibTest {
 
     @TestFactory

@@ -38,6 +38,9 @@ class Smoke534Test {
         Diff.assertMatches("local s=0; for k,v in pairs({a=10,b=20}) do s=s+v end; print(s)");
         Diff.assertMatches("local function f(n) if n<=1 then return 1 end; return n*f(n-1) end; print(f(5))");
         Diff.assertMatches("print(string.format('%d', 42))");
+        Diff.assertMatches("local function counter() local n = 0 return function() n = n + 1 return n end end local c = counter() print(c(), c(), c())");
+        Diff.assertMatches("local function f(...) return ... end print(f(1, 2, 3))");
+        Diff.assertMatches("local function f(...) return select('#', ...) end print(f(), f(1), f(1,2,3))");
     }
 
     @Test

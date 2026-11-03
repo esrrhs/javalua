@@ -21,7 +21,6 @@ import org.junit.jupiter.api.Disabled;
  *       与上游一致所以可写，但一旦改代码生成器就得重校。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: debug.setcstacklimit / 5.4 debug APIs; retarget follow-up")
 final class DebugTest {
 
     @BeforeAll

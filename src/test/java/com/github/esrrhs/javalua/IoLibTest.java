@@ -42,7 +42,6 @@ import org.junit.jupiter.api.Disabled;
  *       {@code "3x"} 读成 {@code 3} 且把 {@code x} 留在流里。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: io matrix diffs vs 5.3.4; retarget follow-up")
 class IoLibTest {
 
     @TestFactory

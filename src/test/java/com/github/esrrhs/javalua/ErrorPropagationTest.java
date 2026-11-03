@@ -63,7 +63,6 @@ import org.junit.jupiter.api.Disabled;
  * {@code tostring} 一律包 {@code pcall}（{@code __tostring} 返回非串时它自己会抛
  * {@code "'__tostring' must return a string"}，不包就整个探针崩掉）。
  */
-@Disabled("Lua 5.3.4 retarget: error-message grids still partially 5.4-shaped; retarget follow-up")
 class ErrorPropagationTest {
 
     @BeforeAll

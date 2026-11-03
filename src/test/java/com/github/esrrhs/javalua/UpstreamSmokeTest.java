@@ -49,7 +49,6 @@ import org.junit.jupiter.api.Disabled;
  * </ul>
  * 所以这里宁可断言得松，也不能没有。
  */
-@Disabled("Lua 5.3.4 retarget: upstream smoke still hits GC/errors gaps on 5.3.4; retarget follow-up")
 final class UpstreamSmokeTest {
 
     private static File dir;

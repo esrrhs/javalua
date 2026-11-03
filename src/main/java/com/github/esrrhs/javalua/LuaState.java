@@ -1681,6 +1681,7 @@ public final class LuaState {
     private CallInfo prepCallInfo(int funcIdx, int nresults, boolean isLua, int topIdx) {
         CallInfo c = new CallInfo();
         c.func = funcIdx;
+        c.base = funcIdx + 1; // default; vararg precall overwrites
         c.nresults = nresults;
         c.isLua = isLua;
         c.top = topIdx;
@@ -1724,11 +1725,19 @@ public final class LuaState {
                 int nfixparams = p.numparams;
                 int fsize = p.maxstacksize;
                 checkStack(fsize);
-                CallInfo c = prepCallInfo(funcIdx, nresults, true, funcIdx + 1 + fsize);
-                c.savedpc = 0;
-                for (; narg < nfixparams; narg++) {
-                    stack[top++].setNil();
+                int base;
+                if (p.isVararg) {
+                    base = LuaTm.adjustVarargs(this, p, narg);
+                } else {
+                    for (; narg < nfixparams; narg++) {
+                        stack[top++].setNil();
+                    }
+                    base = funcIdx + 1;
                 }
+                CallInfo c = prepCallInfo(funcIdx, nresults, true, base + fsize);
+                c.base = base;
+                c.savedpc = 0;
+                top = c.top;
                 return c;
             } else if (f.tt == Lua.VLCF) {
                 precallC(funcIdx, nresults, (LuaFunction) f.o);

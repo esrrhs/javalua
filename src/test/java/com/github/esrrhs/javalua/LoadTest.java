@@ -31,7 +31,6 @@ import org.junit.jupiter.api.Disabled;
  * 比在 {@code DumpTest}，畸形字节码的健壮性在 {@code BinarySafetyTest}，
  * {@code load}/{@code string.dump} 往返在 {@code BinaryChunkTest}。
  */
-@Disabled("Lua 5.3.4 retarget: load binary header vs mixed 5.3/5.4 format; retarget follow-up")
 class LoadTest {
 
     @TestFactory

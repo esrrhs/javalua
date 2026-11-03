@@ -70,7 +70,6 @@ import org.junit.jupiter.api.Disabled;
  * {@code atan2} 一 {@code atan}。所以这两个名字只剔除<b>回退档</b>，
  * 其余写法是确定的，照铺。
  */
-@Disabled("Lua 5.3.4 retarget: limit grid includes 5.4-only names; retarget follow-up")
 class LimitGridTest {
 
     @BeforeAll

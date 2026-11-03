@@ -37,7 +37,6 @@ import org.junit.jupiter.api.Disabled;
  * 比较运算更严格，{@code "10" < 11} 直接报
  * {@code attempt to compare string with number}。
  */
-@Disabled("Lua 5.3.4 retarget: arith grid vs 5.3.4; retarget follow-up")
 class ArithGridTest {
 
     @BeforeAll

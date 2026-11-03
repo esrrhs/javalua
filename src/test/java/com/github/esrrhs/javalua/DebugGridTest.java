@@ -70,7 +70,6 @@ import org.junit.jupiter.api.Disabled;
  * <b>这一片一条分歧都没咬出来</b>——铺之前担心、铺完确认干净：{@code debug}
  * 这一块的栈形状与 C 版是一致的。
  */
-@Disabled("Lua 5.3.4 retarget: debug hook grids vs 5.3.4; retarget follow-up")
 class DebugGridTest {
 
     @BeforeAll

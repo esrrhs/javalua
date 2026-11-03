@@ -39,7 +39,6 @@ import org.junit.jupiter.api.Disabled;
  * @see LuaState#callNoYield
  * @see LuaTm#callTmMightYield
  */
-@Disabled("Lua 5.3.4 retarget: callback matrix vs 5.3.4; retarget follow-up")
 class LibraryCallbackTest {
 
     @BeforeAll

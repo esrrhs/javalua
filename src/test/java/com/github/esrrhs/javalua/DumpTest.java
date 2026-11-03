@@ -42,7 +42,6 @@ import org.junit.jupiter.api.Disabled;
  *       函数再 load 回来，那个 upvalue 就变成了全局表。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: string.dump Diff still ISA-sensitive; byte compares already skipped")
 class DumpTest {
 
     @BeforeAll

@@ -97,6 +97,10 @@ final class Arith {
         }
     }
 
+    /**
+     * Lua 5.3.4 {@code tonumber}: numbers and numeric strings.
+     * (5.4 uses tonumberns without string coercion in the VM path.)
+     */
     private static Double toNumberNs(LuaValue v) {
         if (v.isInteger()) {
             return (double) v.i;
@@ -104,16 +108,33 @@ final class Arith {
         if (v.isFloat()) {
             return v.n;
         }
+        if (v.isString()) {
+            LuaValue n = Numeral.str2num(new String(v.asString().bytes, java.nio.charset.StandardCharsets.ISO_8859_1));
+            if (n == null) {
+                return null;
+            }
+            return n.isInteger() ? (double) n.i : n.n;
+        }
         return null;
     }
 
-    /** {@code luaV_tointegerns}：不做「字符串转数字」，只认真正的数字 */
+    /** Lua 5.3.4 {@code tointeger}: numbers and numeric strings. */
     static Long toIntegerNs(LuaValue v) {
         if (v.isFloat()) {
             return fltToInteger(v.n, F2I_EQ);
         }
         if (v.isInteger()) {
             return v.i;
+        }
+        if (v.isString()) {
+            LuaValue n = Numeral.str2num(new String(v.asString().bytes, java.nio.charset.StandardCharsets.ISO_8859_1));
+            if (n == null) {
+                return null;
+            }
+            if (n.isInteger()) {
+                return n.i;
+            }
+            return fltToInteger(n.n, F2I_EQ);
         }
         return null;
     }

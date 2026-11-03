@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Disabled;
  * 出错的用例照样参与比对：两边报同样的错也是一致性的一部分，
  * 比「一边报错一边不报」更有价值。
  */
-@Disabled("Lua 5.3.4 retarget: fuzz vs 5.3.4 reference; retarget follow-up")
 class FuzzTest {
 
     /**

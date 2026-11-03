@@ -80,7 +80,6 @@ import org.junit.jupiter.api.Disabled;
  *       {@link UpstreamSmokeTest} 跑它，兜「大量分配会不会把自动收集跑死」。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: upstream suite files not yet green on 5.3.4 VM; retarget follow-up")
 final class UpstreamSuiteTest {
 
     private static final String ENV_TESTS = "LUA53_TESTS";

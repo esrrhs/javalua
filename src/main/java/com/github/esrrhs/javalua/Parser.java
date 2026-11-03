@@ -1288,19 +1288,19 @@ public final class Parser {
         boolean conflict = false;
         for (; lh != null; lh = lh.prev) {
             if (lh.v.isIndexed()) {
-                if (lh.v.k == ExpDesc.VINDEXUP) { // 表是 upvalue
+                // Lua 5.3.4: distinguish table-in-upvalue vs register via indVt
+                if (lh.v.indVt == ExpDesc.VUPVAL) {
                     if (v.k == ExpDesc.VUPVAL && lh.v.indT == v.info) {
                         conflict = true;
-                        lh.v.k = ExpDesc.VINDEXSTR;
+                        lh.v.indVt = ExpDesc.VLOCAL;
                         lh.v.indT = extra;
                     }
-                } else { // 表在寄存器里
+                } else { // table in register
                     if (v.k == ExpDesc.VLOCAL && lh.v.indT == v.varRidx) {
                         conflict = true;
                         lh.v.indT = extra;
                     }
-                    if (lh.v.k == ExpDesc.VINDEXED && v.k == ExpDesc.VLOCAL
-                            && lh.v.indIdx == v.varRidx) {
+                    if (v.k == ExpDesc.VLOCAL && lh.v.indIdx == v.varRidx) {
                         conflict = true;
                         lh.v.indIdx = extra;
                     }

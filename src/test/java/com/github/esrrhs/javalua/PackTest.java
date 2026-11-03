@@ -29,7 +29,6 @@ import org.junit.jupiter.api.Disabled;
  * 二进制——{@code print} 出来的原始字节在两边都是不可比的东西（终端编码、
  * 缓冲），而差分比的是 stdout 的<b>文本</b>。
  */
-@Disabled("Lua 5.3.4 retarget: string.pack matrix vs 5.3.4; retarget follow-up")
 class PackTest {
 
     @BeforeAll

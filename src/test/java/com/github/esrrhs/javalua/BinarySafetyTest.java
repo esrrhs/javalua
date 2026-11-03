@@ -69,7 +69,6 @@ import org.junit.jupiter.api.Disabled;
  * @see LuaState#kName
  * @see DebugLib#traceback
  */
-@Disabled("Lua 5.3.4 retarget: binary safety vs 5.3 dump format; retarget follow-up")
 class BinarySafetyTest {
 
     @BeforeAll

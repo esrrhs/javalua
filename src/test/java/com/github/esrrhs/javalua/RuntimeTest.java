@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Disabled;
  * 脚本路径是 {@code $RT/case.lua}（每个 JVM 一份，见 {@link Diff#SCRATCH}）：参考实现的 {@code luaO_chunkid}
  * 会把过长的源名从左边截成 {@code ...xxx}，用随机临时文件名就没法比对了。
  */
-@Disabled("Lua 5.3.4 retarget: large behavioral matrices still encode 5.4-era edges (hash order, warn/close, dump sizes); retarget follow-up")
 class RuntimeTest {
 
     @BeforeAll
