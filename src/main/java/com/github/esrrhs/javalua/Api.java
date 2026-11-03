@@ -957,10 +957,7 @@ final class Api {
      * {@code moveresults} 传的是 1，允许）。所以这里 {@code forceYy} 取 false。
      */
     static void lua_closeslot(long L, long idx) {
-        LuaState S = st(L);
-        int level = stackIdx(S, (int) idx);
-        S.closeUpvals(level, null, false);
-        S.stack[level].setNil();
+        /* 5.3.4 无此 API：shim 保留符号，行为为空操作。 */
     }
 
     /** {@code index2stack}：与 {@link #val} 同一套换算，只是要有越界保护 */
@@ -1727,7 +1724,8 @@ final class Api {
 
     /** {@code lua_resetthread} 已废弃，等价于 {@code lua_closethread(L, NULL)} */
     static long lua_resetthread(long L) {
-        return st(L).closeThread(null);
+        /* 5.3.4 无 lua_resetthread；返回 0 (LUA_OK)。 */
+        return 0;
     }
 
     /*
@@ -1894,7 +1892,7 @@ final class Api {
      * 连 {@code warn("@on")} 都开不了开关。
      */
     static void lua_setwarnf(long L, long f, long ud) {
-        st(L).setWarnf(f, ud);
+        /* 5.3.4 无 warnf：忽略。 */
     }
 
     static long lua_status(long L) {
@@ -1973,11 +1971,7 @@ final class Api {
      * {@code moveresults} 里「先关变量还是先报返回钩子」的顺序失去依据。
      */
     static void lua_toclose(long L, long idx) {
-        LuaState S = st(L);
-        S.newTbcUpval(stackIdx(S, (int) idx));
-        if (S.ci.nresults >= LuaState.MULTRET) {
-            S.ci.nresults = -S.ci.nresults - 3;
-        }
+        /* 5.3.4 无 <close> / to-be-closed：空操作。 */
     }
 
     /**
@@ -2212,13 +2206,7 @@ final class Api {
     }
 
     static void lua_warning(long L, long msg, long tocont) {
-        /*
-         * {@code lapi.c: lua_warning} 是 {@code luaE_warning} 的一层薄壳，
-         * 与 {@code warn} 内建（{@link BaseLib#warn}）
-         * <b>同一条路</b>——{@code warn("@on")} 那套开关在这里照样生效。
-         * 消息是 {@code const char*}，按字节取，别走 Java String。
-         */
-        st(L).warning(LuaString.of(NativeBridge.bytesAt(msg)), tocont != 0);
+        /* 5.3.4 无 lua_warning：忽略。 */
     }
 
     static void lua_xmove(long from, long to, long n) {

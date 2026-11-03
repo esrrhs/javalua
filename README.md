@@ -128,8 +128,8 @@ Lua 5.3.4):
 
 
 - **`math.random` / `randomseed`** (**accepted platform note**): API matches 5.3.4 (one seed argument, no dual-seed return, `random(0)` is an empty interval). Sequences use `java.util.Random`, not libc `rand`/`srand`, so numeric streams differ from the reference binary by design and are not treated as alignment gaps.
-- **Table hash visit order / `#t` border**: Open-addressed hash placement for non-integer keys can differ from PUC-Rio's `ltable.c` when insertion histories diverge; length-border edge cases that depend on that layout may still Diff until the array/hash bookkeeping matches byte-for-byte.
-- **`string.dump` / undump**: Internal bytecode still carries some 5.4-era ISA/dump layout; self `dump`→`load` works for common shapes (see `BinaryChunkTest` / `DumpTest`), but some fuzz-generated nested protos still undump as truncated vs the reference. Byte-identical dump vs stock `lua` 5.3.4 is not a gate yet.
+- **Table hash visit order (non-integer keys)**: Open-addressed hash placement for pointer/object keys can still differ from PUC-Rio when insertion histories diverge; `#t` / `sizearray` / `hashint` follow Lua 5.3.4 (`unbound_search`, `hashpow2` for integers). Visit-order-only diffs for non-integer keys are accepted when contents match.
+- **`string.dump` / undump**: Boolean constants use the 5.3.4 `LUA_TBOOLEAN`+value layout. Self `dump`→`load` works for common shapes (see `BinaryChunkTest` / `DumpTest`). Byte-identical dump vs stock `lua` 5.3.4 is not a hard gate yet where remaining ISA/debug layout still diverges.
 
 - **GC**: memory is owned by the JVM (`lgc.c` is not ported). Weak tables,
   `__gc`, and `collectgarbage` keep Lua-observable shapes where possible, but

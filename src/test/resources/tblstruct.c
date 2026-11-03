@@ -1,9 +1,9 @@
 /*
 ** tblstruct.c — table structure snapshot dumper for Lua 5.3.4.
 **
-** 5.3 uses sizearray (not 5.4's alimit / isrealasize). javalua's table
-** implementation still follows the 5.4-era layout in places; TableStructTest
-** documents that remaining gap rather than requiring an exact match yet.
+** 5.3 uses sizearray (not 5.4's alimit / isrealasize). javalua mirrors
+** sizearray via array.length; alimit/alimitIsReal are compatibility fields
+** kept equal to sizearray / true. TableStructTest requires an exact match.
 */
 #include <stdio.h>
 #include <stdlib.h>

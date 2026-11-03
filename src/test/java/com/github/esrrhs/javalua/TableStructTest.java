@@ -15,16 +15,8 @@ import org.junit.jupiter.api.Test;
  * <p>
  * 与 {@link RuntimeTest#arrayBookkeepingMatchesReference()} 的分工：那边比的是
  * {@code #t} / {@code rawlen}，也就是表结构的<b>可观测</b>投影；这里比的是
- * <b>结构体本身</b>——数组真实尺寸、{@code alimit}、提示位（{@code BITRAS}）、
- * 哈希节点的分配尺寸。
- * <p>
- * 为什么这层证据不能省：两份表可以给出相同的 {@code #t}，而 {@code alimit} 与
- * 真实尺寸已经分岔。C 5.4.7 的 {@code luaH_getn}（{@code ltable.c}）从
- * {@code alimit} 起步、又会在 (1a)/(1b) 两条出口把 {@code alimit} 改写成<b>提示</b>
- * 并置 {@code setnorealasize}；{@code luaH_getint} 读键时还会把提示抬到该键。
- * 起步点与提示位不同，落在的合法边界就可能不同——那是真实程序看得见的差别，
- * 但只在「先构造、再删填、过一阵才读 {@code #t}」的历史里露头。可观测投影比不出
- * 这一步是「一样」还是「凑巧一样」。
+ * <b>结构体本身</b>——数组真实尺寸（5.3.4 {@code sizearray}）、兼容字段
+ * {@code alimit}/{@code alimitIsReal}（恒等于 sizearray / 真）、哈希节点分配尺寸。
  * <p>
  * 参考侧是 {@code src/test/resources/tblstruct.c}（与 {@code fkdump.c} 同一类，
  * CI 跟参考实现一起编）。语料见 {@link #CHUNK}：构造器各档尺寸、构造后补/删键、
@@ -141,26 +133,8 @@ final class TableStructTest {
             dump(path + ".ref", oracle);
             dump(path + ".mine", mine);
         }
-        /*
-         * Exact alimit/isrealasize identity was a Lua 5.4-era gate. After the
-         * 5.3.4 retarget the reference dumper reports sizearray, while javalua
-         * still carries 5.4-style bookkeeping in places. Keep the harness live
-         * (both sides must produce a non-empty snapshot with the same row
-         * count) and leave field-level identity as a known gap.
-         */
-        dump(path + ".ref", oracle);
-        dump(path + ".mine", mine);
-        String[] oLines = oracle.split("\n", -1);
-        String[] mLines = mine.split("\n", -1);
-        // trailing empty from split
-        while (oLines.length > 0 && oLines[oLines.length - 1].isEmpty()) {
-            oLines = java.util.Arrays.copyOf(oLines, oLines.length - 1);
-        }
-        while (mLines.length > 0 && mLines[mLines.length - 1].isEmpty()) {
-            mLines = java.util.Arrays.copyOf(mLines, mLines.length - 1);
-        }
-        assertEquals(oLines.length, mLines.length,
-                "表结构快照行数应一致（字段值对齐仍是 5.3.4 已知缺口）；见 "
+        assertEquals(oracle, mine,
+                "表结构快照应对齐 5.3.4 sizearray；差异见 "
                         + Diff.SCRATCH + "/" + FILE_NAME + ".ref / .mine");
     }
 
@@ -169,9 +143,8 @@ final class TableStructTest {
      * 按 {@code tblstruct.c} 的格式打出来。
      * <p>
      * 读的是 {@code array.length} / {@code alimit} / {@code alimitIsReal} /
-     * {@code nodeSize} 这几个字段本身，<b>不</b>走 {@link LuaTable#length()}
-     * ——后者会像 C 的 {@code luaH_getn} 一样改写 {@code alimit} 提示，
-     * 那就不是在快照，而是在快照前先动过手脚。
+     * {@code nodeSize} 这几个字段本身，<b>不</b>走 {@link LuaTable#length()}。
+     * 5.3.4 下 {@code alimit == array.length} 且 {@code alimitIsReal == true}。
      */
     private static String mineStructs(byte[] bytes, String path) {
         LuaState L = new LuaState();

@@ -1760,12 +1760,26 @@ class NativeApiTest {
     private static final java.util.Set<String> NO_CO =
             java.util.Set.of("C 函数里 yield —— 不在协程里");
 
+    /**
+     * Lua 5.3.4 没有的 C API（{@code warn}/{@code <close>}/resetthread 等）。
+     * shim 仍导出空操作符号以免老 .so 链接失败，但不再做差分。
+     */
+    private static final java.util.Set<String> SKIP_54_ONLY = java.util.Set.of(
+            "lua_closethread / lua_resetthread",
+            "lua_toclose / lua_closeslot",
+            "lua_toclose 里 __close 出错",
+            "lua_toclose 在协程里 __close 里 yield",
+            "lua_setwarnf");
+
     @TestFactory
     List<DynamicTest> cApiMatchesReference() {
         List<DynamicTest> tests = new ArrayList<>();
         String path = fixture();
         Assumptions.assumeTrue(path != null, "跳过 C API 用例：" + skipReason);
         for (String[] c : CASES) {
+            if (SKIP_54_ONLY.contains(c[0])) {
+                continue;
+            }
             StringBuilder body = new StringBuilder();
             for (int i = 1; i < c.length; i++) {
                 body.append(c[i]).append('\n');

@@ -301,14 +301,17 @@ public final class Undump {
             f.k[i] = o;
             int t = loadByte(S);
             switch (t) {
-            case Lua.VNIL:
+            case Lua.TNIL: // == VNIL (0)
                 o.setNil();
                 break;
-            case Lua.VFALSE:
-                o.setBoolean(false);
-                break;
-            case Lua.VTRUE:
-                o.setBoolean(true);
+            case Lua.TBOOLEAN:
+                /*
+                 * 5.3.4 ldump/lundump：标签是 LUA_TBOOLEAN，后面再跟一个
+                 * value 字节。5.4 才改成独立的 VFALSE/VTRUE 标签、不带 value。
+                 * Dump.java 写的是 TBOOLEAN+value；这里必须读掉 value，
+                 * 否则后续常量全错位，预编译 chunk 被截断。
+                 */
+                o.setBoolean(loadByte(S) != 0);
                 break;
             case Lua.VNUMFLT:
                 o.setFloat(loadNumber(S));

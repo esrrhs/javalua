@@ -119,8 +119,8 @@ shim，一遍加 `-Djavalua.nonative=true` 走纯 Java 的 `io` 路径，两条�
 下面只保留**有意**或**平台无法对齐**的偏离（其余应对齐 Lua 5.3.4）：
 
 
-- **字节码 ISA / `string.dump`**：编译器与 dump/undump 路径仍大体是 5.4 时代的指令集。版本字节已标为 5.3（`0x53`），但与官方 Lua 5.3.4 的逐字节 dump 尚不保证一致。相关 Diff 套件在本分支 `@Disabled`，待完整 ISA 降级。
-- **大型 Diff 矩阵暂时禁用**：`RuntimeTest`、`DebugTest`、`PackageLibTest`、上游 suite/smoke 及若干库网格在本分支 `@Disabled`，以便先完成 5.3.4 边角（表哈希遍历序、`warn`/`<close>` 残留、libc `rand` 序列等）。核心套件（`ParserTest`、`SyntaxE2eTest`、`LexerTest`、`Utf8LibTest`、`MathLibTest`、`GcParamTest`、`ConformanceTest` 等）仍强制执行。
+- **字节码 ISA / `string.dump`**：布尔常量已按 5.3.4 的 `LUA_TBOOLEAN`+value 布局 dump/undump。与官方 Lua 5.3.4 的逐字节 dump 在其余 ISA/debug 布局上尚不保证一致。
+- **表哈希遍历序（非整数键）**：指针/对象键的开址落桶在插入史不同时仍可能与 PUC-Rio 不同；`#t` / `sizearray` / `hashint` 已按 5.3.4（`unbound_search`、整数 `hashpow2`）。内容一致时仅遍历序差异可接受。
 - **`math.random` / `randomseed`**：API 对齐 5.3.4（单种子、无双返回、`random(0)` 为空区间）。序列用 `java.util.Random` 而非 libc `rand`，故不对参考二进制做 Diff。
 
 - **GC**：内存交给 JVM（不移植 `lgc.c`）。弱表、`__gc`、`collectgarbage`
