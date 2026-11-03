@@ -1096,90 +1096,67 @@ public final class Vm {
      *
      * @return 循环一次都不该跑时返回 true
      */
-    private static boolean forLimit(LuaState L, long init, LuaValue lim, long[] p, long step) {
-        Long conv = toInteger(lim, step < 0 ? Arith.F2I_CEIL : Arith.F2I_FLOOR);
+    /**
+     * Lua 5.3.4 {@code forlimit}: convert limit to integer when possible.
+     * @return false if limit is not a number; true and fill {@code p}/{@code stopnow} otherwise
+     */
+    private static boolean forLimit53(LuaValue obj, long[] p, long step, boolean[] stopnow) {
+        stopnow[0] = false;
+        Long conv = toInteger(obj, step < 0 ? Arith.F2I_CEIL : Arith.F2I_FLOOR);
         if (conv == null) {
-            Double flim = toNumber(lim);
-            if (flim == null) {
-                throw L.forError(lim, "limit");
+            Double n = toNumber(obj);
+            if (n == null) {
+                return false;
             }
-            if (0 < flim) { // 太大
-                if (step < 0) {
-                    return true; // 初值必然小于它
-                }
+            if (0 < n) {
                 p[0] = Long.MAX_VALUE;
-            } else { // 太小
-                if (step > 0) {
-                    return true;
+                if (step < 0) {
+                    stopnow[0] = true;
                 }
+            } else {
                 p[0] = Long.MIN_VALUE;
+                if (step >= 0) {
+                    stopnow[0] = true;
+                }
             }
         } else {
             p[0] = conv;
         }
-        return step > 0 ? init > p[0] : init < p[0];
+        return true;
     }
 
     /**
-     * {@code forprep}：准备数值 for 循环。
-     * <p>
-     * 整数循环把「上界」换成「剩余次数」——因为 {@code for i = mininteger, maxinteger}
-     * 这种循环的次数本身也塞得进 int64，而边界比较不行。这个替换是 Lua 能正确跑
-     * 到 int64 边界的原因。
-     *
-     * @return 循环一次都不跑时返回 true
+     * Lua 5.3.4 {@code OP_FORPREP}: convert values; subtract step from init;
+     * always fall through via sBx (caller adds sBx).
      */
-    private static boolean forPrep(LuaState L, int ra) {
-        LuaValue pinit = L.stack[ra];
+    private static void forPrep(LuaState L, int ra) {
+        LuaValue init = L.stack[ra];
         LuaValue plimit = L.stack[ra + 1];
         LuaValue pstep = L.stack[ra + 2];
-        if (pinit.isInteger() && pstep.isInteger()) {
-            long init = pinit.i;
-            long step = pstep.i;
-            // Lua 5.3.4: a zero step does not error; the loop simply never runs
-            // for a positive count path (count math yields no iterations).
-            L.stack[ra + 3].setInteger(init);
-            long[] limit = new long[1];
-            if (forLimit(L, init, plimit, limit, step)) {
-                return true;
-            }
-            long count;
-            if (step > 0) {
-                count = limit[0] - init; // 无符号减法，位模式等同有符号
-                if (step != 1) {
-                    count = Long.divideUnsigned(count, step);
-                }
-            } else {
-                count = init - limit[0];
-                // -(step+1) 是为了避开对 mininteger 取负
-                count = Long.divideUnsigned(count, (-(step + 1)) + 1);
-            }
-            L.stack[ra + 1].setInteger(count);
+        long[] ilimit = new long[1];
+        boolean[] stopnow = new boolean[1];
+        if (init.isInteger() && pstep.isInteger()
+                && forLimit53(plimit, ilimit, pstep.i, stopnow)) {
+            long initv = stopnow[0] ? 0L : init.i;
+            L.stack[ra + 1].setInteger(ilimit[0]);
+            L.stack[ra].setInteger(initv - pstep.i);
         } else {
-            Double initD = toNumber(pinit);
-            Double limitD = toNumber(plimit);
-            Double stepD = toNumber(pstep);
-            if (limitD == null) {
+            Double nlimit = toNumber(plimit);
+            if (nlimit == null) {
                 throw L.forError(plimit, "limit");
             }
-            if (stepD == null) {
+            Double nstep = toNumber(pstep);
+            if (nstep == null) {
                 throw L.forError(pstep, "step");
             }
-            if (initD == null) {
-                throw L.forError(pinit, "initial value");
+            Double ninit = toNumber(init);
+            if (ninit == null) {
+                throw L.forError(init, "initial value");
             }
-            double init = initD;
-            double limit = limitD;
-            double step = stepD;
-            if (step == 0 || (step > 0 ? (limit < init) : (init < limit))) {
-                return true;
-            }
-            L.stack[ra + 1].setFloat(limit);
-            L.stack[ra + 2].setFloat(step);
-            L.stack[ra].setFloat(init);
-            L.stack[ra + 3].setFloat(init);
+            L.stack[ra + 1].setFloat(nlimit);
+            L.stack[ra + 2].setFloat(nstep);
+            L.stack[ra].setFloat(ninit - nstep);
         }
-        return false;
     }
 
     /** {@code floatforloop} */

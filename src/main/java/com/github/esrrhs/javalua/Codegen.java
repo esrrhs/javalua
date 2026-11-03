@@ -420,6 +420,9 @@ public final class Codegen {
         case ExpDesc.VK:
             codeK(fs, reg, e.info);
             break;
+        case ExpDesc.VKSTR:
+            codeK(fs, reg, stringK(fs, e.strval));
+            break;
         case ExpDesc.VKFLT:
             codeK(fs, reg, numberK(fs, e.nval));
             break;
@@ -547,6 +550,9 @@ public final class Codegen {
             e.info = numberK(fs, e.nval);
             break;
         case ExpDesc.VK:
+            break;
+        case ExpDesc.VKSTR:
+            e.info = stringK(fs, e.strval);
             break;
         default:
             return exp2AnyReg(fs, e);

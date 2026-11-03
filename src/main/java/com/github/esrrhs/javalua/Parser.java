@@ -291,11 +291,9 @@ public final class Parser {
         e.info = i;
     }
 
-    /** {@code codestring} */
-    private static void codeString(ExpDesc e, LuaString s) {
-        e.f = e.t = Codegen.NO_JUMP;
-        e.k = ExpDesc.VKSTR;
-        e.strval = s;
+    /** {@code codestring} — Lua 5.3.4: immediately {@code VK} + stringK. */
+    private void codeString(ExpDesc e, LuaString s) {
+        initExp(e, ExpDesc.VK, Codegen.stringK(fs, s));
     }
 
     /** {@code codename} */
@@ -347,8 +345,10 @@ public final class Parser {
         DynData.Vardesc var = new DynData.Vardesc();
         var.kind = DynData.VDKREG;
         var.name = name;
-        dyd.setActvar(dyd.actvarN, var);
-        return dyd.actvarN++ - fs.firstlocal;
+        int i = dyd.actvarN;
+        dyd.setActvar(i, var);
+        // setActvar already sets actvarN = i+1; do not bump again
+        return i - fs.firstlocal;
     }
 
     /** {@code new_localvarliteral} */
@@ -370,12 +370,13 @@ public final class Parser {
         return fs.f.locvars[vd.pidx];
     }
 
-    /** {@code init_var} */
+    /** {@code init_var} — Lua 5.3.4: {@code info} is the register. */
     private static void initVar(FuncState fs, ExpDesc e, int vidx) {
         e.f = e.t = Codegen.NO_JUMP;
         e.k = ExpDesc.VLOCAL;
         e.varVidx = vidx;
         e.varRidx = getLocalVarDesc(fs, vidx).ridx;
+        e.info = e.varRidx; // 5.3: VLOCAL.info == register
     }
 
     /** {@code check_readonly} */
@@ -866,17 +867,16 @@ public final class Parser {
         cc.na += cc.tostore;
     }
 
-    /** {@code constructor} */
+    /** {@code constructor} — Lua 5.3.4: NEWTABLE B/C = int2fb; no EXTRAARG. */
     private void constructor(ExpDesc t) {
         FuncState fs = this.fs;
         int line = ls.linenumber;
         int pc = Codegen.codeABC(fs, OpCode.OP_NEWTABLE, 0, 0, 0);
-        Codegen.code(fs, 0); // 给 EXTRAARG 留位置
         ConsControl cc = new ConsControl();
         cc.na = cc.nh = cc.tostore = 0;
         cc.t = t;
-        initExp(t, ExpDesc.VNONRELOC, fs.freereg);
-        Codegen.reserveRegs(fs, 1);
+        initExp(t, ExpDesc.VRELOC, pc);
+        Codegen.exp2NextReg(fs, t); // fix NEWTABLE A at stack top
         initExp(cc.v, ExpDesc.VVOID, 0);
         checkNext('{');
         do {
@@ -1475,26 +1475,31 @@ public final class Parser {
         fs.f.code[pc] = OpCode.setArgBx(fs.f.code[pc], offset);
     }
 
-    /** {@code forbody} */
-    private void forBody(int base, int line, int nvars, int isgen) {
+    /** {@code forbody} — Lua 5.3.4 {@code lparser.c}. */
+    private void forBody(int base, int line, int nvars, int isnum) {
         BlockCnt bl = new BlockCnt();
         FuncState fs = this.fs;
         int prep;
         int endfor;
+        adjustLocalVars(3); // control variables
         checkNext(Lexer.TK_DO);
-        prep = (isgen == 1) ? Codegen.codeAsBxPublic(fs, OpCode.OP_JMP, 0, 0) : Codegen.codeAsBxPublic(fs, OpCode.OP_FORPREP, base, 0);
+        prep = (isnum != 0)
+                ? Codegen.codeAsBxPublic(fs, OpCode.OP_FORPREP, base, Codegen.NO_JUMP)
+                : Codegen.jump(fs);
         enterBlock(fs, bl, false);
         adjustLocalVars(nvars);
         Codegen.reserveRegs(fs, nvars);
         block();
         leaveBlock(fs);
-        fixForJump(prep, Codegen.getLabel(fs), false);
-        if (isgen == 1) {
+        Codegen.patchToHere(fs, prep);
+        if (isnum != 0) {
+            endfor = Codegen.codeAsBxPublic(fs, OpCode.OP_FORLOOP, base, Codegen.NO_JUMP);
+        } else {
             Codegen.codeABC(fs, OpCode.OP_TFORCALL, base, 0, nvars);
             Codegen.fixLine(fs, line);
+            endfor = Codegen.codeAsBxPublic(fs, OpCode.OP_TFORLOOP, base + 2, Codegen.NO_JUMP);
         }
-        endfor = Codegen.codeABx(fs, (isgen == 1) ? OpCode.OP_TFORLOOP : OpCode.OP_FORLOOP, base, 0);
-        fixForJump(endfor, prep + 1, true);
+        Codegen.patchList(fs, endfor, prep + 1);
         Codegen.fixLine(fs, line);
     }
 
@@ -1502,9 +1507,9 @@ public final class Parser {
     private void forNum(LuaString varname, int line) {
         FuncState fs = this.fs;
         int base = fs.freereg;
-        newLocalVarLiteral("(for state)");
-        newLocalVarLiteral("(for state)");
-        newLocalVarLiteral("(for state)");
+        newLocalVarLiteral("(for index)");
+        newLocalVarLiteral("(for limit)");
+        newLocalVarLiteral("(for step)");
         newLocalVar(varname);
         checkNext('=');
         exp1(); // 初值
@@ -1516,26 +1521,21 @@ public final class Parser {
             Codegen.codeInt(fs, fs.freereg, 1);
             Codegen.reserveRegs(fs, 1);
         }
-        adjustLocalVars(3); // 控制变量
-        forBody(base, line, 1, 0);
+        forBody(base, line, 1, 1);
     }
 
     /**
-     * {@code forlist}. Language surface matches Lua 5.3.4 (no {@code <close>} syntax),
-     * but the VM still uses the 5.4-era {@code OP_TFORPREP} which expects a 4th
-     * control slot at {@code ra+3} for an internal to-be-closed upvalue. Keep that
-     * slot (usually nil) so generic-for does not mark the first loop variable.
+     * {@code forlist} — Lua 5.3.4: 3 control slots (generator, state, control).
      */
     private void forList(LuaString indexname) {
         FuncState fs = this.fs;
         ExpDesc e = new ExpDesc();
-        int nvars = 5; // gen, state, control, internal-tbc, indexname
+        int nvars = 4; // gen, state, control, plus at least one declared var
         int line;
         int base = fs.freereg;
+        newLocalVarLiteral("(for generator)");
         newLocalVarLiteral("(for state)");
-        newLocalVarLiteral("(for state)");
-        newLocalVarLiteral("(for state)");
-        newLocalVarLiteral("(for state)");
+        newLocalVarLiteral("(for control)");
         newLocalVar(indexname);
         while (testNext(',')) {
             newLocalVar(strCheckName());
@@ -1543,11 +1543,9 @@ public final class Parser {
         }
         checkNext(Lexer.TK_IN);
         line = ls.linenumber;
-        // 5.3 iterators yield 3 values; 4th control slot stays nil.
-        adjustAssign(4, expList(e), e);
-        adjustLocalVars(4);
+        adjustAssign(3, expList(e), e);
         Codegen.checkStack(fs, 3);
-        forBody(base, line, nvars - 4, 1);
+        forBody(base, line, nvars - 3, 0);
     }
 
     /** {@code forstat} */
