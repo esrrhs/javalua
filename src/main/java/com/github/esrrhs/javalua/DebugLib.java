@@ -253,21 +253,7 @@ public final class DebugLib {
                 }
                 break;
             }
-            case 'r':
-                /*
-                 * 传递信息只在<b>返回钩子期间</b>有效：{@code luaD_hook} 进钩子前
-                 * 把 {@code CIST_TRAN} 打在这一帧上、出来就清掉。所以
-                 * {@code debug.getinfo(2, 'r')} 在钩子里能读到返回值个数，
-                 * 在普通代码里一律是 0/0。
-                 */
-                if (ci == null || !ci.tran) {
-                    ar.ftransfer = 0;
-                    ar.ntransfer = 0;
-                } else {
-                    ar.ftransfer = ci.ftransfer;
-                    ar.ntransfer = ci.ntransfer;
-                }
-                break;
+            /* 5.3.4: no getinfo "r" (ftransfer) — falls to default invalid */
             case 'L':
             case 'f':
                 break; // 由 getInfo 处理（它们要往栈上推东西）
@@ -332,25 +318,14 @@ public final class DebugLib {
 
     /** {@code collectvalidlines}：所有「有指令落在上面」的行 */
     private static LuaValue collectValidLines(Object cl) {
+        /* 5.3.4: lineinfo[i] is the absolute source line for instruction i */
         if (!(cl instanceof LClosure)) {
             return LuaValue.ofNil();
         }
         Proto p = ((LClosure) cl).p;
         LuaTable t = new LuaTable();
-        if (p.sizelineinfo > 0) {
-            int currentline = p.linedefined;
-            int i;
-            if (!p.isVararg) {
-                i = 0;
-            } else {
-                // 变参函数的第一条是 OP_VARARGPREP，不算
-                currentline = nextLine(p, currentline, 0);
-                i = 1;
-            }
-            for (; i < p.sizelineinfo; i++) {
-                currentline = nextLine(p, currentline, i);
-                t.set(currentline, LuaValue.ofBoolean(true));
-            }
+        for (int i = 0; i < p.sizelineinfo; i++) {
+            t.set(p.lineinfo[i], LuaValue.ofBoolean(true));
         }
         return LuaValue.ofTable(t);
     }
@@ -582,7 +557,7 @@ public final class DebugLib {
         int[] argHolder = new int[1];
         LuaState L1 = getThread(L, argHolder);
         int arg = argHolder[0];
-        LuaString optStr = LuaAux.optString(L, arg + 2, LuaString.latin1("flnSrtu"));
+        LuaString optStr = LuaAux.optString(L, arg + 2, LuaString.latin1("flnStu"));
         /*
          * what 是 const char*：C 的 lua_getinfo 扫到第一个 \0 就收工，后面那几个
          * 字符<b>连看都不看</b>。不截断的话 debug.getinfo(f, "S\0ln") 会把 'l' 'n'
