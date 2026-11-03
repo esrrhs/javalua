@@ -3731,7 +3731,22 @@ public final class LuaState {
      * {@code (field '<FF><FE>')}。
      */
     /** Lua 5.3.4 {@code kname}: {@code c} is RK; strip BITRK to index K. */
-    static String kName(Proto p, int c, String[] name) {
+    /** Constant name from raw K index (LOADK Bx), not RK-encoded. */
+    static String constName(Proto p, int index, String[] name) {
+        if (index < 0 || index >= p.k.length) {
+            name[0] = "?";
+            return null;
+        }
+        LuaValue kv = p.k[index];
+        if (kv != null && kv.isString()) {
+            name[0] = kv.asString().toLatin1String();
+            return "constant";
+        }
+        name[0] = "?";
+        return null;
+    }
+
+        static String kName(Proto p, int c, String[] name) {
         int index = OpCode.isK(c) ? OpCode.indexK(c) : c;
         if (index < 0 || index >= p.k.length) {
             name[0] = "?";
@@ -3833,9 +3848,9 @@ public final class LuaState {
                 return "upvalue";
             }
             case OpCode.OP_LOADK:
-                return kName(p, OpCode.getArgBx(i), name);
+                return constName(p, OpCode.getArgBx(i), name);
             case OpCode.OP_LOADKX:
-                return kName(p, OpCode.getArgAx(p.code[pc + 1]), name);
+                return constName(p, OpCode.getArgAx(p.code[pc + 1]), name);
             default:
                 break;
             }
