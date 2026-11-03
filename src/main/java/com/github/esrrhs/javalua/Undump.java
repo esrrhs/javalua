@@ -125,68 +125,28 @@ public final class Undump {
         return b;
     }
 
-    /**
-     * 变长无符号数：7 位一组、大端在前，最高位置 1 的那组是最后一组。
-     * <p>
-     * {@code limit >>= 7} 之后再比，是 C 版防溢出的写法——照搬，否则
-     * 一个恶意 chunk 能用一堆 {@code 0x7f} 把 {@code x} 顶到回绕。
-     */
-    private static long loadUnsigned(LoadState S, long limit) {
-        long x = 0;
-        int b;
-        /*
-         * 必须用<b>逻辑</b>右移：limit 传进来的是 C 的 {@code size_t} 上限，
-         * 而 {@code MAX_SIZET} 是 {@code ~(size_t)0}（全 1），不是
-         * {@code Long.MAX_VALUE}。两者 {@code >>7} 之后差一整倍——
-         * 用 {@code Long.MAX_VALUE} 会在第 9 组就误报 integer overflow，
-         * 而参考实现那时要到第 10 组才报（第 9 组之后是截断）。
-         */
-        limit >>>= 7;
-        do {
-            b = loadByte(S);
-            /*
-             * C 里 {@code x} 和 {@code limit} 都是 {@code size_t}，这个
-             * {@code x >= limit} 是<b>无符号</b>比较。这里必须用
-             * {@code compareUnsigned}：变长整数被一堆 {@code 0x00} 顶到第 10
-             * 组时会跨过 {@code 2^63}、折成负数，有符号比较就<b>认不出溢出</b>
-             * ——于是继续往下读，最终报 truncated chunk，而参考实现报
-             * integer overflow。这是第 14 条（C 的 {@code unsigned} 一律按
-             * 无符号处理）的第四例，前三例是 tunpack / checkStack / sort 枢轴。
-             */
-            if (Long.compareUnsigned(x, limit) >= 0) {
-                error(S, "integer overflow");
-            }
-            x = (x << 7) | (b & 0x7f);
-        } while ((b & 0x80) == 0);
-        return x;
-    }
+    private static final int SIZE_INT = 4;
+    private static final int SIZE_SIZET = 8;
 
-    /**
-     * C 的 {@code MAX_SIZET}（{@code ~(size_t)0}，64 位全 1）。
-     * <p>
-     * Java 的 {@code long} 没有无符号，全 1 就是 {@code -1}；配合
-     * {@link #loadUnsigned} 里的 {@code >>>} 正好得到 C 的那个上限。
-     */
-    private static final long MAX_SIZET = -1L;
-
-    /**
-     * 返回 {@code size_t}。Java 没有无符号 64 位，用 {@code long} 接，
-     * 由调用方（只有 {@link #loadStringN}）按实际能读到的字节数决定怎么存。
-     * <p>
-     * <b>这里不能对「大到 Java 数组放不下」的长度提前报错。</b>上一版就是这么
-     * 写的，注释还断言「C 会去分配并抛 {@code LUA_ERRMEM}」——照着 C 源码读
-     * 出来的结论，实测是错的：把源名长度写成 {@code 2^35-1}（变长整数
-     * {@code 7f 7f 7f 7f ff}），参考实现给的是 {@code truncated chunk} 而不是
-     * 内存错误。64 位上 malloc 34GB 是成功的，C 于是老老实实去读那 34GB，
-     * 读到流末尾报截断。提前报 {@code integer overflow} 等于凭空多出一个
-     * C 里不存在的分支，白白对不上一个用例。
-     */
-    private static long loadSize(LoadState S) {
-        return loadUnsigned(S, MAX_SIZET);
-    }
-
+    /** Lua 5.3.4: {@code LoadInt} — fixed {@code sizeof(int)} little-endian. */
     private static int loadInt(LoadState S) {
-        return (int) loadUnsigned(S, Integer.MAX_VALUE);
+        byte[] b = new byte[SIZE_INT];
+        loadBlock(S, b, 0, SIZE_INT);
+        return (b[0] & 0xFF)
+                | ((b[1] & 0xFF) << 8)
+                | ((b[2] & 0xFF) << 16)
+                | ((b[3] & 0xFF) << 24);
+    }
+
+    /** Lua 5.3.4: {@code LoadVar(size_t)}. */
+    private static long loadSizeT(LoadState S) {
+        byte[] b = new byte[SIZE_SIZET];
+        loadBlock(S, b, 0, SIZE_SIZET);
+        long v = 0;
+        for (int i = SIZE_SIZET - 1; i >= 0; i--) {
+            v = (v << 8) | (b[i] & 0xFF);
+        }
+        return v;
     }
 
     private static double loadNumber(LoadState S) {
@@ -203,54 +163,45 @@ public final class Undump {
         return v;
     }
 
+
     /* ---------- 字符串 ---------- */
 
-    /** {@code loadStringN}：可为 null 的字符串。size==0 表示没有 */
+    /** {@code LoadString}: size byte; 0xFF then size_t; size==0 means nil. */
     private static LuaString loadStringN(LoadState S, Proto p) {
-        long size = loadSize(S);
+        long size = loadByte(S) & 0xFFL;
+        if (size == 0xFF) {
+            size = loadSizeT(S);
+        }
         if (size == 0) {
             return null;
         }
-        size--; // 存的是 len+1，好让 0 表示「没有」
-        LuaString ts;
-        // 同上：C 的 size 是 size_t，这个比较也是无符号的
+        size--; // stored as len+1 so 0 means "no string"
         if (Long.compareUnsigned(size, MAXSHORTLEN) <= 0) {
             byte[] buff = new byte[(int) size];
             if (size > 0) {
                 loadBlock(S, buff, 0, (int) size);
             }
-            ts = LuaString.of(buff);
-        } else {
-            /*
-             * 声明的长度越过 {@link #MAX_LONG_STRING} 时，C 那头的 malloc
-             * 必然失败，于是报 {@code nil, "not enough memory"}；这里照做
-             * ——注意消息<b>不带位置前缀</b>，与参考实现一致。
-             * <p>
-             * 没越线就<b>边读边攒</b>：攒多少只看流里真有多少，而不是声明了
-             * 多少（声明值来自不可信输入，真拿去预分配会 OOM）；流一尽照样由
-             * {@code loadBlock} 报 truncated chunk。
-             */
-            if (Long.compareUnsigned(size, MAX_LONG_STRING) > 0) {
-                // 同上：C 的 malloc 失败是 luaM_error（LUA_ERRMEM），不是普通错误
-                LuaError e = new LuaError(
-                        LuaValue.ofString(LuaString.latin1("not enough memory")));
-                e.errMem = true;
-                throw e;
+            LuaString ts = LuaString.of(buff);
+            if (ts.isShort()) {
+                ts = S.L.strings.intern(ts);
             }
-            ByteArrayOutputStream acc = new ByteArrayOutputStream();
-            byte[] block = new byte[8192];
-            for (long left = size; left > 0;) {
-                int n = (int) Math.min(left, block.length);
-                loadBlock(S, block, 0, n); // 中途流尽 → truncated chunk
-                acc.write(block, 0, n);
-                left -= n;
-            }
-            ts = LuaString.of(acc.toByteArray());
+            return ts;
         }
-        if (ts.isShort()) {
-            ts = S.L.strings.intern(ts);
+        if (Long.compareUnsigned(size, MAX_LONG_STRING) > 0) {
+            LuaError e = new LuaError(
+                    LuaValue.ofString(LuaString.latin1("not enough memory")));
+            e.errMem = true;
+            throw e;
         }
-        return ts;
+        ByteArrayOutputStream acc = new ByteArrayOutputStream();
+        byte[] block = new byte[8192];
+        for (long left = size; left > 0;) {
+            int n = (int) Math.min(left, block.length);
+            loadBlock(S, block, 0, n);
+            acc.write(block, 0, n);
+            left -= n;
+        }
+        return LuaString.of(acc.toByteArray());
     }
 
     /** {@code loadString}：不可为 null，取到 null 就是格式错 */
@@ -419,7 +370,6 @@ public final class Undump {
             Proto.Upvaldesc u = new Proto.Upvaldesc();
             u.instack = loadByte(S) != 0;
             u.idx = loadByte(S);
-            u.kind = loadByte(S);
             f.upvalues[i] = u;
         }
         if (f.upvalues.length != n) {
@@ -431,41 +381,21 @@ public final class Undump {
         int n = loadInt(S);
         f.lineinfo = new int[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizelineinfo = n;
-        /*
-         * 行号表是<b>整块</b> loadBlock 的，不像上面那几段可以「读一个建一个」。
-         * 所以换成 8192 一块地攒——声明的长度不可信，攒多少只看流里真有多少；
-         * 流一尽同样报 truncated chunk。
-         */
-        int li = 0;
-        byte[] lblk = new byte[8192];
-        for (long left = n; left > 0;) {
-            int k = (int) Math.min(left, lblk.length);
-            loadBlock(S, lblk, 0, k);
-            if (li + k > f.lineinfo.length) {
-                f.lineinfo = Arrays.copyOf(f.lineinfo, grown(f.lineinfo.length, li + k));
-            }
-            System.arraycopy(lblk, 0, f.lineinfo, li, k);
-            li += k;
-            left -= k;
-        }
-        n = loadInt(S);
-        f.abslineinfo = new Proto.AbsLineInfo[Math.min(Math.max(n, 0), MIN_CAP)];
-        f.sizeabslineinfo = n;
+        // 5.3.4: lineinfo is int[]; no abslineinfo
+        f.abslineinfo = new Proto.AbsLineInfo[0];
+        f.sizeabslineinfo = 0;
         for (int i = 0; i < n; i++) {
-            int pc = loadInt(S);
-            int line = loadInt(S);
-            if (i >= f.abslineinfo.length) {
-                f.abslineinfo = Arrays.copyOf(f.abslineinfo, grown(f.abslineinfo.length, i + 1));
+            if (i >= f.lineinfo.length) {
+                f.lineinfo = Arrays.copyOf(f.lineinfo, grown(f.lineinfo.length, i + 1));
             }
-            f.abslineinfo[i] = new Proto.AbsLineInfo(pc, line);
+            f.lineinfo[i] = loadInt(S);
         }
-        if (f.abslineinfo.length != n) {
-            f.abslineinfo = Arrays.copyOf(f.abslineinfo, Math.max(n, 0));
+        if (f.lineinfo.length != n) {
+            f.lineinfo = Arrays.copyOf(f.lineinfo, Math.max(n, 0));
         }
         n = loadInt(S);
         f.locvars = new Proto.LocVar[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizelocvars = n;
-        // 同样合成一趟：先建 LocVar 再立刻解析，别分两趟
         for (int i = 0; i < n; i++) {
             if (i >= f.locvars.length) {
                 f.locvars = Arrays.copyOf(f.locvars, grown(f.locvars.length, i + 1));
@@ -535,6 +465,8 @@ public final class Undump {
             error(S, "format mismatch");
         }
         checkLiteral(S, LUAC_DATA, "corrupted chunk");
+        checkSize(S, SIZE_INT, "int");
+        checkSize(S, SIZE_SIZET, "size_t");
         checkSize(S, SIZE_INSTRUCTION, "Instruction");
         checkSize(S, SIZE_INTEGER, "lua_Integer");
         checkSize(S, SIZE_NUMBER, "lua_Number");
