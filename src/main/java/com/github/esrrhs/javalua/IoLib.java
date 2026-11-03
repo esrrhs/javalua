@@ -1017,8 +1017,13 @@ public final class IoLib {
         String mode = LuaAux.optString(L, 2, LuaString.latin1("r")).toCString().toJavaString();
         LuaFile f = new LuaFile();
         newPreFileValue(L, f);
-        LuaAux.argCheck(L, checkModeP(mode), 2, "invalid mode");
+        /* 5.3.4: no luaL_argcheck on mode; libc popen fails → luaL_fileresult */
         f.err = false;
+        if (!checkModeP(mode)) {
+            f.errno = 22; /* EINVAL */
+            LuaAux.fileResult(L, false, fname, f.errno);
+            return 3;
+        }
         boolean forRead = mode.charAt(0) == 'r';
         /*
          * C 的 {@code popen} <b>只接管一条流</b>：读模式接管子进程的
@@ -1957,10 +1962,8 @@ public final class IoLib {
     }
 
     /**
-     * {@code io.lines}。
-     * <p>
-     * 给了文件名时返回的第四个数是「待关闭变量」——泛型 for 会把它当
-     * {@code <close>} 处理，迭代结束（或中途出错）时关掉文件。
+     * {@code io.lines} — Lua 5.3.4 returns only the iterator closure.
+     * Closing is done inside {@code io_readline} when {@code toclose} upvalue is set.
      */
     private static int ioLines(LuaState L) {
         boolean toclose;
@@ -1987,12 +1990,7 @@ public final class IoLib {
             toclose = true;
         }
         auxLines(L, toclose);
-        if (toclose) {
-            L.pushNil(); // state
-            L.pushNil(); // control
-            L.pushValue(1); // 文件作为待关闭变量
-            return 4;
-        }
+        /* 5.3.4 io_lines: return 1 (iterator only); 5.4 adds to-be-closed 4-tuple */
         return 1;
     }
 

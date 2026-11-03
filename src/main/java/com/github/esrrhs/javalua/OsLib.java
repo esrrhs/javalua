@@ -155,9 +155,9 @@ public final class OsLib {
             res = def;
         } else {
             res = i;
-            boolean ok = (res >= 0) ? (res - (long) delta <= Integer.MAX_VALUE)
-                    : (Integer.MIN_VALUE + (long) delta <= res);
-            if (!ok) {
+            /* 5.3.4 loslib.c: L_MAXDATEFIELD (INT_MAX/2) — check before delta */
+            final long L_MAXDATEFIELD = Integer.MAX_VALUE / 2L;
+            if (!(-L_MAXDATEFIELD <= res && res <= L_MAXDATEFIELD)) {
                 throw L.libError("field '" + key + "' is out-of-bound");
             }
             res -= delta;
