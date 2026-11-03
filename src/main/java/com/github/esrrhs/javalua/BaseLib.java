@@ -137,16 +137,41 @@ public final class BaseLib {
 
     /* ==================== 各函数 ==================== */
 
-    /** {@code luaB_print}：制表符分隔，末尾换行 */
+    /**
+     * {@code luaB_print}：必须调<b>全局</b>{@code tostring}（lbaselib.c），不能内联
+     * {@link #toLString}——否则 {@code tostring=nil} / 自定义 {@code tostring} 与参考分叉。
+     */
     private static int print(LuaState L) {
         int n = L.argCount();
+        LuaValue tostring = L.getGlobals().get("tostring");
         ByteArrayOutputStream tmp = new ByteArrayOutputStream();
         for (int i = 0; i < n; i++) {
             if (i > 0) {
                 tmp.write('\t');
             }
-            LuaString s = toLString(L, L.arg(i));
+            LuaValue arg = L.arg(i);
+            int func = L.top;
+            L.ensureSlots(func + 2);
+            L.stack[func].set(tostring);
+            L.stack[func + 1].set(arg);
+            L.top = func + 2;
+            /* lbaselib.c 用 lua_call */
+            L.call(func, 1);
+            LuaValue res = L.stack[L.top - 1];
+            /*
+             * lua_tolstring：字符串或数字；其余报
+             * "'tostring' must return a string to 'print'"。
+             */
+            LuaString s;
+            if (res.isString()) {
+                s = res.asString();
+            } else if (res.isNumber()) {
+                s = LuaString.latin1(Vm.numberToString(res));
+            } else {
+                throw L.libError("'tostring' must return a string to 'print'");
+            }
             tmp.write(s.bytes, 0, s.bytes.length);
+            L.pop(1);
         }
         tmp.write('\n');
         byte[] all = tmp.toByteArray();
