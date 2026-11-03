@@ -595,7 +595,9 @@ public final class Parser {
 
     /** {@code findlabel} */
     private DynData.Labeldesc findLabel(LuaString name) {
-        for (int i = fs.firstlabel; i < dyd.label.size(); i++) {
+        /* 5.3.4 checkrepeated: only labels in the *current block* (bl.firstlabel) */
+        int from = (fs.bl != null) ? fs.bl.firstlabel : fs.firstlabel;
+        for (int i = from; i < dyd.label.size(); i++) {
             DynData.Labeldesc lb = dyd.label.get(i);
             if (eqstr(lb.name, name)) {
                 return lb;

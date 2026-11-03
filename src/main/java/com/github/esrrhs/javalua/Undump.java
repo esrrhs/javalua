@@ -93,11 +93,11 @@ public final class Undump {
         }
     }
 
-    /** {@code lundump.c: error}：{@code "<name>: bad binary format (<why>)"} */
+    /** {@code lundump.c: error}: "<name>: <why> precompiled chunk" (5.3.4) */
     private static LuaError error(LoadState S, String why) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(S.name, 0, S.name.length);
-        byte[] tail = (": bad binary format (" + why + ")").getBytes(StandardCharsets.UTF_8);
+        byte[] tail = (": " + why + " precompiled chunk").getBytes(StandardCharsets.UTF_8);
         out.write(tail, 0, tail.length);
         LuaError e = new LuaError(LuaValue.ofString(LuaString.of(out.toByteArray())));
         // 与 lexerror 同一条路：luaD_throw(LUA_ERRSYNTAX) 直跳，不过 errfunc
@@ -111,7 +111,7 @@ public final class Undump {
         for (int i = 0; i < size; i++) {
             int c = S.z.getc();
             if (c == Zio.EOZ) {
-                error(S, "truncated chunk");
+                error(S, "truncated");
             }
             b[off + i] = (byte) c;
         }
@@ -120,7 +120,7 @@ public final class Undump {
     private static int loadByte(LoadState S) {
         int b = S.z.getc();
         if (b == Zio.EOZ) {
-            error(S, "truncated chunk");
+            error(S, "truncated");
         }
         return b;
     }
@@ -449,7 +449,7 @@ public final class Undump {
 
     private static void checkSize(LoadState S, int size, String tname) {
         if (loadByte(S) != size) {
-            error(S, tname + " size mismatch");
+            error(S, tname + " size mismatch in");
         }
     }
 
@@ -459,10 +459,10 @@ public final class Undump {
         System.arraycopy(SIGNATURE, 1, rest, 0, rest.length);
         checkLiteral(S, rest, "not a binary chunk");
         if (loadByte(S) != LUAC_VERSION) {
-            error(S, "version mismatch");
+            error(S, "version mismatch in");
         }
         if (loadByte(S) != LUAC_FORMAT) {
-            error(S, "format mismatch");
+            error(S, "format mismatch in");
         }
         checkLiteral(S, LUAC_DATA, "corrupted chunk");
         checkSize(S, SIZE_INT, "int");
@@ -471,10 +471,10 @@ public final class Undump {
         checkSize(S, SIZE_INTEGER, "lua_Integer");
         checkSize(S, SIZE_NUMBER, "lua_Number");
         if (loadInteger(S) != LUAC_INT) {
-            error(S, "integer format mismatch");
+            error(S, "endianness mismatch in");
         }
         if (loadNumber(S) != LUAC_NUM) {
-            error(S, "float format mismatch");
+            error(S, "float format mismatch in");
         }
     }
 
