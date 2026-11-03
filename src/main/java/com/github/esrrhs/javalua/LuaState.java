@@ -19,8 +19,8 @@ import java.util.List;
  * 几处与 C 版的差异（都是刻意的）：
  * <ul>
  *   <li>指针换成<b>栈下标</b>。{@code StkId} 在 C 里能加减，Java 里只能这样；</li>
- *   <li>没有 {@code EXTRA_STACK} 保证金：{@code luaD_call} 前需要栈空间的地方
- *       显式 {@code ensureSlots}；</li>
+ *   <li>{@code EXTRA_STACK} 保证金按 {@code ldo.c} 从 {@code MAXSTACK} 里扣
+ *       （见 {@link #checkStack}）；扩容本身仍用 {@code ensureSlots}；</li>
  *   <li>{@code luaD_throw} 换成抛 {@link LuaError}，{@code pcall} 用
  *       {@code try/catch} 实现；</li>
  *   <li>没有「非 Lua 线程」：协程只是另一个 {@code LuaState}，靠
@@ -48,6 +48,15 @@ public final class LuaState {
      * 一句 Lua 错误——上游 {@code cstack.lua} 整篇都在断言这件事。
      */
     public static final int MAXSTACK = 1000000;
+
+    /**
+     * {@code EXTRA_STACK}（{@code lstate.h}）：{@code stack_last} 相对
+     * {@code stacksize} 留出的保证金。{@code luaD_growstack} 用
+     * {@code (top - stack) + n + EXTRA_STACK > LUAI_MAXSTACK} 判溢出，
+     * 等价于可用槽上限是 {@code MAXSTACK - EXTRA_STACK}。少了这 5 格，
+     * 空帧递归会比参考实现多撑大约 5 层，互相递归的报错行号也会错位。
+     */
+    private static final int EXTRA_STACK = 5;
 
     /** {@code ERRORSTACKSIZE}：栈溢出之后留给错误处理用的额外空间 */
     private static final int ERRORSTACKSIZE = MAXSTACK + 200;
@@ -1327,7 +1336,9 @@ public final class LuaState {
          * {@code OutOfMemoryError}——上游 {@code sort.lua} 第一节正撞这里。
          */
         long need = (long) top + n;
-        if (need > (stackErr ? ERRORSTACKSIZE : MAXSTACK)) {
+        /* 常态：C 的 stack_last = stack + size - EXTRA_STACK，size≤MAXSTACK */
+        long limit = stackErr ? ERRORSTACKSIZE : (long) MAXSTACK - EXTRA_STACK;
+        if (need > limit) {
             if (stackErr) {
                 throw errErr();
             }
@@ -1352,7 +1363,8 @@ public final class LuaState {
     boolean checkStackOk(int n) {
         /* 同上：{@code top + n} 溢出会让这个判断整个失效 */
         long need = (long) top + n;
-        if (need > (stackErr ? ERRORSTACKSIZE : MAXSTACK)) {
+        long limit = stackErr ? ERRORSTACKSIZE : (long) MAXSTACK - EXTRA_STACK;
+        if (need > limit) {
             return false;
         }
         ensureSlots((int) need);
@@ -1916,7 +1928,7 @@ public final class LuaState {
      * 两档都留着是对的，而且<b>中间那段「什么都不做」的区间正是设计</b>：
      * 第 200 层抛 {@code C stack overflow} 之后，消息处理函数还要在 201…
      * 219 层里跑（{@code luaG_errormsg} 会 {@code callnoyield} 调它），
-     * 直到 220 层（{@code MAXCCALLS / 10 * 11}）才认定「连错误处理都溢出了」，
+     * 直到 225 层（{@code MAXCCALLS + (MAXCCALLS >> 3)}，即 9/8）才认定「连错误处理都溢出了」，
      * 转成 {@code LUA_ERRERR}。少了这段余量，{@code xpcall(f, f)} 之类的
      * 处理函数一进去就被判死，拿不到 {@code "error in error handling"}。
      */
@@ -1924,7 +1936,9 @@ public final class LuaState {
         if (nCcalls == MAXCCALLS) {
             throw runError("C stack overflow");
         }
-        if (nCcalls >= MAXCCALLS / 10 * 11) {
+        /* 5.3.4 ldo.c stackerror: LUAI_MAXCCALLS + (LUAI_MAXCCALLS>>3) == 225
+         * (comment says "9/8"); 5.4 uses MAXCCALLS + MAXCCALLS/10 == 220. */
+        if (nCcalls >= MAXCCALLS + (MAXCCALLS >> 3)) {
             throw errErr();
         }
     }
@@ -2244,7 +2258,7 @@ public final class LuaState {
      * {@code incXCcalls} 加一层，而错误是 longjmp 出去的，对应的
      * {@code decXCcalls} <b>不会执行</b>，于是层数一层层累上去。第 200 层
      * {@code luaE_checkcstack} 抛 {@code C stack overflow}（这个消息又会被交给
-     * 处理函数），一直累到 220 层（{@code MAXCCALLS / 10 * 11}）才
+     * 处理函数），一直累到 225 层（{@code MAXCCALLS + (MAXCCALLS >> 3)}）才
      * {@code luaD_throw(L, LUA_ERRERR)}，最终落成
      * {@code "error in error handling"}。
      * <p>
@@ -2298,7 +2312,7 @@ public final class LuaState {
             nCcalls = depth + 1;
             if (e.errErr) {
                 /*
-                 * 累到 220 层：{@code luaD_throw(L, LUA_ERRERR)} 直跳到<b>最内层
+                 * 累到 225 层：{@code luaD_throw(L, LUA_ERRERR)} 直跳到<b>最内层
                  * 的</b>保护区，由 {@code luaD_seterrorobj} 写成那句固定串。
                  * 这里必须<b>返回</b>而不是继续上抛 —— this 帧就在 {@code pcall}
                  * 的 {@code catch} 块里，再抛就越过那道边界了（实测：

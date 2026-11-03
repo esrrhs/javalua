@@ -125,23 +125,23 @@ public final class IoLib {
     }
 
     /**
-     * {@code createmeta}：建 {@code FILEHANDLE*} 元表，并把方法表挂到
-     * {@code __index} 上。
+     * {@code createmeta}：建 {@code FILE*} 元表；方法直接挂在元表上，且
+     * {@code __index = metatable}（{@code liolib.c}），这样
+     * {@code getmetatable(f)} 与 {@code getmetatable(f).__index} 是同一张表。
      */
     private static void createMeta(LuaState L) {
         LuaTable mt = LuaAux.newMetatable(L, FILE_HANDLE);
-        LuaAux.setFn(mt, "__gc", IoLib::fGc);
         /* Lua 5.3.4 file handles expose __gc only; __close is a 5.4 addition. */
+        LuaAux.setFn(mt, "__gc", IoLib::fGc);
         LuaAux.setFn(mt, "__tostring", IoLib::fTostring);
-        LuaTable meth = new LuaTable();
-        LuaAux.setFn(meth, "read", IoLib::fRead);
-        LuaAux.setFn(meth, "write", IoLib::fWrite);
-        LuaAux.setFn(meth, "lines", IoLib::fLines);
-        LuaAux.setFn(meth, "flush", IoLib::fFlush);
-        LuaAux.setFn(meth, "seek", IoLib::fSeek);
-        LuaAux.setFn(meth, "close", IoLib::fClose);
-        LuaAux.setFn(meth, "setvbuf", IoLib::fSetvbuf);
-        mt.set("__index", LuaValue.ofTable(meth));
+        LuaAux.setFn(mt, "read", IoLib::fRead);
+        LuaAux.setFn(mt, "write", IoLib::fWrite);
+        LuaAux.setFn(mt, "lines", IoLib::fLines);
+        LuaAux.setFn(mt, "flush", IoLib::fFlush);
+        LuaAux.setFn(mt, "seek", IoLib::fSeek);
+        LuaAux.setFn(mt, "close", IoLib::fClose);
+        LuaAux.setFn(mt, "setvbuf", IoLib::fSetvbuf);
+        mt.set("__index", LuaValue.ofTable(mt));
     }
 
     private static void createStdFile(LuaState L, LuaTable io, LuaFile f, String key,

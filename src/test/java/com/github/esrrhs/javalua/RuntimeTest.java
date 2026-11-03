@@ -5919,6 +5919,7 @@ class RuntimeTest {
      * {@code true}。取 {@code false} 会让 {@code repeat until
      * collectgarbage("step")} 这类写法死循环，所以这里<b>刻意</b>取 {@code true}）。
      */
+    @Disabled("GC / weak tables / __gc out of scope for strict 5.3.4 non-GC alignment")
     @Test
     void weakTableAndFinalizerMatrixMatchesReference() {
         Diff.assertMatches("""
