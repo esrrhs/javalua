@@ -496,46 +496,51 @@ public final class BaseLib {
     private static final LuaKFunction PAIRS_CONT = (L, status, ctx) -> 3;
 
     /**
-     * {@code luaB_pairs}（含 {@code __pairs} 元方法）。
+     * {@code lbaselib.c: pairsmeta}（{@code LUA_COMPAT_IPAIRS} / {@code LUA_COMPAT_5_2}）。
      * <p>
-     * C 只做 {@code luaL_checkany(L, 1)}——<b>不</b>要求是表。没有
-     * {@code __pairs} 时照样返回 {@code (next, 值, nil)}，于是
-     * {@code pairs(5)} 是三个返回值而不是报错；真正炸是在迭代时
-     * {@code next(5)} 报 {@code bad argument #1 to 'next' (table expected, got number)}。
-     * 曾经这里多加了「必须是表」的校验，把 {@code pairs(5)} 变成报错。
+     * C 只做 {@code luaL_checkany(L, 1)}——<b>不</b>要求是表。没有对应元方法时
+     * 照样返回 {@code (iter, 值, iszero ? 0 : nil)}；真正炸是在迭代时。
+     * 曾经 {@code pairs} 多加了「必须是表」的校验，把 {@code pairs(5)} 变成报错。
+     * <p>
+     * 元方法路径用 {@code callK(..., pairscont)}：带续体，所以 {@code __pairs}/
+     * {@code __ipairs} 里 yield 是允许的。用不带续体的 {@code call} 会在恢复时炸，
+     * 因为那时 {@code ci.k} 是 {@code null}。（C 的 {@code pairsmeta} 写的是
+     * {@code lua_call}；本实现对齐可 yield 的行为。）
      */
-    private static int pairs(LuaState L) {
+    private static int pairsmeta(LuaState L, String method, boolean iszero, LuaFunction iter) {
         LuaAux.checkAny(L, 1);
         LuaValue t = L.arg(0);
-        LuaValue pf = metamethodByName(L, t, "__pairs");
+        LuaValue pf = metamethodByName(L, t, method);
         if (pf != null) {
             int func = L.top;
             L.ensureSlots(func + 2);
             L.stack[func].set(pf);
             L.stack[func + 1].set(t);
             L.top = func + 2;
-            /*
-             * {@code lua_callk(L, 1, 3, 0, pairscont)}：带续体，所以
-             * {@code __pairs} 里 yield 是允许的（上游 nextvar.lua 有这一条）。
-             * 用不带续体的 {@code call} 会在恢复时炸，因为那时 {@code ci.k} 是
-             * {@code null}。
-             */
             L.callK(func, 3, 0, PAIRS_CONT);
             return 3;
         }
-        L.pushFunction(BaseLib::next);
+        L.pushFunction(iter);
         L.push(t);
-        L.pushNil();
+        if (iszero) {
+            L.push(LuaValue.ofInteger(0));
+        } else {
+            L.pushNil();
+        }
         return 3;
     }
 
-    /** {@code luaB_ipairs}：与 {@code pairs} 一样只 {@code luaL_checkany} */
+    /** {@code luaB_pairs} → {@code pairsmeta(L, "__pairs", 0, luaB_next)} */
+    private static int pairs(LuaState L) {
+        return pairsmeta(L, "__pairs", false, BaseLib::next);
+    }
+
+    /**
+     * {@code luaB_ipairs}：5.3.4 在 {@code LUA_COMPAT_IPAIRS} 下走
+     * {@code pairsmeta(L, "__ipairs", 1, ipairsaux)}。
+     */
     private static int ipairs(LuaState L) {
-        LuaAux.checkAny(L, 1);
-        L.pushFunction(BaseLib::ipairsAux);
-        L.push(L.arg(0));
-        L.push(LuaValue.ofInteger(0));
-        return 3;
+        return pairsmeta(L, "__ipairs", true, BaseLib::ipairsAux);
     }
 
     /**

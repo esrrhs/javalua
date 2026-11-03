@@ -1220,4 +1220,113 @@ print("END")
 
                 """);
     }
+
+    /**
+     * {@code LUA_COMPAT_IPAIRS}：{@code luaB_ipairs} → {@code pairsmeta(..., "__ipairs", 1, ...)}。
+     * <p>
+     * 曾经 {@code BaseLib.ipairs} 只返回 {@code (ipairsaux, t, 0)}，完全忽略 {@code __ipairs}。
+     */
+    @Test
+    void ipairsMetamethodMatchesReference() {
+        Diff.assertMatches("""
+-- __ipairs（LUA_COMPAT_IPAIRS / LUA_COMPAT_5_2）差分回归
+-- pairsmeta(L, "__ipairs", 1, ipairsaux)：有元方法就整段替代迭代协议。
+
+local function show(v)
+    local t = type(v)
+    if t == "string" then return "s[" .. v .. "]" end
+    if t == "number" then
+        if math.type(v) == "integer" then return "i" .. tostring(v) end
+        return "f" .. tostring(v)
+    end
+    return t
+end
+
+local function go(tag, f, ...)
+    local r = table.pack(pcall(f, ...))
+    local out = { tag, tostring(r[1]) }
+    for i = 2, r.n do out[#out + 1] = show(r[i]) end
+    print(table.concat(out, " "))
+end
+
+print("BEGIN")
+
+-- 1) 形态矩阵：缺省 / 正常三返回 / 非函数 / 少返回
+do
+    local FORMS = {
+        { "absent", nil },
+        { "func3", function(t) return function(s, c)
+            c = (c or 0) + 1
+            if c > 3 then return nil end
+            return c, c * 10
+        end, "STATE", 0 end },
+        { "func2", function(t) return function(s, i)
+            i = i + 1
+            if i > 2 then return nil end
+            return i, i
+        end, t end },
+        { "func1", function(t) return function() return nil end end },
+        { "func0", function(t) return end },
+        { "num", 42 },
+        { "str", "s" },
+        { "tbl", {} },
+        { "bool", true },
+    }
+    for i = 1, #FORMS do
+        local nm, v = FORMS[i][1], FORMS[i][2]
+        local t = setmetatable({ 11, 22, 33 }, (nm == "absent") and nil or { __ipairs = v })
+        go("IP" .. nm, function(tt)
+            local a, b, c = ipairs(tt)
+            return type(a), type(b), tostring(c)
+        end, t)
+        go("IPFOR" .. nm, function(tt)
+            local acc = {}
+            for k, val in ipairs(tt) do acc[#acc + 1] = tostring(k) .. "=" .. tostring(val) end
+            return table.concat(acc, ",")
+        end, t)
+    end
+end
+
+-- 2) 与 __index 并存：无 __ipairs 时仍走 ipairsaux + __index（nextvar.lua）
+do
+    local a = { n = 5 }
+    setmetatable(a, { __index = function(t, k)
+        if k <= t.n then return k * 10 end
+    end })
+    go("IPIDX", function()
+        local acc = {}
+        for k, v in ipairs(a) do acc[#acc + 1] = k .. "=" .. v end
+        return table.concat(acc, ",")
+    end)
+end
+
+-- 3) __ipairs 优先于 __index：有 __ipairs 时不再用默认 ipairsaux
+do
+    local t = setmetatable({ n = 99, 1, 2, 3 }, {
+        __index = function() return "IDX" end,
+        __ipairs = function(x)
+            return function(s, i)
+                i = i + 1
+                if i > 2 then return nil end
+                return i, "MM" .. i
+            end, x, 0
+        end,
+    })
+    go("IPPRI", function()
+        local acc = {}
+        for k, v in ipairs(t) do acc[#acc + 1] = k .. "=" .. v end
+        return table.concat(acc, ",")
+    end)
+end
+
+-- 4) 非表也可挂（通过 debug.setmetatable 的类型元表不测；实例只对表）
+--    ipairs(非表) 在无 __ipairs 时仍返回三值；迭代时才炸
+go("IPNUM", function()
+    local a, b, c = ipairs(5)
+    return type(a), type(b), tostring(c)
+end)
+
+print("END")
+                """);
+    }
 }
