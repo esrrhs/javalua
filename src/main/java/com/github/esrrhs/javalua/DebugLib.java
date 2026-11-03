@@ -342,15 +342,18 @@ public final class DebugLib {
 
     /** {@code findvararg}：负下标访问变长参数 */
     private static String findVarArg(LuaState L, CallInfo ci, int n, int[] posOut) {
+        /* 5.3.4 findvararg: n is already positive (-getlocalIndex). */
         LuaValue f = L.stack[ci.func];
-        if (f.tt == Lua.VLIF && ((LClosure) f.o).p.isVararg) {
-            int nextra = ci.nextraargs;
-            if (n >= -nextra) {
-                posOut[0] = ci.func - nextra - (n + 1);
-                return "(vararg)";
-            }
+        if (f.tt != Lua.VLIF || !((LClosure) f.o).p.isVararg) {
+            return null;
         }
-        return null;
+        int nparams = ((LClosure) f.o).p.numparams;
+        int nextra = ci.base - ci.func - nparams;
+        if (n >= nextra) {
+            return null;
+        }
+        posOut[0] = ci.func + nparams + n;
+        return "(*vararg)";
     }
 
     /** {@code luaG_findlocal} */
@@ -359,7 +362,7 @@ public final class DebugLib {
         String name = null;
         if (ci.isLua) {
             if (n < 0) {
-                return findVarArg(L, ci, n, posOut);
+                return findVarArg(L, ci, -n, posOut); /* 5.3.4: positive index */
             }
             LuaValue f = L.stack[ci.func];
             if (f.tt == Lua.VLIF) {
