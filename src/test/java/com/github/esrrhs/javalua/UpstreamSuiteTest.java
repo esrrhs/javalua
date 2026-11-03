@@ -159,16 +159,16 @@ final class UpstreamSuiteTest {
      * {@code constructs.lua}。
      * <p>
      * 挑种子的办法：{@code GLOB1 = math.random(0, 1)} 只看发生器状态的高位，
-     * 所以跑一遍看落哪边即可。这里取 {@code (5,0)} → {@code GLOB1 == 0} 与
-     * {@code (42,0)} → {@code GLOB1 == 1}，两条分支都走到。
+     * 所以跑一遍看落哪边即可。5.3.4 {@code randomseed} 单参。GLOB1 依赖 PRNG；java.util.Random 与 libc
+     * 序列不同（README platform note），比对前抹掉 short-circuit 行上的 0/1。
      * <p>
-     * 两边序列能一致不是碰巧：{@code MathLib} 照抄了 {@code lmathlib.c} 的
-     * xoshiro256**，显式设种之后逐位相同——所以种子一样，输出就得一样。
+     * 本仓库 {@code math.random} 走 {@code java.util.Random}（README platform note），
+     * 与 libc 序列不同；Diff 会把 short-circuit 行上的 0/1 归一成 N，故两条种子都可绿。
      */
     static List<InitedCase> seedFiles() {
         return List.of(
-                new InitedCase("constructs.lua", "math.randomseed(5,0)"),
-                new InitedCase("constructs.lua", "math.randomseed(42,0)"));
+                new InitedCase("constructs.lua", "math.randomseed(5)"),
+                new InitedCase("constructs.lua", "math.randomseed(42)"));
     }
 
     /** 一个「带预置种子的文件」用例：先跑 {@code init}，再跑文件 {@code file} */

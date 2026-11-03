@@ -833,9 +833,14 @@ final class Diff {
         s = s.replaceAll(
                 "bad argument #\\d+ to '(?:math\\.)?(fmod)' \\([^)]*\\)",
                 "bad argument #? to '$1' (...)");
-        return s.replaceAll(
+        s = s.replaceAll(
                 "bad argument #\\d+ to '(?:package\\.)?(searchpath)' \\([^)]*\\)",
                 "bad argument #? to '$1' (...)");
+        /* constructs.lua GLOB1 = math.random(0,1): java.util.Random vs libc (README platform note) */
+        s = s.replaceAll(
+                "testing short-circuit optimizations \\([01]\\)",
+                "testing short-circuit optimizations (N)");
+        return s;
     }
 
     static String firstLine(String s) {
