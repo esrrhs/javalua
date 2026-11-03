@@ -3796,8 +3796,10 @@ public final class LuaState {
         int setreg = -1;
         int jmptarget = 0;
         int[] code = p.code;
-        if (lastpc >= 0 && lastpc < code.length && (false) /* testMMMode removed; 5.3 */ || OpCode.testTMode(OpCode.getOpCode(code[lastpc]))) {
-            lastpc--; // 前一条指令其实没执行（那是落空的 MMBIN）
+        /* Lua 5.3.4 ldebug.c:findsetreg — only testTMode (no 5.4 testMMMode). */
+        if (lastpc >= 0 && lastpc < code.length
+                && OpCode.testTMode(OpCode.getOpCode(code[lastpc]))) {
+            lastpc--; // preceding test instruction did not execute
         }
         for (int pc = 0; pc < lastpc && pc < code.length; pc++) {
             int i = code[pc];

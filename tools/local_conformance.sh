@@ -36,7 +36,7 @@
 # 前置：参考二进制和上游套件要先备好（同 CI 的构建步骤）：
 #   curl -sL -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.3.4.tar.gz
 #   tar xzf /tmp/lua.tar.gz -C target && mv target/lua-5.3.4 target/lua53
-#   make -C target/lua53 -j4 posix MYCFLAGS=-DLUA_USE_DLOPEN
+#   make -C target/lua53 -j4 posix MYCFLAGS=-DLUA_USE_DLOPEN MYLIBS="-Wl,-E -ldl"
 #   clang -O2 -I target/lua53/src -o target/lua53/src/fkdump \
 #     src/test/resources/fkdump.c target/lua53/src/liblua.a -lm
 #   clang -O2 -I target/lua53/src -o target/lua53/src/tblstruct \

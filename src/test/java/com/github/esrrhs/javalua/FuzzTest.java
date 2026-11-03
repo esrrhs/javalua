@@ -826,34 +826,19 @@ class FuzzTest {
                         + " {__tostring = function() return 'TS' end})) end,"
                         + " function(m) return m end))");
                 break;
-            case 7: // math.random 的序列：必须先播种
+            case 7: // math.random：5.3.4 序列走 java.util.Random，不与 libc Diff
                 /*
-                 * 不播种的 math.random 每次进程都不一样，所以只能整段出现：
-                 * randomseed 固定种子 → 取一串 → 打印。序列由 xoshiro256** 定死，
-                 * 与实现无关，是个很硬的差分点。
+                 * 仍强制先播种并调用，覆盖 API；只打印类型/区间合法性与错误路径，
+                 * 不打印具体数值（README platform note）。
                  */
                 sb.append("math.randomseed(").append(pick(1000)).append(")\n");
-                sb.append("local ").append(tmp).append(" = {}\n");
-                for (int i = 0; i < 4; i++) {
-                    String e;
-                    switch (pick(4)) {
-                    case 0:
-                        e = "math.random()";
-                        break;
-                    case 1:
-                        e = "math.random(100)";
-                        break;
-                    case 2:
-                        e = "math.random(-5, 5)";
-                        break;
-                    default:
-                        e = "math.random(" + pick(3) + ", " + (pick(3) + 4) + ")";
-                        break;
-                    }
-                    sb.append("  ").append(tmp).append("[").append(i + 1).append("] = ")
-                            .append(e).append('\n');
-                }
-                sb.append("print(table.concat(").append(tmp).append(", ','))\n");
+                sb.append("local ").append(tmp).append(" = math.random()\n");
+                sb.append("print(type(").append(tmp).append("), math.type(")
+                        .append(tmp).append("))\n");
+                sb.append("local ").append(tmp).append("n = math.random(100)\n");
+                sb.append("print(type(").append(tmp).append("n), math.type(")
+                        .append(tmp).append("n), ").append(tmp)
+                        .append("n >= 1 and ").append(tmp).append("n <= 100)\n");
                 sb.append("print(pcall(math.random, ").append(pick(4) + 3).append(", ")
                         .append(pick(3)).append("))");
                 break;

@@ -50,8 +50,11 @@ jobs:
         mkdir -p target
         tar xzf /tmp/lua.tar.gz -C target
         mv target/lua-5.3.4 target/lua53
-        make -C target/lua53 -j2 posix
+        # posix 默认无 DLOPEN；NativeApi/Ext 要参考实现能 package.loadlib。
+        # MYLIBS: -ldl 给 dlopen；-Wl,-E 导出 lua_* 供扩展 .so 解析（linux 目标同款）。
+        make -C target/lua53 -j2 posix MYCFLAGS=-DLUA_USE_DLOPEN MYLIBS="-Wl,-E -ldl"
         ./target/lua53/src/lua -v
+        ./target/lua53/src/lua -e 'assert(package.loadlib)'
     #
     # 字节码差分的另一半:一个挂在参考实现上的小转储器。
     # 不用 luac -l 是因为它每个 opcode 打的字段不一样、还夹注释,反解回原始

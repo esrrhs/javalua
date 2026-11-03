@@ -2052,3 +2052,34 @@ Java_com_github_esrrhs_javalua_NativeBridge_cStrftime(JNIEnv *env, jclass cls,
 /* ==================== 生成的 stub ==================== */
 
 #include "luashim_stubs.inc"
+
+/*
+ * Lua 5.3.4 兼容导出：官方头文件里这些是真函数；本仓库 native/lua 头仍混有
+ * 5.4 的 *uv 宏别名。对撞闸门（NativeSymbolTest）按 5.3.4 liblua.a 比符号，
+ * 这里取消宏后给出与 5.3.4 同名的导出，并转发到已有实现。
+ */
+#ifdef lua_newuserdata
+#undef lua_newuserdata
+#endif
+#ifdef lua_getuservalue
+#undef lua_getuservalue
+#endif
+#ifdef lua_setuservalue
+#undef lua_setuservalue
+#endif
+
+LUA_API void *(lua_newuserdata)(lua_State *L, size_t sz) {
+  return lua_newuserdatauv(L, sz, 1);
+}
+
+LUA_API int (lua_getuservalue)(lua_State *L, int idx) {
+  return lua_getiuservalue(L, idx, 1);
+}
+
+LUA_API void (lua_setuservalue)(lua_State *L, int idx) {
+  lua_setiuservalue(L, idx, 1);
+}
+
+LUAMOD_API int (luaopen_bit32)(lua_State *L) {
+  return (int)luashim_call(ID_luaopen_bit32, LUASHIM_HANDLE(L), 0, 0, 0, 0, 0, 0);
+}

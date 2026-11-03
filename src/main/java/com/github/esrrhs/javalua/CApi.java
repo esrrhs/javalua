@@ -387,6 +387,8 @@ final class CApi {
             return Api.luaopen_table(a0);
         case 153: /* luaopen_utf8 */
             return Api.luaopen_utf8(a0);
+        case 154: /* luaopen_bit32 */
+            return Api.luaopen_bit32(a0);
         default:
             throw unimplemented("id=" + id);
         }

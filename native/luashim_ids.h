@@ -157,6 +157,7 @@ enum {
   ID_luaopen_string = 151,
   ID_luaopen_table = 152,
   ID_luaopen_utf8 = 153,
-  LUASHIM_ID_COUNT = 154
+  ID_luaopen_bit32 = 154,
+  LUASHIM_ID_COUNT = 155
 };
 #endif

@@ -99,10 +99,10 @@ class NativeExtTest {
             "  return 0;",
             "}",
             "",
-            "/* userdata + 命名元表：lua_newuserdatauv / luaL_newmetatable /",
+            "/* userdata + 命名元表：lua_newuserdata / luaL_newmetatable /",
             "   luaL_setmetatable / luaL_checkudata */",
             "static int l_box(lua_State *L) {",
-            "  lua_Integer *p = (lua_Integer *) lua_newuserdatauv(L, sizeof(lua_Integer), 0);",
+            "  lua_Integer *p = (lua_Integer *) lua_newuserdata(L, sizeof(lua_Integer));",
             "  *p = luaL_checkinteger(L, 1);",
             "  luaL_getmetatable(L, \"NatBox\");",
             "  lua_setmetatable(L, -2);",
@@ -292,9 +292,9 @@ class NativeExtTest {
             // macOS 要 -undefined dynamic_lookup，Linux 上这个参数不存在
             List<List<String>> cmds = new ArrayList<>();
             cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-undefined",
-                    "dynamic_lookup", "-I", "native/lua", "-o", lib.getPath(),
+                    "dynamic_lookup", "-I", "target/lua53/src", "-o", lib.getPath(),
                     c.getPath()));
-            cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-I", "native/lua",
+            cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-I", "target/lua53/src",
                     "-o", lib.getPath(), c.getPath()));
             boolean ok = false;
             for (List<String> cmd : cmds) {

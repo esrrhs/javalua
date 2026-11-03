@@ -675,21 +675,15 @@ final class Api {
         }
         int ti = (int) lua_absindex(L, t);
         /*
-         * {@code lauxlib.c: #define freelist (LUA_RIDX_LAST + 1)} —— 空闲链表
-         * 的头存在下标 <b>3</b>，不是 0。
-         * <p>
-         * 而且「首次访问」那一支会<b>先把 t[3] 写成 0</b> 再去取
-         * {@code lua_rawlen}：注册表原本 {@code rawlen} 是 2，写完这一格变成 3，
-         * 于是第一个引用是 <b>4</b>。漏掉这次写、或者把链表头放在 0，都会让引用
-         * 号整体错位 —— 实测参考实现连调两次都是 4。
+         * 5.3.4 {@code lauxlib.c}: freelist = LUA_RIDX_LAST+1。{@code t[freelist]}
+         * 为 nil 时 {@code tointeger} 得 0，且<b>不</b>预先写成 0（5.4 才会），
+         * 于是 {@code rawlen+1} 得 3 作为首个引用。
          */
         lua_rawgeti(L, ti, FREELIST);
         long ref;
-        if (S.stack[S.top - 1].isNil()) { // first access
+        if (S.stack[S.top - 1].isNil()) {
             ref = 0;
             S.top--;
-            lua_pushinteger(L, 0);
-            lua_rawseti(L, ti, FREELIST);
         } else {
             ref = S.stack[--S.top].asInteger();
         }
@@ -1112,18 +1106,8 @@ final class Api {
         }
         case 9: // LUA_GCISRUNNING
             return m.gcRunning ? 1 : 0;
-        case 10: // LUA_GCGEN
-        case 11: { // LUA_GCINC
-            /*
-             * {@code res} 是<b>切换前</b>的模式码（{@code LUA_GCGEN} /
-             * {@code LUA_GCINC}），不是 {@code collectgarbage} 那个字符串。
-             * 判据照 {@code isdecGCmodegen}——见 {@link LuaState#gcLastAtomic}。
-             */
-            boolean prevGen = (m.gcKind == LuaState.LUA_GCGEN) || m.gcLastAtomic;
-            m.gcKind = (w == 10) ? LuaState.LUA_GCGEN : LuaState.LUA_GCINC;
-            m.gcLastAtomic = false;
-            return prevGen ? 10 : 11;
-        }
+        case 10: // LUA_GCGEN — 5.4 only; 5.3.4 unknown → -1
+        case 11: // LUA_GCINC — 5.4 only
         default:
             return -1; // 无效选项
         }
@@ -2348,6 +2332,11 @@ final class Api {
 
     static long luaopen_utf8(long L) {
         return openLib(st(L), "utf8", Utf8Lib::open);
+    }
+
+    /** {@code lbitlib.c: luaopen_bit32}（5.3.4 {@code LUA_COMPAT_BITLIB}） */
+    static long luaopen_bit32(long L) {
+        return openLib(st(L), "bit32", BitLib::open);
     }
 
     static long luaopen_debug(long L) {

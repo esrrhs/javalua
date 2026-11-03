@@ -88,7 +88,7 @@ public final class PackageLib {
      * no LUA_USE_DLOPEN), so loadlib.c's fallback defines LIB_FAIL as "absent".
      * Linux/macos "make linux/macosx" would use "open"; we match the Diff reference.
      */
-    private static final String LIB_FAIL = "absent";
+    private static final String LIB_FAIL = "open";
 
     private static final int ERRLIB = 1;
     private static final int ERRFUNC = 2;

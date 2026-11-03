@@ -182,7 +182,7 @@ LUA53_BIN=/path/to/lua5.3 ./mvnw test
 ```bash
 curl -LO https://www.lua.org/ftp/lua-5.3.4.tar.gz
 tar xzf lua-5.3.4.tar.gz
-make -C lua-5.3.4 posix
+make -C lua-5.3.4 posix MYCFLAGS=-DLUA_USE_DLOPEN MYLIBS="-Wl,-E -ldl"
 LUA53_BIN=$PWD/lua-5.3.4/src/lua ./mvnw test
 ```
 

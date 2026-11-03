@@ -3081,19 +3081,23 @@ class RuntimeTest {
                 print("C3", pcall(math.type))
                 print("C4", pcall(math.type, 1, 2))
 
-                -- 7) random：播种后取整串
+                -- 7) random：错误路径可比；数值序列不 Diff（java.util.Random≠libc）
                 math.randomseed(42)
-                local rs = {}
-                for i = 1, 10 do rs[#rs + 1] = tostring(math.random()) end
-                print("R1", table.concat(rs, ","))
-                local rs2 = {}
-                for i = 1, 10 do rs2[#rs2 + 1] = tostring(math.random(100)) end
-                print("R2", table.concat(rs2, ","))
-                local rs3 = {}
-                for i = 1, 10 do rs3[#rs3 + 1] = tostring(math.random(-5, 5)) end
-                print("R3", table.concat(rs3, ","))
+                local function rshape()
+                  local a = math.random()
+                  local b = math.random(100)
+                  local c = math.random(-5, 5)
+                  return type(a), math.type(a), type(b), math.type(b),
+                         type(c), math.type(c), (b >= 1 and b <= 100),
+                         (c >= -5 and c <= 5)
+                end
+                print("R1", rshape())
                 math.randomseed(42)
-                print("R4", math.random(), math.random(100))
+                print("R4", (function()
+                  local a, b = math.random(), math.random(100)
+                  return type(a), math.type(a), type(b), math.type(b),
+                         (b >= 1 and b <= 100)
+                end)())
                 print("R5", pcall(math.random, 5, 1))
                 print("R6", pcall(math.random, 1, 2, 3))
                 print("R7", pcall(math.random, "x"))
@@ -7975,10 +7979,15 @@ class RuntimeTest {
                 probe("m.acos", math.acos, 0.5)
                 probe("m.atan1", math.atan, 1)
                 probe("m.atan2", math.atan, 1, 2)
+                -- math.random 序列：java.util.Random vs libc（README），只比形状
                 math.randomseed(42)
-                probe("m.random", math.random)
-                probe("m.random_n", math.random, 100)
-                probe("m.random_r", math.random, 10, 20)
+                local okR, vR = pcall(math.random)
+                probe("m.random_ok", function() return okR, type(vR) end)
+                local okN, vN = pcall(math.random, 100)
+                probe("m.random_n_ok", function() return okN, type(vN), math.type(vN) end)
+                local okA, vA = pcall(math.random, 10, 20)
+                probe("m.random_r_ok", function() return okA, type(vA), math.type(vA),
+                      (type(vA)=="number" and vA >= 10 and vA <= 20) end)
 
                 print(table.concat(out, "\\n"))
                 """);

@@ -497,7 +497,7 @@ final class NativeRealExtTest {
             File out = new File(Diff.SCRATCH, e.out);
             List<String> cmd = new ArrayList<>(Arrays.asList(
                     cc, "-shared", "-fPIC", "-undefined", "dynamic_lookup",
-                    "-I", "native/lua", "-o", out.getPath()));
+                    "-I", "target/lua53/src", "-o", out.getPath()));
             for (String d : e.defs) {
                 cmd.add("-D" + d);
             }
