@@ -340,17 +340,47 @@ public final class Vm {
                     break;
                 }
                 case OpCode.OP_TAILCALL: {
+                    /* lvm.c OP_TAILCALL (5.3.4): precall then merge into caller frame */
                     int b = OpCode.getArgB(i);
                     if (b != 0) {
                         L.top = ra + b;
                     }
                     ci.savedpc = pc;
-                    // simplify: treat as call (full tailcall later)
-                    if (L.precall(ra, -1) != null) {
-                        ci = L.ci;
-                        start = true;
-                        continue outer;
+                    CallInfo nci = L.precall(ra, LuaState.MULTRET);
+                    if (nci == null) {
+                        /* C function already finished via precallC */
+                        base = ci.base;
+                        break;
                     }
+                    /*
+                     * 调用钩子在合并前发：此时 nci.previous 仍是执行 OP_TAILCALL 的帧，
+                     * callhook 才能认出 LUA_HOOKTAILCALL。合并后不再走 start/traceCall。
+                     */
+                    if (L.hookmask != 0) {
+                        DebugLib.traceCall(L, nci);
+                    }
+                    CallInfo oci = nci.previous;
+                    int nfunc = nci.func;
+                    int ofunc = oci.func;
+                    LClosure ncl = (LClosure) L.stack[nfunc].o;
+                    int lim = nci.base + ncl.p.numparams;
+                    if (cl.p.sizep > 0) {
+                        L.closeUpvals(oci.base, null);
+                    }
+                    for (int aux = 0; nfunc + aux < lim; aux++) {
+                        L.stack[ofunc + aux].set(L.stack[nfunc + aux]);
+                    }
+                    oci.base = ofunc + (nci.base - nfunc);
+                    oci.top = L.top = ofunc + (L.top - nfunc);
+                    oci.savedpc = nci.savedpc;
+                    oci.nextraargs = nci.nextraargs;
+                    oci.tail = true;
+                    L.ci = oci;
+                    ci = oci;
+                    cl = (LClosure) L.stack[ci.func].o;
+                    k = cl.p.k;
+                    code = cl.p.code;
+                    pc = ci.savedpc;
                     base = ci.base;
                     break;
                 }
@@ -408,6 +438,7 @@ public final class Vm {
                     break;
                 }
                 case OpCode.OP_SETLIST: {
+                    /* lvm.c OP_SETLIST：先 luaH_resizearray，再直接写数组槽（含 nil） */
                     int b = OpCode.getArgB(i);
                     int c = OpCode.getArgC(i);
                     if (b == 0) {
@@ -418,15 +449,21 @@ public final class Vm {
                     }
                     LuaTable t = L.stack[ra].asTable();
                     int last = ((c - 1) * OpCode.LFIELDS_PER_FLUSH) + b;
+                    /* setArrayRaw 会在 last 处扩容；从后往前写，先触到最大下标 */
                     for (; b > 0; b--) {
-                        t.set(LuaValue.ofInteger(last--), L.stack[ra + b]);
+                        t.setArrayRaw(last--, L.stack[ra + b]);
                     }
                     L.top = ci.top;
                     break;
                 }
                 case OpCode.OP_CLOSURE: {
                     Proto p = cl.p.p[OpCode.getArgBx(i)];
-                    pushClosure(L, p, cl.upvals, base, ra);
+                    LClosure ncl = getCached(p, cl.upvals, L, base);
+                    if (ncl == null) {
+                        pushClosure(L, p, cl.upvals, base, ra);
+                    } else {
+                        L.stack[ra].setObject(Lua.VLIF, ncl);
+                    }
                     break;
                 }
                 case OpCode.OP_VARARG: {
@@ -1227,6 +1264,25 @@ public final class Vm {
      * 闭包
      * ================================================================ */
 
+    /**
+     * {@code getcached}：缓存闭包的 upvalue 槽指针与新建所需一致才可复用
+     * （决定 {@code f()==f()} / 循环内无捕获循环变量闭包的指针相等）。
+     */
+    private static LClosure getCached(Proto p, UpVal[] encup, LuaState L, int base) {
+        LClosure c = p.cache;
+        if (c == null) {
+            return null;
+        }
+        for (int i = 0; i < p.sizeupvalues; i++) {
+            Proto.Upvaldesc uv = p.upvalues[i];
+            LuaValue slot = uv.instack ? L.stack[base + uv.idx] : encup[uv.idx].v;
+            if (c.upvals[i].v != slot) {
+                return null;
+            }
+        }
+        return c;
+    }
+
     /** {@code pushclosure} */
     private static void pushClosure(LuaState L, Proto p, UpVal[] encup, int base, int ra) {
         LClosure ncl = new LClosure(p);
@@ -1239,6 +1295,7 @@ public final class Vm {
                 ncl.upvals[i] = encup[uv.idx];
             }
         }
+        p.cache = ncl;
     }
 
     /* ================================================================

@@ -87,6 +87,12 @@ public final class Proto {
     public Upvaldesc[] upvalues = new Upvaldesc[0];
     public int sizeupvalues;
 
+    /**
+     * {@code Proto.cache}：最近一次用本原型建出的闭包，供 {@code getcached} 复用。
+     * GC 涂黑清缓存不在本仓库对齐范围内，故始终可写。
+     */
+    public LClosure cache;
+
     public LocVar[] locvars = new LocVar[0];
     public int sizelocvars;
 
