@@ -1017,12 +1017,11 @@ public final class Parser {
     }
 
     /** {@code funcargs} */
-    private void funcArgs(ExpDesc f) {
+    private void funcArgs(ExpDesc f, int line) {
         FuncState fs = this.fs;
         ExpDesc args = new ExpDesc();
         int base;
         int nparams;
-        int line = ls.linenumber;
         switch (ls.t.token) {
         case '(':
             ls.next();
@@ -1084,6 +1083,7 @@ public final class Parser {
     /** {@code suffixedexp} */
     private void suffixedExp(ExpDesc v) {
         FuncState fs = this.fs;
+        int line = ls.linenumber; /* 5.3.4: line of primary, for CALL fixline */
         primaryExp(v);
         for (;;) {
             switch (ls.t.token) {
@@ -1102,14 +1102,14 @@ public final class Parser {
                 ls.next();
                 codeName(key);
                 Codegen.self(fs, v, key);
-                funcArgs(v);
+                funcArgs(v, line);
                 break;
             }
             case '(':
             case Lexer.TK_STRING:
             case '{':
                 Codegen.exp2NextReg(fs, v);
-                funcArgs(v);
+                funcArgs(v, line);
                 break;
             default:
                 return;
