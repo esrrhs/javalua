@@ -872,8 +872,7 @@ public final class Parser {
         cc.v.k = ExpDesc.VVOID;
         if (cc.tostore == OpCode.LFIELDS_PER_FLUSH) {
             Codegen.setList(fs, cc.t.info, cc.na, cc.tostore);
-            cc.na += cc.tostore;
-            cc.tostore = 0;
+            cc.tostore = 0; /* na already counts these elements */
         }
     }
 
@@ -892,7 +891,7 @@ public final class Parser {
             }
             Codegen.setList(fs, cc.t.info, cc.na, cc.tostore);
         }
-        cc.na += cc.tostore;
+        /* na already includes tostore via listField */
     }
 
     /** {@code constructor} — Lua 5.3.4: NEWTABLE B/C = int2fb; no EXTRAARG. */
@@ -938,9 +937,10 @@ public final class Parser {
         }
     }
 
-    /** {@code listfield} */
+    /** {@code listfield} — 5.3.4: na++ per element so setlist C batch is correct */
     private void listField(ConsControl cc) {
         expr(cc.v);
+        cc.na++;
         cc.tostore++;
     }
 

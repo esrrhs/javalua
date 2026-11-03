@@ -581,12 +581,25 @@ public final class Vm {
         int inst = ((LClosure) L.stack[ci.func].o).p.code[ci.savedpc - 1];
         int op = OpCode.getOpCode(inst);
         switch (op) {
+        case OpCode.OP_ADD:
+        case OpCode.OP_SUB:
+        case OpCode.OP_MUL:
+        case OpCode.OP_MOD:
+        case OpCode.OP_POW:
+        case OpCode.OP_DIV:
+        case OpCode.OP_IDIV:
+        case OpCode.OP_BAND:
+        case OpCode.OP_BOR:
+        case OpCode.OP_BXOR:
+        case OpCode.OP_SHL:
+        case OpCode.OP_SHR:
         case OpCode.OP_UNM:
         case OpCode.OP_BNOT:
         case OpCode.OP_LEN:
         case OpCode.OP_GETTABUP:
         case OpCode.OP_GETTABLE:
         case OpCode.OP_SELF: {
+            /* 5.3.4 luaV_finishOp: metamethod result → R(A) */
             L.stack[base + OpCode.getArgA(inst)].set(L.stack[--L.top]);
             break;
         }
