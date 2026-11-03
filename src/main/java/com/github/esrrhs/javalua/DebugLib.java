@@ -752,9 +752,9 @@ public final class DebugLib {
         LuaValue[] val = new LuaValue[1];
         Object[] owner = new Object[1];
         String name = auxUpValue(f, n, val, owner);
+        /* ldblib.c db_upvalueid: invalid index → argerror, not nil */
         if (name == null || owner[0] == null) {
-            L.push(LuaValue.ofNil());
-            return 1;
+            throw L.argError(2, "invalid upvalue index");
         }
         L.push(LuaValue.ofLightUserdata(owner[0]));
         return 1;

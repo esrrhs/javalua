@@ -432,6 +432,18 @@ final class StringPack {
         return 1;
     }
 
+
+    /** Lua 5.3.4 {@code lstrlib.c: posrelat}（unpack 用；保留相对位置 0） */
+    private static long posrelat53(long pos, long len) {
+        if (pos >= 0) {
+            return pos;
+        }
+        if (-pos > len) {
+            return 0;
+        }
+        return len + pos + 1;
+    }
+
     /* ---------- string.unpack ---------- */
 
     static int unpack(LuaState L) {
@@ -439,8 +451,12 @@ final class StringPack {
         LuaString dataStr = LuaAux.checkString(L, 2);
         byte[] data = dataStr.bytes;
         int ld = data.length;
-        long pos = StringLib.posrelatI(LuaAux.optInteger(L, 3, 1), ld) - 1;
-        LuaAux.argCheck(L, pos <= ld, 3, "initial position out of string");
+        /*
+         * 5.3.4 posrelat（非 5.4 posrelatI）：相对位置 0 保持 0，
+         * 再减 1 得 -1，从而触发 "initial position out of string"。
+         */
+        long pos = posrelat53(LuaAux.optInteger(L, 3, 1), ld) - 1;
+        LuaAux.argCheck(L, 0 <= pos && pos <= ld, 3, "initial position out of string");
         Header h = new Header(L);
         h.islittle = NATIVE_LITTLE;
         h.maxalign = 1;
