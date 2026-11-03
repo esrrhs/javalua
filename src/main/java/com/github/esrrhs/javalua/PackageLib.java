@@ -62,15 +62,15 @@ public final class PackageLib {
     private static final String LUA_CPATH_VAR = "LUA_CPATH";
 
     /** {@code LUA_PATH_DEFAULT}（{@code LUA_ROOT} 为 {@code /usr/local/} 时展开的结果） */
-    private static final String PATH_DEFAULT = "/usr/local/share/lua/5.4/?.lua;"
-            + "/usr/local/share/lua/5.4/?/init.lua;"
-            + "/usr/local/lib/lua/5.4/?.lua;"
-            + "/usr/local/lib/lua/5.4/?/init.lua;"
+    private static final String PATH_DEFAULT = "/usr/local/share/lua/5.3/?.lua;"
+            + "/usr/local/share/lua/5.3/?/init.lua;"
+            + "/usr/local/lib/lua/5.3/?.lua;"
+            + "/usr/local/lib/lua/5.3/?/init.lua;"
             + "./?.lua;./?/init.lua";
 
     /** {@code LUA_CPATH_DEFAULT} */
-    private static final String CPATH_DEFAULT = "/usr/local/lib/lua/5.4/?.so;"
-            + "/usr/local/lib/lua/5.4/loadall.so;./?.so";
+    private static final String CPATH_DEFAULT = "/usr/local/lib/lua/5.3/?.so;"
+            + "/usr/local/lib/lua/5.3/loadall.so;./?.so";
 
     /** shim 装不上时才用这条消息（{@code loadlib.c} 兜底分支的 {@code DLMSG}） */
     private static final String DLMSG =

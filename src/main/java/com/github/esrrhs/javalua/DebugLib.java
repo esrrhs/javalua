@@ -533,8 +533,9 @@ public final class DebugLib {
          * {@code debug.setmetatable()} 静默通过，而参考实现报
          * {@code nil or table expected, got no value}。
          */
+        /* Lua 5.3.4 ldblib: luaL_argcheck(..., "nil or table expected") - no "got". */
         int t = L.isNoneArg(2) ? Lua.TNONE : L.arg1(2).baseType();
-        LuaAux.argExpected(L, t == Lua.TNIL || t == Lua.TTABLE, 2, "nil or table");
+        LuaAux.argCheck(L, t == Lua.TNIL || t == Lua.TTABLE, 2, "nil or table expected");
         L.setTop(2); // 第二个参数不存在时补出一个 nil
         LuaValue v = L.arg1(2);
         LuaValue obj = L.arg1(1);

@@ -565,7 +565,7 @@ Java_com_github_esrrhs_javalua_NativeBridge_callPtr(JNIEnv *env,
 /* ==================== 手写的那批符号 ==================== */
 
 const char lua_ident[] =
-        "$LuaVersion: Lua 5.4.7 Copyright (C) 1994-2024 Lua.org, PUC-Rio $"
+        "$LuaVersion: Lua 5.3.4 Copyright (C) 1994-2017 Lua.org, PUC-Rio $"
         "$LuaAuthors: R. Ierusalimschy, L. H. de Figueiredo, W. Celes $";
 
 /*

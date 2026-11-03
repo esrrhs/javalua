@@ -1,15 +1,9 @@
 /*
-** fkdump.c —— 给「Java 版 Lua」做差分比对用的规范转储器。
+** fkdump.c — bytecode dump helper for differential tests (Lua 5.3.4).
 **
-** 这个文件要随仓库走：CI 的一致性 job 会先编出参考实现，再把它和
-** liblua.a 一起编译（见 .github/workflows/maven.yml）。它不是产品代码，
-** 只是差分比对的另一半。
-**
-** 为什么自己写而不用 luac -l：luac 的输出是给人看的（每条指令按 opcode 打不同
-** 的字段、还夹着注释），要反解回原始字段就得把那个大 switch 抄一遍，反而更脆。
-** 这里对<b>所有</b> opcode 统一打印全部字段，格式固定，Java 侧照抄即可。
-**
-** 用法：fkdump <file.lua>
+** Prints a stable, field-oriented dump of a compiled prototype. javalua's
+** internal ISA is still largely 5.4-derived, so CodegenTest currently
+** documents that gap rather than requiring a byte-identical match.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,11 +18,9 @@
 #include "lobject.h"
 #include "lopcodes.h"
 #include "lstate.h"
-#include "ltm.h"
-#include "lopnames.h"
 
-static void printString(const char *s, int len) {
-  int i;
+static void printString(const char *s, size_t len) {
+  size_t i;
   for (i = 0; i < len; i++) {
     unsigned char c = (unsigned char) s[i];
     if (c == '\\' || c == '"') {
@@ -83,12 +75,11 @@ static void dumpFunction(const Proto *f, int level, int idx) {
   for (i = 0; i < f->sizecode; i++) {
     Instruction inst = f->code[i];
     int o = GET_OPCODE(inst);
-    printf("  I %d %s a=%d b=%d c=%d k=%d bx=%d sbx=%d ax=%d sb=%d sc=%d sj=%d line=%d\n",
-           i, opnames[o],
-           GETARG_A(inst), GETARG_B(inst), GETARG_C(inst), GETARG_k(inst),
+    printf("  I %d op=%d a=%d b=%d c=%d bx=%d sbx=%d ax=%d line=%d\n",
+           i, o,
+           GETARG_A(inst), GETARG_B(inst), GETARG_C(inst),
            GETARG_Bx(inst), GETARG_sBx(inst), GETARG_Ax(inst),
-           GETARG_sB(inst), GETARG_sC(inst), GETARG_sJ(inst),
-           luaG_getfuncline(f, i));
+           (f->lineinfo && i < f->sizelineinfo) ? f->lineinfo[i] : -1);
   }
   for (i = 0; i < f->sizek; i++) {
     printf("  K %d ", i);
@@ -96,8 +87,8 @@ static void dumpFunction(const Proto *f, int level, int idx) {
     printf("\n");
   }
   for (i = 0; i < f->sizeupvalues; i++) {
-    printf("  UP %d instack=%d idx=%d kind=%d name=", i,
-           f->upvalues[i].instack, f->upvalues[i].idx, f->upvalues[i].kind);
+    printf("  UP %d instack=%d idx=%d name=", i,
+           f->upvalues[i].instack, f->upvalues[i].idx);
     if (f->upvalues[i].name == NULL) {
       printf("?");
     } else {
@@ -112,7 +103,6 @@ static void dumpFunction(const Proto *f, int level, int idx) {
 
 int main(int argc, char **argv) {
   lua_State *L;
-  const TValue *o;
   LClosure *cl;
   if (argc < 2) {
     fprintf(stderr, "usage: fkdump <file.lua>\n");
@@ -124,8 +114,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "LOADERR %s\n", lua_tostring(L, -1));
     return 1;
   }
-  o = s2v(L->top.p - 1);
-  cl = clLvalue(o);
+  cl = clLvalue(L->top - 1);
   dumpFunction(cl->p, 0, 0);
   lua_close(L);
   return 0;

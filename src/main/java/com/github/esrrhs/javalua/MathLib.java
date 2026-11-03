@@ -200,13 +200,9 @@ public final class MathLib {
         m.set("maxinteger", LuaValue.ofInteger(Long.MAX_VALUE));
         m.set("mininteger", LuaValue.ofInteger(Long.MIN_VALUE));
 
-        // random / randomseed：两个 C 闭包共用一个 RanState upvalue
-        RanState st = new RanState();
-        randseed(L, st.s);
-        L.top -= 2; // 丢掉 randseed 压上来的两个种子
-        LuaValue uv = LuaValue.ofUserdata(st);
-        m.set("random", LuaValue.ofCClosure(closure(MathLib::random, uv)));
-        m.set("randomseed", LuaValue.ofCClosure(closure(MathLib::randomseed, uv)));
+        // Lua 5.3.4: plain C functions over process-wide rand/srand (here: static Random)
+        setFn(m, "random", MathLib::random);
+        setFn(m, "randomseed", MathLib::randomseed);
 
         LuaAux.registerLib(L, "math", m);
     }
@@ -597,24 +593,26 @@ public final class MathLib {
 
     /* ==================== random ==================== */
 
-    /** {@code math.random([m [, n]])} */
+    /**
+     * Lua 5.3.4 {@code math.random}：底层是 libc {@code rand}/{@code srand} 模型。
+     * 这里用 {@link java.util.Random} 复刻 API 形状（参数个数、空区间、过大区间）；
+     * 与参考实现的数值序列不可比（平台 libc 与 JVM 发生器不同），见 MathLibTest。
+     */
+    private static final java.util.Random RNG = new java.util.Random(1);
+
+    /** {@code math.random([m [, n]])}（5.3.4） */
     private static int random(LuaState L) {
-        long[] s = ranState(L).s;
-        long rv = nextrand(s); // 不管用不用得到，状态都要前进一步
         int n = L.argCount();
+        double r = RNG.nextDouble(); // [0,1)
         long low;
         long up;
         switch (n) {
             case 0:
-                L.push(LuaValue.ofFloat(i2d(rv)));
+                L.push(LuaValue.ofFloat(r));
                 return 1;
             case 1:
                 low = 1;
                 up = LuaAux.checkInteger(L, 1);
-                if (up == 0) { // 单个 0：给一个完整的随机整数
-                    L.push(LuaValue.ofInteger(rv));
-                    return 1;
-                }
                 break;
             case 2:
                 low = LuaAux.checkInteger(L, 1);
@@ -626,22 +624,21 @@ public final class MathLib {
         if (low > up) {
             throw L.argError(1, "interval is empty");
         }
-        long p = project(rv, up - low, s);
-        L.push(LuaValue.ofInteger(p + low));
+        // low >= 0 || up <= LUA_MAXINTEGER + low
+        if (!(low >= 0 || up <= Long.MAX_VALUE + low)) {
+            throw L.argError(1, "interval too large");
+        }
+        r *= (double) (up - low) + 1.0;
+        L.push(LuaValue.ofInteger((long) r + low));
         return 1;
     }
 
-    /** {@code math.randomseed([n1 [, n2]])}：返回装进去的两个种子 */
+    /** {@code math.randomseed(x)}（5.3.4：一参、无返回） */
     private static int randomseed(LuaState L) {
-        long[] s = ranState(L).s;
-        if (L.isNoneArg(1)) {
-            randseed(L, s);
-        } else {
-            long n1 = LuaAux.checkInteger(L, 1);
-            long n2 = LuaAux.optInteger(L, 2, 0);
-            setseed(L, s, n1, n2);
-        }
-        return 2;
+        double x = LuaAux.checkNumber(L, 1);
+        RNG.setSeed((long) ((long) x)); // match (unsigned)(lua_Integer) cast shape loosely
+        RNG.nextInt(); // discard first value like l_rand after srand
+        return 0;
     }
 
     private static void setFn(LuaTable t, String name, LuaFunction f) {

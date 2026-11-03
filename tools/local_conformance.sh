@@ -34,15 +34,15 @@
 # 是否 ≥ 下限、覆盖率两个数字、失败的是不是只有这一类。Linux（CI）上这两遍是干净的。
 #
 # 前置：参考二进制和上游套件要先备好（同 CI 的构建步骤）：
-#   curl -sL -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.4.7.tar.gz
-#   tar xzf /tmp/lua.tar.gz -C target && mv target/lua-5.4.7 target/lua54
-#   make -C target/lua54 -j4 posix MYCFLAGS=-DLUA_USE_DLOPEN
-#   clang -O2 -I target/lua54/src -o target/lua54/src/fkdump \
-#     src/test/resources/fkdump.c target/lua54/src/liblua.a -lm
-#   clang -O2 -I target/lua54/src -o target/lua54/src/tblstruct \
-#     src/test/resources/tblstruct.c target/lua54/src/liblua.a -lm
-#   curl -sL -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.4.7-tests.tar.gz
-#   mkdir -p target/lua54-tests && tar xzf /tmp/tests.tar.gz -C target/lua54-tests --strip-components=1
+#   curl -sL -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.3.4.tar.gz
+#   tar xzf /tmp/lua.tar.gz -C target && mv target/lua-5.3.4 target/lua53
+#   make -C target/lua53 -j4 posix MYCFLAGS=-DLUA_USE_DLOPEN
+#   clang -O2 -I target/lua53/src -o target/lua53/src/fkdump \
+#     src/test/resources/fkdump.c target/lua53/src/liblua.a -lm
+#   clang -O2 -I target/lua53/src -o target/lua53/src/tblstruct \
+#     src/test/resources/tblstruct.c target/lua53/src/liblua.a -lm
+#   curl -sL -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.3.4-tests.tar.gz
+#   mkdir -p target/lua53-tests && tar xzf /tmp/tests.tar.gz -C target/lua53-tests --strip-components=1
 #   sh native/build.sh
 #
 # 逗号小数点那一档 CI 要 locale-gen pt_BR（runner 只有 C 与 en_US），macOS 自带
@@ -51,10 +51,10 @@ set -e
 cd "$(dirname "$0")/.."
 
 export JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}
-export LUA54_BIN=${LUA54_BIN:-target/lua54/src/lua}
-export FKDUMP_BIN=${FKDUMP_BIN:-target/lua54/src/fkdump}
-export TBLSTRUCT_BIN=${TBLSTRUCT_BIN:-target/lua54/src/tblstruct}
-export LUA54_TESTS=${LUA54_TESTS:-target/lua54-tests}
+export LUA53_BIN=${LUA53_BIN:-target/lua53/src/lua}
+export FKDUMP_BIN=${FKDUMP_BIN:-target/lua53/src/fkdump}
+export TBLSTRUCT_BIN=${TBLSTRUCT_BIN:-target/lua53/src/tblstruct}
+export LUA53_TESTS=${LUA53_TESTS:-target/lua53-tests}
 
 # 门禁参数：默认值 = CI 用的那一组（见 .github/workflows/maven.yml）。
 BOUND_SECONDS=${BOUND_SECONDS:-900}
@@ -115,7 +115,7 @@ python3 tools/check_ci_gates.py "$MIN_NONATIVE" --nonative \
 
 # ---- 合并覆盖率：与 CI 的最后一步同形状 ----
 # 两遍各写了一份 jacoco.exec（append），这里不跑测试，只用合并后的数据出报告并卡门槛。
-# 那四个 export（LUA54_BIN/FKDUMP_BIN/TBLSTRUCT_BIN/LUA54_TESTS）不是多余的：pom 里的
+# 那四个 export（LUA53_BIN/FKDUMP_BIN/TBLSTRUCT_BIN/LUA53_TESTS）不是多余的：pom 里的
 # no-reference-lua profile 是按环境变量在不在决定跳不跳校验的，少了它就静默跳过，
 # 覆盖率闸门又变回「绿着没跑」。
 ./mvnw -B -DskipTests test -Djacoco.line.minimum="$COVERAGE_MIN_MERGED" \

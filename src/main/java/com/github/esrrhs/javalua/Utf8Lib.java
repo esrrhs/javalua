@@ -9,7 +9,7 @@ package com.github.esrrhs.javalua;
  * <p>
  * 所有解码都自己按字节做，<b>不</b>交给 Java 的 {@code String}：
  * 一方面要能识别「不合法序列」并返回 {@code nil + 位置}（Java 的解码器只会
- * 替换成 U+FFFD），另一方面 {@code lax} 模式下代理项与超范围码点是合法的。
+ * 替换成 U+FFFD）。Lua 5.3.4 无 {@code lax} 模式，码点上限为 U+10FFFF。
  */
 public final class Utf8Lib {
 
@@ -17,7 +17,6 @@ public final class Utf8Lib {
     }
 
     private static final long MAXUNICODE = 0x10FFFFL;
-    private static final long MAXUTF = 0x7FFFFFFFL;
     private static final String MSG_INVALID = "invalid UTF-8 code";
 
     /** {@code iscont} */
@@ -37,18 +36,11 @@ public final class Utf8Lib {
     }
 
     /**
-     * {@code UTF8PATT}：{@code [\0-\x7F\xC2-\xFD][\x80-\xBF]*}。
-     * <p>
-     * 首字节里排除了 {@code \xC0} / {@code \xC1}（过长编码）与 {@code \xFE} /
-     * {@code \xFF}（非法），所以它能不重不漏地匹配一个 UTF-8 字符。
-     * <p>
-     * 只留<b>这一份</b>：早先 {@code open} 里还抄了一份同样的字面量，而
-     * {@code charPattern()} 一个调用者都没有 —— 于是「改了这边没改那边」这种
-     * 漂移是<b>看不出来</b>的（覆盖率报告上表现为整段 nc）。合成一处之后
-     * {@code utf8.charpattern} 这条也就被真正走过了。
+     * {@code UTF8PATT}（Lua 5.3.4）：{@code [\0-\x7F\xC2-\xF4][\x80-\xBF]*}。
+     * 上限 {@code \xF4} 对应 U+10FFFF；5.4 才抬到 {@code \xFD}。
      */
     public static LuaString charPattern() {
-        return LuaString.of(new byte[] { '[', 0x00, '-', 0x7F, (byte) 0xC2, '-', (byte) 0xFD, ']',
+        return LuaString.of(new byte[] { '[', 0x00, '-', 0x7F, (byte) 0xC2, '-', (byte) 0xF4, ']',
                 '[', (byte) 0x80, '-', (byte) 0xBF, ']', '*' });
     }
 
@@ -59,11 +51,12 @@ public final class Utf8Lib {
      *
      * @return 下一个字符的起始下标，{@code -1} 表示序列不合法
      */
-    private static int decode(byte[] s, int i, long[] val, boolean strict) {
-        // 注意 limits[0]：C 里是 ~(utfint)0，而 utfint 是 32 位 unsigned int，
-        // 所以是 0xFFFFFFFF 而不是 -1。写成 -1 会让「首字节是续字节」这种
-        // 情形（count == 0）通过检查——utf8.len("中文", 2) 就会返回 3 而不是 nil
-        long[] limits = { 0xFFFFFFFFL, 0x80L, 0x800L, 0x10000L, 0x200000L, 0x4000000L };
+    /**
+     * {@code utf8_decode}（Lua 5.3.4）：无 lax；最多 4 字节；{@code res > MAXUNICODE}
+     * 即非法。limits 与上游 {@code lutf8lib.c} 一致。
+     */
+    private static int decode(byte[] s, int i, long[] val) {
+        long[] limits = { 0xFFL, 0x7FL, 0x7FFL, 0xFFFFL };
         int c = s[i] & 0xFF;
         long res = 0;
         if (c < 0x80) {
@@ -71,13 +64,9 @@ public final class Utf8Lib {
         } else {
             int count = 0;
             int cc = c;
-            // 不能把 cc 掩回 8 位：C 的 c 是 32 位 unsigned int，左移后
-            // 高位还在，循环条件看的是「原字节从 bit6 往下有几个连续的 1」。
-            // 掩成 8 位会把 0xF8 判成 3 个续字节（应为 4 个），于是把
-            // 5 字节序列当成合法的 4 字节序列收下。
             for (; (cc & 0x40) != 0; cc <<= 1) {
                 if (i + count + 1 >= s.length) {
-                    return -1; // C 版靠结尾的 \0 终止，这里必须显式判越界
+                    return -1;
                 }
                 int next = s[i + count + 1] & 0xFF;
                 if (!isCont(next)) {
@@ -87,15 +76,10 @@ public final class Utf8Lib {
                 count++;
             }
             res |= ((long) (cc & 0x7F)) << (count * 5);
-            if (count > 5 || res > MAXUTF || res < limits[count]) {
+            if (count > 3 || res > MAXUNICODE || res <= limits[count]) {
                 return -1;
             }
             i += count;
-        }
-        if (strict) {
-            if (res > MAXUNICODE || (0xD800L <= res && res <= 0xDFFFL)) {
-                return -1;
-            }
         }
         if (val != null) {
             val[0] = res;
@@ -143,20 +127,19 @@ public final class Utf8Lib {
         int len = s.length;
         long posi = uPosRelat(LuaAux.optInteger(L, 2, 1), len);
         long posj = uPosRelat(LuaAux.optInteger(L, 3, -1), len);
-        boolean lax = !L.isNoneArg(4) && L.arg1(4).toBoolean();
         if (!(1 <= posi && --posi <= len)) {
-            throw L.argError(2, "initial position out of bounds");
+            throw L.argError(2, "initial position out of string");
         }
         if (!(--posj < len)) {
-            throw L.argError(3, "final position out of bounds");
+            throw L.argError(3, "final position out of string");
         }
         long n = 0;
         int p = (int) posi;
         int pj = (int) posj;
         while (p <= pj) {
-            int next = decode(s, p, null, !lax);
+            int next = decode(s, p, null);
             if (next < 0) {
-                LuaAux.pushFail(L);
+                L.push(LuaValue.ofNil());
                 L.push(LuaValue.ofInteger(p + 1));
                 return 2;
             }
@@ -174,12 +157,11 @@ public final class Utf8Lib {
         int len = s.length;
         long posi = uPosRelat(LuaAux.optInteger(L, 2, 1), len);
         long pose = uPosRelat(LuaAux.optInteger(L, 3, posi), len);
-        boolean lax = !L.isNoneArg(4) && L.arg1(4).toBoolean();
         if (posi < 1) {
-            throw L.argError(2, "out of bounds");
+            throw L.argError(2, "out of range");
         }
         if (pose > len) {
-            throw L.argError(3, "out of bounds");
+            throw L.argError(3, "out of range");
         }
         if (posi > pose) {
             return 0;
@@ -194,7 +176,7 @@ public final class Utf8Lib {
         int end = (int) pose;
         while (p < end) {
             long[] code = new long[1];
-            int next = decode(s, p, code, !lax);
+            int next = decode(s, p, code);
             if (next < 0) {
                 throw L.libError(MSG_INVALID);
             }
@@ -213,7 +195,7 @@ public final class Utf8Lib {
         // 结果吐出一个 \xBF 开头的垃圾字节。
         if (n == 1) {
             long code = LuaAux.checkInteger(L, 1);
-            if (Long.compareUnsigned(code, MAXUTF) > 0) {
+            if (code < 0 || code > MAXUNICODE) {
                 throw L.argError(1, "value out of range");
             }
             L.push(LuaValue.ofString(LuaString.of(utf8Esc(code))));
@@ -222,7 +204,7 @@ public final class Utf8Lib {
         LuaAux.Buf b = new LuaAux.Buf();
         for (int i = 1; i <= n; i++) {
             long code = LuaAux.checkInteger(L, i);
-            if (Long.compareUnsigned(code, MAXUTF) > 0) {
+            if (code < 0 || code > MAXUNICODE) {
                 throw L.argError(i, "value out of range");
             }
             byte[] e = utf8Esc(code);
@@ -249,7 +231,7 @@ public final class Utf8Lib {
         long def = (n >= 0) ? 1 : len + 1;
         long posi = uPosRelat(LuaAux.optInteger(L, 3, def), len);
         if (!(1 <= posi && --posi <= len)) {
-            throw L.argError(3, "position out of bounds");
+            throw L.argError(3, "position out of range");
         }
         int p = (int) posi;
         // 下标允许等于 len：C 里那个位置是字符串结尾的 '\0'（不是续字节），
@@ -282,30 +264,30 @@ public final class Utf8Lib {
         if (n == 0) {
             L.push(LuaValue.ofInteger(p + 1));
         } else {
-            LuaAux.pushFail(L);
+            L.push(LuaValue.ofNil());
         }
         return 1;
     }
 
-    /** {@code iter_aux}：{@code codes} 的迭代器 */
-    private static int iterAux(LuaState L, boolean strict) {
+    /** {@code iter_aux}（Lua 5.3.4：无 lax） */
+    private static int iterAux(LuaState L) {
         LuaString str = LuaAux.checkString(L, 1);
         byte[] s = str.bytes;
-        long n = L.arg1(2).isInteger() ? L.arg1(2).i : 0;
+        long n = L.arg1(2).asInteger() - 1;
         if (n < 0) {
+            n = 0;
+        } else if (n < s.length) {
+            n++;
+            while (n < s.length && isCont(s[(int) n] & 0xFF)) {
+                n++;
+            }
+        }
+        if (n >= s.length) {
             return 0;
         }
         int i = (int) n;
-        if (i < s.length) {
-            while (i < s.length && isCont(s[i] & 0xFF)) {
-                i++;
-            }
-        }
-        if (i >= s.length) {
-            return 0;
-        }
         long[] code = new long[1];
-        int next = decode(s, i, code, strict);
+        int next = decode(s, i, code);
         if (next < 0 || (next < s.length && isCont(s[next] & 0xFF))) {
             throw L.libError(MSG_INVALID);
         }
@@ -314,23 +296,11 @@ public final class Utf8Lib {
         return 2;
     }
 
-    private static int iterAuxStrict(LuaState L) {
-        return iterAux(L, true);
-    }
-
-    private static int iterAuxLax(LuaState L) {
-        return iterAux(L, false);
-    }
-
     /** {@code iter_codes} */
     private static int iterCodes(LuaState L) {
-        LuaString s = LuaAux.checkString(L, 1);
-        boolean lax = !L.isNoneArg(2) && L.arg1(2).toBoolean();
-        if (s.length() > 0 && isCont(s.byteAt(0))) {
-            throw L.argError(1, MSG_INVALID);
-        }
-        L.pushFunction(lax ? Utf8Lib::iterAuxLax : Utf8Lib::iterAuxStrict);
-        L.push(LuaValue.ofString(s));
+        LuaAux.checkString(L, 1);
+        L.pushFunction(Utf8Lib::iterAux);
+        L.push(L.arg1(1));
         L.push(LuaValue.ofInteger(0));
         return 3;
     }

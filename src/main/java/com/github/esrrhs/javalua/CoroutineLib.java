@@ -35,7 +35,6 @@ public final class CoroutineLib {
         setFn(t, "wrap", CoroutineLib::cowrap);
         setFn(t, "yield", CoroutineLib::coyield);
         setFn(t, "isyieldable", CoroutineLib::yieldable);
-        setFn(t, "close", CoroutineLib::coclose);
         /*
          * 进 _LOADED 而不只是 _G：参考实现里 require("coroutine") 拿到的
          * 就是这张表。少登记这一条，脚本里写 require("coroutine") 会直接
@@ -69,7 +68,7 @@ public final class CoroutineLib {
     private static LuaState getco(LuaState L) {
         LuaValue v = L.arg(0);
         if (L.isNoneArg(1) || v.tt != Lua.VTHREAD) {
-            throw L.argError(1, "thread expected, got " + L.argTypeName(1));
+            throw L.argError(1, "thread expected");
         }
         return v.asThread();
     }
@@ -276,10 +275,9 @@ public final class CoroutineLib {
         return 1;
     }
 
-    /** {@code luaB_yieldable} */
+    /** {@code luaB_yieldable}（Lua 5.3.4：无 thread 参数） */
     private static int yieldable(LuaState L) {
-        LuaState co = (L.argCount() == 0 || L.arg(0).isNone()) ? L : getco(L);
-        L.push(LuaValue.ofBoolean(co.isYieldable()));
+        L.push(LuaValue.ofBoolean(L.isYieldable()));
         return 1;
     }
 

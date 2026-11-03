@@ -12,7 +12,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * 一致性测试：拿真实的 {@code lua5.4} 二进制当裁判。
+ * 一致性测试：拿真实的 {@code lua5.3} 二进制当裁判。
  * <p>
  * 这是本项目的主闸门（见 README「怎么证明它真的是 Lua」）。目前解释器还没落地，
  * 所以这里先做两件已经能做的事：
@@ -31,30 +31,30 @@ public class ConformanceTest {
      * 没有参考二进制时整类跳过。
      * <p>
      * 为什么是 skip 而不是 fail：普通的 {@code mvn test}（本地与 build job）
-     * 不保证装了 lua5.4，硬失败会让「没装参考实现」变成编译失败，掩盖真正的
+     * 不保证装了 lua5.3，硬失败会让「没装参考实现」变成编译失败，掩盖真正的
      * 回归。真正的一致性校验放在 CI 的 conformance job 里跑——那个 job 会先
-     * 从源码构建 lua5.4，构建不出来它自己就红了，不需要这里再守一道。
+     * 从源码构建 lua5.3，构建不出来它自己就红了，不需要这里再守一道。
      */
     @BeforeAll
     public static void requireReference() {
         Assumptions.assumeTrue(ReferenceLua.available(),
-                "找不到 lua5.4 参考二进制，跳过一致性测试。设置 LUA54_BIN，"
-                        + "或在仓库内构建到 target/lua54/src/lua。查找结果：" + ReferenceLua.describe());
+                "找不到 lua5.3 参考二进制，跳过一致性测试。设置 LUA53_BIN，"
+                        + "或在仓库内构建到 target/lua53/src/lua。查找结果：" + ReferenceLua.describe());
     }
 
-    /** 参考二进制确实是 5.4（5.5 或其他版本会得出错误的「不一致」结论） */
+    /** 参考二进制确实是 5.3（5.5 或其他版本会得出错误的「不一致」结论） */
     @Test
-    public void referenceBinaryIsLua54() {
+    public void referenceBinaryIsLua53() {
         ReferenceLua.Result r = ReferenceLua.run("print(_VERSION)");
         assertEquals(0, r.exitCode);
-        assertTrue(r.output.contains("Lua 5.4"), "版本应当是 5.4，实际：" + r.output);
+        assertTrue(r.output.contains("Lua 5.3"), "版本应当是 5.3，实际：" + r.output);
     }
 
     /**
      * 表键语义：整值浮点规范化、整数键与字符串键分离、{@code #t} 的边界。
      * <p>
      * 这些断言与 {@link LuaTableTest} 里的一一对应，区别在于这里的期望值是
-     * <b>真实 Lua 5.4 跑出来的</b>，不是我们替它写的。
+     * <b>真实 Lua 5.3 跑出来的</b>，不是我们替它写的。
      */
     @Test
     public void tableKeySemantics() {
@@ -178,7 +178,7 @@ public class ConformanceTest {
             "return 0x10, 0X1P4, .5, 1e2",
             "local t = {[1]=1, x=2} return t",
             "return #'abc' ~= 3",
-            "local a <const> = 1 return a",
+            "local a = 1 return a",
             "return ('x'):upper()",
         };
         String path = "target/fklexok.lua";

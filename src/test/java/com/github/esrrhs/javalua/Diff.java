@@ -327,14 +327,14 @@ final class Diff {
      * <p>
      * 守卫放在<b>这一处</b>而不是每个测试类各写一个 {@code @BeforeAll}：
      * 十个类里只有几个写了，漏掉的那几个（全是 {@code @ParameterizedTest}）
-     * 在没有 {@code lua5.4} 的机器上会把 {@code ./mvnw clean test} 变成红的——
+     * 在没有 {@code lua5.3} 的机器上会把 {@code ./mvnw clean test} 变成红的——
      * 而 README 里写的构建命令就是它。JUnit 的 {@code assumeTrue} 在这里抛的是
      * {@code TestAbortedException}，整条用例记成 skipped，正是想要的结果。
      */
     private static void requireReference() {
         assumeTrue(ReferenceLua.find() != null,
-                "参考实现二进制不存在，跳过一致性测试；设 LUA54_BIN 或从源码构建到 "
-                        + "target/lua54/src/lua。已找过：" + ReferenceLua.describe());
+                "参考实现二进制不存在，跳过一致性测试；设 LUA53_BIN 或从源码构建到 "
+                        + "target/lua53/src/lua。已找过：" + ReferenceLua.describe());
     }
 
     /** 在参考实现上跑一段脚本，返回归一化后的输出（剥回溯） */
@@ -465,7 +465,7 @@ final class Diff {
     /**
      * {@code lua.c: handle_luainit}：把预置片段当一个 chunk 跑掉。
      * <p>
-     * chunk 名取 {@code =LUA_INIT_5_4}（{@code lua.c} 里
+     * chunk 名取 {@code =LUA_INIT_5_3}（{@code lua.c} 里
      * {@code "=" LUA_INITVARVERSION}），照搬是为了万一这段片段报错，
      * 错误消息与参考实现一致。片段本身不该报错，名字只是保持同构。
      */
@@ -474,7 +474,7 @@ final class Diff {
             return;
         }
         int base = L.top;
-        L.pushClosure(L.load(init.getBytes(StandardCharsets.UTF_8), "=LUA_INIT_5_4"));
+        L.pushClosure(L.load(init.getBytes(StandardCharsets.UTF_8), "=LUA_INIT_5_3"));
         int func = pushMsgHandler(L, base);
         LuaValue err = L.pcall(func, 0, L.stack[base]);
         if (err != null) {

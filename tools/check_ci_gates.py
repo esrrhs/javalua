@@ -5,7 +5,7 @@
 为什么要有这个脚本：本仓库的一致性闸门全靠
 `assumeTrue(ReferenceLua.available())` 之类的条件跳过。它本身是对的
 （没有参考二进制时只能跳），但**跳过的用例在报告里和跑过的长得一样**——
-`LUA54_BIN` 指错、上游套件没下载、环境变量没透传，都会让 job 绿着把
+`LUA53_BIN` 指错、上游套件没下载、环境变量没透传，都会让 job 绿着把
 几百条差分用例全部跳过。历史上这个项目已经吃过一次「连续 8 次 push
 consistency job 静默没跑」。所以每次跑完都要把 surefire 的 XML 数一遍。
 
@@ -56,8 +56,8 @@ NATIVE_REQUIRED = [
     # 也要机器上装了 pt_BR。CI 的 locale-gen 步骤一漏，这个类就变成零用例。
     "LocaleNumberTest",
     # C API 符号集对撞（nm 抽公开符号，与参考库比一个都不能少）。
-    # 这个是被自己坑过一次才加进来的：它的参考库默认只认 /tmp/lua-5.4.7，
-    # 而 CI 把 lua 建在 target/lua54，于是这道闸门在 CI 上一直是 skipped，
+    # 这个是被自己坑过一次才加进来的：它的参考库默认只认 /tmp/lua-5.3.4，
+    # 而 CI 把 lua 建在 target/lua53，于是这道闸门在 CI 上一直是 skipped，
     # maven 与旧的名单都看不见。现在路径候选补上了，名单也盯着它。
     "NativeSymbolTest",
 ]
@@ -106,7 +106,7 @@ def main():
         die("%d 条用例失败或报错，本该由 maven 拦下——报告却走到了这一步" % failed)
     if executed < min_tests:
         die("执行的用例只有 %d，低于下限 %d：八成是差分用例整类跳过了"
-            "（检查 LUA54_BIN / FKDUMP_BIN / TBLSTRUCT_BIN / LUA54_TESTS"
+            "（检查 LUA53_BIN / FKDUMP_BIN / TBLSTRUCT_BIN / LUA53_TESTS"
             " 是否透传）" % (executed, min_tests))
 
     missing = [c for c in ALWAYS_REQUIRED if per_class.get(c, (0, 0, 0))[0]
@@ -123,7 +123,7 @@ def main():
     # 多了就说明有东西没接通。
     if skipped > 5:
         die("跳过了 %d 条用例（正常只有 CodegenTest / TableStructTest 那两条："
-            "缺 LUA54_TESTS 或 TBLSTRUCT_BIN 时跳过）——跳过不是通过，"
+            "缺 LUA53_TESTS 或 TBLSTRUCT_BIN 时跳过）——跳过不是通过，"
             "得看清是哪一条" % skipped)
 
     print("闸门自检通过。")

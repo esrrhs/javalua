@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 
-SRC = os.environ.get("LUA54_SRC", "/tmp/lua-5.4.7/src")
+SRC = os.environ.get("LUA54_SRC", "/tmp/lua-5.3.4/src")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 JAVA_DIR = os.path.join(ROOT, "src/main/java/com/github/esrrhs/javalua")

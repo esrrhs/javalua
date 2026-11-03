@@ -25,7 +25,7 @@ public final class Dump {
     }
 
     private static final byte[] SIGNATURE = { 0x1b, 'L', 'u', 'a' };
-    private static final int LUAC_VERSION = 0x54;
+    private static final int LUAC_VERSION = 0x53;
     private static final int LUAC_FORMAT = 0;
     private static final byte[] LUAC_DATA = { 0x19, (byte) 0x93, '\r', '\n', 0x1a, '\n' };
     private static final long LUAC_INT = 0x5678L;

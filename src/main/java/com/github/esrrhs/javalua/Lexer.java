@@ -551,11 +551,12 @@ public final class Lexer {
     }
 
     /**
-     * {@code read_numeral}。
+     * {@code read_numeral}（Lua 5.3.4 {@code llex.c}）。
      * <p>
-     * 这里刻意「很宽松」，真正的格式校验交给 {@link Numeral#str2num}：
-     * 数字后面紧跟字母时（{@code 1a}、{@code 0x}）多读一个字符进来，
-     * 让 {@code str2num} 必然失败，从而报出上游同款 malformed number。
+     * 真正的格式校验交给 {@link Numeral#str2num}。循环只吃指数标记、十六进制数字
+     * 与 {@code '.'}——<b>不再</b>额外吞掉尾随字母：{@code 0xg} 的 near-token 是
+     * {@code '0x'}（{@code g} 不是 xdigit），而 {@code 1a} 仍会因 {@code a} 是
+     * xdigit 进缓冲得到 {@code '1a'}，与 5.3.4 一致。
      */
     private int readNumeral(Token sem) {
         String expo = "Ee";
@@ -572,9 +573,6 @@ public final class Lexer {
             } else {
                 break;
             }
-        }
-        if (LCType.isAlpha(current)) {
-            saveAndNext(); // 强制报错
         }
         LuaValue obj = Numeral.str2num(bufferText());
         if (obj == null) {
@@ -674,8 +672,9 @@ public final class Lexer {
                 break;
             }
             i++;
-            esccheck(r <= (0x7FFFFFFFL >> 4), "UTF-8 value too large");
             r = (r << 4) + Numeral.hexaValue(current);
+            // Lua 5.3.4 caps at Unicode max (0x10FFFF); 5.4 raised this.
+            esccheck(r <= 0x10FFFFL, "UTF-8 value too large");
         }
         esccheck(current == '}', "missing '}'");
         nextChar(); // 跳过 '}'

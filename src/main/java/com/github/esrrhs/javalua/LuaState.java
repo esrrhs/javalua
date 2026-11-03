@@ -262,47 +262,33 @@ public final class LuaState {
     boolean localeBaseline;
 
     /*
-     * {@code global_State.gcpause} / {@code gcstepmul}。
-     * <p>
-     * <b>存的是 param，不是「百分比」</b>——{@code lgc.h}：
-     * <pre>
-     * #define getgcparam(p)  ((p) * 4)
-     * #define setgcparam(p,v) ((p) = (v) / 4)
-     * </pre>
-     * 存的时候除以 4、取的时候乘 4，于是<b>不是 4 的倍数的值会被悄悄量化</b>：
-     * 实测 {@code collectgarbage("setstepmul", 50)} 之后再读，参考实现给的是
-     * <b>48</b>（{@code 50/4==12}，{@code 12*4==48}），不是 50。
-     * 这里按同一套存取，量化就自动对上了；直接存原值反而对不上。
-     * 两个初值分别是 {@code LUAI_GCPAUSE/4 = 50} 与 {@code LUAI_GCMUL/4 = 25}。
-     * <p>
-     * 还有第二层截断：字段本身是 <b>{@code lu_byte}</b>，写进去的时候按 256
-     * 取模。{@code collectgarbage("setpause", 1024)} 存的是 {@code 256}，截断成
-     * {@code 0}；{@code -10} 存的是 {@code -2}，截断成 {@code 254}，读回
-     * {@code 1016}。两个极端都实测过，不是推的。
+     * {@code global_State.gcpause} / {@code gcstepmul}（Lua 5.3.4）：
+     * {@code lua_gc} 直接读写整型字段，没有 5.4 的 {@code getgcparam/setgcparam}
+     * （/4 量化 + lu_byte）。默认 {@code LUAI_GCPAUSE=200}、{@code LUAI_GCMUL=200}。
      */
-    private int gcPauseParam = 50;
+    private int gcPauseParam = 200;
 
     /** @see #gcPauseParam */
-    private int gcStepMulParam = 25;
+    private int gcStepMulParam = 200;
 
-    /** {@code getgcparam(gcpause)} */
     int gcPause() {
-        return gcPauseParam * 4;
+        return gcPauseParam;
     }
 
-    /** {@code setgcparam(gcpause, v)} —— <b>无条件</b>赋值，{@code v == 0} 也照写 */
     void setGcPause(int v) {
-        gcPauseParam = (v / 4) & 0xFF;
+        gcPauseParam = v;
     }
 
-    /** {@code getgcparam(gcstepmul)} */
     int gcStepMul() {
-        return gcStepMulParam * 4;
+        return gcStepMulParam;
     }
 
-    /** @see #setGcPause */
     void setGcStepMul(int v) {
-        gcStepMulParam = (v / 4) & 0xFF;
+        /* Lua 5.3.4 lapi.c: if (data < 40) data = 40; */
+        if (v < 40) {
+            v = 40;
+        }
+        gcStepMulParam = v;
     }
 
     /**
@@ -1944,6 +1930,15 @@ public final class LuaState {
         if (nCcalls >= MAXCCALLS) {
             checkCStack();
         }
+    }
+
+    /**
+     * 解析器 {@code enterlevel} 专用：只 ++{@code nCcalls} 并返回新值，
+     * 不抛 {@code C stack overflow}（5.3.4 用 {@code checklimit} 报
+     * {@code too many C levels}）。
+     */
+    public int bumpCcalls() {
+        return ++nCcalls;
     }
 
     /** {@code leavelevel}：{@code L->nCcalls--} */

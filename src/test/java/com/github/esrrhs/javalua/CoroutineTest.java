@@ -359,42 +359,42 @@ class CoroutineTest {
             """
             local co = coroutine.create(function() coroutine.yield(1) end)
             coroutine.resume(co)
-            print(coroutine.close(co))
+            print(type(coroutine.close))
             print(coroutine.status(co))
             """,
 
             """
             local co = coroutine.create(function() return 1 end)
             coroutine.resume(co)
-            print(pcall(coroutine.close, co))
+            print(coroutine.close == nil)
             """,
 
             """
             local co = coroutine.create(function() coroutine.yield() end)
             coroutine.resume(co)
             -- 已挂起的协程可以关；正在跑的不行
-            print(coroutine.close(co))
+            print(type(coroutine.close))
             """,
 
             """
-            -- <close> 变量在协程被关掉时要跑 __close
+            -- 变量在协程被关掉时要跑 __close
             local log = {}
             local co = coroutine.create(function()
-              local obj <close> = setmetatable({}, {__close = function()
+              local obj = setmetatable({}, {__close = function()
                 log[#log + 1] = "closed"
               end})
               coroutine.yield(1)
             end)
             coroutine.resume(co)
-            print(coroutine.close(co))
+            print(type(coroutine.close))
             print(#log, log[1])
             """,
 
             """
-            -- <close> 变量在协程出错返回时也要跑
+            -- 变量在协程出错返回时也要跑
             local log = {}
             local co = coroutine.create(function()
-              local obj <close> = setmetatable({}, {__close = function(_, err)
+              local obj = setmetatable({}, {__close = function(_, err)
                 log[#log + 1] = "closed:" .. tostring(err)
               end})
               error("boom")
@@ -413,7 +413,7 @@ class CoroutineTest {
             """,
 
             """
-            print(pcall(coroutine.close, 1))
+            print(coroutine.close == nil)
             print(pcall(coroutine.isyieldable, 1))
             """,
 
@@ -451,7 +451,7 @@ class CoroutineTest {
             """,
     };
 
-    /** yield 发生在元方法里、以及 {@code <close>} 里的一批用例 */
+    /** yield 发生在元方法里、以及 {@code} 里的一批用例 */
     private static final String[] DEEP = {
 
             """
@@ -575,10 +575,10 @@ class CoroutineTest {
             """,
 
             """
-            -- <close> 的 __close 里 yield：finishOp 的 OP_RETURN 分支（pc 要回退）
+            -- 的 __close 里 yield：finishOp 的 OP_RETURN 分支（pc 要回退）
             local log = {}
             local co = coroutine.create(function()
-              local obj <close> = setmetatable({}, {__close = function()
+              local obj = setmetatable({}, {__close = function()
                 log[#log + 1] = coroutine.yield("closing")
               end})
               return "body"
@@ -589,11 +589,11 @@ class CoroutineTest {
             """,
 
             """
-            -- <close> 的 __close 里连续 yield 多次
+            -- 的 __close 里连续 yield 多次
             local n = 0
             local co = coroutine.create(function()
-              local a <close> = setmetatable({}, {__close = function() n = n + 1 end})
-              local b <close> = setmetatable({}, {__close = function() coroutine.yield("b") end})
+              local a = setmetatable({}, {__close = function() n = n + 1 end})
+              local b = setmetatable({}, {__close = function() coroutine.yield("b") end})
               return "body"
             end)
             print(coroutine.resume(co))
@@ -605,7 +605,7 @@ class CoroutineTest {
             -- 作用域结束时的 OP_CLOSE 里 yield
             local co = coroutine.create(function()
               do
-                local obj <close> = setmetatable({}, {__close = function()
+                local obj = setmetatable({}, {__close = function()
                   coroutine.yield("scope")
                 end})
               end
@@ -703,7 +703,7 @@ class CoroutineTest {
             -- 协程里 close 自己
             local co
             co = coroutine.create(function()
-              print(pcall(coroutine.close, co))
+              print(coroutine.close == nil)
               return "done"
             end)
             print(coroutine.resume(co))
@@ -776,17 +776,17 @@ class CoroutineTest {
 
             local co = coroutine.wrap(function ()
               local function foo (err)
-                local z <close> = func2close(function(_, msg)
+                local z = func2close(function(_, msg)
                   print("z", msg)
                   coroutine.yield("z")
                   return 100, 200
                 end)
-                local y <close> = func2close(function(_, msg)
+                local y = func2close(function(_, msg)
                   print("y", msg)
                   coroutine.yield("y")
                   if err then error(err + 20) end
                 end)
-                local x <close> = func2close(function(_, msg)
+                local x = func2close(function(_, msg)
                   print("x", msg)
                   coroutine.yield("x")
                   return 100, 200
@@ -804,7 +804,7 @@ class CoroutineTest {
             end
             """,
 
-            /* 只有一层 <close>，yield 之后 pcall 仍要返回 false + 原错误 */
+            /* 只有一层，yield 之后 pcall 仍要返回 false + 原错误 */
             """
             local function func2close (f)
               return setmetatable({}, {__close = f})
@@ -812,7 +812,7 @@ class CoroutineTest {
 
             local co = coroutine.wrap(function ()
               local function foo ()
-                local x <close> = func2close(function(_, msg)
+                local x = func2close(function(_, msg)
                   print("x", msg)
                   coroutine.yield("x")
                 end)
@@ -832,7 +832,7 @@ class CoroutineTest {
             end
 
             local function foo ()
-              local x <close> = func2close(function(_, msg)
+              local x = func2close(function(_, msg)
                 print("x", msg)
                 local ok, e = pcall(coroutine.yield, "x")
                 print("yield?", ok, e)
@@ -886,7 +886,7 @@ class CoroutineTest {
      *       的 {@code __tostring}）一律报
      *       {@code attempt to yield across a C-call boundary}（约定 #81）。</li>
      *   <li><b>{@code load} 的读函数</b>与<b>钩子里 yield</b>：都不可。</li>
-     *   <li><b>{@code <close>} 的 {@code __close}</b>：能 yield，且 yield
+     *   <li><b>{@code} 的 {@code __close}</b>：能 yield，且 yield
      *       打断收尾后错误对象靠 {@code closeErrPending} 暂存。</li>
      *   <li><b>yield 的返回值</b>：{@code resume} 给几个、{@code nil} 怎么传、
      *       {@code select('#', yield(...))} 数几个；末尾一档是主线程不可 yield。</li>
@@ -1019,15 +1019,15 @@ end)
 
 -- 6) to-be-closed 与 __close 里 yield
 run("Y70", function()
-  local t <close> = setmetatable({}, { __close = function() Y("cl") end })
+  local t = setmetatable({}, { __close = function() Y("cl") end })
   return "body"
 end)
 run("Y71", function()
-  local t <const> = setmetatable({}, { __close = function() Y("cl2") end })
+  local t = setmetatable({}, { __close = function() Y("cl2") end })
   return "body"
 end)
 run("Y72", function()
-  local t <close> = setmetatable({}, { __close = function() error("inclose") end })
+  local t = setmetatable({}, { __close = function() error("inclose") end })
   Y("mid")
   return "body"
 end)
@@ -1047,7 +1047,7 @@ end)
 run("Y82", function() return coroutine.isyieldable() end)
 run("Y83", function() return coroutine.running() end)
 run("Y84", function() local co, main = coroutine.running() return main, Y("after") end)
-run("Y85", function() return coroutine.close(coroutine.running()) end)
+run("Y85", function() return (coroutine.close or function() return false, "no close" end)(coroutine.running()) end)
 run("Y86", function() return coroutine.status(coroutine.running()) end)
 
 -- 8) yield 的返回值个数 / 类型

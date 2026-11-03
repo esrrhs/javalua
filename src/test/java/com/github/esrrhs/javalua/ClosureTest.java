@@ -25,7 +25,7 @@ class ClosureTest {
     @BeforeAll
     static void requireReference() {
         assumeTrue(ReferenceLua.available(),
-                "no lua5.4 reference binary; set LUA54_BIN. found: " + ReferenceLua.describe());
+                "no lua5.3 reference binary; set LUA53_BIN. found: " + ReferenceLua.describe());
     }
 
     static List<String> scripts() {

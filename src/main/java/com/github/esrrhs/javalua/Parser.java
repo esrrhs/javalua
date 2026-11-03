@@ -303,12 +303,19 @@ public final class Parser {
         codeString(e, strCheckName());
     }
 
-    /** {@code enterlevel} / {@code leavelevel}（{@code luaE_incCstack}） */
+    /**
+     * {@code enterlevel}（Lua 5.3.4 {@code lparser.c}）：递增 {@code nCcalls}，
+     * 超限走 {@code checklimit(..., "C levels")}，得到
+     * {@code too many C levels (limit is 200) in ...}，而不是 5.4 的
+     * {@code C stack overflow}。
+     */
     private void enterLevel() {
         if (L != null) {
-            L.incCstack();
-        } else if (++depth >= MAXDEPTH) {
-            throw new LuaError(LuaValue.ofString(LuaString.latin1("C stack overflow")));
+            int n = L.bumpCcalls();
+            checkLimit(fs, n, LuaState.MAXCCALLS, "C levels");
+        } else {
+            depth++;
+            checkLimit(fs, depth, MAXDEPTH, "C levels");
         }
     }
 
@@ -674,7 +681,7 @@ public final class Parser {
     private void undefGoto(DynData.Labeldesc gt) {
         String msg;
         if (eqstr(gt.name, breakName)) {
-            msg = String.format(Locale.ROOT, "break outside loop at line %d", gt.line);
+            msg = String.format(Locale.ROOT, "<break> at line %d not inside a loop", gt.line);
         } else {
             msg = String.format(Locale.ROOT, "no visible label '%s' for <goto> at line %d",
                     gt.name.toJavaString(), gt.line);
@@ -1389,14 +1396,21 @@ public final class Parser {
         }
     }
 
-    /** {@code labelstat} */
+    /** {@code labelstat} — Lua 5.3.4 order (see lparser.c). */
     private void labelStat(LuaString name, int line) {
-        checkNext(Lexer.TK_DBCOLON);
-        while (ls.t.token == ';' || ls.t.token == Lexer.TK_DBCOLON) {
-            statement(); // 跳过其它空语句
-        }
         checkRepeated(name);
-        createLabel(name, line, blockFollow(false));
+        checkNext(Lexer.TK_DBCOLON);
+        int l = newLabelEntry(false, name, line, Codegen.getLabel(fs));
+        while (ls.t.token == ';' || ls.t.token == Lexer.TK_DBCOLON) {
+            statement(); // skip other no-op statements
+        }
+        if (blockFollow(false)) {
+            // label is last no-op in the block: locals already out of scope
+            dyd.label.get(l).nactvar = fs.bl.nactvar;
+        }
+        if (solveGotos(dyd.label.get(l))) {
+            Codegen.codeABC(fs, OpCode.OP_CLOSE, fs.nvarstack(), 0, 0);
+        }
     }
 
     /** {@code whilestat} */
@@ -1506,11 +1520,16 @@ public final class Parser {
         forBody(base, line, 1, 0);
     }
 
-    /** {@code forlist} */
+    /**
+     * {@code forlist}. Language surface matches Lua 5.3.4 (no {@code <close>} syntax),
+     * but the VM still uses the 5.4-era {@code OP_TFORPREP} which expects a 4th
+     * control slot at {@code ra+3} for an internal to-be-closed upvalue. Keep that
+     * slot (usually nil) so generic-for does not mark the first loop variable.
+     */
     private void forList(LuaString indexname) {
         FuncState fs = this.fs;
         ExpDesc e = new ExpDesc();
-        int nvars = 5; // gen, state, control, toclose, indexname
+        int nvars = 5; // gen, state, control, internal-tbc, indexname
         int line;
         int base = fs.freereg;
         newLocalVarLiteral("(for state)");
@@ -1524,10 +1543,10 @@ public final class Parser {
         }
         checkNext(Lexer.TK_IN);
         line = ls.linenumber;
+        // 5.3 iterators yield 3 values; 4th control slot stays nil.
         adjustAssign(4, expList(e), e);
-        adjustLocalVars(4); // 控制变量
-        markToBeClosed(fs); // 最后一个控制变量必须被关闭
-        Codegen.checkStack(fs, 3); // 调用迭代器要额外 3 个寄存器
+        adjustLocalVars(4);
+        Codegen.checkStack(fs, 3);
         forBody(base, line, nvars - 4, 1);
     }
 
@@ -1619,21 +1638,12 @@ public final class Parser {
         }
     }
 
-    /** {@code getlocalattribute} */
+    /**
+     * Lua 5.3.4 has no {@code <const>}/{@code <close>} attributes.
+     * Leaving {@code '<'} unconsumed makes {@code localstat} fall through to a
+     * normal syntax error (same surface as stock lua 5.3.4).
+     */
     private int getLocalAttribute() {
-        if (testNext('<')) {
-            LuaString attr = strCheckName();
-            checkNext('>');
-            String a = attr.toJavaString();
-            if ("const".equals(a)) {
-                return DynData.RDKCONST;
-            }
-            if ("close".equals(a)) {
-                return DynData.RDKTOCLOSE;
-            }
-            throw Codegen.semError(fs,
-                    String.format(Locale.ROOT, "unknown attribute '%s'", a));
-        }
         return DynData.VDKREG;
     }
 

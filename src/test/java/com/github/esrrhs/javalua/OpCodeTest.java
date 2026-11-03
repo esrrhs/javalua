@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
  * 指令编解码测试。
  * <p>
  * 操作码的顺序、名字与 {@code luaP_opmodes} 属性表不是靠肉眼对齐的：
- * 用脚本直接从 {@code lua-5.4.7/src/lopcodes.h} 与 {@code lopcodes.c} 抽出来
+ * 用脚本直接从 {@code lua-5.3.4/src/lopcodes.h} 与 {@code lopcodes.c} 抽出来
  * 逐项比对过（83 项全等）。这里锁的是编解码本身——尤其是<b>有符号字段</b>与
  * 「指令字是负数」这两种最容易在本实现里出错的情形：C 的 {@code Instruction}
  * 是无符号 32 位，Java 的 {@code int} 不是。

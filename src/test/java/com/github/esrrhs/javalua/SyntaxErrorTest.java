@@ -45,7 +45,7 @@ class SyntaxErrorTest {
     @BeforeAll
     static void needReference() {
         assumeTrue(ReferenceLua.find() != null,
-                "no lua5.4 reference binary; set LUA54_BIN");
+                "no lua5.3 reference binary; set LUA53_BIN");
     }
 
     /** 语法 / 编译错误消息矩阵（2586 行） */
