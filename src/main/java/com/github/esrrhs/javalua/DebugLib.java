@@ -101,7 +101,6 @@ public final class DebugLib {
         LuaAux.setFn(d, "upvalueid", DebugLib::upValueId);
         LuaAux.setFn(d, "upvaluejoin", DebugLib::upValueJoin);
         LuaAux.setFn(d, "traceback", DebugLib::traceback);
-        LuaAux.setFn(d, "setcstacklimit", DebugLib::setCStackLimit);
         LuaAux.setFn(d, "debug", DebugLib::debugFn);
         LuaAux.setFn(d, "sethook", DebugLib::setHook);
         LuaAux.setFn(d, "gethook", DebugLib::getHook);
@@ -549,37 +548,33 @@ public final class DebugLib {
     }
 
     private static int getUserValue(LuaState L) {
-        int n = (int) LuaAux.optInteger(L, 2, 1);
+        // Lua 5.3.4: single uservalue; no n index
         if (L.isNoneArg(1) || L.arg1(1).tt != Lua.VUSERDATA) {
             L.push(LuaValue.ofNil());
             return 1;
         }
         LuaUserdata ud = (LuaUserdata) L.arg1(1).o;
-        if (ud.userValues == null || n <= 0 || n > ud.userValues.length) {
+        if (ud.userValues == null || ud.userValues.length < 1) {
             L.push(LuaValue.ofNil());
             return 1;
         }
-        L.push(ud.userValues[n - 1]);
+        L.push(ud.userValues[0]);
         return 1;
     }
 
     private static int setUserValue(LuaState L) {
-        /*
-         * 序号取在第 3 个参数上（{@code luaL_optinteger(L, 3, 1)}），而且要在
-         * 类型检查<b>之前</b>——所以 {@code debug.setuservalue(1, 2, "x")} 报的是
-         * 「#3 不是数」，不是「#1 不是 userdata」。
-         */
-        int n = (int) LuaAux.optInteger(L, 3, 1);
+        // Lua 5.3.4 ldblib: checktype(1,userdata); checkany(2); settop(2); setuservalue(1); return 1
         LuaAux.checkType(L, 1, Lua.TUSERDATA);
         LuaAux.checkAny(L, 2);
         LuaUserdata ud = (LuaUserdata) L.arg1(1).o;
         LuaValue val = L.arg1(2);
-        if (ud.userValues != null && n >= 1 && n <= ud.userValues.length) {
-            ud.userValues[n - 1].set(val);
-            L.setTop(1);
+        if (ud.userValues == null || ud.userValues.length < 1) {
+            // 5.3 full userdata always has one uservalue slot when created with nuvalue>=1
+            L.push(LuaValue.ofNil());
             return 1;
         }
-        L.push(LuaValue.ofNil());
+        ud.userValues[0].set(val);
+        L.setTop(1);
         return 1;
     }
 

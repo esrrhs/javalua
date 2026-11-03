@@ -39,6 +39,8 @@ public final class LuaLibs {
         {"math", (java.util.function.Consumer<LuaState>) MathLib::open},
         {"utf8", (java.util.function.Consumer<LuaState>) Utf8Lib::open},
         {"debug", (java.util.function.Consumer<LuaState>) DebugLib::open},
+        // LUA_COMPAT_BITLIB (default with LUA_COMPAT_5_2 in 5.3.4)
+        {"bit32", (java.util.function.Consumer<LuaState>) BitLib::open},
     };
 
     /** {@code luaL_openlibs} */

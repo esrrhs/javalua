@@ -56,7 +56,7 @@ public final class PackageLib {
     private static final String IGMARK = "-";
 
     /** {@code LUA_VERSUFFIX} */
-    private static final String VER_SUFFIX = "_5_4";
+    private static final String VER_SUFFIX = "_5_3";
 
     private static final String LUA_PATH_VAR = "LUA_PATH";
     private static final String LUA_CPATH_VAR = "LUA_CPATH";
@@ -149,7 +149,7 @@ public final class PackageLib {
     }
 
     /**
-     * {@code setpath}：先看 {@code LUA_PATH_5_4}，再看 {@code LUA_PATH}，都没有
+     * {@code setpath}：先看 {@code LUA_PATH_5_3}，再看 {@code LUA_PATH}，都没有
      * 才用默认值。
      * <p>
      * 变量值里出现 {@code ";;"} 时把默认路径插在那个位置——这是 Lua 让用户
