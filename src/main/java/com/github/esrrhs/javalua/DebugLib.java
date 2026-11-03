@@ -1046,7 +1046,7 @@ public final class DebugLib {
         }
         CallInfo prev = ci.previous;
         if (prev != null && prev.isLua) {
-            L.oldpc = pcRel(prev.savedpc);
+            L.oldpc = prev.savedpc; /* 5.3.4: store savedpc, not npc */
         }
     }
 
@@ -1127,12 +1127,14 @@ public final class DebugLib {
             dHook(L, Lua.LUA_HOOKCOUNT, -1, 0, 0);
         }
         if ((mask & Lua.LUA_MASKLINE) != 0) {
-            int oldpc = (L.oldpc < p.sizecode) ? L.oldpc : 0;
+            /* 5.3.4 luaG_traceexec: npc==0 || savedpc<=oldpc || newline changed */
             int npci = pcRel(pc);
-            if (npci <= oldpc || changedLine(p, oldpc, npci)) {
-                dHook(L, Lua.LUA_HOOKLINE, p.getFuncline(npci), 0, 0);
+            int newline = p.getFuncline(npci);
+            int oldNpc = (L.oldpc > 0) ? pcRel(L.oldpc) : 0;
+            if (npci == 0 || pc <= L.oldpc || newline != p.getFuncline(oldNpc)) {
+                dHook(L, Lua.LUA_HOOKLINE, newline, 0, 0);
             }
-            L.oldpc = npci;
+            L.oldpc = pc; // C stores savedpc, not npc
         }
         return true;
     }
