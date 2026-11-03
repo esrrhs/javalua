@@ -3686,7 +3686,8 @@ public final class LuaState {
 
     /** {@code ldebug.c: instack}：值是第几个寄存器？不在栈上返回 {@code -1} */
     private int inStack(CallInfo c, LuaValue o) {
-        int base = c.func + 1;
+        /* 5.3.4: o - ci->u.l.base — vararg frames have base != func+1 */
+        int base = c.isLua ? c.base : (c.func + 1);
         for (int pos = 0; base + pos < c.top && base + pos < stack.length; pos++) {
             if (stack[base + pos] == o) {
                 return pos;

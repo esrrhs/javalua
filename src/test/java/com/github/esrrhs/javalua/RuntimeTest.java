@@ -500,9 +500,9 @@ class RuntimeTest {
         bad.add("error('boom')");
         bad.add("assert(false)");
         bad.add("for i = 1, 'x' do end");
-        bad.add("for i = 1, 10, 0 do end");
+        /* 5.3.4: step 0 does not error — FORLOOP never continues; 5.4 errors */
         // 名字后缀：常量 / 局部变量 / upvalue / 全局 / 字段 / 方法 / 元方法
-        bad.add("return '10' | 1");
+        bad.add("return 'x' | 1");  /* 5.3 coerces '10'; non-numeric still errors */
         bad.add("return ~'a'");
         bad.add("local x = nil return x + 1");
         bad.add("local x = nil return x .. 'a'");

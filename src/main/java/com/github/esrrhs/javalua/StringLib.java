@@ -1066,7 +1066,8 @@ public final class StringLib {
             while (p < sfl && FLAGS.indexOf(f[p] & 0xFF) >= 0) {
                 p++;
             }
-            if (p - start >= FLAGS.length()) {
+            /* C: sizeof(FLAGS) includes NUL, so 5 flag chars are OK; reject at 6+ */
+            if (p - start >= FLAGS.length() + 1) {
                 throw L.libError("invalid format (repeated flags)");
             }
             if (p < sfl && isDigit(f[p] & 0xFF)) {
@@ -1100,6 +1101,8 @@ public final class StringLib {
             case 'c': {
                 checkFormat(L, form, form.substring(1), "-", false);
                 long n = LuaAux.checkInteger(L, arg);
+                /* C99: 0 flag only for numeric conversions — not %c/%s */
+                sp = copyWithoutZero(sp);
                 out.addAscii(assemble(sp, "", "", Character.toString((char) (int) n), false));
                 break;
             }
@@ -1213,12 +1216,17 @@ public final class StringLib {
                 if (sp.hasPrec) {
                     digits = digits.substring(0, Math.min(sp.prec, digits.length()));
                 }
+                /* C99: 0 flag not for %s */
+                sp = copyWithoutZero(sp);
                 out.addAscii(assemble(sp, "", "", digits, false));
                 break;
             }
             default:
-                /* 5.3.4: luaL_error(L, "invalid option '%%%c' to 'format'", ...) */
-                throw L.libError("invalid option '%" + (char) conv + "' to 'format'");
+                /* 5.3.4 luaO_pushvfstring %c: non-printable → "<\\N>" */
+                String ch = (conv >= 0x20 && conv < 0x7f)
+                        ? Character.toString((char) conv)
+                        : ("<\\" + (conv & 0xff) + ">");
+                throw L.libError("invalid option '%" + ch + "' to 'format'");
             }
         }
         L.push(LuaValue.ofString(out.result()));
@@ -1448,7 +1456,10 @@ public final class StringLib {
              */
             digits = "0" + digits;
         }
-        out.addAscii(assemble(sp, signOf(neg, sp), prefix, digits, conv == 'X'));
+        /* C printf: +/space signs apply only to signed conversions (d,i), not u/o/x/X */
+        boolean signedConv = (conv == 'd' || conv == 'i');
+        String sign = signedConv ? signOf(neg, sp) : "";
+        out.addAscii(assemble(sp, sign, prefix, digits, conv == 'X'));
     }
 
     /* ---------- 浮点 ---------- */
