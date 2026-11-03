@@ -1158,18 +1158,16 @@ public final class DebugLib {
     /**
      * {@code ldebug.c: luaG_tracecall}：进一个 Lua 函数时先报调用钩子。
      * <p>
-     * 变参函数这里返回 {@code false}（把 {@code trap} 关掉），它的调用钩子推迟到
-     * {@code OP_VARARGPREP} 之后——那时参数才归位，报出来的
-     * {@code numparams} 才对得上。{@link Vm} 里 {@code OP_VARARGPREP} 之后的
-     * {@code updatetrap} 会把 {@code trap} 从帧里读回来重新置 1。
+     * 5.3.4 无 {@code OP_VARARGPREP}：变参与定参一律在进入时打调用钩子。
      */
     static boolean traceCall(LuaState L, CallInfo ci) {
-        Proto p = ((LClosure) L.stack[ci.func].o).p;
         ci.trap = true;
         if (ci.savedpc == 0) { // 第一条指令（不是从 yield 恢复的）
-            if (p.isVararg) {
-                return false;
-            }
+            /*
+             * 5.3.4：变参函数也在进入时立刻打调用钩子（无 OP_VARARGPREP）。
+             * 5.4 才把 vararg 的钩子推迟到 VARARGPREP 之后——这里绝不能再 defer，
+             * 否则 {@code function g(...)} 的 call hook 永远不响（db.lua:306）。
+             */
             dHookCall(L, ci);
         }
         return true;

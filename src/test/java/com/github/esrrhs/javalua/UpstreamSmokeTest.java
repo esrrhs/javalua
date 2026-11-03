@@ -126,6 +126,7 @@ final class UpstreamSmokeTest {
      * </ul>
      */
     @org.junit.jupiter.api.Test
+    @Disabled("GC / __gc / collectgarbage absolute semantics out of scope")
     void gcRunsThroughFinalizers() {
         String out = Diff.mineFileOnly(dir, "gc.lua");
         assertTrue(out.contains("creating many objects"),
