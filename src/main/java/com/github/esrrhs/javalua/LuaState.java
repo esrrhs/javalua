@@ -3296,13 +3296,11 @@ public final class LuaState {
         if (level > 0 && msg.isString()) {
             LuaString prefix = whereAt(level);
             LuaValue full = LuaValue.ofString(prefix.concat(msg.asString()));
-            LuaError e = new LuaError(full, prefix.toJavaString());
-            e.errMem = isMemErr(full);
-            return e;
+            /* 5.3.4 lua_error always luaG_errormsg → ERRRUN; no memerrmsg special
+             * case on error(). LUA_ERRMEM is only from real luaM_error. */
+            return new LuaError(full, prefix.toJavaString());
         }
-        LuaError e = new LuaError(msg, "");
-        e.errMem = isMemErr(msg);
-        return e;
+        return new LuaError(msg, "");
     }
 
     /**
