@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 ALWAYS_REQUIRED = [
     "ConformanceTest",      # 上游套件 + 逐字节 stdout 比对
     "RuntimeTest",          # 语言语义差分
+    "SyntaxE2eTest",        # 语法 / 语言特性端到端差分（不含 GC）
     "IoLibTest",            # io 库差分（两条路径都要过）
     "OsLibTest",            # os 库差分
     "DebugTest",            # debug 库与 traceback 差分
