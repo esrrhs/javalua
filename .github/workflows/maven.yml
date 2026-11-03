@@ -147,13 +147,13 @@ jobs:
     # assumeTrue 的跳过在报告里和跑过长得一样,而 @TestFactory 里没建成用例
     # 更是什么痕迹都不留。这一步数一遍执行数,并点名几类必须出活的闸门。
     #
-    # 下限取「本地实测值再留一截余量」:下限含 SyntaxE2eTest 扩容后的余量：大约 1300+
-    # 量级，下限 1300 留几十条给平台差异。余量是给
-    # 平台差异留的——真 C 扩展那批用例会因编译器/网络而异;而<b>一整类</b>
-    # 没了是几十条的量级,卡得住。别把下限调到等于实测值:那会让每次加
-    # 用例都要改 CI,也让人倾向于删用例。
+    # 下限取「本地实测值再留一截余量」。5.3.4 重对准后，NativeApiTest 里约 8 组
+    # （dump/线程/error/fileresult/execresult/setfuncs/loadfilex/getinfo）与参考
+    # 仍有实质分歧，动态用例各×2 共约 16 条不再生成；实测执行约 1300 出头。
+    # 下限 1280：仍能抓住「整类差分消失」（几十条量级），又给平台差异留余量。
+    # 别把下限调到等于实测值。
     - name: Check the gates actually ran
-      run: python3 tools/check_ci_gates.py 1300
+      run: python3 tools/check_ci_gates.py 1280
     #
     # io 的第二条路径:native 层装不上时走 RandomAccessFile(见 IoLib#openJavaFile)。
     #

@@ -1808,20 +1808,15 @@ class NativeApiTest {
     /**
      * 相对官方 5.3.4 仍未对齐、或探针依赖 5.4 ABI/ISA 的用例。
      * <ul>
-     *   <li>toclose/warn/resetthread/typeerror/多 uservalue/cstack：5.4 API；</li>
      *   <li>lua_dump：本仓库 ISA 仍偏 5.4，字节码哈希不可比；</li>
-     *   <li>isyieldable/ERRMEM 消息处理器/debug getinfo 等：待继续按 5.3.4 抠。</li>
+     *   <li>线程状态 / lua_error 消息 / fileresult·execresult·setfuncs·loadfilex / getinfo：待继续按 5.3.4 抠；</li>
+     *   <li>toclose/warn/resetthread/typeerror/多 uservalue/cstack 已移出本集合（5.3 下两边对齐或同失败）。</li>
      * </ul>
      */
     private static final java.util.Set<String> SKIP_54_ONLY = java.util.Set.of(
-            "lua_closethread / lua_resetthread",
-            "lua_toclose / lua_closeslot",
-            "lua_toclose 里 __close 出错",
-            "lua_toclose 在协程里 __close 里 yield",
-            "lua_setwarnf",
-            "luaL_typeerror / luaL_argerror",
-            "userdata 的用户值",
-            "lua_setcstacklimit",
+            // 下列与参考 5.3.4 仍有实质分歧（ISA/debug/消息/结果约定），暂不 Diff。
+            // 已从名单拿掉的 toclose/warn/cstack/多 uservalue/typeerror 等：探针在
+            // 5.3.4 头下未导出时两边同失败，或 shim 已对齐，可继续充当闸门。
             "lua_dump",
             "线程与状态",
             "lua_error",
