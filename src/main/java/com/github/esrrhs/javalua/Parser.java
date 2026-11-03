@@ -717,23 +717,24 @@ public final class Parser {
         Codegen.semError(fs, msg);
     }
 
-    /** {@code leaveblock} */
+    /** {@code leaveblock} — Lua 5.3.4 {@code lparser.c} */
     private void leaveBlock(FuncState fs) {
         BlockCnt bl = fs.bl;
-        boolean hasclose = false;
-        int stklevel = FuncState.reglevel(fs, bl.nactvar);
+        if (bl.previous != null && bl.upval) {
+            /* create a 'jump to here' to close upvalues */
+            int j = Codegen.jump(fs);
+            Codegen.patchClose(fs, j, bl.nactvar);
+            Codegen.patchToHere(fs, j);
+        }
+        if (bl.isloop) {
+            createLabel(breakName, 0, false); /* close pending breaks */
+        }
+        fs.bl = bl.previous;
         removeVars(fs, bl.nactvar);
-        if (bl.isloop) { // 有未解决的 break？
-            hasclose = createLabel(breakName, 0, false);
-        }
-        if (!hasclose && bl.previous != null && bl.upval) {
-            Codegen.closeUpvals(fs, stklevel);
-        }
-        fs.freereg = stklevel;
+        fs.freereg = fs.nactvar; /* free registers */
         while (dyd.label.size() > bl.firstlabel) {
             dyd.label.remove(dyd.label.size() - 1);
         }
-        fs.bl = bl.previous;
         if (bl.previous != null) {
             moveGotosOut(fs, bl);
         } else if (bl.firstgoto < dyd.gt.size()) {
@@ -1449,29 +1450,25 @@ public final class Parser {
         Codegen.patchToHere(fs, condexit);
     }
 
-    /** {@code repeatstat} */
+    /** {@code repeatstat} — Lua 5.3.4 {@code lparser.c}（用 patchclose，非 5.4 多跳） */
     private void repeatStat(int line) {
         int condexit;
         FuncState fs = this.fs;
         int repeatInit = Codegen.getLabel(fs);
         BlockCnt bl1 = new BlockCnt();
         BlockCnt bl2 = new BlockCnt();
-        enterBlock(fs, bl1, true); // 循环块
-        enterBlock(fs, bl2, false); // 作用域块
-        ls.next(); // 跳过 REPEAT
+        enterBlock(fs, bl1, true); // loop block
+        enterBlock(fs, bl2, false); // scope block
+        ls.next(); // skip REPEAT
         statList();
         checkMatch(Lexer.TK_UNTIL, Lexer.TK_REPEAT, line);
-        condexit = cond(); // 条件在作用域块内读
-        leaveBlock(fs); // 结束作用域
+        condexit = cond(); // condition inside scope block
         if (bl2.upval) {
-            int exit = Codegen.jump(fs); // 正常出口要跳过 fix
-            Codegen.patchToHere(fs, condexit);
-            Codegen.closeUpvals(fs, FuncState.reglevel(fs, bl2.nactvar));
-            condexit = Codegen.jump(fs);
-            Codegen.patchToHere(fs, exit);
+            Codegen.patchClose(fs, condexit, bl2.nactvar);
         }
-        Codegen.patchList(fs, condexit, repeatInit);
-        leaveBlock(fs);
+        leaveBlock(fs); // finish scope
+        Codegen.patchList(fs, condexit, repeatInit); // close the loop
+        leaveBlock(fs); // finish loop
     }
 
     /** {@code exp1} */
