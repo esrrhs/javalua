@@ -49,29 +49,62 @@ class BinaryChunkTest {
     }
 
     /**
-     * Stock lua 5.3.4 bytecode (LUAC version 0x53) is not yet loadable: javalua
-     * still dumps/loads a 5.4-derived ISA. Keep one executed gate so CI sees the
-     * class, and exercise self-dump via {@link #loadingOurOwnChunks()}.
+     * Stock lua 5.3.4 {@code string.dump} bytes (LUAC 0x53) load and run.
      */
     @Test
-    void referenceLuacInteropDeferred() {
+    void stockLuacBytecodeLoads() throws Exception {
         assumeTrue(ReferenceLua.find() != null, "no lua5.3 reference binary");
-        // Documented gap: undump of stock 5.3.4 chunks is not supported yet.
         assertTrue(Lua.LUA_VERSION.equals("Lua 5.3"));
         assertTrue(Lua.VERSION_NUM == 503);
+        java.nio.file.Path bin = java.nio.file.Paths.get(Diff.SCRATCH, "stock_addmul.luac");
+        java.nio.file.Files.createDirectories(bin.getParent());
+        String path = bin.toAbsolutePath().toString();
+        ProcessBuilder pb = new ProcessBuilder(ReferenceLua.find(), "-e",
+                "f=assert(io.open([[" + path + "]],'wb'));"
+                        + "f:write(string.dump(function(a,b) return a+b,a*b end,true));"
+                        + "f:close()");
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        org.junit.jupiter.api.Assertions.assertEquals(0, p.waitFor(),
+                new String(p.getInputStream().readAllBytes()));
+        byte[] bytes = java.nio.file.Files.readAllBytes(bin);
+        StringBuilder hex = new StringBuilder();
+        for (byte x : bytes) {
+            hex.append(String.format("%02x", x & 0xff));
+        }
+        Diff.assertMatches("""
+local hex = "%s"
+local bin = hex:gsub("..", function(c) return string.char(tonumber(c,16)) end)
+local f, err = load(bin, "=stock", "b")
+print(tostring(f ~= nil), err and "ERR" or "OK")
+local a,b = f(3,4)
+print(a,b)
+""".formatted(hex.toString()));
+    }
+
+    /** Self {@code string.dump} → {@code load}/{@code require}/{@code dofile} Diff vs stock. */
+    @Test
+    void loadingOurOwnChunksMatchReference() {
+        // Last OURS entry is the undump mutation matrix (platform malloc noise); see
+        // {@link #corruptedChunkTruncationMatchReference} / dedicated matrix test.
+        for (int i = 0; i < OURS.length - 1; i++) {
+            Diff.assertMatches(OURS[i]);
+        }
     }
 
     /**
-     * Self-dump/load smoke. Byte-identical Diff against stock lua 5.3.4 is
-     * deferred while the chunk ISA remains 5.4-derived.
+     * Undump mutation matrix self-smoke. Full Diff vs stock is not a gate: some
+     * mutations make stock {@code lua} abort mid-script (output truncates), while
+     * this port keeps returning load errors. Header why-strings and ERRMEM
+     * handling are covered by smaller Diff cases above.
      */
     @Test
-    void loadingOurOwnChunksSmoke() {
-        for (int i = 0; i < OURS.length; i++) {
-            String out = Diff.mine(OURS[i]);
-            org.junit.jupiter.api.Assertions.assertNotNull(out, "ours[" + i + "]");
-            org.junit.jupiter.api.Assertions.assertFalse(out.isEmpty(), "ours[" + i + "] empty");
-        }
+    void undumpMutationMatrixSelfSmoke() {
+        String out = Diff.mine(OURS[OURS.length - 1]);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("len "), out);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("trunc "), out);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("not a precompiled chunk")
+                || out.contains("corrupted precompiled chunk"), out);
     }
 
     /**
@@ -96,31 +129,25 @@ class BinaryChunkTest {
      * {@link #hugeDeclaredStringLengthDoesNotCrash()} 非差分钉住「不崩」。
      */
     @Test
-    void corruptedChunkMatrixSelfSmoke() {
-        // Full Diff vs stock lua 5.3.4 is deferred: dump/undump still use a
-        // 5.4-derived chunk layout (LUAC version / instruction set). Keep a
-        // self-only smoke so the gate class still executes.
-        String out = Diff.mine("""
-                local d = string.dump(load("return 1", "=X"))
-                print(#d > 20)
-                local f, e = load(d:sub(1, 10), "=X")
-                print(f == nil, type(e) == "string")
-                """);
-        org.junit.jupiter.api.Assertions.assertTrue(out.contains("true"));
-        org.junit.jupiter.api.Assertions.assertTrue(out.contains("true\ttrue") || out.contains("true	true"));
+    void corruptedChunkTruncationMatchReference() {
+        Diff.assertMatches("""
+local d = string.dump(load("return 1", "=X"))
+print(#d > 20)
+local f, e = load(d:sub(1, 10), "=X")
+print(f == nil, type(e) == "string")
+""");
     }
 
     
     @Test
-    void hugeDeclaredStringLengthDoesNotCrash() {
-        String out = Diff.mine("""
-                local base = string.dump(load("return 1", "=X"))
-                local f, e = load(base:sub(1, 32) .. string.rep(string.char(0), 12), "=X")
-                print(type(f), type(e))
-                local f2, e2 = load(base:sub(1, 32) .. string.rep(string.char(127), 12), "=X")
-                print(type(f2), type(e2))
-                """);
-        assertTrue(out.contains("nil\tstring"), "畸形声明长度必须给出 nil + 消息，got:\n" + out);
+    void hugeDeclaredStringLengthMatchReference() {
+        Diff.assertMatches("""
+local base = string.dump(load("return 1", "=X"))
+local f, e = load(base:sub(1, 32) .. string.rep(string.char(0), 12), "=X")
+print(type(f), type(e))
+local f2, e2 = load(base:sub(1, 32) .. string.rep(string.char(127), 12), "=X")
+print(type(f2), type(e2))
+""");
     }
 
     /**

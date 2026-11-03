@@ -460,14 +460,14 @@ public final class Undump {
         // 首字节已被 f_parser 吃掉并比对过，这里从第二个字节开始
         byte[] rest = new byte[SIGNATURE.length - 1];
         System.arraycopy(SIGNATURE, 1, rest, 0, rest.length);
-        checkLiteral(S, rest, "not a binary chunk");
+        checkLiteral(S, rest, "not a");  /* C: "not a" + " precompiled chunk" */
         if (loadByte(S) != LUAC_VERSION) {
             error(S, "version mismatch in");
         }
         if (loadByte(S) != LUAC_FORMAT) {
             error(S, "format mismatch in");
         }
-        checkLiteral(S, LUAC_DATA, "corrupted chunk");
+        checkLiteral(S, LUAC_DATA, "corrupted");  /* C: "corrupted" + " precompiled chunk" */
         checkSize(S, SIZE_INT, "int");
         checkSize(S, SIZE_SIZET, "size_t");
         checkSize(S, SIZE_INSTRUCTION, "Instruction");
@@ -500,18 +500,31 @@ public final class Undump {
         } else if (name.length > 0 && name[0] == SIGNATURE[0]) {
             sname = "binary string".getBytes(StandardCharsets.US_ASCII);
         }
-        LoadState S = new LoadState(L, z, sname);
-        checkHeader(S);
-        int nupvals = loadByte(S);
-        Proto p = new Proto();
-        loadFunction(S, p, null);
-        LClosure cl = new LClosure(p, nupvals);
-        cl.initUpvals();
-        // 第 0 号 upvalue 是 _ENV，与 lua_load 一致：装上全局表并关闭
-        if (cl.upvals.length >= 1) {
-            cl.upvals[0] = UpVal.closed(LuaValue.ofTable(L.globals));
+        try {
+            LoadState S = new LoadState(L, z, sname);
+            checkHeader(S);
+            int nupvals = loadByte(S);
+            Proto p = new Proto();
+            loadFunction(S, p, null);
+            LClosure cl = new LClosure(p, nupvals);
+            cl.initUpvals();
+            // 第 0 号 upvalue 是 _ENV，与 lua_load 一致：装上全局表并关闭
+            if (cl.upvals.length >= 1) {
+                cl.upvals[0] = UpVal.closed(LuaValue.ofTable(L.globals));
+            }
+            return cl;
+        } catch (OutOfMemoryError | NegativeArraySizeException oom) {
+            /*
+             * C {@code luaM_realloc_} failure → {@code LUA_ERRMEM} /
+             * {@code "not enough memory"}. Lazy growth still hits the JVM heap
+             * ceiling on some mutated size fields; that must stay a catchable
+             * load error, not an uncaught {@code Error} that aborts the script.
+             */
+            LuaError e = new LuaError(
+                    LuaValue.ofString(LuaString.latin1("not enough memory")));
+            e.errMem = true;
+            throw e;
         }
-        return cl;
     }
 
     /** 把 {@code long} 按小端写进 8 字节（{@link #undump} 的对称操作，{@link Dump} 也用） */

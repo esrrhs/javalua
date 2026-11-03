@@ -1476,7 +1476,8 @@ final class Api {
         LuaState S = st(L);
         LuaValue t = val(S, (int) idx);
         if (!t.isTable()) {
-            throw S.runError("'__next' not implemented for this type");
+            /* C: api_check(..., "table expected"); without LUA_USE_APICHECK this is UB. */
+            throw S.runError("table expected");
         }
         LuaValue key = S.stack[S.top - 1];
         LuaValue[] kv = t.asTable().next(key.isNil() ? null : key);

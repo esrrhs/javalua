@@ -1091,8 +1091,14 @@ public final class BaseLib {
              * {@code xpcall(function() return load(function() error("boom") end) end, H)}
              * 参考实现给 {@code nil, "H:case.lua:13: boom"}；语法错误因为走
              * {@code luaD_throw} 直跳，给的是裸消息，两种都得对上。
+             * <p>
+             * {@code LUA_ERRMEM}（{@link LuaError#errMem}）除外：C 的
+             * {@code luaD_throw(L, LUA_ERRMEM)} <b>不</b>走 errfunc。若这里仍
+             * {@code applyErrFunc}，会在 Diff/{@code lua.c} 的 msghandler 已是
+             * 当前 {@code errFunc} 时重入它，把调用栈打坏——之后脚本一
+             * {@code print} 这条消息就悄无停住。
              */
-            if (!e.directThrow && L.errFunc != null) {
+            if (!e.errMem && !e.directThrow && L.errFunc != null) {
                 return new LuaError(L.applyErrFunc(e.value), e.where);
             }
             return e;

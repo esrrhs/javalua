@@ -174,10 +174,8 @@ class CodegenTest {
                 Parser.parseFile(bytes, "t".getBytes(StandardCharsets.UTF_8),
                         new StringPool());
             } catch (RuntimeException e) {
-                // Known gap: internal ISA/parser still carries some 5.4-era goto/label
-                // edge cases; skip files the reference accepts but we still reject.
-                System.err.println("skip upstream compile (known gap): " + file.getName() + " :: " + e.getMessage());
-                continue;
+                throw new AssertionError("parser rejected upstream file the reference accepts: "
+                        + file.getName() + " :: " + e.getMessage(), e);
             }
             checked++;
         }
