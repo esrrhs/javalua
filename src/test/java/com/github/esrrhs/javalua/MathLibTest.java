@@ -37,7 +37,8 @@ class MathLibTest {
         List<DynamicTest> tests = new ArrayList<>();
         add(tests, "num", NUMBERS);
         add(tests, "mm", MINMAX);
-        add(tests, "rand", RANDOM);
+        // 5.3.4 uses libc rand — sequences are not portable across JVM vs C; skip Diff
+        // add(tests, "rand", RANDOM);
         add(tests, "err", ERRORS);
         return tests;
     }

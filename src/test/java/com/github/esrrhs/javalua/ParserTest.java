@@ -26,7 +26,7 @@ class ParserTest {
     @BeforeAll
     static void requireReference() {
         Assumptions.assumeTrue(ReferenceLua.available(),
-                "找不到 lua5.4 参考二进制，跳过语法错误差分：" + ReferenceLua.describe());
+                "找不到 lua5.3 参考二进制，跳过语法错误差分：" + ReferenceLua.describe());
     }
 
     private static String escape(String s) {
@@ -44,9 +44,9 @@ class ParserTest {
             "goto nowhere",                          // no visible label
             "break",                                 // break outside loop
             "goto l\nlocal x = 1\n::l::",            // jumps into the scope of local
-            "local a <foo> = 1",                     // unknown attribute
-            "local a <close>, b <close> = nil, nil", // multiple to-be-closed
-            "local x <const> = 1\nx = 2",            // assign to const
+            "local a <foo> = 1",                     // 5.3: '<' is unexpected
+            "local a <close> = nil",                 // 5.3: no <close>
+            "local x <const> = 1",                   // 5.3: no <const>
             "function 1() end",                      // <name> expected
             "x[1 = 2",                               // ']' expected
             "a = 1 +",                               // unexpected symbol
@@ -109,19 +109,22 @@ class ParserTest {
     }
 
     /**
-     * 编译期常量（{@code <const>}）不占寄存器。
-     * <p>
-     * 这条规则从源码上看不出来（{@code nvarstack} 要跳过 RDKCTC 的变量去数），
-     * 写错了现象是「后面的局部变量莫名其妙挪了一个寄存器」。
+     * Lua 5.3.4 rejects {@code <const>}/{@code <close>} at parse time.
      */
     @Test
-    void compileTimeConstantDoesNotTakeARegister() {
-        Proto p = Parser.parse("local a <const> = 1\nlocal b = 2\nreturn a + b\n"
-                .getBytes(StandardCharsets.UTF_8),
-                "t".getBytes(StandardCharsets.UTF_8), new StringPool());
-        assertEquals(0, p.numparams);
-        // a 不占寄存器，b 在 r0；否则 b 会在 r1 而 maxstacksize 也更大
-        assertEquals(2, p.maxstacksize, "maxstacksize 应当只用到 r0/r1");
+    void attributeSyntaxIsRejected() {
+        for (String src : new String[] {
+                "local a <const> = 1\n",
+                "local a <close> = nil\n",
+        }) {
+            try {
+                Parser.parse(src.getBytes(StandardCharsets.UTF_8),
+                        "t".getBytes(StandardCharsets.UTF_8), new StringPool());
+                fail("expected syntax error for: " + src);
+            } catch (RuntimeException expected) {
+                assertNotNull(expected.getMessage());
+            }
+        }
     }
 
     /** {@code lauxlib.c: skipcomment}：文件首行的 {@code #!...} 要跳过，且行号不变 */
@@ -175,7 +178,7 @@ class ParserTest {
      */
     @Test
     void syntaxErrorMatrixMatchesReference() {
-        Diff.assertMatches("""
+        String script = """
                 -- 语法错误矩阵：C 栈溢出是「抛」出来的（load 不返回 nil+msg），所以一律走 pcall
                 local function p(tag, src, name)
                     local ok, f, e = pcall(load, src, name or "=c")
@@ -220,7 +223,7 @@ class ParserTest {
                 p("a28", "x = 1 +")
                 p("a29", "t.x")
                 p("a30", "f()")
-                p("a31", "local x <close>")
+                p("a31", "local x = nil")
                 p("a32", "local x <")
                 p("a33", "local x <const")
                 p("a34", "x =")
@@ -252,11 +255,11 @@ class ParserTest {
                 p("b20", "if x then\\nelse\\n")
                 p("b21", "repeat\\nuntil\\n")
                 p("b22", "local function f(\\n")
-                p("d01", "local x <const> = 1\\nx = 2")
-                p("d02", "local x <const> = 1\\nx, y = 2, 3")
-                p("d03", "local x <const> = 1\\nlocal function f() x = 2 end")
-                p("d04", "local x <const> = 1\\nx.y = 2")
-                p("d05", "local x <const> = 1\\nprint(x)")
+                                p("d01", "local x <const> = 1\\nx = 2")
+                p("d02", "local x <foo> = nil")
+                p("d03", "local x <CONST> = nil")
+                p("d04", "local x <")
+                p("d05", "local x <const")
                 p("d06", "local a, b <const> = 1, 2\\nb = 3")
                 p("d07", "local x <foo> = nil")
                 p("d08", "local x <CONST> = nil")
@@ -398,6 +401,7 @@ class ParserTest {
                 q("q01", "x\\0= 1")
                 q("q02", "x = 1 --\\0y")
                 p("q03", "x\\0= 1", "=c")
-                """);
+                """;
+        Diff.assertMatches(script);
     }
 }

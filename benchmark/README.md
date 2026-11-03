@@ -1,7 +1,7 @@
 # benchmark
 
 跑 Lua 脚本的量级计时工具。**这里的东西不是闸门** —— 项目的正确性闸门是
-`src/test` 那批与真实 lua5.4 逐字节比对 stdout 的差分测试，本目录只用于本机
+`src/test` 那批与真实 lua5.3 逐字节比对 stdout 的差分测试，本目录只用于本机
 「快了多少 / 慢了多少」的粗略比较。
 
 These scripts are local ballpark timing only; they are deliberately not part of
@@ -29,7 +29,7 @@ script=gc_simple.lua elapsed_ms=12503
 给够，否则比的是「谁先 OOM」：
 
 ```bash
-time /path/to/lua5.4 benchmark/gc_simple.lua > /dev/null
+time /path/to/lua5.3 benchmark/gc_simple.lua > /dev/null
 ```
 
 ## 脚本清单
@@ -60,4 +60,4 @@ time /path/to/lua5.4 benchmark/gc_simple.lua > /dev/null
 
 - 别在脚本里依赖 `collectgarbage("count")` 的**绝对值**，它只能看相对变化。
 - 百万级以上的分配量单独标在表格里，并写清需要的 `-Xmx`。
-- 脚本要保持能在真实 lua5.4 上原样跑，否则连「量级比较」这个用途都没了。
+- 脚本要保持能在真实 lua5.3 上原样跑，否则连「量级比较」这个用途都没了。

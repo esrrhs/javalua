@@ -46,7 +46,6 @@ public final class BaseLib {
         setFn(g, "load", BaseLib::loadFn);
         setFn(g, "loadfile", BaseLib::loadfileFn);
         setFn(g, "dofile", BaseLib::dofile);
-        setFn(g, "warn", BaseLib::warn);
 
         /*
          * {@code lbaselib.c: luaopen_base} 最后两件事：设 {@code _G} 与
@@ -71,17 +70,13 @@ public final class BaseLib {
      * 能用）——那一句在 {@link StringLib#open} 里挂上：字符串库开得比这里晚，
      * 它自己去取已存在的类型元表补 {@code __index}，两边合起来才是完整的元表。
      */
+    /**
+     * Create the string type metatable shell. Lua 5.3.4 only puts {@code __index}
+     * on it (via {@link StringLib#open}); arithmetic coercion of strings is done
+     * in the VM ({@code luaV_tonumber_} → float), not via {@code __add}/… (5.4).
+     */
     private static void openStringMetatable(LuaState L) {
-        LuaTable mt = new LuaTable();
-        setFn(mt, "__add", l -> strArith(l, Arith.OP_ADD, Tm.TM_ADD, "add"));
-        setFn(mt, "__sub", l -> strArith(l, Arith.OP_SUB, Tm.TM_SUB, "sub"));
-        setFn(mt, "__mul", l -> strArith(l, Arith.OP_MUL, Tm.TM_MUL, "mul"));
-        setFn(mt, "__mod", l -> strArith(l, Arith.OP_MOD, Tm.TM_MOD, "mod"));
-        setFn(mt, "__pow", l -> strArith(l, Arith.OP_POW, Tm.TM_POW, "pow"));
-        setFn(mt, "__div", l -> strArith(l, Arith.OP_DIV, Tm.TM_DIV, "div"));
-        setFn(mt, "__idiv", l -> strArith(l, Arith.OP_IDIV, Tm.TM_IDIV, "idiv"));
-        setFn(mt, "__unm", l -> strArith(l, Arith.OP_UNM, Tm.TM_UNM, "unm"));
-        L.setTypeMetatable(Lua.TSTRING, mt);
+        L.setTypeMetatable(Lua.TSTRING, new LuaTable());
     }
 
     /**
@@ -790,8 +785,9 @@ public final class BaseLib {
      * 里那个 {@code switch} 的下标严格对应。
      */
     private static final String[] GC_OPTS = {
+            // Lua 5.3.4: no generational/incremental mode switches
             "stop", "restart", "collect", "count", "step", "setpause",
-            "setstepmul", "isrunning", "generational", "incremental"
+            "setstepmul", "isrunning"
     };
 
     /**
@@ -883,29 +879,7 @@ public final class BaseLib {
         case 7: // "isrunning"
             L.push(LuaValue.ofBoolean(L.mainThread.gcRunning));
             return 1;
-        case 8: // "generational"
-        case 9: { // "incremental"
-            /*
-             * {@code lbaselib.c: pushmode}：这两个选项返回的是<b>切换前</b>的
-             * 模式，而且是<b>字符串</b>（{@code "incremental"} /
-             * {@code "generational"}），不是 {@code LUA_GCINC} 那个整数。
-             * 上游 {@code gc.lua} 开头四行就是照着字符串断言的，返回整数的话
-             * 它连「testing incremental garbage collection」都打不完。
-             */
-            LuaState m = L.mainThread;
-            /*
-             * 判据是 {@code isdecGCmodegen(g)}（{@code gckind == KGC_GEN ||
-             * lastatomic != 0}）而不是 {@code gckind} 本身 —— 见
-             * {@link LuaState#gcLastAtomic}。两种切换都会把 {@code lastatomic}
-             * 清 0，所以切过一次之后就只看 {@code gckind} 了。
-             */
-            boolean prevGen = (m.gcKind == LuaState.LUA_GCGEN) || m.gcLastAtomic;
-            m.gcKind = (o == 8) ? LuaState.LUA_GCGEN : LuaState.LUA_GCINC;
-            m.gcLastAtomic = false;
-            L.push(LuaValue.ofString(LuaString.latin1(
-                    prevGen ? "generational" : "incremental")));
-            return 1;
-        }
+
         case 0: // "stop"
             L.mainThread.gcRunning = false;
             L.push(LuaValue.ofInteger(0));

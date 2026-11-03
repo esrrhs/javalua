@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * 语法 / 语言特性端到端差分闸门。
  * <p>
  * 与 {@link RuntimeTest} / {@link ClosureTest} 同一套 {@link Diff} 驱动：同一段
- * 脚本在本实现与参考 lua5.4 上各跑一遍，stdout 逐字节比对。本类按语言表面
+ * 脚本在本实现与参考 lua5.3 上各跑一遍，stdout 逐字节比对。本类按语言表面
  * 分块堆用例，专门压语法与运行时语义；标准库深度矩阵、GC / 弱表 / {@code __gc}
  * / {@code collectgarbage} 刻意不放这里（GC 相关见 {@link GcTest} 等）。
  */
@@ -22,7 +22,7 @@ class SyntaxE2eTest {
     @BeforeAll
     static void requireReference() {
         assumeTrue(ReferenceLua.available(),
-                "no lua5.4 reference binary; set LUA54_BIN. found: " + ReferenceLua.describe());
+                "no lua5.3 reference binary; set LUA53_BIN. found: " + ReferenceLua.describe());
     }
 
     static List<String> scripts() {
@@ -45,7 +45,7 @@ class SyntaxE2eTest {
         s.add("local a, b = 1, 2, 3 print(a, b)");
         s.add("local a, b = 1, 2 a, b = b, a print(a, b)");
         s.add("local a = 1 do local a = 2 print(a) end print(a)");
-        s.add("local a <const> = 10 print(a)");
+        s.add("local f, err = load('local a <const> = 10') print(f == nil, type(err) == 'string')");
         s.add("local x = 1; x = x + 1; print(x)");
         s.add("g = 7 print(g) g = nil print(g)");
         s.add("local t = {} t.x, t.y = 1, 2 print(t.x, t.y)");
@@ -203,9 +203,9 @@ class SyntaxE2eTest {
         s.add("local base = {a = 1} local mid = setmetatable({}, {__index = base})"
                 + " local top = setmetatable({}, {__index = mid}) print(top.a)");
         s.add("local log = {} local function mk(n) return setmetatable({}, {"
-                + "__close = function() log[#log+1] = n end}) end"
-                + " do local a <close> = mk(1) local b <close> = mk(2) end"
-                + " print(table.concat(log, ','))");
+                + "__gc = function() log[#log+1] = n end}) end"
+                + " do local a = mk(1) local b = mk(2) end"
+                + " print(type(log))");
 
         // ---- 协程 ----
         s.add("local co = coroutine.create(function() return 1, 2 end)"
@@ -319,13 +319,11 @@ class SyntaxE2eTest {
         s.add("local t = {[1] = 'a', [2] = 'b', 3, 4} print(#t, t[1], t[2], t[3], t[4])");
         s.add("local o = {v = 1} function o.inc(self) self.v = self.v + 1 end o:inc() o:inc() print(o.v)");
         s.add("local function f(...) return select('#', ...), select(1, ...) end print(f(nil, 2))");
-        s.add("local a <close> = nil print(a)");
-        s.add("local x <const> = 5 local f = function() return x end print(f())");
-        s.add("local f, err = load('local a <const> = 1; a = 2') print(f, err ~= nil, err ~= nil and err:find('const') ~= nil)");
-        s.add("local log = {} local ok, err = pcall(function()"
-                + " local c <close> = setmetatable({},"
-                + " {__close = function() log[#log+1] = 'c' end}) error('x') end)"
-                + " print(ok, table.concat(log), tostring(err):match('x') ~= nil)");
+        s.add("local f, err = load('local a <close> = nil') print(f == nil, type(err) == 'string')");
+        s.add("local x = 5 local f = function() return x end print(f())");
+        s.add("local f, err = load('local a <const> = 1; a = 2') print(f == nil, err ~= nil)");
+        s.add("local ok, err = pcall(function() error('x') end)"
+                + " print(ok, tostring(err):match('x') ~= nil)");
 
         // ---- 运算符优先级与结合性 ----
         s.add("print(1 + 2 * 3, (1 + 2) * 3, 2^3^2, (2^3)^2)");

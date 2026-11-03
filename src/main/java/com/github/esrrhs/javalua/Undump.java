@@ -35,8 +35,8 @@ public final class Undump {
     /** {@code LUA_SIGNATURE} */
     private static final byte[] SIGNATURE = { 0x1b, 'L', 'u', 'a' };
 
-    /** {@code LUAC_VERSION}：主版本号放高 4 位、次版本号放低 4 位（504 → 0x54） */
-    private static final int LUAC_VERSION = 0x54;
+    /** {@code LUAC_VERSION}：主版本号放高 4 位、次版本号放低 4 位（503 → 0x53） */
+    private static final int LUAC_VERSION = 0x53;
 
     /** {@code LUAC_FORMAT}：官方格式 */
     private static final int LUAC_FORMAT = 0;

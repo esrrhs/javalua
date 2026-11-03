@@ -13,7 +13,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * 算术测试 —— 与真实 {@code lua5.4} 逐例比对。
+ * 算术测试 —— 与真实 {@code lua5.3} 逐例比对。
  * <p>
  * 为什么值得单独做：这套算术同时服务于<b>编译期常量折叠</b>和将来的 VM。
  * 两边只要有一处与 Lua 不一致，就会出现「写成常量算出一个值、写成变量算出
@@ -28,7 +28,7 @@ class ArithTest {
     @BeforeAll
     static void requireReference() {
         Assumptions.assumeTrue(ReferenceLua.available(),
-                "找不到 lua5.4 参考二进制，跳过算术差分比对：" + ReferenceLua.describe());
+                "找不到 lua5.3 参考二进制，跳过算术差分比对：" + ReferenceLua.describe());
     }
 
     private static LuaValue i(long v) {

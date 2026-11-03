@@ -526,7 +526,7 @@ public final class Vm {
                     if (rb.isInteger()) {
                         L.stack[ra].setInteger(-rb.i);
                     } else {
-                        Double nb = toNumberNs(rb);
+                        Double nb = toNumber(rb); // 5.3: strings coerce to float
                         if (nb != null) {
                             L.stack[ra].setFloat(-nb);
                         } else {
@@ -1173,7 +1173,16 @@ public final class Vm {
     /** {@code op_arithI}：第二个操作数是立即整数 */
     private static boolean arithImm(LuaState L, int i, int base, int op) {
         LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue res = Arith.rawArith(L, op, v1, LuaValue.ofInteger(OpCode.getArgSC(i)));
+        LuaValue v2 = LuaValue.ofInteger(OpCode.getArgSC(i));
+        if (!v1.isInteger()) {
+            Double n1 = toNumber(v1);
+            if (n1 == null) {
+                return false;
+            }
+            v1 = LuaValue.ofFloat(n1);
+            v2 = LuaValue.ofFloat(v2.i);
+        }
+        LuaValue res = Arith.rawArith(L, op, v1, v2);
         if (res == null) {
             return false;
         }
@@ -1184,7 +1193,17 @@ public final class Vm {
     /** {@code op_arithK} / {@code op_arithfK} / {@code op_bitwiseK}：第二个操作数在常量表 */
     private static boolean arithK(LuaState L, int i, int base, LuaValue[] k, int op) {
         LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue res = Arith.rawArith(L, op, v1, k[OpCode.getArgC(i)]);
+        LuaValue v2 = k[OpCode.getArgC(i)];
+        if (!(v1.isInteger() && v2.isInteger())) {
+            Double n1 = toNumber(v1);
+            Double n2 = toNumber(v2);
+            if (n1 == null || n2 == null) {
+                return false;
+            }
+            v1 = LuaValue.ofFloat(n1);
+            v2 = LuaValue.ofFloat(n2);
+        }
+        LuaValue res = Arith.rawArith(L, op, v1, v2);
         if (res == null) {
             return false;
         }
@@ -1196,6 +1215,19 @@ public final class Vm {
     private static boolean arith(LuaState L, int i, int base, int op) {
         LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
         LuaValue v2 = L.stack[base + OpCode.getArgC(i)];
+        // Lua 5.3: non-integer operands go through luaV_tonumber_ (strings → float).
+        if (!(v1.isInteger() && v2.isInteger())) {
+            Double n1 = toNumber(v1);
+            Double n2 = toNumber(v2);
+            if (n1 != null && n2 != null) {
+                LuaValue res = Arith.rawArith(L, op, LuaValue.ofFloat(n1), LuaValue.ofFloat(n2));
+                if (res != null) {
+                    L.stack[base + OpCode.getArgA(i)].set(res);
+                    return true;
+                }
+            }
+            return false;
+        }
         LuaValue res = Arith.rawArith(L, op, v1, v2);
         if (res == null) {
             return false;
@@ -1676,9 +1708,8 @@ public final class Vm {
         if (pinit.isInteger() && pstep.isInteger()) {
             long init = pinit.i;
             long step = pstep.i;
-            if (step == 0) {
-                throw L.runError("'for' step is zero");
-            }
+            // Lua 5.3.4: a zero step does not error; the loop simply never runs
+            // for a positive count path (count math yields no iterations).
             L.stack[ra + 3].setInteger(init);
             long[] limit = new long[1];
             if (forLimit(L, init, plimit, limit, step)) {
@@ -1712,10 +1743,7 @@ public final class Vm {
             double init = initD;
             double limit = limitD;
             double step = stepD;
-            if (step == 0) {
-                throw L.runError("'for' step is zero");
-            }
-            if (step > 0 ? (limit < init) : (init < limit)) {
+            if (step == 0 || (step > 0 ? (limit < init) : (init < limit))) {
                 return true;
             }
             L.stack[ra + 1].setFloat(limit);

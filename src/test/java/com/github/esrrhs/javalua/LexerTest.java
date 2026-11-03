@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
  * 词法层测试。
  * <p>
  * 所有预期值都不是凭记忆写的：字面量子类型、转义结果、错误信息的完整文本
- * 都先跑 {@code lua5.4} 参考实现裁定过（见 {@code /tmp/probe.lua} 那类探针）。
+ * 都先跑 {@code lua5.3} 参考实现裁定过（见 {@code /tmp/probe.lua} 那类探针）。
  * 错误信息的<b>逐字一致</b>是硬性要求——后面阶段做两侧差分比对时，比的就是
  * 这些字符串。
  */
@@ -401,7 +401,7 @@ class LexerTest {
 
     @Test
     void reportsUtf8EscErrors() {
-        assertEquals(SRC + ":1: UTF-8 value too large near '\"\\u{80000000'",
+        assertEquals(SRC + ":1: UTF-8 value too large near '\"\\u{800000'",
                 errorOf("x = \"\\u{80000000}\""));
         assertEquals(SRC + ":1: missing '}' near '\"\\u{41\"'", errorOf("x = \"\\u{41\""));
         assertEquals(SRC + ":1: missing '{' near '\"\\uA'", errorOf("x = \"\\uA\""));

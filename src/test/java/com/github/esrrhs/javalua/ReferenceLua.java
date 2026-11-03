@@ -11,26 +11,26 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 参考实现的驱动：调用一个真实的 {@code lua5.4} 二进制跑脚本。
+ * 参考实现的驱动：调用一个真实的 {@code lua5.3} 二进制跑脚本。
  * <p>
  * 为什么需要它：这是本项目的<b>主闸门</b>。「看起来像 Lua」没有价值，
  * 唯一能证明「真的是 Lua」的办法是同一份脚本在两边跑出<b>逐字节相同</b>的
- * stdout。上游自带的测试套件（{@code lua-5.4.x/tests}）再刁钻，也覆盖不到
+ * stdout。上游自带的测试套件（{@code lua-5.3.x/tests}）再刁钻，也覆盖不到
  * 我们自己实现里的那些「碰巧对了」的地方。
  * <p>
  * 二进制的查找顺序：
  * <ol>
- *   <li>环境变量 {@code LUA54_BIN}（CI 与本地开发都用它指向确切的路径）</li>
- *   <li>仓库内 {@code target/lua54/src/lua}（CI 构建脚本的默认落点）</li>
- *   <li>PATH 上的 {@code lua5.4} / {@code lua}</li>
+ *   <li>环境变量 {@code LUA53_BIN}（CI 与本地开发都用它指向确切的路径）</li>
+ *   <li>仓库内 {@code target/lua53/src/lua}（CI 构建脚本的默认落点）</li>
+ *   <li>PATH 上的 {@code lua5.3} / {@code lua}</li>
  * </ol>
- * 找到之后还会跑一次 {@code -v} 校验版本确实是 5.4：本机上那个 {@code lua}
+ * 找到之后还会跑一次 {@code -v} 校验版本确实是 5.3.4：本机上那个 {@code lua}
  * 很可能是 5.5 或其他版本，拿错版本当参考会得出错误的「不一致」结论，
  * 那比没有参考更糟。
  */
 final class ReferenceLua {
 
-    private static final String ENV_BIN = "LUA54_BIN";
+    private static final String ENV_BIN = "LUA53_BIN";
 
     private static String cached;
     private static boolean lookedUp;
@@ -38,7 +38,7 @@ final class ReferenceLua {
     private ReferenceLua() {
     }
 
-    /** 找到可用的 lua5.4 二进制；找不到返回 null */
+    /** 找到可用的 lua5.3 二进制；找不到返回 null */
     static synchronized String find() {
         if (lookedUp) {
             return cached;
@@ -50,15 +50,15 @@ final class ReferenceLua {
         if (env != null && !env.isEmpty()) {
             candidates.add(env);
         }
-        candidates.add("target/lua54/src/lua");
-        candidates.add("/usr/local/bin/lua5.4");
-        candidates.add("/opt/homebrew/bin/lua5.4");
-        candidates.add("lua5.4");
+        candidates.add("target/lua53/src/lua");
+        candidates.add("/usr/local/bin/lua5.3");
+        candidates.add("/opt/homebrew/bin/lua5.3");
+        candidates.add("lua5.3");
         candidates.add("lua");
 
         for (String c : candidates) {
             String resolved = resolve(c);
-            if (resolved != null && isLua54(resolved)) {
+            if (resolved != null && isLua53(resolved)) {
                 cached = resolved;
                 return cached;
             }
@@ -86,8 +86,8 @@ final class ReferenceLua {
         return null;
     }
 
-    /** 校验二进制存在且版本是 5.4.7 */
-    private static boolean isLua54(String bin) {
+    /** 校验二进制存在且版本是 5.3.4 */
+    private static boolean isLua53(String bin) {
         try {
             File f = new File(bin);
             if (!f.canExecute()) {
@@ -104,7 +104,7 @@ final class ReferenceLua {
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             waitForKeepingInterrupt(p);
-            return out.contains("Lua 5.4.7");
+            return out.contains("Lua 5.3.4");
         } catch (Exception e) {
             restoreInterrupt(e);
             return false;
@@ -112,15 +112,15 @@ final class ReferenceLua {
     }
 
     /**
-     * 找到可用的 {@code luac5.4}；找不到返回 {@code null}。
+     * 找到可用的 {@code luac5.3}；找不到返回 {@code null}。
      * <p>
      * 它是「二进制 chunk 双向兼容」那个用例的编译器：本实现要跑<b>参考实现
      * 编出来的</b> chunk，而不是自己编出来的——后者等于用自己的编译器给自己
      * 判卷。{@code make} 默认会把 {@code luac} 和 {@code lua} 一起编出来，
-     * 所以 CI 上 {@code target/lua54/src/luac} 一定在。
+     * 所以 CI 上 {@code target/lua53/src/luac} 一定在。
      */
     static String findLuac() {
-        return findSibling("luac", "LUAC54_BIN", "luac5.4", "luac");
+        return findSibling("luac", "LUAC53_BIN", "luac5.3", "luac");
     }
 
     /**
@@ -163,7 +163,7 @@ final class ReferenceLua {
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             waitForKeepingInterrupt(p);
-            return out.contains("Lua 5.4");
+            return out.contains("Lua 5.3");
         } catch (Exception ex) {
             restoreInterrupt(ex);
             return false;
@@ -175,7 +175,7 @@ final class ReferenceLua {
      * <p>
      * 不能直接 {@code p.waitFor()}：中断标志已置时它立刻抛
      * {@code InterruptedException}，并顺手把标志清掉。本类的探路式调用
-     * （{@link #find()} → {@link #isLua54}/{@link #canRun}/…）全都用
+     * （{@link #find()} → {@link #isLua53}/{@link #canRun}/…）全都用
      * {@code catch (Exception)} 兜底，于是 JUnit 超时（或测试自己）打进来的那次
      * 中断就被静默吞掉：探针被判成「跑不起来」，标志也从此消失，后面真正该被打断的
      * 阻塞点再也等不到它。这里把这次短探针的等待做完、在 {@code finally} 里把标志
@@ -248,7 +248,7 @@ final class ReferenceLua {
     static Result run(String script) {
         String bin = find();
         if (bin == null) {
-            throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
+            throw new IllegalStateException("no lua5.3 reference binary; set " + ENV_BIN);
         }
         try {
             File tmp = File.createTempFile("fkconf", ".lua");
@@ -287,7 +287,7 @@ final class ReferenceLua {
     static Result runWithStdin(byte[] script, byte[] stdin) {
         String bin = find();
         if (bin == null) {
-            throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
+            throw new IllegalStateException("no lua5.3 reference binary; set " + ENV_BIN);
         }
         try {
             File tmp = File.createTempFile("fkstdin", ".lua");
@@ -340,7 +340,7 @@ final class ReferenceLua {
     static Result runFile(String path, File cwd, String init) {
         String bin = find();
         if (bin == null) {
-            throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
+            throw new IllegalStateException("no lua5.3 reference binary; set " + ENV_BIN);
         }
         try {
             ProcessBuilder pb = new ProcessBuilder(new File(bin).getAbsolutePath(), path);
@@ -381,7 +381,7 @@ final class ReferenceLua {
     static FileResult runBytes(byte[] content, String path) {
         String bin = find();
         if (bin == null) {
-            throw new IllegalStateException("no lua5.4 reference binary; set " + ENV_BIN);
+            throw new IllegalStateException("no lua5.3 reference binary; set " + ENV_BIN);
         }
         try {
             java.nio.file.Path p = Paths.get(path);
@@ -402,7 +402,7 @@ final class ReferenceLua {
      * 用参考实现的编译器把脚本编成字节码，再交给 {@code fkdump} 转储。
      * <p>
      * 二进制的来源（优先级从高到低）：环境变量 {@code FKDUMP_BIN}、与
-     * {@code lua5.4} 二进制同目录下的 {@code fkdump}、PATH 上的 {@code fkdump}。
+     * {@code lua5.3} 二进制同目录下的 {@code fkdump}、PATH 上的 {@code fkdump}。
      * 找不到就返回 {@code null}，测试跳过——CI 的 conformance job 会把它编出来。
      */
     static String dumpProto(byte[] content, String path) {
