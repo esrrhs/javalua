@@ -2201,11 +2201,24 @@ final class Api {
      * 几乎所有 C 扩展的 {@code luaopen_xxx} 开头都有
      * {@code luaL_checkversion(L)}，那个宏展开就是调它。
      */
-    /** Lua 5.3.4: returns {@code const lua_Number *} to a static 503.0. */
-    private static final long VERSION_PTR = NativeBridge.alloc(8);
+    /**
+     * Lua 5.3.4: returns {@code const lua_Number *} to a static 503.0.
+     * <p>
+     * 只在 native 可用时分配：{@code -Djavalua.nonative} 下 {@link NativeBridge}
+     * 根本没装库，{@code alloc} 会在 {@code Api} 类初始化时抛
+     * {@code UnsatisfiedLinkError}，把整条 pure-Java io 路径打成
+     * {@code ExceptionInInitializerError}（CI Conformance 第二遍）。
+     * C 扩展在 nonative 下本来也加载不了，返回 0 足够。
+     */
+    private static final long VERSION_PTR;
 
     static {
-        NativeBridge.put64(VERSION_PTR, Double.doubleToRawLongBits(Lua.VERSION_NUM));
+        if (NativeBridge.AVAILABLE) {
+            VERSION_PTR = NativeBridge.alloc(8);
+            NativeBridge.put64(VERSION_PTR, Double.doubleToRawLongBits(Lua.VERSION_NUM));
+        } else {
+            VERSION_PTR = 0;
+        }
     }
 
     static long lua_version(long L) {

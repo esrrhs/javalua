@@ -46,7 +46,8 @@ jobs:
     - name: Build reference lua5.3
       run: |
         set -e
-        curl -sL -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.3.4.tar.gz
+        # lua.org 偶发卡住：curl 默认无重试时会挂到 job 超时（exit 28）。必须一行（YAML | 不处理 \ 续行）。
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.3.4.tar.gz
         mkdir -p target
         tar xzf /tmp/lua.tar.gz -C target
         mv target/lua-5.3.4 target/lua53
@@ -91,7 +92,8 @@ jobs:
     - name: Fetch upstream lua test suite
       run: |
         set -e
-        curl -sL -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.3.4-tests.tar.gz
+        # 与上同：HEAD 上一次失败就是这一步 curl exit 28（lua.org/tests 超时）。必须一行。
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.3.4-tests.tar.gz
         mkdir -p target/lua53-tests
         tar xzf /tmp/tests.tar.gz -C target/lua53-tests --strip-components=1
         ls target/lua53-tests/*.lua | wc -l
