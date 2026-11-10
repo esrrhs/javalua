@@ -221,3 +221,7 @@ library file.
 ## License
 
 MIT
+
+### Reproducible differential testing / 可复现差分测试
+
+See [the differential testing guide](tools/DIFFERENTIAL_TESTING.md) for the exact Lua 5.3.4 oracle, full native/pure-Java CI matrix, retained seeds and longer local campaigns.

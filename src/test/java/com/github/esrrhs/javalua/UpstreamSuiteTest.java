@@ -71,13 +71,10 @@ import org.junit.jupiter.api.Disabled;
  *   <li>{@code gc.lua}：整个文件在测增量收集器的参数（{@code setpause} /
  *       {@code setstepmul} / {@code count} / {@code step}）、弱表、应急 GC。
  *       本实现把内存管理交给 JVM，没有这一层可对标的语义。</li>
- *   <li>{@code literals.lua}：末尾那段 decimal point locale 要
- *       {@code os.setlocale("pt_BR")} 真的生效。{@code pt_BR} 设进 libc 是
- *       C 程序才做得到的事，所以它<b>只在 native 那一路进表</b>——有 shim 时
- *       两边逐字节一致（设得上就都走逗号分支，机器上没装 {@code pt_BR} 就都
- *       打印 skipped），而 {@code -Djavalua.nonative} 那一路设不上 locale，
- *       参考实现照样设得上，输出天然多一行。这一路仍由
- *       {@link UpstreamSmokeTest} 跑它，兜「大量分配会不会把自动收集跑死」。</li>
+ *   <li>{@code literals.lua} runs in both modes. Pure Java cannot change libc's
+ *       decimal locale; only its two pt_BR/ptb capability probes are disabled on
+ *       both sides via an identical init. All remaining lexical assertions and
+ *       output are still compared. Native mode executes the comma-locale block.</li>
  * </ul>
  */
 final class UpstreamSuiteTest {
@@ -107,10 +104,8 @@ final class UpstreamSuiteTest {
      * 180 秒），报出来的只有「[4]」，还得回去数表里的第 4 个是谁。带名字之后
      * 超时消息直接写着 {@code closure.lua}。
      * <p>
-     * 用 {@code MethodSource} 而不是 {@code ValueSource}：{@code literals.lua}
-     * 要看 native 层在不在，编译期常量表做不到这件事。注意它是<b>整条用例不
-     * 存在</b>，不是「跑出来再跳过」——后者会让 {@code tools/check_ci_gates.py}
-     * 的跳过数变脏，而零用例是它认识的 {@code --nonative} 语义。
+     * Keep the same Lua-semantic file list in both lanes. Only native-specific
+     * locale capability is restricted, never the whole literals.lua file.
      */
     static List<String> suiteFiles() {
         List<String> files = new ArrayList<>();
@@ -132,10 +127,7 @@ final class UpstreamSuiteTest {
         files.add("utf8.lua");
         files.add("vararg.lua");
         files.add("verybig.lua");
-        if (NativeBridge.AVAILABLE) {
-            // 见类注释：小数点那段要 os.setlocale 真的能改 libc 的 locale
-            files.add("literals.lua");
-        }
+        files.add("literals.lua");
         return files;
     }
 
@@ -151,7 +143,17 @@ final class UpstreamSuiteTest {
      */
     @org.junit.jupiter.api.Timeout(value = 10, unit = java.util.concurrent.TimeUnit.MINUTES)
     void suite(String name) {
-        Diff.assertFileMatches(dir, name);
+        if ("literals.lua".equals(name) && !NativeBridge.AVAILABLE) {
+            Diff.assertFileMatchesWithInit(dir, name, """
+                    local original_setlocale = os.setlocale
+                    os.setlocale = function(locale, category)
+                      if locale == 'pt_BR' or locale == 'ptb' then return nil end
+                      return original_setlocale(locale, category)
+                    end
+                    """);
+        } else {
+            Diff.assertFileMatches(dir, name);
+        }
     }
 
     /**

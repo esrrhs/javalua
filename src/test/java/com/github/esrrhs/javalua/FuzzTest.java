@@ -44,6 +44,8 @@ class FuzzTest {
      * 把它调大——生成器是确定性的（种子递增，不用 {@code Math.random}），
      * 所以多跑只会多覆盖，不会让已有用例变得不稳。
      */
+    private static final int START = Integer.getInteger("fuzz.seed", 0);
+
     private static final int SEEDS = Integer.getInteger("fuzz.seeds", 1500);
 
     /** 协程模式的种子数 */
@@ -63,13 +65,15 @@ class FuzzTest {
 
     @BeforeAll
     static void requireReference() {
+        assertTrue(START >= 0 && SEEDS > 0 && CO_SEEDS > 0 && CHUNK_SEEDS > 0,
+                "fuzz seed/counts must be nonnegative/positive");
         assumeTrue(ReferenceLua.available(),
                 "no lua5.3 reference binary; set LUA53_BIN. found: " + ReferenceLua.describe());
     }
 
     @Test
     void generatedProgramsMatchReference() {
-        for (int seed = 0; seed < SEEDS; seed++) {
+        for (int seed = START; seed < START + SEEDS; seed++) {
             String src = new Gen(new Random(seed), false).program();
             String want = Diff.ref(src);
             assertCompiles(seed, src, want);
@@ -133,7 +137,7 @@ class FuzzTest {
      */
     @Test
     void generatedCoroutineProgramsMatchReference() {
-        for (int seed = 0; seed < CO_SEEDS; seed++) {
+        for (int seed = START; seed < START + CO_SEEDS; seed++) {
             String src = new Gen(new Random(seed + CO_SEED_BASE), true).program();
             String want = Diff.ref(src);
             assertCompiles(seed + CO_SEED_BASE, src, want);
@@ -164,7 +168,7 @@ class FuzzTest {
      */
     @Test
     void generatedChunksSurviveDumpAndUndump() {
-        for (int seed = 0; seed < CHUNK_SEEDS; seed++) {
+        for (int seed = START; seed < START + CHUNK_SEEDS; seed++) {
             String body = new Gen(new Random(seed), false).program();
             /*
              * 必须是变长函数：生成器会在主 chunk 里写 <code>...</code>，

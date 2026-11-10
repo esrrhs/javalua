@@ -203,3 +203,7 @@ Java 类与 C 源码一一对应：`Lexer` ↔ `llex.c`、`Parser` ↔ `lparser.
 ## 许可证
 
 MIT
+
+### Reproducible differential testing / 可复现差分测试
+
+See [the differential testing guide](tools/DIFFERENTIAL_TESTING.md) for the exact Lua 5.3.4 oracle, full native/pure-Java CI matrix, retained seeds and longer local campaigns.

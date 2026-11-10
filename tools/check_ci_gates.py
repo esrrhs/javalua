@@ -26,6 +26,11 @@ import xml.etree.ElementTree as ET
 
 # 无论哪一遍都必须真的执行过的类：缺一个就说明对应的闸门整块没跑。
 ALWAYS_REQUIRED = [
+    "ExecutionModeTest",
+    "GeneratedDiffTest",
+    "FuzzTest",
+    "CodegenTest",
+    "DumpTest",
     "ConformanceTest",      # 上游套件 + 逐字节 stdout 比对
     "RuntimeTest",          # 语言语义差分
     "SyntaxE2eTest",        # 语法 / 语言特性端到端差分（不含 GC）
@@ -38,12 +43,8 @@ ALWAYS_REQUIRED = [
     # 所以是 ALWAYS。历史上它靠 assumeTrue 找二进制，找不到就整类静默跳过——
     # 那正是这个脚本要盯的形状。
     "TableStructTest",
-    # 上游套件（lua-5.4.x/tests）的逐字节 stdout 比对。它<b>两条路径都跑</b>：
-    # 只有 literals.lua 那一份依赖 native 层（要 os.setlocale 真能改 libc 的
-    # locale 才能跟参考实现逐字节对上），其余十几份文件 + 两个钉死种子的
-    # constructs.lua（见 UpstreamSuiteTest#seedFiles）在 -Djavalua.nonative
-    # 那一路照跑。放在 ALWAYS 才能让两条路径都不许整类消失——它排在
-    # NATIVE_REQUIRED 里时，nonative 那一路就算整类跳过也没人说话。
+    # All semantic files, including literals.lua, must run in both modes.
+    # Only the two native locale capability probes are restricted in Java mode.
     "UpstreamSuiteTest",
 ]
 
@@ -51,7 +52,6 @@ ALWAYS_REQUIRED = [
 NATIVE_REQUIRED = [
     "NativeApiTest",
     "NativeExtTest",
-    "FuzzTest",
     # locale 小数点那批：既要有 shim（os.setlocale 得真能改 libc 的 locale），
     # 也要机器上装了 pt_BR。CI 的 locale-gen 步骤一漏，这个类就变成零用例。
     "LocaleNumberTest",
@@ -133,6 +133,11 @@ def main():
         missing += [c for c in NATIVE_REQUIRED
                     if per_class.get(c, (0, 0, 0))[0]
                     - per_class.get(c, (0, 0, 0))[1] <= 0]
+    # Dynamic factories can silently return too few cases without a skipped marker.
+    for cls, minimum in {"FuzzTest": 3, "GeneratedDiffTest": 64, "UpstreamSuiteTest": 21}.items():
+        t, s, _ = per_class.get(cls, (0, 0, 0))
+        if t - s < minimum:
+            missing.append("%s (need >= %d executed)" % (cls, minimum))
     if missing:
         die("这些闸门类一条用例都没执行: %s" % ", ".join(sorted(set(missing))))
 

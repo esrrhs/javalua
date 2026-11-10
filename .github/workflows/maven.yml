@@ -18,23 +18,25 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Build with Maven Wrapper
-      run: ./mvnw -B test package
+    # All tests belong to the oracle-backed matrix below, not an oracle-less
+    # packaging job where differential assumptions would silently abort.
+    - name: Package with Maven Wrapper
+      run: ./mvnw -B -DskipTests package
 
   conformance:
-    # 一致性测试:拿真实的 lua5.3 当裁判。
-    #
-    # 这是本项目的主闸门——「看起来像 Lua」没有价值,唯一能证明「真的是 Lua」
-    # 的办法是同一份脚本在两边跑出逐字节相同的 stdout。所以这个 job 先从源码
-    # 构建一份参考实现,再把它的路径交给测试。
-    #
-    # 从源码构建而不是 apt install,是因为发行版里的 lua 版本不受控(可能是
-    # 5.1/5.3/5.5),拿错版本当参考会得出错误的「不一致」结论,那比没有参考更糟。
     runs-on: ubuntu-latest
-    name: Conformance (against lua5.3)
-    # 兜底用。两个测试步各自套了 tools/run_bounded.py（到点先抓线程栈再杀），
-    # 真走到这一层说明整条流水线已经跑飞——别再让它去吃 GitHub 的 6 小时上限。
-    timeout-minutes: 120
+    name: Conformance (${{ matrix.mode }}, Lua 5.3.4)
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [native, java]
+    timeout-minutes: 50
+    env:
+      LUA53_BIN: target/lua53/src/lua
+      LUAC53_BIN: target/lua53/src/luac
+      FKDUMP_BIN: target/lua53/src/fkdump
+      TBLSTRUCT_BIN: target/lua53/src/tblstruct
+      LUA53_TESTS: target/lua53-tests
     steps:
     - uses: actions/checkout@v7
     - name: Set up JDK 21
@@ -43,165 +45,81 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Build reference lua5.3
+    - name: Build checksum-pinned PUC-Rio 5.3.4 and test corpus
+      run: sh tools/prepare_reference.sh
+    - name: Install comma-decimal locale
       run: |
-        set -e
-        # lua.org 偶发卡住：curl 默认无重试时会挂到 job 超时（exit 28）。必须一行（YAML | 不处理 \ 续行）。
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 -o /tmp/lua.tar.gz https://www.lua.org/ftp/lua-5.3.4.tar.gz
-        mkdir -p target
-        tar xzf /tmp/lua.tar.gz -C target
-        mv target/lua-5.3.4 target/lua53
-        # posix 默认无 DLOPEN；NativeApi/Ext 要参考实现能 package.loadlib。
-        # MYLIBS: -ldl 给 dlopen；-Wl,-E 导出 lua_* 供扩展 .so 解析（linux 目标同款）。
-        make -C target/lua53 -j2 posix MYCFLAGS=-DLUA_USE_DLOPEN MYLIBS="-Wl,-E -ldl"
-        ./target/lua53/src/lua -v
-        ./target/lua53/src/lua -e 'assert(package.loadlib)'
-    #
-    # 字节码差分的另一半:一个挂在参考实现上的小转储器。
-    # 不用 luac -l 是因为它每个 opcode 打的字段不一样、还夹注释,反解回原始
-    # 字段要抄那个大 switch;这里自己对所有 opcode 统一打印全部字段。
-    # 它必须和参考二进制同目录,测试才知道去哪儿找。
-    - name: Build fkdump (bytecode dumper)
-      run: |
-        set -e
-        #
-        # 必须写成一行。YAML 的块标量(|)不处理反斜杠续行:写 "\\" 换行的话
-        # bash 收到的是两个字符,被当成一个名为 "\" 的输入文件,ld 报
-        # "cannot find \:" —— 这一步挂了,后面整个 conformance job 就静默地
-        # 再也没跑过(连续 8 次 push 全是这个错,一致性闸门形同虚设)。
-        gcc -O2 -I target/lua53/src -o target/lua53/src/fkdump src/test/resources/fkdump.c target/lua53/src/liblua.a -lm
-        test -x target/lua53/src/fkdump
-    #
-    # 表结构快照的裁判:另一个挂在参考实现上的小转储器(见
-    # src/test/resources/tblstruct.c)。参考实现的 lua 二进制只能看到脚本的
-    # stdout,看不到某张表内部的「数组真实尺寸 / alimit / isrealasize /
-    # 哈希节点分配尺寸」——而移植时数组记账曾经恰好错在这四个字段上(见
-    # af63dd5)。所以让被跑的 chunk 交出全局 TBLSTRUCT_RESULT/TBLSTRUCT_COUNT,
-    # 由这个转储器把每张表的四个字段打出来,TableStructTest 再拿本实现的
-    # 字段逐字节比。同样必须与参考二进制同目录,测试才知道去哪儿找。
-    # 同样必须写成一行(原因见上一步)。
-    - name: Build tblstruct (table structure dumper)
-      run: |
-        set -e
-        gcc -O2 -I target/lua53/src -o target/lua53/src/tblstruct src/test/resources/tblstruct.c target/lua53/src/liblua.a -lm
-        test -x target/lua53/src/tblstruct
-    #
-    # 编译期差分的语料:上游自带的测试套件。这批脚本是 Lua 作者自己写的、
-    # 专门用来压边界的,比手写几十条用例强得多。落到 target/lua53-tests,
-    # 由 UpstreamSuiteTest(逐字节比对)与 UpstreamSmokeTest(只断言跑完)消费。
-    - name: Fetch upstream lua test suite
-      run: |
-        set -e
-        # 与上同：HEAD 上一次失败就是这一步 curl exit 28（lua.org/tests 超时）。必须一行。
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 -o /tmp/tests.tar.gz https://www.lua.org/tests/lua-5.3.4-tests.tar.gz
-        mkdir -p target/lua53-tests
-        tar xzf /tmp/tests.tar.gz -C target/lua53-tests --strip-components=1
-        ls target/lua53-tests/*.lua | wc -l
-    #
-    # 跑全量而不是只挑几个类,并且不跳过覆盖率门禁。
-    #
-    # 只挑 ConformanceTest/CodegenTest/ParserTest 等于把上游套件、差分 fuzz、
-    # 二进制 chunk 兼容这两批闸门留在 CI 之外——它们在 CI 上一次都没跑过,
-    # 绿的只是本地。而覆盖率门禁跟一致性测试绑在一起(没有参考二进制时
-    # 一致性测试整类跳过,门禁跟着跳过),所以 -Djacoco.skip=true 一加,
-    # 覆盖率这条线在 CI 上也是空的:两条最硬的闸门都形同虚设。
-    #
-    # luashim:C API 那层薄壳。编出来之后 .so 扩展才能在 Java 版里加载
-    # (package.loadlib 真的 dlopen)。这一步<b>故意不设 continue-on-error</b>:
-    # 编不出来时 NativeExtTest / NativeApiTest 会整类跳过,而「跳过」在报告里
-    # 和「跑过」长得一样——让 job 红掉才能发现 C 扩展这批闸门其实没在 CI 上跑。
-    #
-    # 逗号小数点的 locale。Lua 的数字进出都过 {@code localeconv()->decimal_point}
-    # （{@code lua_getlocaledecpoint()}），而发行版自带的 runner 只装了 C 与 en_US
-    # ——那两个的小数点都是 '.'，{@code os.setlocale("pt_BR")} 一律返回 nil，于是
-    # LocaleNumberTest 与上游 literals.lua 那一段<b>静默地什么都没测</b>。
-    # 这里生成它，并当场 grep 一遍确认真的在：装不上就让这一步红掉，
-    # 别把「闸门没跑」留给下一份报告去猜。
-    - name: Install a comma-decimal locale (pt_BR)
-      run: |
-        set -e
+        set -eu
         command -v locale-gen >/dev/null 2>&1 || sudo apt-get install -y locales
         sudo locale-gen pt_BR.UTF-8
         locale -a | grep -i 'pt_BR'
-    - name: Build luashim (C API shim)
+    # Build in BOTH lanes. ExecutionModeTest proves Java mode does not map the shim,
+    # even when it is bundled, and proves native mode cannot silently fall back.
+    - name: Build luashim
+      run: sh native/build.sh
+    - name: Test gate checker
+      run: python3 -m unittest discover -s tools -p 'test_ci_gates.py'
+    - name: Run full applicable suite
+      timeout-minutes: 40
       run: |
-        set -e
-        sh native/build.sh
-        find src/main/resources/native -type f
-    - name: Run conformance tests
-      env:
-        LUA53_BIN: target/lua53/src/lua
-        FKDUMP_BIN: target/lua53/src/fkdump
-        TBLSTRUCT_BIN: target/lua53/src/tblstruct
-        LUA53_TESTS: target/lua53-tests
-      # 覆盖率校验留到两遍合并之后再算(见下面 coverage 那步):
-      # 单拿 native 这一遍去卡合并门槛,等价于逼人删掉兜底代码。
-      #
-      # 外面那层 tools/run_bounded.py 是为了「有界超时 + 到点留现场」:纯 Java io
-      # 那一遍曾经卡满 GitHub 的 6 小时上限,而这期间日志一个字节都取不到(gh 要等
-      # job 结束才有日志),于是既不知道卡在哪条用例也不知道卡在哪个线程。30 分钟
-      # 对本仓库绰绰有余——本机带 jacoco 的整遍实测 185s——真超了就先 SIGQUIT 整组
-      # 进程、再用 jstack 补一份,然后才以 124 退出。timeout-minutes 只是它的兜底,
-      # 必须比 30 分钟大,否则先被 GitHub 掐掉,现场又没了。
-      timeout-minutes: 40
-      run: python3 tools/run_bounded.py --seconds 1800 -- ./mvnw -B test -Djacoco.check.skip=true
-    # maven 只会因为「有用例失败」而红。用例<b>消失</b>它是看不见的:
-    # assumeTrue 的跳过在报告里和跑过长得一样,而 @TestFactory 里没建成用例
-    # 更是什么痕迹都不留。这一步数一遍执行数,并点名几类必须出活的闸门。
-    #
-    # 下限取「本地实测值再留一截余量」。5.3.4 重对准后，NativeApiTest 里约 8 组
-    # （dump/线程/error/fileresult/execresult/setfuncs/loadfilex/getinfo）与参考
-    # 仍有实质分歧，动态用例各×2 共约 16 条不再生成；实测执行约 1300 出头。
-    # 下限 1280：仍能抓住「整类差分消失」（几十条量级），又给平台差异留余量。
-    # 别把下限调到等于实测值。
-    - name: Check the gates actually ran
-      run: python3 tools/check_ci_gates.py 1280
-    #
-    # io 的第二条路径:native 层装不上时走 RandomAccessFile(见 IoLib#openJavaFile)。
-    #
-    # 这条路径在别处一次都没跑过:Build job 虽然没编 luashim,但它也没有参考
-    # 二进制,差分用例整类跳过;Conformance job 有参考二进制但 luashim 装得上,
-    # 于是走的永远是 C 那条。发行版 jar 里没带 luashim 的用户拿到的恰恰是这一条。
-    # -Djavalua.nonative 强制当作装不上,再拿同一个 lua5.3 比一遍逐字节 stdout。
-    # jacoco 的 agent 照常挂着(append),这样两遍的执行数据能合并。
-    - name: Run conformance tests (pure-Java io path)
-      env:
-        LUA53_BIN: target/lua53/src/lua
-        FKDUMP_BIN: target/lua53/src/fkdump
-        TBLSTRUCT_BIN: target/lua53/src/tblstruct
-        LUA53_TESTS: target/lua53-tests
-      # 就是这一步卡过 6 小时(见上面那段的注释)。同样的有界超时 + 取证。
-      timeout-minutes: 40
-      run: python3 tools/run_bounded.py --seconds 1800 -- ./mvnw -B test -Djavalua.nonative=true -Djacoco.check.skip=true
-    # 这一遍没有 C API 那批用例,下限另算(-Djavalua.nonative 下
-    # NativeApiTest / NativeExtTest 是零用例返回,不是跳过;locale 小数点那批
-    # 同理,那条路上小数点恒为 '.')。下限 1120（含 SyntaxE2eTest）。
-    # 比 native 那遍少一截,其中一条是 UpstreamSuiteTest 的
-    # literals.lua:它要 os.setlocale 真的能改 libc 的 locale 才能逐字节比,
-    # 没有 shim 时只有参考实现设得上,输出天然多一行,所以那条用例在
-    # 这一遍<b>根本不存在</b>(UpstreamSuiteTest#suiteFiles)。
-    - name: Check the gates actually ran (pure-Java io path)
-      run: python3 tools/check_ci_gates.py 1120 --nonative
-    #
-    # 覆盖率:两条 io 路径<b>合并</b>后的行覆盖率才是门禁对象。
-    # 上面两遍各写了一份 jacoco.exec(append),这里不再跑测试,
-    # 只用合并后的数据出报告并卡一次门槛。
-    #
-    # 5.3.4 重对准后 GcTest / Dump 字节比对 / 弱表·__gc 矩阵等刻意 @Disabled，
-    # 另有一批 5.4-only 残留 API（warn/toclose/closethread 等）短期不测，
-    # 合并行覆盖实测约 0.90（曾 0.95+）。门槛先落到 0.90，等 GC/ISA 跟上再抬回。
-    #
-    # env 那三行不是多余的:pom 里的 no-reference-lua profile 是按
-    # <b>环境变量在不在</b>来决定跳不跳校验的。这一步不跑测试,但它同样
-    # 会命中那个 profile——没有 LUA53_BIN 就静默跳过,整个覆盖率闸门
-    # 又变回「绿着没跑」。
-    - name: Check coverage of both io paths together
-      env:
-        LUA53_BIN: target/lua53/src/lua
-        FKDUMP_BIN: target/lua53/src/fkdump
-        TBLSTRUCT_BIN: target/lua53/src/tblstruct
-        LUA53_TESTS: target/lua53-tests
-      run: ./mvnw -B -DskipTests test -Djacoco.line.minimum=0.90
+        set -eu
+        extra=""
+        if [ "${{ matrix.mode }}" = java ]; then extra="-Djavalua.nonative=true"; fi
+        python3 tools/run_bounded.py --seconds 1800 -- ./mvnw -B test -Djavalua.requireReference=true -Djavalua.test.mode=${{ matrix.mode }} -Djacoco.check.skip=true $extra
+    - name: Verify executed tests and narrow skip allowlist
+      if: always()
+      run: |
+        if [ "${{ matrix.mode }}" = java ]; then
+          python3 tools/check_ci_gates.py 1185 --nonative
+        else
+          python3 tools/check_ci_gates.py 1345
+        fi
+    - name: Upload lane diagnostics and coverage data
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: conformance-${{ matrix.mode }}
+        path: |
+          target/surefire-reports/
+          target/generated-diff/
+          target/fuzz/
+          target/rt/
+          target/jacoco.exec
+        if-no-files-found: error
+        retention-days: 14
+
+  coverage:
+    needs: conformance
+    runs-on: ubuntu-latest
+    name: Combined native + Java coverage (90%)
+    env:
+      # The report-only job must not activate no-reference-lua's skip profile.
+      LUA53_BIN: target/lua53/src/lua
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-java@v6
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
+    - uses: actions/download-artifact@v8
+      with:
+        pattern: conformance-*
+        path: target/coverage-input
+    - name: Merge exactly two lane sessions and enforce unchanged coverage gate
+      run: |
+        python3 - <<'PY'
+        from pathlib import Path
+        files = list(Path('target/coverage-input').rglob('jacoco.exec'))
+        assert len(files) == 2 and all(p.stat().st_size for p in files), files
+        PY
+        ./mvnw -B -Pcoverage-merge -DskipTests test -Djacoco.line.minimum=0.90
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: combined-coverage
+        path: target/site/jacoco/
+        if-no-files-found: error
 
   quality:
     # spotbugs 静态分析:只把 HIGH 优先级当闸门(见 pom.xml 里 quality profile

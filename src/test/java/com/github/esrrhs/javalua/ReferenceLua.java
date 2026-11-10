@@ -48,7 +48,12 @@ final class ReferenceLua {
         List<String> candidates = new ArrayList<>();
         String env = System.getenv(ENV_BIN);
         if (env != null && !env.isEmpty()) {
-            candidates.add(env);
+            String resolved = resolve(env);
+            if (resolved == null || !isLua53(resolved)) {
+                throw new IllegalStateException("LUA53_BIN is not executable Lua 5.3.4: " + env);
+            }
+            cached = resolved;
+            return cached;
         }
         candidates.add("target/lua53/src/lua");
         candidates.add("/usr/local/bin/lua5.3");
@@ -104,7 +109,7 @@ final class ReferenceLua {
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             waitForKeepingInterrupt(p);
-            return out.contains("Lua 5.3.4");
+            return p.exitValue() == 0 && out.matches("(?s)^Lua 5\\.3\\.4(?:\\s.*)?$");
         } catch (Exception e) {
             restoreInterrupt(e);
             return false;
@@ -132,8 +137,11 @@ final class ReferenceLua {
      */
     private static String findSibling(String sibling, String env, String... names) {
         String e = System.getenv(env);
-        if (e != null && !e.isEmpty() && canRun(e)) {
-            return e;
+        if (e != null && !e.isEmpty()) {
+            if (!canRun(e)) {
+                throw new IllegalStateException(env + " is not executable Lua 5.3.4: " + e);
+            }
+            return new File(e).getAbsolutePath();
         }
         String lua = find();
         if (lua != null) {
@@ -163,7 +171,7 @@ final class ReferenceLua {
             Process p = pb.start();
             String out = readAll(p.getInputStream());
             waitForKeepingInterrupt(p);
-            return out.contains("Lua 5.3");
+            return p.exitValue() == 0 && out.matches("(?s)^Lua 5\\.3\\.4(?:\\s.*)?$");
         } catch (Exception ex) {
             restoreInterrupt(ex);
             return false;
