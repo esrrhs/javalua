@@ -1509,7 +1509,7 @@ final class Api {
                     new NativeKFunction(k));
             return 0;
         }
-        LuaValue err = S.pcall(funcIdx, (int) nresults, handler);
+        LuaValue err = S.pcallNoYield(funcIdx, (int) nresults, handler);
         if (err == null) {
             return 0;
         }
@@ -1522,7 +1522,7 @@ final class Api {
          */
         S.top = funcIdx + 1;
         S.stack[funcIdx].set(err);
-        return LuaState.LUA_ERRRUN;
+        return S.protectedCallStatus;
     }
 
     static void lua_pushboolean(long L, long b) {

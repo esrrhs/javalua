@@ -207,3 +207,10 @@ MIT
 ### Reproducible differential testing / 可复现差分测试
 
 See [the differential testing guide](tools/DIFFERENTIAL_TESTING.md) for the exact Lua 5.3.4 oracle, full native/pure-Java CI matrix, retained seeds and longer local campaigns.
+
+## 嵌入与持续验证工具
+
+- [真实 C 扩展兼容闸门](tools/C_EXTENSION_TESTING.md)：固定 LPeg、lua-cjson、LuaFileSystem 样本，不代表任意扩展均兼容。
+- [性能基线](benchmark/performance/README.md)与[实测结论](benchmark/performance/RESULTS.md)：校验结果正确性，不宣称尚未证实的引擎提速。
+- [可选嵌入资源限制](tools/EMBEDDING_CONTROLS.md)：协程共享预算、超时/取消、全新受限库环境；不是安全沙箱。
+- [函数级移植审计](docs/function-audit/README.md)：可复现源码漂移闸门、明确未审查队列，以及[续体恢复缺陷修复](docs/function-audit/CONTINUATIONS.md)。

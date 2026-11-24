@@ -114,6 +114,9 @@ public final class CallInfo {
      */
     boolean yieldPcall;
 
+    /** Saved allowhook for Lua 5.3.4 protected recovery (CIST_OAH). */
+    boolean protectedAllowHook = true;
+
     /**
      * {@code CIST_RECST}：{@code pcall} 被 yield 打断后、恢复时拿到的错误状态。
      * {@code LUA_OK} 表示不是出错而是被 yield 打断的。

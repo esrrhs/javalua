@@ -711,6 +711,7 @@ public final class BaseLib {
     private static int doPcall(LuaState L, boolean hasHandler) {
         int base = L.ci.func;
         CallInfo myCi = L.ci; // 本函数自己的帧；yield 时要往上面挂续体
+        myCi.protectedAllowHook = L.allowHook;
         LuaValue handler = null;
         if (hasHandler) {
             handler = new LuaValue(L.stack[base + 2]);

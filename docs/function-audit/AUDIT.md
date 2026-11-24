@@ -1,6 +1,6 @@
 # Representative audit record
 
-Baseline and source/configuration are pinned in [README.md](README.md). This audit changes **no production runtime source**. These are scoped findings, not another assertion that all non-GC code is strictly aligned.
+Baseline and source/configuration are pinned in [README.md](README.md). The initial audit changed no runtime source; integration fixes and witnesses are recorded in [CONTINUATIONS.md](CONTINUATIONS.md). These are scoped findings, not another assertion that all non-GC code is strictly aligned.
 
 ## 1. Table boundary search (`ltable.c`)
 
@@ -24,7 +24,7 @@ Read `LuaState.callNoYield` against `luaD_callnoyield` (507–511): increment no
 
 `FunctionAuditEvidenceTest.protectedCallContinuationResults` covers yield through pcall, resume arguments/results, and an xpcall message handler. This is narrow **behavior-tested** evidence for pcall/yield, not a complete continuation API review.
 
-Important **unclosed structural gap**: `LuaState.finishCcall` / `finishPcallK` still contain 5.4-shaped `clsret`/close/unwind scaffolding and a `k == null` fallback, unlike C 5.3.4 `finishCcall` (518–537), whose continuation invariant is asserted. The fallback may be unreachable for valid 5.3 callers, but that reachability has **not** been proved here. Status is **structure-mapped**, not aligned. Native `lua_callk`/`lua_pcallk` across repeated yield, error-after-resume, hooks and nested recovery require a dedicated reachability/stack-state audit.
+Initial finding (subsequently investigated and fixed in [CONTINUATIONS.md](CONTINUATIONS.md)): `LuaState.finishCcall` / `finishPcallK` still contain 5.4-shaped `clsret`/close/unwind scaffolding and a `k == null` fallback, unlike C 5.3.4 `finishCcall` (518–537), whose continuation invariant is asserted. The fallback may be unreachable for valid 5.3 callers, but that reachability has **not** been proved here. Status is **structure-mapped**, not aligned. Native `lua_callk`/`lua_pcallk` across repeated yield, error-after-resume, hooks and nested recovery require a dedicated reachability/stack-state audit.
 
 ## 4. Binary constants and debug sections (`lundump.c`, `ldump.c`)
 
@@ -77,11 +77,11 @@ The checker contract suite has 20 tests, including nested/anonymous/interface/na
 
 ## Remaining work (in priority order)
 
-1. Close the finishCcall/finishPcallK invariant/reachability gap above with native continuation witnesses and a control-flow audit; similarly triage 5.4-shaped helpers such as parser close/readonly scaffolding and opcode compatibility helpers.
+1. Extend the finite finishCcall/finishPcallK investigation in CONTINUATIONS.md to additional hook/native ABI/stack-pressure combinations; similarly triage remaining 5.4-shaped helpers such as parser close/readonly scaffolding and opcode compatibility helpers.
 2. Triage every `file-context-only` and ambiguous-name entry, replacing candidates with deliberate many-to-many mappings or an explained helper/JNI/generated/GC/platform classification. Progress is in the generated summary; **most methods remain unreviewed**.
 3. Audit active C reverse gaps by function, excluding CLI/GC only explicitly. A Java method containing an inlined C function needs a mapping even without a similar name.
 4. Extend function witnesses to VM numeric conversions/comparisons, metamethod fast/slow paths, pattern backtracking/captures, pack alignment/overflow, IO error paths, package loader/native ABI, debug hook state and parser register-pressure/goto/upvalue-close combinations.
 5. Review C callback contracts (lua.h), Java representation classes vs C structs/macros, allocation/status failures and every generated/shim dispatch path. Native C bodies are not fully inventoried by this Java ledger.
-6. Add checker execution to the combined CI pipeline after integration, and decide when per-function evidence needs rerunning on each backend. A mapping can go stale semantically through callees even when its own source hash has not changed.
+6. Checker execution is now an additive CI gate; extend per-function evidence on each backend. A mapping can go stale semantically through callees even when its own source hash has not changed.
 
-**Outcome:** no new defined-behavior non-GC runtime mismatch was reproduced in these representative witnesses. Significant unreviewed coverage and structural gaps remain; this work does not justify “all differences eliminated”.
+**Initial-stream outcome:** no new mismatch was reproduced by its eight initial witnesses. Integration then reproduced and fixed six defined non-GC continuation discrepancies (CONTINUATIONS.md). Significant unreviewed coverage and structural gaps remain; this work does not justify “all differences eliminated”.

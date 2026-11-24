@@ -2079,6 +2079,19 @@ public final class LuaState {
      * @param handler 消息处理函数；{@code null} 表示没有（与 {@code msgh = 0} 等价）
      * @return 出错时返回（可能被处理函数改写过的）错误对象，否则 {@code null}
      */
+    /** lapi.c f_call: a conventional protected C API call cannot yield. */
+    LuaValue pcallNoYield(int funcIdx, int nresults, LuaValue handler) {
+        nNy++;
+        try {
+            return pcall(funcIdx, nresults, handler);
+        } finally {
+            nNy--;
+        }
+    }
+
+    // Status paired with the most recent completed pcall, for the C API adapter.
+    int protectedCallStatus;
+
     public LuaValue pcall(int funcIdx, int nresults, LuaValue handler) {
         int oldTop = top;
         CallInfo saved = ci;
@@ -2116,8 +2129,10 @@ public final class LuaState {
         try {
             try {
                 call(funcIdx, nresults);
+                protectedCallStatus = LUA_OK;
                 return null;
             } catch (LuaError e) {
+            int[] errorStatus = {e.errErr ? LUA_ERRERR : e.errMem ? LUA_ERRMEM : LUA_ERRRUN};
             /*
              * 位置信息在这里补，而不是在抛出的地方补：像「除以零」这类错误
              * 来自 Arith 这种没有 LuaState 的纯算术层，它抛的是裸错误值，
@@ -2161,7 +2176,7 @@ public final class LuaState {
                      * 补上这一格之后两处临界点都对齐。
                      */
                     nCcalls = oldNCcalls + 1;
-                    v = applyErrMsg(v, handler);
+                    v = applyErrMsg(v, handler, errorStatus);
                 }
             }
             /*
@@ -2208,6 +2223,7 @@ public final class LuaState {
             v = closeUpvalsOnUnwind(saved, v, yieldable(), handler); // 返回值可能已被 __close 换掉
             top = oldTop;
             shrinkStack(); // 与 C 版 luaD_pcall 末尾那句同位置
+            protectedCallStatus = errorStatus[0];
             return v;
             }
         } finally {
@@ -2235,6 +2251,7 @@ public final class LuaState {
         c.k = k;
         c.ctx = ctx;
         c.yieldPcall = true;
+        c.protectedAllowHook = allowHook;
         c.funcIdx = funcIdx;
         c.errHandler = handler;
         c.recst = LUA_OK;
@@ -2304,9 +2321,13 @@ public final class LuaState {
      * 那一步被 {@code finally} 抵消了，所以要在 {@code catch} 里手工把那一层加回去。
      */
     private LuaValue applyErrMsg(LuaValue v, LuaValue handler) {
+        return applyErrMsg(v, handler, null);
+    }
+
+    private LuaValue applyErrMsg(LuaValue v, LuaValue handler, int[] errorStatus) {
         int saved = nCcalls;
         try {
-            return applyErrMsgRec(v, handler);
+            return applyErrMsgRec(v, handler, errorStatus);
         } finally {
             /*
              * 递归累上去的层数必须在<b>本函数出口</b>还回去。
@@ -2323,7 +2344,7 @@ public final class LuaState {
         }
     }
 
-    private LuaValue applyErrMsgRec(LuaValue v, LuaValue handler) {
+    private LuaValue applyErrMsgRec(LuaValue v, LuaValue handler, int[] errorStatus) {
         int hf = top;
         int depth = nCcalls;
         try {
@@ -2348,7 +2369,12 @@ public final class LuaState {
             top = hf;
             // 补上 incXCcalls 加的那一层（C 版靠 longjmp 跳过 decXCcalls 保留它）
             nCcalls = depth + 1;
+            if (e.errMem) {
+                if (errorStatus != null) { errorStatus[0] = LUA_ERRMEM; }
+                return e.value;
+            }
             if (e.errErr) {
+                if (errorStatus != null) { errorStatus[0] = LUA_ERRERR; }
                 /*
                  * 累到 225 层：{@code luaD_throw(L, LUA_ERRERR)} 直跳到<b>最内层
                  * 的</b>保护区，由 {@code luaD_seterrorobj} 写成那句固定串。
@@ -2360,7 +2386,7 @@ public final class LuaState {
                  */
                 return LuaValue.ofString(LuaString.latin1(ERRERR_MSG));
             }
-            return applyErrMsgRec(e.value, (errFunc != null) ? errFunc : handler);
+            return applyErrMsgRec(e.value, (errFunc != null) ? errFunc : handler, errorStatus);
         }
         LuaValue res = new LuaValue(stack[top - 1]);
         top = hf;
@@ -2576,26 +2602,7 @@ public final class LuaState {
         } catch (LuaYield y) {
             st = LUA_YIELD;
         } catch (LuaError e) {
-            /*
-             * luaD_seterrorobj：错误对象必须落到栈顶，后面
-             * finishPcallK / auxresume 都是从 top-1 取它的。
-             * <p>
-             * 顺带把 {@link #closeErrPending} 清掉：这个错误是<b>刚抛出来的</b>，
-             * 比「上一趟关变量时被 yield 打断时暂存的那个」新。C 版不存在这个
-             * 取舍——它永远取 {@code L->top - 1}，而 {@code luaG_errormsg} 早把
-             * 新错误写到那儿了。上游 {@code locals.lua} 里 {@code y} 的
-             * {@code __close} 先 yield 再 {@code error(err + 20)}，下一个变量
-             * 看到的必须是 30 而不是 10。
-             */
-            push(errObjAt(e));
-            closeErrPending = null;
-            /*
-             * C 的 {@code lua_resume} 返回的是 {@code luaD_throw} 的那个错误码，
-             * 内存错误是 {@code LUA_ERRMEM}（{@code luaM_error} 直跳），不是
-             * 一律 {@code LUA_ERRRUN}。协程死掉时 {@code L->status} 记的就是它，
-             * 后面 {@code coroutine.wrap} 判「补不补位置」全看这个值。
-             */
-            st = e.errMem ? LUA_ERRMEM : LUA_ERRRUN;
+            st = prepareResumeError(e);
         }
         st = precover(st);
         if (st != LUA_OK && st != LUA_YIELD) {
@@ -2673,200 +2680,38 @@ public final class LuaState {
         }
     }
 
-    /**
-     * {@code ldo.c: finishCcall}：补完一个被 yield 打断的 C 帧。
-     * <p>
-     * C 版 {@code lua_assert(ci->u.c.k != NULL)}——无续体的 {@code lua_call}
-     * 帧本不该走到这里（{@code nny} 会挡 yield）。Java 里若仍撞上
-     * {@code k == null}（例如某条 stdlib 误用了可 yield 的 {@link #call}），
-     * 不能 NPE：按 {@link #doResume} 对首帧的处理，直接用栈上已有结果做
-     * {@code poscall}，让协程以确定语义继续/结束，而不是把 JVM 打穿。
-     */
+    /** Complete an interrupted 5.3.4 C frame (ldo.c finishCcall). */
     private void finishCcall(CallInfo c) {
-        int n;
-        if (c.clsret) {
-            n = c.nres; // 只是在关 tbc 变量时被中断，重做 poscall 即可
-        } else {
-            int st = LUA_YIELD; // 没有别的错误时就是「被 yield 打断」
-            if (c.yieldPcall) {
-                st = finishPcallK(c);
-            }
-            // adjustresults(L, LUA_MULTRET)：只抬高 ci.top，不动 L.top
-            if (c.top < top) {
-                c.top = top;
-            }
-            if (c.k != null) {
-                n = c.k.call(this, st, c.ctx);
-            } else {
-                /* 无续体：结果已在栈上（与 doResume 对 ci.k==null 同形） */
-                n = top - (c.func + 1);
-            }
+        // A direct yield without k is completed by doResume, never by unroll.
+        // C API calls without continuations must have prevented nested yields.
+        if (c.k == null) {
+            throw new IllegalStateException("missing Lua 5.3 continuation in unroll");
         }
+        int st = c.yieldPcall ? finishPcallK(c) : LUA_YIELD;
+        if (c.top < top) {
+            c.top = top;
+        }
+        int n = c.k.call(this, st, c.ctx);
         poscall(c, n);
     }
 
-    /**
-     * {@code ldo.c: finishpcallk}：补完一个被 yield 打断的 {@code pcall}。
-     * <p>
-     * 有两种「被打断」：真的 yield 了（{@code recst == LUA_OK}），或者恢复之后
-     * 被保护的函数自己出错（{@code recst} 记着那个错误状态）。后者要在这里把
-     * tbc 变量关掉、把错误对象放到位——和 {@code luaD_pcall} 出错时做的一样。
-     */
+    /** Java split of 5.3.4 recover + finishCcall, not 5.4 close recovery. */
     private int finishPcallK(CallInfo c) {
         int st = c.recst;
         if (st != LUA_OK) {
-            int fIdx = c.funcIdx; // 被保护的那个函数的栈下标
-            /*
-             * 正常情况同 C 版 {@code luaD_seterrorobj} 从 {@code top - 1} 取。
-             * 但如果上一趟是在 {@code __close} 里 yield 出去的，栈上的 {@code top}
-             * 已经被「搬走 yield 值」动过，那里不再是错误对象——取
-             * {@link #closeErrPending} 里暂存的那个。
-             */
-            LuaValue errObj = (closeErrPending != null)
-                    ? closeErrPending
-                    : new LuaValue(stack[top - 1]);
-            /*
-             * 消息处理函数<b>在关 {@code __close} 之前</b>跑，不是之后。
-             * <p>
-             * C 版是在<b>抛出点</b>（{@code luaG_errormsg}）调的，那会儿
-             * {@code __close} 还没跑；{@code finishpcallk} 里那句
-             * {@code L->errfunc = old_errfunc} 也是在 {@code luaF_close}
-             * <b>之后</b>才恢复的。放在关完之后跑的话，{@code __close} 收到的
-             * 就是<b>没处理过的原始错</b>，而且顺序也反了。
-             * <p>
-             * 实测（协程里 {@code xpcall}，函数体先 yield 再 {@code error}，
-             * 且带一个 {@code <close>}）：
-             * <pre>
-             * 参考：msgh h2 after | close a err=H-h2
-             * 本实现（旧）：close a err=after | msgh h2 after
-             * </pre>
-             */
-            boolean alreadyHandled = closeErrPending != null;
-            closeErrPending = null;
-            /*
-             * {@link #closeErrPending} 不为 null 意味着这一趟是「{@code __close}
-             * 里 yield 出去、现在 resume 回来接着关」，而那个错误对象<b>在 yield
-             * 之前就已经过过处理函数了</b>（{@code closeUpvalsOnUnwind} 的调用方
-             * 先 {@code applyErrMsg} 再关）。这里再过一次就会多调一次处理函数——
-             * 实测参考实现在那条路径上一次都不调。
-             * <p>
-             * <b>处理函数必须在把 {@code top} 压回 {@code fIdx + 1} 之前跑。</b>
-             * {@code applyHandler} 是照 {@code luaG_errormsg} 在<b>出错那一刻的
-             * 栈顶</b>压调用帧的，那会儿被保护函数的局部变量都还在。先把
-             * {@code top} 收到 {@code fIdx + 1} 再跑，它就从 {@code fIdx + 2}
-             * 开始写——而那正是第一个局部变量（也就是那个 {@code <close>} 变量）
-             * 的槽，于是 {@code __close} 被覆盖成消息处理函数自己，报
-             * 「attempt to call a nil value」。
-             */
-            if (c.errHandler != null && !alreadyHandled && !isMemErr(errObj)) {
-                /*
-                 * 最后那个条件是<b>内存错误</b>：它在 C 里压根没进过
-                 * {@code luaG_errormsg}（{@code luaM_error} 直跳），所以
-                 * {@code finishpcallk} 也不该再补一次处理函数。
-                 * 判的是<b>错误对象本身</b>而不是当初那个 {@code LuaError} 的
-                 * 标记——这个对象是「上一趟 yield 出去、这一趟从栈上取回来」的，
-                 * 标记早丢了，而 C 那边判的本来也就是值。
-                 * <p>
-                 * 实测（协程里 {@code xpcall}，{@code __close} 先 yield 再
-                 * {@code error("not enough memory", 0)}）：
-                 * 参考 {@code false  not enough memory}、
-                 * 本实现 {@code false  H:not enough memory}。
-                 */
-                errObj = applyHandler(c.errHandler, errObj, fIdx);
-            }
-            top = fIdx + 1;
-            errObj = closeUpvalsFrom(fIdx, errObj, c.errHandler);
+            int fIdx = c.funcIdx;
+            LuaValue errObj = new LuaValue(stack[top - 1]);
+            // Message processing already ran with the throwing frame still visible.
+            closeUpvals(fIdx, null); // 5.3 luaF_close closes lexical upvalues only.
             stack[fIdx].set(errObj);
             top = fIdx + 1;
             c.recst = LUA_OK;
-            shrinkStack(); // 与 ldo.c: finishpcallk 末尾那句同位置
+            shrinkStack();
         } else {
-            st = LUA_YIELD; // 不是出错，是 yield
+            st = LUA_YIELD;
         }
-        c.yieldPcall = false;
+        c.yieldPcall = false; // Continuation is outside the protected region.
         return st;
-    }
-
-    /**
-     * 关掉 {@code level} 以上的 upvalue 并跑 {@code __close}。
-     * <p>
-     * 与 {@link #closeUpvalsOnUnwind} 同构，同样要处理「{@code __close} 自己又
-     * 出错，新错误顶掉旧错误」——C 版 {@code luaF_close} 一次只关一批，
-     * 出错就抛，由 {@code luaD_closeprotected} 循环接着关剩下的。
-     *
-     * @param handler 消息处理函数；{@code __close} 抛的错要过它（理由同
-     *                {@link #closeUpvalsOnUnwind} 里那段：{@code finishpcallk}
-     *                也是在 {@code luaF_close} <b>之后</b>才恢复
-     *                {@code L->errfunc}，所以关闭期间它仍然生效）
-     */
-    private LuaValue closeUpvalsFrom(int level, LuaValue errObj, LuaValue handler) {
-        while (true) {
-            if (openUpvals.isEmpty()) {
-                return errObj;
-            }
-            int before = openUpvals.size();
-            try {
-                /*
-                 * {@code ldo.c: finishpcallk} 里那句是
-                 * {@code luaF_close(L, func, status, 1)} —— {@code yy} 恒为 1。
-                 * <p>
-                 * 不能按「当前帧是不是 Lua 帧」判：走到这里时 {@code ci} 是被打断的
-                 * {@code pcall} 那个 <b>C 帧</b>，照 {@code luaT_callTM} 那套判据
-                 * 会退化成 {@code luaD_callnoyield}，于是 {@code __close} 里
-                 * {@code coroutine.yield} 报「attempt to yield across a C-call
-                 * boundary」。上游 {@code locals.lua}「yielding inside closing
-                 * metamethods」那一段正测这个：三个 {@code <close>} 变量，
-                 * 中间那个在 {@code __close} 里 yield 完再 {@code error}，
-                 * 剩下那个要能接着 yield。
-                 */
-                closeUpvals(level, errObj, true);
-                return errObj;
-            } catch (LuaYield y) {
-                /*
-                 * 还有没关完的：yield 出去之后 {@link #finishPcallK} 会再进来
-                 * 一趟（{@code recst} 还是错误状态），错误对象得留着。
-                 */
-                closeErrPending = errObj;
-                throw y;
-            } catch (LuaError e2) {
-                LuaValue v = e2.value;
-                if (e2.errMem) {
-                    // 内存错误：不过消息处理函数，也不补位置（见 closeUpvalsOnUnwind）
-                } else if (e2.where == null && v != null && v.isString()) {
-                    LuaString prefix = where(); // 与 closeUpvalsOnUnwind 同形
-                    v = LuaValue.ofString(prefix.concat(v.asString()));
-                }
-                if (handler != null && !e2.errMem) {
-                    v = applyErrMsg(v, handler);
-                }
-                errObj = v;
-                if (openUpvals.size() >= before) {
-                    return errObj; // 一个也没关掉，再试也不会有进展
-                }
-            }
-        }
-    }
-
-    /**
-     * 跑 {@code xpcall} 的消息处理函数，返回值顶掉原来的错误对象。
-     * <p>
-     * 与 {@link #pcall(int, int, LuaValue)} 里那段同形，只是错误对象来自
-     * 协程恢复路径而不是 {@code catch}。
-     */
-    private LuaValue applyHandler(LuaValue handler, LuaValue err, int fIdx) {
-        int hf = top;
-        checkStack(2);
-        stack[hf].set(handler);
-        stack[hf + 1].set(err);
-        top = hf + 2;
-        LuaValue bad = pcall(hf, 1); // 处理函数自身出错不再兜底
-        if (bad != null) {
-            top = fIdx + 1;
-            return bad;
-        }
-        LuaValue res = new LuaValue(stack[top - 1]);
-        top = fIdx + 1;
-        return res;
     }
 
     /**
@@ -2883,6 +2728,7 @@ public final class LuaState {
                 return st;
             }
             ci = c;
+            allowHook = c.protectedAllowHook;
             c.recst = st;
             try {
                 unroll();
@@ -2890,12 +2736,32 @@ public final class LuaState {
             } catch (LuaYield y) {
                 st = LUA_YIELD;
             } catch (LuaError e) {
-                push(errObjAt(e));
-                closeErrPending = null; // 同上：新错误顶掉 yield 时暂存的那个
-                st = LUA_ERRRUN;
+                st = prepareResumeError(e);
             }
         }
         return st;
+    }
+
+    /** luaG_errormsg processing must precede recover's L->ci restoration. */
+    private int prepareResumeError(LuaError error) {
+        LuaValue value = errObjAt(error);
+        int[] errorStatus = {error.errErr ? LUA_ERRERR : error.errMem ? LUA_ERRMEM : LUA_ERRRUN};
+        CallInfo target = findPcall();
+        if (target != null && target.errHandler != null && !error.errErr && !error.errMem
+                && !error.directThrow) {
+            LuaValue handler = target.errHandler;
+            target.errHandler = null; // Do not process the same error again in recover.
+            LuaValue old = errFunc;
+            errFunc = handler;
+            try {
+                value = applyErrMsg(value, handler, errorStatus);
+            } finally {
+                errFunc = old;
+            }
+        }
+        push(value);
+        closeErrPending = null;
+        return errorStatus[0];
     }
 
     /** {@code ldo.c: findpcall} */

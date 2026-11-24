@@ -1,0 +1,508 @@
+{
+  "schema": 1,
+  "smoke": true,
+  "config": {
+    "forks": 1,
+    "warmup": 1,
+    "samples": 2,
+    "n": 11,
+    "batch": 1,
+    "cold": 2,
+    "warmup_ms": 0
+  },
+  "command": [
+    "/home/box/jdk/jdk-21.0.13+9/bin/java",
+    "-Xms256m",
+    "-Xmx256m",
+    "-Djavalua.nonative=true",
+    "-cp",
+    "/workspace/github/javalua/target/classes:/workspace/github/javalua/target/performance-classes",
+    "com.github.esrrhs.javalua.PerformanceHarness"
+  ],
+  "invocation": [
+    "benchmark/performance/run.py",
+    "--smoke",
+    "--skip-build",
+    "--n",
+    "11",
+    "--reference",
+    "target/lua53/src/lua",
+    "--output",
+    "benchmark/performance/evidence/integrated-smoke.json"
+  ],
+  "timestamp": "2026-11-24T18:54:55.362531+08:00",
+  "environment": {
+    "java": "openjdk version \"21.0.13\" 2026-10-20 LTS\nOpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.13+9 (build 21.0.13+9-LTS, mixed mode, sharing)\n",
+    "javac": "javac 21.0.13\n",
+    "platform": "Linux-6.12.113+-x86_64-with-glibc2.41",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "cpu_count": 8,
+    "affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "load_start": [
+      8.37060546875,
+      6.974609375,
+      5.462890625
+    ],
+    "meminfo": "MemTotal:       16386416 kB\nMemFree:         1427780 kB\nMemAvailable:    9890692 kB\nBuffers:          419448 kB\nCached:          7593312 kB\nSwapCached:            0 kB\nActive:          2114560 kB\nInactive:       11052484 kB\nActive(anon):       3736 kB\nInactive(anon):  5510932 kB\nActive(file):    2110824 kB\nInactive(file):  5541552 kB\nUnevictable:          16 kB\nMlocked:              16 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:            321536 kB\nWriteback:            40 kB\nAnonPages:       5154572 kB\nMapped:           289132 kB\nShmem:            360156 kB\nKReclaimable:    1148464 kB\nSlab:            1333036 kB\nSReclaimable:    1148464 kB\nSUnreclaim:       184572 kB\nKernelStack:       23096 kB\nPageTables:       118168 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:     8193208 kB\nCommitted_AS:   12053248 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       26496 kB\nVmallocChunk:          0 kB\nPercpu:             3552 kB\nAnonHugePages:         0 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:       18432 kB\nDirectMap2M:     3127296 kB\nDirectMap1G:    15728640 kB\n",
+    "revision": "f8745f51b9de284fb993b0359bba42537ea95174",
+    "status": " M .github/workflows/maven.yml\n M docs/function-audit/AUDIT.md\n M docs/function-audit/README.md\n M docs/function-audit/SUMMARY.md\n M docs/function-audit/inventory.json\n M docs/function-audit/mapping.json\n M src/main/java/com/github/esrrhs/javalua/Api.java\n M src/main/java/com/github/esrrhs/javalua/BaseLib.java\n M src/main/java/com/github/esrrhs/javalua/CallInfo.java\n M src/main/java/com/github/esrrhs/javalua/LuaState.java\n M tools/check_ci_gates.py\n?? docs/function-audit/CONTINUATIONS.md\n?? src/test/java/com/github/esrrhs/javalua/ContinuationAuditTest.java\n?? src/test/java/com/github/esrrhs/javalua/NativeContinuationAuditTest.java\n",
+    "external_java_options": {},
+    "load_end": [
+      8.37060546875,
+      6.974609375,
+      5.462890625
+    ]
+  },
+  "source_sha256": {
+    "benchmark/performance/PerformanceHarness.java": "befce8c675001c15f71267d5036cb5292eef4c27d61833b48a2502c55eb5494b",
+    "benchmark/performance/README.md": "29a55536fc5adea63725a16c00820984f9e3538bb1f98dce356c94a954df8ff9",
+    "benchmark/performance/RESULTS.md": "7cbd9db0e29fb702b56c60ed4d07188d57959e770b992a673d662ae3bbc4c225",
+    "benchmark/performance/run.py": "5c438fed7c9d259e7affbc36a9164a12ccbe5d2d037a81659758b45e510bd5b6",
+    "benchmark/performance/summarize_jfr.py": "4d2861f7c708aaf38f5117790dc5eabab09a5002746470cce33214e3da79b372",
+    "benchmark/performance/test_runner.py": "808781f68509ab7ec698016b12c6406543f321673dc365e7d32f0715144e34a6",
+    "benchmark/performance/workloads/allocations.lua": "5f9911d50aea403831a35e40af747dd25d8839596f39f71bb0f1fd5f040e4a6f",
+    "benchmark/performance/workloads/arithmetic.lua": "4b68c35135bbd15ebeec7c1da96224873e8d405444dd07ef39108c8d56fe95aa",
+    "benchmark/performance/workloads/java-to-lua.lua": "fa5fee26cabc965a3f4733db448a68fa886ac4d9a7bae46a36f40fa029344a8f",
+    "benchmark/performance/workloads/lua-to-java.lua": "23646b925ff536ef59eac0965b10dc1efe014a02698dc4f294cfa42a5d5a2bf8",
+    "benchmark/performance/workloads/strings.lua": "a811e89fed03ea92d161559ec4fb70185fdf2e841f44696589d596bf22e77748",
+    "benchmark/performance/workloads/tables.lua": "ecb9943123f9382cf130a5d42f1929c6ad1da918c54e3705da0c5441863c4a79",
+    "pom.xml": "5cafe96cfd73632cf0790f402977e331711ac38c7b8027f18ff50ee0dcb713a6",
+    "src/main/java/com/github/esrrhs/javalua/Api.java": "d98fa13c0bc962f6b73f94aaeccd603bf0dabd7c620f593806a4a6c35e3c2d37",
+    "src/main/java/com/github/esrrhs/javalua/Arith.java": "b64d19b1e29f61773acb0fff7ba2f44f7fb229cbd8ffe9177df9efc153898a26",
+    "src/main/java/com/github/esrrhs/javalua/BaseLib.java": "df66b585a6ca6629d4e277eb1d416e3a9f3c9550140d599e9701320eedc7eb53",
+    "src/main/java/com/github/esrrhs/javalua/BitLib.java": "8038df6844712db8c88a0af774a6dc7b39620fa4b3141be1a23dc39b6fbedf44",
+    "src/main/java/com/github/esrrhs/javalua/CApi.java": "72686e3a60f73e228bcd54d61c835bfbe66b4c0308e461d537bf31dcc0c196a6",
+    "src/main/java/com/github/esrrhs/javalua/CClosure.java": "7742d5dd9a828e47ef9061530efb1d0238ef78e56cbf2bc8ce62ae422f7b3ebd",
+    "src/main/java/com/github/esrrhs/javalua/CallInfo.java": "da761dead9d7cbd9a5bd130e7efb08b86589cc07670c78aa01305821735d7840",
+    "src/main/java/com/github/esrrhs/javalua/Codegen.java": "cf37b4acc74a1a5d5b3487482817cd824ef5c7a33d149bfeada5cb36e4d51fde",
+    "src/main/java/com/github/esrrhs/javalua/CoroutineLib.java": "1017f431f8b022510a06079a0e1e9cd94c0d23baf141f037835bbd353e85e3ef",
+    "src/main/java/com/github/esrrhs/javalua/DebugLib.java": "d25a1ce71ee687d725b2eb1037e4d66aa2aceaf1ee2ad2fb3c6f30846d44fce3",
+    "src/main/java/com/github/esrrhs/javalua/Dump.java": "fb919801cf2277067611e4bef4d44444f98fd99f2a8b098ed6ea2eb7fa929c5d",
+    "src/main/java/com/github/esrrhs/javalua/DynData.java": "356e2045cc9cc458f03db82caf924061251df7acb1ac4ff523de59f65a76747f",
+    "src/main/java/com/github/esrrhs/javalua/ExecutionAbortedError.java": "1f42c43c06fb0308d3c87a50c91f48d59e7f219661571ac46029a9b698ec02b2",
+    "src/main/java/com/github/esrrhs/javalua/ExecutionControl.java": "7d9add3b7d6ce43f8a9120830a20c6b2e5874eaaa7c671ff967ea343dcc18915",
+    "src/main/java/com/github/esrrhs/javalua/ExpDesc.java": "513c200b59d05096bf2852a069e028996a238a46323c92c45458df9b48aa1d90",
+    "src/main/java/com/github/esrrhs/javalua/FuncState.java": "f3d2d895eaf164b5ceea04a01d1930d865a1bdec20696ee8efc219c132ed4ba0",
+    "src/main/java/com/github/esrrhs/javalua/GcSentinel.java": "88d6ce71f8fc5a4b441befcaa5fbda6430594de9cfde149d5f88b7bc4e777c1b",
+    "src/main/java/com/github/esrrhs/javalua/Generated.java": "9bd5b13d9a3477574d75d00d9a893d0c32aca768f0effe70f070a446efeb6094",
+    "src/main/java/com/github/esrrhs/javalua/IoLib.java": "bbce6dd98ff83157d0c355349b411f33ef8fba433e9d9131d81a42d0043aa8d5",
+    "src/main/java/com/github/esrrhs/javalua/LCType.java": "6f1e132f54c8013d27e0565c0e09741f4c38c8823a7e5b0da9074b9b6c1b0922",
+    "src/main/java/com/github/esrrhs/javalua/LClosure.java": "7e869204d8b90ea3c54af67be839c757f8691db1d5fa555d3e9d5c2ed52ff697",
+    "src/main/java/com/github/esrrhs/javalua/Lexer.java": "1cd309d3d2d960610b1e7c61e605f79d5e68847dc098129afa662273a43b3eeb",
+    "src/main/java/com/github/esrrhs/javalua/Lua.java": "8ac4963a1dc36dc243bbcc194f22fa7ac24be9e87e56bea8ac707f56b0dc6da7",
+    "src/main/java/com/github/esrrhs/javalua/LuaAux.java": "20005441529b93e2d34a236fb794ba34e6f6b0096a52356d7d12f35fbcd4996f",
+    "src/main/java/com/github/esrrhs/javalua/LuaError.java": "9c702de5ef70ecede7d2259859901daeb83512eb6c865aa09d79e260bd3a4194",
+    "src/main/java/com/github/esrrhs/javalua/LuaFunction.java": "63734aaf743af1b1f5a8fd8e65865fadbfa2a7293f36cddd6a6e41da0665828c",
+    "src/main/java/com/github/esrrhs/javalua/LuaHook.java": "8dbe7a4f27ba1975c7a6bd0c259e3682daae90bbdd7bcd5806d0fda3536b6361",
+    "src/main/java/com/github/esrrhs/javalua/LuaKFunction.java": "e4035a5e563bbfdad246c13d1926e81350f63fca817538a0a6d73ba8f0a7a0e1",
+    "src/main/java/com/github/esrrhs/javalua/LuaLibs.java": "43ee67de3c578cd51de027090f03cf56cbeca25a7bb1a871674811739491be4d",
+    "src/main/java/com/github/esrrhs/javalua/LuaNativeFunction.java": "d621ea869002ddc496eb399ec109f683b75bd1509ab01c2fa612a7804e101848",
+    "src/main/java/com/github/esrrhs/javalua/LuaState.java": "e7323e165ef4238d81b809ed9d4a1065f158502330d610f5d89a6ae0d4f8d102",
+    "src/main/java/com/github/esrrhs/javalua/LuaString.java": "673568c7fc8829ff8f18a7df59686324d408c996b2caabd4963f5e89bb90ba14",
+    "src/main/java/com/github/esrrhs/javalua/LuaTable.java": "e45168ff61650b76c86761c086e09d6fadeb3c8d06635dc9baa96de7bb0118aa",
+    "src/main/java/com/github/esrrhs/javalua/LuaTm.java": "947edfe92aefe2ef86904db0e7033c3e6de7a03d25c17e5fb405269bcbaa3702",
+    "src/main/java/com/github/esrrhs/javalua/LuaUserdata.java": "acf552c90bb6684f9aa35cba36f2bfe2af29f227ffe24b3042a107ee7f97c62c",
+    "src/main/java/com/github/esrrhs/javalua/LuaValue.java": "1e4b40c9d6c2a86d05b07842ddabc6193b8ee931fcd3aefc1a7348f92bfa0d9e",
+    "src/main/java/com/github/esrrhs/javalua/LuaYield.java": "b89840e963d03bb149241c6952b0c78ba7fa953c637345103d91ef978333c29f",
+    "src/main/java/com/github/esrrhs/javalua/MathLib.java": "c677ec8edbef0fd48d2c6346b792ebe2085c688f672b194e08f19b96c2b7250a",
+    "src/main/java/com/github/esrrhs/javalua/NativeBridge.java": "60ef028253906adfdce3a547ad4456de3b290f550caef9af56fcb4dad3d1114f",
+    "src/main/java/com/github/esrrhs/javalua/NativeHook.java": "721f500c35d98c8e0debdad1c0e70f7f7344ef5fcd124e0b2c1461506361fd1e",
+    "src/main/java/com/github/esrrhs/javalua/NativeKFunction.java": "d53c019ab4387f39ed7e183e7f5b64ec3f6da654aad102da979fa67ee68b4f67",
+    "src/main/java/com/github/esrrhs/javalua/NativeMemory.java": "c20a94b30e6066e254e429882b520d308980833235d6c9e83e77afa5e4c4c491",
+    "src/main/java/com/github/esrrhs/javalua/Numeral.java": "1082bc1e606ec3e0ec3a2097816caae3a58de342c05d9a6f0459031ce931fb8e",
+    "src/main/java/com/github/esrrhs/javalua/OpCode.java": "18876017f3c151b9fa0abec33fb284840132f4f25cc79fe92282a85309988449",
+    "src/main/java/com/github/esrrhs/javalua/OsLib.java": "d195d7c9d7633c09b662657d0b72c189c3fc7d01362b8d3c52c7ab07bb39f448",
+    "src/main/java/com/github/esrrhs/javalua/PackageLib.java": "ed9a25789dac1c9c9a9a45ebfba736a318a1c3b53861c9de3eea99cb0837ae95",
+    "src/main/java/com/github/esrrhs/javalua/Parser.java": "b74dafb37985768d0e21a9961e75002ea7624076ef2385cd42a7c1d1f3ff51a5",
+    "src/main/java/com/github/esrrhs/javalua/Proto.java": "23225612540c6997aa913ab2705f4a0841ee773bd87d300d4f81d40bfbc30aeb",
+    "src/main/java/com/github/esrrhs/javalua/StringLib.java": "8614d3e8c0cc3caf1887f01e6ae6db744635b0c6653b557fcdec408e6ce78a28",
+    "src/main/java/com/github/esrrhs/javalua/StringPack.java": "c11f5ad2ea8b9c426c0771e1154049ebc9529fd3353720163adc7ef2dc3f2044",
+    "src/main/java/com/github/esrrhs/javalua/StringPool.java": "5d10a28cc5c99d22d331616bbc96294cb8cacc080e820fb916656d53543ca418",
+    "src/main/java/com/github/esrrhs/javalua/TableLib.java": "f0d6db1e3b0c5e9558ef7611ba148d2056a718f93f2adb28a2b0011a739aca11",
+    "src/main/java/com/github/esrrhs/javalua/Tm.java": "9efed72c0e6d29d97d0b1e4d89ff7cfe25374971002ca21934cacc422ec4788c",
+    "src/main/java/com/github/esrrhs/javalua/Undump.java": "93c25571dcabe3246a2099b63e938a4312d1ef38cc63732ffc5564684cbe68ea",
+    "src/main/java/com/github/esrrhs/javalua/UpVal.java": "a5f0dffbf86b734455af2ba68c9cce4db036a688e70845041ceaa268e343656e",
+    "src/main/java/com/github/esrrhs/javalua/Utf8Lib.java": "e623bfbcdb304e035567e6f8c7b0526e561957cc64edd0fd3faa47adf7bc5d54",
+    "src/main/java/com/github/esrrhs/javalua/Vm.java": "101bbcb5ddb50af6a91535f1b3cc6558f905fd4c058266615e2fb57a91c6fded",
+    "src/main/java/com/github/esrrhs/javalua/Zio.java": "1a909962676417481424d2a0328c0c9c71eaf4b133998559d92c0f2dbb749750"
+  },
+  "cold": [
+    {
+      "setup_execute_close_ns": 66748894,
+      "checksum": 42,
+      "process_wall_ns": 135631646,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 67131441,
+      "checksum": 42,
+      "process_wall_ns": 137104316,
+      "stderr": ""
+    }
+  ],
+  "forks": [
+    {
+      "index": 0,
+      "metadata": {
+        "native_available": false
+      },
+      "samples": [
+        {
+          "workload": "arithmetic",
+          "sample": 0,
+          "elapsed_ns": 46207,
+          "allocated_bytes": 1064,
+          "gc_collections": 0,
+          "heap_before_bytes": 6342488,
+          "heap_after_bytes": 6342488,
+          "checksum": 198,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 1103538
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 1,
+          "elapsed_ns": 46181,
+          "allocated_bytes": 1064,
+          "gc_collections": 0,
+          "heap_before_bytes": 6342488,
+          "heap_after_bytes": 6342488,
+          "checksum": 198,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 1103538
+        },
+        {
+          "workload": "tables",
+          "sample": 0,
+          "elapsed_ns": 166564,
+          "allocated_bytes": 16304,
+          "gc_collections": 0,
+          "heap_before_bytes": 6342488,
+          "heap_after_bytes": 6342488,
+          "checksum": 198,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 179595
+        },
+        {
+          "workload": "tables",
+          "sample": 1,
+          "elapsed_ns": 172080,
+          "allocated_bytes": 16304,
+          "gc_collections": 0,
+          "heap_before_bytes": 6342488,
+          "heap_after_bytes": 6342488,
+          "checksum": 198,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 179595
+        },
+        {
+          "workload": "strings",
+          "sample": 0,
+          "elapsed_ns": 356909,
+          "allocated_bytes": 14440,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 618,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 2786645
+        },
+        {
+          "workload": "strings",
+          "sample": 1,
+          "elapsed_ns": 362187,
+          "allocated_bytes": 14440,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 618,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 2786645
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 0,
+          "elapsed_ns": 20907,
+          "allocated_bytes": 1936,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 77,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 23570
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 1,
+          "elapsed_ns": 47392,
+          "allocated_bytes": 1936,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 77,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 23570
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 0,
+          "elapsed_ns": 29589,
+          "allocated_bytes": 2120,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 77,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 50143
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 1,
+          "elapsed_ns": 37427,
+          "allocated_bytes": 2120,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 77,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 50143
+        },
+        {
+          "workload": "allocations",
+          "sample": 0,
+          "elapsed_ns": 47919,
+          "allocated_bytes": 5112,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 77,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 58501
+        },
+        {
+          "workload": "allocations",
+          "sample": 1,
+          "elapsed_ns": 50279,
+          "allocated_bytes": 5112,
+          "gc_collections": 0,
+          "heap_before_bytes": 7391064,
+          "heap_after_bytes": 7391064,
+          "checksum": 77,
+          "warmup_batches": 1,
+          "warmup_elapsed_ns": 58501
+        }
+      ],
+      "stderr": ""
+    }
+  ],
+  "reference": {
+    "path": "/workspace/github/javalua/target/lua53/src/lua",
+    "version": "Lua 5.3.4  Copyright (C) 1994-2017 Lua.org, PUC-Rio\n",
+    "sha256": "cfa2c3247a653a88e8d55a8c589f074cd5e828adf2f20bce6dcde67ab5d9cbdb",
+    "checksums": {
+      "arithmetic": 198,
+      "tables": 198,
+      "strings": 618,
+      "allocations": 77
+    }
+  },
+  "summary": {
+    "cold_process_wall_ms": {
+      "count": 2,
+      "min": 135.631646,
+      "p25": 135.9998135,
+      "median": 136.367981,
+      "p75": 136.7361485,
+      "max": 137.104316
+    },
+    "allocations": {
+      "sample_ms": {
+        "count": 2,
+        "min": 0.047919,
+        "p25": 0.048509000000000004,
+        "median": 0.049099000000000004,
+        "p75": 0.049689,
+        "max": 0.050279
+      },
+      "ns_per_logical_iteration": {
+        "count": 2,
+        "min": 4356.272727272727,
+        "p25": 4409.909090909091,
+        "median": 4463.545454545454,
+        "p75": 4517.181818181818,
+        "max": 4570.818181818182
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 2,
+        "min": 464.72727272727275,
+        "p25": 464.72727272727275,
+        "median": 464.72727272727275,
+        "p75": 464.72727272727275,
+        "max": 464.72727272727275
+      },
+      "fork_median_ms": [
+        0.049099000000000004
+      ],
+      "gc_collections": 0
+    },
+    "arithmetic": {
+      "sample_ms": {
+        "count": 2,
+        "min": 0.046181,
+        "p25": 0.0461875,
+        "median": 0.046194,
+        "p75": 0.0462005,
+        "max": 0.046207
+      },
+      "ns_per_logical_iteration": {
+        "count": 2,
+        "min": 4198.272727272727,
+        "p25": 4198.863636363636,
+        "median": 4199.454545454546,
+        "p75": 4200.045454545455,
+        "max": 4200.636363636364
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 2,
+        "min": 96.72727272727273,
+        "p25": 96.72727272727273,
+        "median": 96.72727272727273,
+        "p75": 96.72727272727273,
+        "max": 96.72727272727273
+      },
+      "fork_median_ms": [
+        0.046194
+      ],
+      "gc_collections": 0
+    },
+    "java-to-lua": {
+      "sample_ms": {
+        "count": 2,
+        "min": 0.020907,
+        "p25": 0.027528249999999997,
+        "median": 0.0341495,
+        "p75": 0.040770749999999994,
+        "max": 0.047392
+      },
+      "ns_per_logical_iteration": {
+        "count": 2,
+        "min": 1900.6363636363637,
+        "p25": 2502.568181818182,
+        "median": 3104.5,
+        "p75": 3706.431818181818,
+        "max": 4308.363636363636
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 2,
+        "min": 176.0,
+        "p25": 176.0,
+        "median": 176.0,
+        "p75": 176.0,
+        "max": 176.0
+      },
+      "fork_median_ms": [
+        0.0341495
+      ],
+      "gc_collections": 0
+    },
+    "lua-to-java": {
+      "sample_ms": {
+        "count": 2,
+        "min": 0.029589,
+        "p25": 0.0315485,
+        "median": 0.033508,
+        "p75": 0.0354675,
+        "max": 0.037427
+      },
+      "ns_per_logical_iteration": {
+        "count": 2,
+        "min": 2689.909090909091,
+        "p25": 2868.0454545454545,
+        "median": 3046.181818181818,
+        "p75": 3224.318181818182,
+        "max": 3402.4545454545455
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 2,
+        "min": 192.72727272727272,
+        "p25": 192.72727272727272,
+        "median": 192.72727272727272,
+        "p75": 192.72727272727272,
+        "max": 192.72727272727272
+      },
+      "fork_median_ms": [
+        0.033508
+      ],
+      "gc_collections": 0
+    },
+    "strings": {
+      "sample_ms": {
+        "count": 2,
+        "min": 0.356909,
+        "p25": 0.35822849999999995,
+        "median": 0.359548,
+        "p75": 0.3608675,
+        "max": 0.362187
+      },
+      "ns_per_logical_iteration": {
+        "count": 2,
+        "min": 32446.272727272728,
+        "p25": 32566.227272727272,
+        "median": 32686.18181818182,
+        "p75": 32806.13636363637,
+        "max": 32926.09090909091
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 2,
+        "min": 1312.7272727272727,
+        "p25": 1312.7272727272727,
+        "median": 1312.7272727272727,
+        "p75": 1312.7272727272727,
+        "max": 1312.7272727272727
+      },
+      "fork_median_ms": [
+        0.359548
+      ],
+      "gc_collections": 0
+    },
+    "tables": {
+      "sample_ms": {
+        "count": 2,
+        "min": 0.166564,
+        "p25": 0.167943,
+        "median": 0.169322,
+        "p75": 0.170701,
+        "max": 0.17208
+      },
+      "ns_per_logical_iteration": {
+        "count": 2,
+        "min": 15142.181818181818,
+        "p25": 15267.545454545454,
+        "median": 15392.909090909092,
+        "p75": 15518.272727272728,
+        "max": 15643.636363636364
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 2,
+        "min": 1482.1818181818182,
+        "p25": 1482.1818181818182,
+        "median": 1482.1818181818182,
+        "p75": 1482.1818181818182,
+        "max": 1482.1818181818182
+      },
+      "fork_median_ms": [
+        0.169322
+      ],
+      "gc_collections": 0
+    }
+  }
+}

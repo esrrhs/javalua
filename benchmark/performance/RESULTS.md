@@ -187,3 +187,12 @@ No CI/POM integration conflicts: cherry-pick the local performance commit, then
 optionally add README's fast unit/smoke commands to an existing CI lane. Do not
 make baseline elapsed times a gate. This stream did not push or integrate into
 master. No GC compatibility promise is added.
+
+## Integration correctness follow-up
+
+`evidence/integrated-smoke.json` reruns all six checksummed workloads and portable
+stock-Lua checks after resource controls and continuation fixes were integrated.
+It is a correctness smoke, not a new warmed baseline or before/after optimization
+comparison. Earlier timing baselines predate the opt-in-control dispatch polling.
+The CI maintenance job runs this lightweight correctness protocol without timing
+thresholds; no speedup is claimed.

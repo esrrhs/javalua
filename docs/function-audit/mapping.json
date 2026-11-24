@@ -436,6 +436,16 @@
       ],
       "category": "port",
       "note": "File context only; no per-declaration semantic review claimed."
+    },
+    "ExecutionControl": {
+      "c_files": [],
+      "category": "java-helper",
+      "note": "Opt-in host resource policy; no stock C counterpart or strict-default semantic equivalence claim."
+    },
+    "ExecutionAbortedError": {
+      "c_files": [],
+      "category": "java-helper",
+      "note": "Host-only terminal abort signal, intentionally outside Lua errors; disabled in default execution."
     }
   },
   "declarations": {
@@ -1054,56 +1064,55 @@
         "ldo.c::luaD_pcall"
       ],
       "mapping_basis": "manual-symbol",
-      "status": "behavior-tested",
-      "note": "Ordinary yield/resume pcall results and xpcall handler witnessed; every unwind/error branch not covered.",
-      "java_sha256": "e070922cea1d45f9f3fb8c84e53be46a182417b3ebd9337e744753b078ef1ab5",
-      "c_sha256": {
-        "ldo.c::luaD_pcall": "28b345cf97452158647c8ec12951037cbebaee70408d3c275c2eaf05a3853c6c"
-      },
-      "evidence": [
-        {
-          "path": "docs/function-audit/AUDIT.md"
-        },
-        {
-          "path": "src/test/java/com/github/esrrhs/javalua/FunctionAuditEvidenceTest.java",
-          "symbol": "protectedCallContinuationResults",
-          "sha256": "9630f8eed8dafb5ecebecc9364b9026e12a4de62fda028f4ce6c6bb20fb5d6ea"
-        }
-      ]
+      "status": "unreviewed",
+      "note": "Integration changed this body; prior scoped review withdrawn. New regression coverage is not a whole-function re-review.",
+      "evidence": []
     },
     "src/main/java/com/github/esrrhs/javalua/LuaState.java::LuaState#finishCcall(CallInfo)": {
       "c_targets": [
         "ldo.c::finishCcall"
       ],
       "mapping_basis": "manual-symbol",
-      "status": "structure-mapped",
-      "note": "5.4-shaped close scaffolding and null-continuation fallback differ structurally; reachability remains OPEN.",
-      "java_sha256": "7d6ba7bbff46e2692a5a8f264f67dffab408242927e2fcc9d9a5d034e091cfdb",
+      "status": "behavior-tested",
+      "java_sha256": "423f31471135774631dfa6dc15e30d130cfbbc193e2a59a00e9f5fd56b1b68a3",
       "c_sha256": {
         "ldo.c::finishCcall": "07eff01aaa9bcd497b0df4c4e526c3c8b8103e2517f07254298bed655cc7df94"
       },
       "evidence": [
         {
-          "path": "docs/function-audit/AUDIT.md"
+          "path": "docs/function-audit/CONTINUATIONS.md"
+        },
+        {
+          "path": "src/test/java/com/github/esrrhs/javalua/NativeContinuationAuditTest.java",
+          "symbol": "continuationContract",
+          "sha256": "318b1791c7b01f7f05c2021532a5f6aad5b542d15b37a34467d241dd7df5db8c"
         }
-      ]
+      ],
+      "note": "Scoped integration review and native/Lua witnesses after fixing reproduced recovery defects; not all continuation/hook/ABI branches proved."
     },
     "src/main/java/com/github/esrrhs/javalua/LuaState.java::LuaState#finishPcallK(CallInfo)": {
       "c_targets": [
+        "ldo.c::recover",
         "ldo.c::finishCcall"
       ],
       "mapping_basis": "manual-symbol",
-      "status": "structure-mapped",
-      "note": "Java recovery split relates to C finishCcall/recover; close scaffolding/continuation invariants remain OPEN.",
-      "java_sha256": "664d4deb4382b4f1c83b631c7de216882557a595d9192963e281ccb4d0e7baeb",
+      "status": "behavior-tested",
+      "java_sha256": "ad2727950cbf2ad57d431f292103a3965a052c3c13257ad16e6fc41acb288e3d",
       "c_sha256": {
+        "ldo.c::recover": "ec309c87224b6ad51c5c13d5605c30a6bc0d66a2a2ec80642c27d1bf75bd9068",
         "ldo.c::finishCcall": "07eff01aaa9bcd497b0df4c4e526c3c8b8103e2517f07254298bed655cc7df94"
       },
       "evidence": [
         {
-          "path": "docs/function-audit/AUDIT.md"
+          "path": "docs/function-audit/CONTINUATIONS.md"
+        },
+        {
+          "path": "src/test/java/com/github/esrrhs/javalua/ContinuationAuditTest.java",
+          "symbol": "failingHandlerAfterYieldUsesErrorHandlingStatus",
+          "sha256": "9e3b1f5a715ea66ea1f5d50ec1f57ece85540d617e70f752da17edfdcd5396ea"
         }
-      ]
+      ],
+      "note": "Scoped integration review and native/Lua witnesses after fixing reproduced recovery defects; not all continuation/hook/ABI branches proved."
     },
     "src/main/java/com/github/esrrhs/javalua/Undump.java::Undump#loadConstants(LoadState,Proto)": {
       "c_targets": [
@@ -2014,6 +2023,49 @@
       ],
       "mapping_basis": "manual-type-context",
       "note": "C representation/callback name identified; no whole-type behavioral review claimed."
+    },
+    "src/main/java/com/github/esrrhs/javalua/BaseLib.java::BaseLib#openRestricted(LuaState)": {
+      "category": "java-helper",
+      "status": "unreviewed",
+      "c_targets": [],
+      "mapping_basis": "host-only-opt-in",
+      "evidence": [],
+      "note": "Host-only opt-in capability/resource API; not a Lua 5.3.4 counterpart."
+    },
+    "src/main/java/com/github/esrrhs/javalua/LuaState.java::LuaState#executionControl()": {
+      "category": "java-helper",
+      "status": "unreviewed",
+      "c_targets": [],
+      "mapping_basis": "host-only-opt-in",
+      "evidence": [],
+      "note": "Host-only opt-in capability/resource API; not a Lua 5.3.4 counterpart."
+    },
+    "src/main/java/com/github/esrrhs/javalua/LuaLibs.java::LuaLibs#newRestricted(java.util.Set<RestrictedLibrary>)": {
+      "category": "java-helper",
+      "status": "unreviewed",
+      "c_targets": [],
+      "mapping_basis": "host-only-opt-in",
+      "evidence": [],
+      "note": "Host-only opt-in capability/resource API; not a Lua 5.3.4 counterpart."
+    },
+    "src/main/java/com/github/esrrhs/javalua/LuaState.java::LuaState#pcallNoYield(int,int,LuaValue)": {
+      "c_targets": [
+        "lapi.c::f_call"
+      ],
+      "mapping_basis": "manual-symbol",
+      "status": "unreviewed",
+      "evidence": [],
+      "note": "Java adaptation used by new scoped continuation witnesses; broad helper review not claimed."
+    },
+    "src/main/java/com/github/esrrhs/javalua/LuaState.java::LuaState#prepareResumeError(LuaError)": {
+      "c_targets": [
+        "ldebug.c::luaG_errormsg",
+        "ldo.c::recover"
+      ],
+      "mapping_basis": "manual-symbol",
+      "status": "unreviewed",
+      "evidence": [],
+      "note": "Java adaptation used by new scoped continuation witnesses; broad helper review not claimed."
     }
   }
 }

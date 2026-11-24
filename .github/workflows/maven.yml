@@ -149,3 +149,35 @@ jobs:
         name: spotbugs-report
         path: target/spotbugsXml.xml
         if-no-files-found: ignore
+
+  maintenance:
+    runs-on: ubuntu-latest
+    name: Function audit drift and performance correctness
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-java@v6
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
+    - name: Prepare exact stock reference and pinned audit parsers
+      run: |
+        sh tools/prepare_reference.sh
+        python3 -m venv target/audit-venv
+        target/audit-venv/bin/pip install -r tools/function_audit/requirements.txt
+    - name: Function audit checker contracts and source drift
+      run: |
+        target/audit-venv/bin/python -m unittest discover -s tools/function_audit -p 'test_*.py' -v
+        target/audit-venv/bin/python tools/function_audit/inventory.py check --compiler-cross-check
+    - name: Performance harness correctness only (no timing gate)
+      run: |
+        python3 -m unittest discover -s benchmark/performance -p 'test_*.py' -v
+        ./mvnw -B -DskipTests compile
+        python3 benchmark/performance/run.py --smoke --skip-build --n 11 --reference target/lua53/src/lua --output target/performance-ci.json
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: performance-correctness
+        path: target/performance-ci.json
+        if-no-files-found: ignore

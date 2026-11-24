@@ -7,6 +7,7 @@ This is a **starting audit ledger, not a certificate of strict equivalence**. It
 - [`mapping.json`](mapping.json): maintained file contexts and explicit declaration overrides. Edit this when reviewing a function or classifying a new source file.
 - [`inventory.json`](inventory.json): reproducible machine-readable Java declarations, source fingerprints, C function/macro census, targets/candidates and evidence. IDs include source path, nested owner and parameter types; overloads stay separate.
 - [`SUMMARY.md`](SUMMARY.md): generated denominators, per-file progress and reverse C triage queue.
+- [`CONTINUATIONS.md`](CONTINUATIONS.md): integration reachability review and six reproduced/fixed continuation defects.
 - [`AUDIT.md`](AUDIT.md): actual representative review, limitations, commands and remaining work.
 - [`../../tools/function_audit/`](../../tools/function_audit/): generator/checker, pinned parser dependencies and checker contract tests.
 
@@ -14,7 +15,7 @@ The old `target/reports/pairwise-534-compare.md` was **not present in this check
 
 ## Exact comparison baseline
 
-Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5`. After integration, use the complete production-source SHA-256 manifest, not HEAD equality (documentation/test commits legitimately change HEAD).
+Initial Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5`; the checked-in inventory has been regenerated after four-stream integration and continuation fixes. After integration, use the complete production-source SHA-256 manifest, not HEAD equality (documentation/test commits legitimately change HEAD).
 
 C is the **unpatched PUC-Rio Lua 5.3.4** archive at <https://www.lua.org/ftp/lua-5.3.4.tar.gz>, SHA-256 `f681aa518233bc407e23acf0f5887c884f17436f000d453b2491a9f11a52400c`. Before every generation/check, the checker verifies the archive hash and byte-compares all extracted `.c`, `.h` and `src/Makefile` files against that archive. It does not trust an arbitrary local `lua` version string.
 
@@ -39,7 +40,7 @@ After a deliberate source change:
 1. Inspect added/deleted/changed declarations and all file hashes. Add file classifications in `mapping.json`; do not silently classify a new file as aligned.
 2. Review affected evidence. If reviewed function/C/test hashes changed, **downgrade to `unreviewed`** (remove old evidence/fingerprint claims), or repeat the scoped audit and deliberately update hashes. The tool refuses to silently retain a stale review.
 3. Run `inventory.py update`, inspect `git diff -- docs/function-audit`, then run `check` and tests. Updating a snapshot acknowledges drift, not semantic alignment.
-4. Commit source and updated ledger together. A CI job can use the `check` command after reference preparation; this change deliberately does not edit the parallel CI work.
+4. Commit source and updated ledger together. The additive maintenance CI job runs checker contracts, `check --compiler-cross-check`, and timing-free performance correctness smoke after reference preparation.
 
 Examples to query the JSON without additional dependencies:
 
