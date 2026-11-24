@@ -1,0 +1,2021 @@
+{
+  "schema": 1,
+  "smoke": false,
+  "config": {
+    "forks": 3,
+    "warmup": 15,
+    "samples": 9,
+    "n": 10000,
+    "batch": 3,
+    "cold": 7
+  },
+  "command": [
+    "/home/box/jdk/jdk-21.0.13+9/bin/java",
+    "-Xms256m",
+    "-Xmx256m",
+    "-Djavalua.nonative=true",
+    "-cp",
+    "/workspace/github/javalua-performance/target/classes:/workspace/github/javalua-performance/target/performance-classes",
+    "com.github.esrrhs.javalua.PerformanceHarness"
+  ],
+  "invocation": [
+    "benchmark/performance/run.py",
+    "--skip-build",
+    "--output",
+    "benchmark/performance/evidence/baseline-a.json"
+  ],
+  "timestamp": "2026-11-24T18:33:08.684819+08:00",
+  "environment": {
+    "java": "openjdk version \"21.0.13\" 2026-10-20 LTS\nOpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.13+9 (build 21.0.13+9-LTS, mixed mode, sharing)\n",
+    "javac": "javac 21.0.13\n",
+    "platform": "Linux-6.12.113+-x86_64-with-glibc2.41",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "cpu_count": 8,
+    "affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "load_start": [
+      0.92822265625,
+      1.00244140625,
+      0.99169921875
+    ],
+    "meminfo": "MemTotal:       16386416 kB\nMemFree:         4763544 kB\nMemAvailable:    9433784 kB\nBuffers:          603804 kB\nCached:          3288704 kB\nSwapCached:            0 kB\nActive:           975668 kB\nInactive:        7690128 kB\nActive(anon):       3872 kB\nInactive(anon):  5148092 kB\nActive(file):     971796 kB\nInactive(file):  2542036 kB\nUnevictable:          16 kB\nMlocked:              16 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:            237308 kB\nWriteback:            44 kB\nAnonPages:       4773304 kB\nMapped:           269368 kB\nShmem:            378692 kB\nKReclaimable:    1514816 kB\nSlab:            1698428 kB\nSReclaimable:    1514816 kB\nSUnreclaim:       183612 kB\nKernelStack:       25620 kB\nPageTables:       142136 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:     8193208 kB\nCommitted_AS:   12159848 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       29040 kB\nVmallocChunk:          0 kB\nPercpu:             3552 kB\nAnonHugePages:         0 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:       18432 kB\nDirectMap2M:     3127296 kB\nDirectMap1G:    15728640 kB\n",
+    "revision": "89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5",
+    "status": "?? benchmark/performance/\n",
+    "external_java_options": {},
+    "load_end": [
+      1.57470703125,
+      1.13525390625,
+      1.03515625
+    ]
+  },
+  "source_sha256": {
+    "benchmark/performance/PerformanceHarness.java": "9adad992ef3a9472d82593bc2335cc6c814f7c0ece32728a94664367f440e6c5",
+    "benchmark/performance/run.py": "81b8862b4c83b367128adce50aa90a50208c36f71bc943ada4f9ba2674bce8f6",
+    "benchmark/performance/workloads/allocations.lua": "5f9911d50aea403831a35e40af747dd25d8839596f39f71bb0f1fd5f040e4a6f",
+    "benchmark/performance/workloads/arithmetic.lua": "4b68c35135bbd15ebeec7c1da96224873e8d405444dd07ef39108c8d56fe95aa",
+    "benchmark/performance/workloads/java-to-lua.lua": "fa5fee26cabc965a3f4733db448a68fa886ac4d9a7bae46a36f40fa029344a8f",
+    "benchmark/performance/workloads/lua-to-java.lua": "23646b925ff536ef59eac0965b10dc1efe014a02698dc4f294cfa42a5d5a2bf8",
+    "benchmark/performance/workloads/strings.lua": "a811e89fed03ea92d161559ec4fb70185fdf2e841f44696589d596bf22e77748",
+    "benchmark/performance/workloads/tables.lua": "ecb9943123f9382cf130a5d42f1929c6ad1da918c54e3705da0c5441863c4a79",
+    "pom.xml": "5cafe96cfd73632cf0790f402977e331711ac38c7b8027f18ff50ee0dcb713a6",
+    "src/main/java/com/github/esrrhs/javalua/Api.java": "130c6b29479ad23f11437ff92ccdf3bcb5923a9dc5eb8398860a227931964692",
+    "src/main/java/com/github/esrrhs/javalua/Arith.java": "b64d19b1e29f61773acb0fff7ba2f44f7fb229cbd8ffe9177df9efc153898a26",
+    "src/main/java/com/github/esrrhs/javalua/BaseLib.java": "9df103a40638531ab08bd308634dd96cdea274856d235c484215d7d2c4fd0a14",
+    "src/main/java/com/github/esrrhs/javalua/BitLib.java": "8038df6844712db8c88a0af774a6dc7b39620fa4b3141be1a23dc39b6fbedf44",
+    "src/main/java/com/github/esrrhs/javalua/CApi.java": "72686e3a60f73e228bcd54d61c835bfbe66b4c0308e461d537bf31dcc0c196a6",
+    "src/main/java/com/github/esrrhs/javalua/CClosure.java": "7742d5dd9a828e47ef9061530efb1d0238ef78e56cbf2bc8ce62ae422f7b3ebd",
+    "src/main/java/com/github/esrrhs/javalua/CallInfo.java": "26934dfc47f55f90a4065e03fa1a553a3f0cf24f04b87cae5bc12638ac55d456",
+    "src/main/java/com/github/esrrhs/javalua/Codegen.java": "cf37b4acc74a1a5d5b3487482817cd824ef5c7a33d149bfeada5cb36e4d51fde",
+    "src/main/java/com/github/esrrhs/javalua/CoroutineLib.java": "1017f431f8b022510a06079a0e1e9cd94c0d23baf141f037835bbd353e85e3ef",
+    "src/main/java/com/github/esrrhs/javalua/DebugLib.java": "d25a1ce71ee687d725b2eb1037e4d66aa2aceaf1ee2ad2fb3c6f30846d44fce3",
+    "src/main/java/com/github/esrrhs/javalua/Dump.java": "fb919801cf2277067611e4bef4d44444f98fd99f2a8b098ed6ea2eb7fa929c5d",
+    "src/main/java/com/github/esrrhs/javalua/DynData.java": "356e2045cc9cc458f03db82caf924061251df7acb1ac4ff523de59f65a76747f",
+    "src/main/java/com/github/esrrhs/javalua/ExpDesc.java": "513c200b59d05096bf2852a069e028996a238a46323c92c45458df9b48aa1d90",
+    "src/main/java/com/github/esrrhs/javalua/FuncState.java": "f3d2d895eaf164b5ceea04a01d1930d865a1bdec20696ee8efc219c132ed4ba0",
+    "src/main/java/com/github/esrrhs/javalua/GcSentinel.java": "88d6ce71f8fc5a4b441befcaa5fbda6430594de9cfde149d5f88b7bc4e777c1b",
+    "src/main/java/com/github/esrrhs/javalua/Generated.java": "9bd5b13d9a3477574d75d00d9a893d0c32aca768f0effe70f070a446efeb6094",
+    "src/main/java/com/github/esrrhs/javalua/IoLib.java": "bbce6dd98ff83157d0c355349b411f33ef8fba433e9d9131d81a42d0043aa8d5",
+    "src/main/java/com/github/esrrhs/javalua/LCType.java": "6f1e132f54c8013d27e0565c0e09741f4c38c8823a7e5b0da9074b9b6c1b0922",
+    "src/main/java/com/github/esrrhs/javalua/LClosure.java": "7e869204d8b90ea3c54af67be839c757f8691db1d5fa555d3e9d5c2ed52ff697",
+    "src/main/java/com/github/esrrhs/javalua/Lexer.java": "1cd309d3d2d960610b1e7c61e605f79d5e68847dc098129afa662273a43b3eeb",
+    "src/main/java/com/github/esrrhs/javalua/Lua.java": "8ac4963a1dc36dc243bbcc194f22fa7ac24be9e87e56bea8ac707f56b0dc6da7",
+    "src/main/java/com/github/esrrhs/javalua/LuaAux.java": "20005441529b93e2d34a236fb794ba34e6f6b0096a52356d7d12f35fbcd4996f",
+    "src/main/java/com/github/esrrhs/javalua/LuaError.java": "9c702de5ef70ecede7d2259859901daeb83512eb6c865aa09d79e260bd3a4194",
+    "src/main/java/com/github/esrrhs/javalua/LuaFunction.java": "63734aaf743af1b1f5a8fd8e65865fadbfa2a7293f36cddd6a6e41da0665828c",
+    "src/main/java/com/github/esrrhs/javalua/LuaHook.java": "8dbe7a4f27ba1975c7a6bd0c259e3682daae90bbdd7bcd5806d0fda3536b6361",
+    "src/main/java/com/github/esrrhs/javalua/LuaKFunction.java": "e4035a5e563bbfdad246c13d1926e81350f63fca817538a0a6d73ba8f0a7a0e1",
+    "src/main/java/com/github/esrrhs/javalua/LuaLibs.java": "c0edb3b5262ec050de9f48ed4724165e45e55cddf062341909d61f0734cd281a",
+    "src/main/java/com/github/esrrhs/javalua/LuaNativeFunction.java": "68823cf5bd91d42c4e7d9a724eefbeae935780bf554ece3f6d616a691fe4e041",
+    "src/main/java/com/github/esrrhs/javalua/LuaState.java": "4423438fcb3f865453e98cdea899b9ed0b0dd2648de94ed5da174d695f19a673",
+    "src/main/java/com/github/esrrhs/javalua/LuaString.java": "673568c7fc8829ff8f18a7df59686324d408c996b2caabd4963f5e89bb90ba14",
+    "src/main/java/com/github/esrrhs/javalua/LuaTable.java": "e45168ff61650b76c86761c086e09d6fadeb3c8d06635dc9baa96de7bb0118aa",
+    "src/main/java/com/github/esrrhs/javalua/LuaTm.java": "947edfe92aefe2ef86904db0e7033c3e6de7a03d25c17e5fb405269bcbaa3702",
+    "src/main/java/com/github/esrrhs/javalua/LuaUserdata.java": "acf552c90bb6684f9aa35cba36f2bfe2af29f227ffe24b3042a107ee7f97c62c",
+    "src/main/java/com/github/esrrhs/javalua/LuaValue.java": "1e4b40c9d6c2a86d05b07842ddabc6193b8ee931fcd3aefc1a7348f92bfa0d9e",
+    "src/main/java/com/github/esrrhs/javalua/LuaYield.java": "b89840e963d03bb149241c6952b0c78ba7fa953c637345103d91ef978333c29f",
+    "src/main/java/com/github/esrrhs/javalua/MathLib.java": "c677ec8edbef0fd48d2c6346b792ebe2085c688f672b194e08f19b96c2b7250a",
+    "src/main/java/com/github/esrrhs/javalua/NativeBridge.java": "60ef028253906adfdce3a547ad4456de3b290f550caef9af56fcb4dad3d1114f",
+    "src/main/java/com/github/esrrhs/javalua/NativeHook.java": "721f500c35d98c8e0debdad1c0e70f7f7344ef5fcd124e0b2c1461506361fd1e",
+    "src/main/java/com/github/esrrhs/javalua/NativeKFunction.java": "dab4c2cd624fbc2e0236b78ff60868c3ae700a7cb79d09e7a92c87bc2bdabc96",
+    "src/main/java/com/github/esrrhs/javalua/NativeMemory.java": "c20a94b30e6066e254e429882b520d308980833235d6c9e83e77afa5e4c4c491",
+    "src/main/java/com/github/esrrhs/javalua/Numeral.java": "1082bc1e606ec3e0ec3a2097816caae3a58de342c05d9a6f0459031ce931fb8e",
+    "src/main/java/com/github/esrrhs/javalua/OpCode.java": "18876017f3c151b9fa0abec33fb284840132f4f25cc79fe92282a85309988449",
+    "src/main/java/com/github/esrrhs/javalua/OsLib.java": "d195d7c9d7633c09b662657d0b72c189c3fc7d01362b8d3c52c7ab07bb39f448",
+    "src/main/java/com/github/esrrhs/javalua/PackageLib.java": "ed9a25789dac1c9c9a9a45ebfba736a318a1c3b53861c9de3eea99cb0837ae95",
+    "src/main/java/com/github/esrrhs/javalua/Parser.java": "b74dafb37985768d0e21a9961e75002ea7624076ef2385cd42a7c1d1f3ff51a5",
+    "src/main/java/com/github/esrrhs/javalua/Proto.java": "23225612540c6997aa913ab2705f4a0841ee773bd87d300d4f81d40bfbc30aeb",
+    "src/main/java/com/github/esrrhs/javalua/StringLib.java": "8614d3e8c0cc3caf1887f01e6ae6db744635b0c6653b557fcdec408e6ce78a28",
+    "src/main/java/com/github/esrrhs/javalua/StringPack.java": "c11f5ad2ea8b9c426c0771e1154049ebc9529fd3353720163adc7ef2dc3f2044",
+    "src/main/java/com/github/esrrhs/javalua/StringPool.java": "5d10a28cc5c99d22d331616bbc96294cb8cacc080e820fb916656d53543ca418",
+    "src/main/java/com/github/esrrhs/javalua/TableLib.java": "f0d6db1e3b0c5e9558ef7611ba148d2056a718f93f2adb28a2b0011a739aca11",
+    "src/main/java/com/github/esrrhs/javalua/Tm.java": "9efed72c0e6d29d97d0b1e4d89ff7cfe25374971002ca21934cacc422ec4788c",
+    "src/main/java/com/github/esrrhs/javalua/Undump.java": "93c25571dcabe3246a2099b63e938a4312d1ef38cc63732ffc5564684cbe68ea",
+    "src/main/java/com/github/esrrhs/javalua/UpVal.java": "a5f0dffbf86b734455af2ba68c9cce4db036a688e70845041ceaa268e343656e",
+    "src/main/java/com/github/esrrhs/javalua/Utf8Lib.java": "e623bfbcdb304e035567e6f8c7b0526e561957cc64edd0fd3faa47adf7bc5d54",
+    "src/main/java/com/github/esrrhs/javalua/Vm.java": "09fcf1e6dbac8247c5deb96dd17eebf8649e0a3b1fa572b0848df8a1b233ffd7",
+    "src/main/java/com/github/esrrhs/javalua/Zio.java": "1a909962676417481424d2a0328c0c9c71eaf4b133998559d92c0f2dbb749750"
+  },
+  "cold": [
+    {
+      "setup_execute_close_ns": 50615248,
+      "checksum": 42,
+      "process_wall_ns": 96821126,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 46271098,
+      "checksum": 42,
+      "process_wall_ns": 91572857,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 52250440,
+      "checksum": 42,
+      "process_wall_ns": 99803460,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 45260389,
+      "checksum": 42,
+      "process_wall_ns": 89802331,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 50805073,
+      "checksum": 42,
+      "process_wall_ns": 99209528,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 50480785,
+      "checksum": 42,
+      "process_wall_ns": 100740722,
+      "stderr": ""
+    },
+    {
+      "setup_execute_close_ns": 46214065,
+      "checksum": 42,
+      "process_wall_ns": 106557265,
+      "stderr": ""
+    }
+  ],
+  "forks": [
+    {
+      "index": 0,
+      "metadata": {
+        "native_available": false
+      },
+      "samples": [
+        {
+          "workload": "arithmetic",
+          "sample": 0,
+          "elapsed_ns": 1139613,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 16566056,
+          "heap_after_bytes": 17614632,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 1,
+          "elapsed_ns": 1140007,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 17614632,
+          "heap_after_bytes": 18663208,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 2,
+          "elapsed_ns": 1136642,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 18663208,
+          "heap_after_bytes": 19711784,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 3,
+          "elapsed_ns": 1112778,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 19711784,
+          "heap_after_bytes": 19711784,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 4,
+          "elapsed_ns": 1130938,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 19711784,
+          "heap_after_bytes": 20760360,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 5,
+          "elapsed_ns": 1294016,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 20760360,
+          "heap_after_bytes": 20760360,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 6,
+          "elapsed_ns": 1141926,
+          "allocated_bytes": 655344,
+          "gc_collections": 0,
+          "heap_before_bytes": 21808936,
+          "heap_after_bytes": 21808936,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 7,
+          "elapsed_ns": 684916,
+          "allocated_bytes": 218864,
+          "gc_collections": 0,
+          "heap_before_bytes": 21808936,
+          "heap_after_bytes": 21808936,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 8,
+          "elapsed_ns": 427214,
+          "allocated_bytes": 624,
+          "gc_collections": 0,
+          "heap_before_bytes": 21808936,
+          "heap_after_bytes": 21808936,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 0,
+          "elapsed_ns": 8583985,
+          "allocated_bytes": 35913896,
+          "gc_collections": 0,
+          "heap_before_bytes": 54440216,
+          "heap_after_bytes": 90091800,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 1,
+          "elapsed_ns": 8174129,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 90091800,
+          "heap_after_bytes": 125743384,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 2,
+          "elapsed_ns": 11774587,
+          "allocated_bytes": 35848416,
+          "gc_collections": 1,
+          "heap_before_bytes": 125743384,
+          "heap_after_bytes": 6613544,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 3,
+          "elapsed_ns": 8211864,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 6613544,
+          "heap_after_bytes": 42265128,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 4,
+          "elapsed_ns": 8513573,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 42265128,
+          "heap_after_bytes": 77916712,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 5,
+          "elapsed_ns": 8067361,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 77916712,
+          "heap_after_bytes": 113568296,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 6,
+          "elapsed_ns": 8392743,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 113568296,
+          "heap_after_bytes": 150268456,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 7,
+          "elapsed_ns": 10612254,
+          "allocated_bytes": 35848416,
+          "gc_collections": 1,
+          "heap_before_bytes": 150268456,
+          "heap_after_bytes": 30373080,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 8,
+          "elapsed_ns": 8606115,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 30373080,
+          "heap_after_bytes": 66024664,
+          "checksum": 450045000
+        },
+        {
+          "workload": "strings",
+          "sample": 0,
+          "elapsed_ns": 13671986,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 12001312,
+          "heap_after_bytes": 36118560,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 1,
+          "elapsed_ns": 14044604,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 37167136,
+          "heap_after_bytes": 61284384,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 2,
+          "elapsed_ns": 13541523,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 61284384,
+          "heap_after_bytes": 87498784,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 3,
+          "elapsed_ns": 13590451,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 87498784,
+          "heap_after_bytes": 112664608,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 4,
+          "elapsed_ns": 13597102,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 112664608,
+          "heap_after_bytes": 136781856,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 5,
+          "elapsed_ns": 15917712,
+          "allocated_bytes": 25047344,
+          "gc_collections": 1,
+          "heap_before_bytes": 136781856,
+          "heap_after_bytes": 3540696,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 6,
+          "elapsed_ns": 14116035,
+          "allocated_bytes": 25388600,
+          "gc_collections": 0,
+          "heap_before_bytes": 3540696,
+          "heap_after_bytes": 29755096,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 7,
+          "elapsed_ns": 13747448,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 29755096,
+          "heap_after_bytes": 53872344,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 8,
+          "elapsed_ns": 13734637,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 53872344,
+          "heap_after_bytes": 79038168,
+          "checksum": 1695000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 0,
+          "elapsed_ns": 1112009,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 130418392,
+          "heap_after_bytes": 133564120,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 1,
+          "elapsed_ns": 1117552,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 133564120,
+          "heap_after_bytes": 135661272,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 2,
+          "elapsed_ns": 1096238,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 136709848,
+          "heap_after_bytes": 138807000,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 3,
+          "elapsed_ns": 1220672,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 138807000,
+          "heap_after_bytes": 141952728,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 4,
+          "elapsed_ns": 1097994,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 141952728,
+          "heap_after_bytes": 145098456,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 5,
+          "elapsed_ns": 1087961,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 145098456,
+          "heap_after_bytes": 148244184,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 6,
+          "elapsed_ns": 1079932,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 148244184,
+          "heap_after_bytes": 150341336,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 7,
+          "elapsed_ns": 1112339,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 150341336,
+          "heap_after_bytes": 153487064,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 8,
+          "elapsed_ns": 1102444,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 153487064,
+          "heap_after_bytes": 156632792,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 0,
+          "elapsed_ns": 1309754,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 44259224,
+          "heap_after_bytes": 47404952,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 1,
+          "elapsed_ns": 1329864,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 47404952,
+          "heap_after_bytes": 49502104,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 2,
+          "elapsed_ns": 1305792,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 49502104,
+          "heap_after_bytes": 52647832,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 3,
+          "elapsed_ns": 1340668,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 52647832,
+          "heap_after_bytes": 55793560,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 4,
+          "elapsed_ns": 1306981,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 55793560,
+          "heap_after_bytes": 58939288,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 5,
+          "elapsed_ns": 1408614,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 58939288,
+          "heap_after_bytes": 61036440,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 6,
+          "elapsed_ns": 1334895,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 61036440,
+          "heap_after_bytes": 64182168,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 7,
+          "elapsed_ns": 1300447,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 64182168,
+          "heap_after_bytes": 67327896,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 8,
+          "elapsed_ns": 1338611,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 67327896,
+          "heap_after_bytes": 70473624,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 0,
+          "elapsed_ns": 3012416,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 59819864,
+          "heap_after_bytes": 70305624,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 1,
+          "elapsed_ns": 3007501,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 70305624,
+          "heap_after_bytes": 79742808,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 2,
+          "elapsed_ns": 3007007,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 79742808,
+          "heap_after_bytes": 89179992,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 3,
+          "elapsed_ns": 3016509,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 89179992,
+          "heap_after_bytes": 99665752,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 4,
+          "elapsed_ns": 3017125,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 99665752,
+          "heap_after_bytes": 109102936,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 5,
+          "elapsed_ns": 3174775,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 109102936,
+          "heap_after_bytes": 119588696,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 6,
+          "elapsed_ns": 2994886,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 119588696,
+          "heap_after_bytes": 129025880,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 7,
+          "elapsed_ns": 2988442,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 129025880,
+          "heap_after_bytes": 139511640,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 8,
+          "elapsed_ns": 3188741,
+          "allocated_bytes": 9840504,
+          "gc_collections": 0,
+          "heap_before_bytes": 139511640,
+          "heap_after_bytes": 148948824,
+          "checksum": 150045000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "index": 1,
+      "metadata": {
+        "native_available": false
+      },
+      "samples": [
+        {
+          "workload": "allocations",
+          "sample": 0,
+          "elapsed_ns": 7178191,
+          "allocated_bytes": 10086144,
+          "gc_collections": 0,
+          "heap_before_bytes": 106738784,
+          "heap_after_bytes": 117224544,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 1,
+          "elapsed_ns": 7402869,
+          "allocated_bytes": 10086144,
+          "gc_collections": 0,
+          "heap_before_bytes": 117224544,
+          "heap_after_bytes": 127710304,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 2,
+          "elapsed_ns": 11286432,
+          "allocated_bytes": 10086144,
+          "gc_collections": 0,
+          "heap_before_bytes": 127710304,
+          "heap_after_bytes": 138196064,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 3,
+          "elapsed_ns": 12692841,
+          "allocated_bytes": 9922464,
+          "gc_collections": 0,
+          "heap_before_bytes": 138196064,
+          "heap_after_bytes": 147633248,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 4,
+          "elapsed_ns": 11935957,
+          "allocated_bytes": 9840624,
+          "gc_collections": 0,
+          "heap_before_bytes": 147633248,
+          "heap_after_bytes": 157070432,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 5,
+          "elapsed_ns": 7811670,
+          "allocated_bytes": 9840624,
+          "gc_collections": 1,
+          "heap_before_bytes": 157070432,
+          "heap_after_bytes": 8374240,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 6,
+          "elapsed_ns": 2697792,
+          "allocated_bytes": 9840624,
+          "gc_collections": 0,
+          "heap_before_bytes": 8374240,
+          "heap_after_bytes": 17811424,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 7,
+          "elapsed_ns": 2782960,
+          "allocated_bytes": 9840624,
+          "gc_collections": 0,
+          "heap_before_bytes": 17811424,
+          "heap_after_bytes": 28297184,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 8,
+          "elapsed_ns": 2804466,
+          "allocated_bytes": 9840624,
+          "gc_collections": 0,
+          "heap_before_bytes": 28297184,
+          "heap_after_bytes": 37734368,
+          "checksum": 150045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 0,
+          "elapsed_ns": 2203838,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 74434528,
+          "heap_after_bytes": 76531680,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 1,
+          "elapsed_ns": 2214012,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 76531680,
+          "heap_after_bytes": 78628832,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 2,
+          "elapsed_ns": 2288494,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 78628832,
+          "heap_after_bytes": 81774560,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 3,
+          "elapsed_ns": 2202311,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 81774560,
+          "heap_after_bytes": 83871712,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 4,
+          "elapsed_ns": 2203152,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 83871712,
+          "heap_after_bytes": 85968864,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 5,
+          "elapsed_ns": 2198071,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 85968864,
+          "heap_after_bytes": 88066016,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 6,
+          "elapsed_ns": 2240630,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 88066016,
+          "heap_after_bytes": 91211744,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 7,
+          "elapsed_ns": 2207223,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 91211744,
+          "heap_after_bytes": 93308896,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 8,
+          "elapsed_ns": 2189584,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 93308896,
+          "heap_after_bytes": 95406048,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 0,
+          "elapsed_ns": 9465007,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 61192944,
+          "heap_after_bytes": 96844528,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 1,
+          "elapsed_ns": 9710569,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 96844528,
+          "heap_after_bytes": 133544688,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 2,
+          "elapsed_ns": 11004869,
+          "allocated_bytes": 35850576,
+          "gc_collections": 1,
+          "heap_before_bytes": 133544688,
+          "heap_after_bytes": 11492664,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 3,
+          "elapsed_ns": 9280967,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 11492664,
+          "heap_after_bytes": 48192824,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 4,
+          "elapsed_ns": 9276618,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 48192824,
+          "heap_after_bytes": 83844408,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 5,
+          "elapsed_ns": 9322955,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 83844408,
+          "heap_after_bytes": 119495992,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 6,
+          "elapsed_ns": 9338829,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 119495992,
+          "heap_after_bytes": 155147576,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 7,
+          "elapsed_ns": 10703665,
+          "allocated_bytes": 35850576,
+          "gc_collections": 1,
+          "heap_before_bytes": 155147576,
+          "heap_after_bytes": 34348024,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 8,
+          "elapsed_ns": 9124328,
+          "allocated_bytes": 35850576,
+          "gc_collections": 0,
+          "heap_before_bytes": 34348024,
+          "heap_after_bytes": 69999608,
+          "checksum": 450045000
+        },
+        {
+          "workload": "strings",
+          "sample": 0,
+          "elapsed_ns": 13616996,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 18317304,
+          "heap_after_bytes": 42434552,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 1,
+          "elapsed_ns": 13470081,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 42434552,
+          "heap_after_bytes": 67600376,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 2,
+          "elapsed_ns": 13636261,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 67600376,
+          "heap_after_bytes": 92766200,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 3,
+          "elapsed_ns": 13460733,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 92766200,
+          "heap_after_bytes": 117932024,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 4,
+          "elapsed_ns": 13587581,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 117932024,
+          "heap_after_bytes": 143097848,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 5,
+          "elapsed_ns": 15919820,
+          "allocated_bytes": 25438560,
+          "gc_collections": 1,
+          "heap_before_bytes": 143097848,
+          "heap_after_bytes": 9914936,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 6,
+          "elapsed_ns": 13646971,
+          "allocated_bytes": 24997424,
+          "gc_collections": 0,
+          "heap_before_bytes": 9914936,
+          "heap_after_bytes": 35080760,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 7,
+          "elapsed_ns": 13482149,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 35080760,
+          "heap_after_bytes": 60246584,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 8,
+          "elapsed_ns": 13403408,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 60246584,
+          "heap_after_bytes": 85412408,
+          "checksum": 1695000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 0,
+          "elapsed_ns": 1258689,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 139938360,
+          "heap_after_bytes": 142035512,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 1,
+          "elapsed_ns": 1163269,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 142035512,
+          "heap_after_bytes": 145181240,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 2,
+          "elapsed_ns": 1136339,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 145181240,
+          "heap_after_bytes": 148326968,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 3,
+          "elapsed_ns": 1110313,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 148326968,
+          "heap_after_bytes": 151472696,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 4,
+          "elapsed_ns": 1111526,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 151472696,
+          "heap_after_bytes": 153569848,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 5,
+          "elapsed_ns": 1099865,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 153569848,
+          "heap_after_bytes": 156715576,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 6,
+          "elapsed_ns": 1112060,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 156715576,
+          "heap_after_bytes": 159861304,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 7,
+          "elapsed_ns": 2549595,
+          "allocated_bytes": 2880000,
+          "gc_collections": 1,
+          "heap_before_bytes": 159861304,
+          "heap_after_bytes": 5335416,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 8,
+          "elapsed_ns": 1115494,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 5335416,
+          "heap_after_bytes": 8481144,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 0,
+          "elapsed_ns": 1320557,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 52521336,
+          "heap_after_bytes": 55667064,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 1,
+          "elapsed_ns": 1366103,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 55667064,
+          "heap_after_bytes": 58812792,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 2,
+          "elapsed_ns": 1332308,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 58812792,
+          "heap_after_bytes": 61958520,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 3,
+          "elapsed_ns": 1517020,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 61958520,
+          "heap_after_bytes": 65104248,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 4,
+          "elapsed_ns": 1337777,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 65104248,
+          "heap_after_bytes": 67201400,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 5,
+          "elapsed_ns": 1320866,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 67201400,
+          "heap_after_bytes": 70347128,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 6,
+          "elapsed_ns": 1342093,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 70347128,
+          "heap_after_bytes": 73492856,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 7,
+          "elapsed_ns": 1312322,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 73492856,
+          "heap_after_bytes": 76638584,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 8,
+          "elapsed_ns": 1324802,
+          "allocated_bytes": 2880504,
+          "gc_collections": 0,
+          "heap_before_bytes": 76638584,
+          "heap_after_bytes": 78735736,
+          "checksum": 150045000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "index": 2,
+      "metadata": {
+        "native_available": false
+      },
+      "samples": [
+        {
+          "workload": "lua-to-java",
+          "sample": 0,
+          "elapsed_ns": 2227839,
+          "allocated_bytes": 2902144,
+          "gc_collections": 0,
+          "heap_before_bytes": 44850320,
+          "heap_after_bytes": 47996048,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 1,
+          "elapsed_ns": 2153440,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 47996048,
+          "heap_after_bytes": 51141776,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 2,
+          "elapsed_ns": 2218301,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 51141776,
+          "heap_after_bytes": 54287504,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 3,
+          "elapsed_ns": 2147891,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 54287504,
+          "heap_after_bytes": 56384656,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 4,
+          "elapsed_ns": 2125943,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 56384656,
+          "heap_after_bytes": 59530384,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 5,
+          "elapsed_ns": 2818840,
+          "allocated_bytes": 2904984,
+          "gc_collections": 1,
+          "heap_before_bytes": 59530384,
+          "heap_after_bytes": 3078120,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 6,
+          "elapsed_ns": 1154881,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 3078120,
+          "heap_after_bytes": 6223848,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 7,
+          "elapsed_ns": 1127361,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 6223848,
+          "heap_after_bytes": 9369576,
+          "checksum": 150045000
+        },
+        {
+          "workload": "lua-to-java",
+          "sample": 8,
+          "elapsed_ns": 1167071,
+          "allocated_bytes": 2904984,
+          "gc_collections": 0,
+          "heap_before_bytes": 9369576,
+          "heap_after_bytes": 11466728,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 0,
+          "elapsed_ns": 3375848,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 24168280,
+          "heap_after_bytes": 33605464,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 1,
+          "elapsed_ns": 3366628,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 33605464,
+          "heap_after_bytes": 44091224,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 2,
+          "elapsed_ns": 3426609,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 44091224,
+          "heap_after_bytes": 53528408,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 3,
+          "elapsed_ns": 3410680,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 53528408,
+          "heap_after_bytes": 64014168,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 4,
+          "elapsed_ns": 3420650,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 64014168,
+          "heap_after_bytes": 73451352,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 5,
+          "elapsed_ns": 3344801,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 73451352,
+          "heap_after_bytes": 83937112,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 6,
+          "elapsed_ns": 3403042,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 83937112,
+          "heap_after_bytes": 93374296,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 7,
+          "elapsed_ns": 3433002,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 93374296,
+          "heap_after_bytes": 102811480,
+          "checksum": 150045000
+        },
+        {
+          "workload": "allocations",
+          "sample": 8,
+          "elapsed_ns": 3258377,
+          "allocated_bytes": 9871104,
+          "gc_collections": 0,
+          "heap_before_bytes": 102811480,
+          "heap_after_bytes": 113297240,
+          "checksum": 150045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 0,
+          "elapsed_ns": 5954538,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 148948824,
+          "heap_after_bytes": 152094552,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 1,
+          "elapsed_ns": 5903643,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 152094552,
+          "heap_after_bytes": 154191704,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 2,
+          "elapsed_ns": 12376506,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 154191704,
+          "heap_after_bytes": 157337432,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 3,
+          "elapsed_ns": 12249398,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 157337432,
+          "heap_after_bytes": 159434584,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 4,
+          "elapsed_ns": 13995766,
+          "allocated_bytes": 2400624,
+          "gc_collections": 1,
+          "heap_before_bytes": 159434584,
+          "heap_after_bytes": 3181744,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 5,
+          "elapsed_ns": 12352716,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 3181744,
+          "heap_after_bytes": 5278896,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 6,
+          "elapsed_ns": 12214326,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 5278896,
+          "heap_after_bytes": 8424624,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 7,
+          "elapsed_ns": 12154773,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 8424624,
+          "heap_after_bytes": 10521776,
+          "checksum": 450045000
+        },
+        {
+          "workload": "arithmetic",
+          "sample": 8,
+          "elapsed_ns": 12328636,
+          "allocated_bytes": 2400624,
+          "gc_collections": 0,
+          "heap_before_bytes": 10521776,
+          "heap_after_bytes": 12618928,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 0,
+          "elapsed_ns": 9436866,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 92910040,
+          "heap_after_bytes": 128561624,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 1,
+          "elapsed_ns": 11575306,
+          "allocated_bytes": 35848416,
+          "gc_collections": 1,
+          "heap_before_bytes": 128561624,
+          "heap_after_bytes": 8122024,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 2,
+          "elapsed_ns": 9725829,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 8122024,
+          "heap_after_bytes": 43773608,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 3,
+          "elapsed_ns": 9391957,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 43773608,
+          "heap_after_bytes": 80473768,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 4,
+          "elapsed_ns": 9998600,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 80473768,
+          "heap_after_bytes": 116125352,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 5,
+          "elapsed_ns": 9587802,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 116125352,
+          "heap_after_bytes": 151776936,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 6,
+          "elapsed_ns": 12128763,
+          "allocated_bytes": 35848416,
+          "gc_collections": 1,
+          "heap_before_bytes": 151776936,
+          "heap_after_bytes": 30459736,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 7,
+          "elapsed_ns": 9351322,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 30459736,
+          "heap_after_bytes": 67159896,
+          "checksum": 450045000
+        },
+        {
+          "workload": "tables",
+          "sample": 8,
+          "elapsed_ns": 9106431,
+          "allocated_bytes": 35848416,
+          "gc_collections": 0,
+          "heap_before_bytes": 67159896,
+          "heap_after_bytes": 102811480,
+          "checksum": 450045000
+        },
+        {
+          "workload": "strings",
+          "sample": 0,
+          "elapsed_ns": 14040351,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 46595320,
+          "heap_after_bytes": 70712568,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 1,
+          "elapsed_ns": 13858109,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 70712568,
+          "heap_after_bytes": 95878392,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 2,
+          "elapsed_ns": 14099442,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 95878392,
+          "heap_after_bytes": 121044216,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 3,
+          "elapsed_ns": 13722865,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 121044216,
+          "heap_after_bytes": 146210040,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 4,
+          "elapsed_ns": 15760885,
+          "allocated_bytes": 25475360,
+          "gc_collections": 1,
+          "heap_before_bytes": 146210040,
+          "heap_after_bytes": 13060664,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 5,
+          "elapsed_ns": 13663001,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 13060664,
+          "heap_after_bytes": 38226488,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 6,
+          "elapsed_ns": 13954649,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 38226488,
+          "heap_after_bytes": 63392312,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 7,
+          "elapsed_ns": 13671215,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 63392312,
+          "heap_after_bytes": 88558136,
+          "checksum": 1695000
+        },
+        {
+          "workload": "strings",
+          "sample": 8,
+          "elapsed_ns": 13782312,
+          "allocated_bytes": 24960624,
+          "gc_collections": 0,
+          "heap_before_bytes": 88558136,
+          "heap_after_bytes": 113723960,
+          "checksum": 1695000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 0,
+          "elapsed_ns": 1203535,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 10487192,
+          "heap_after_bytes": 12584344,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 1,
+          "elapsed_ns": 1179996,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 12584344,
+          "heap_after_bytes": 15730072,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 2,
+          "elapsed_ns": 1165838,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 15730072,
+          "heap_after_bytes": 18875800,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 3,
+          "elapsed_ns": 1175922,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 18875800,
+          "heap_after_bytes": 22021528,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 4,
+          "elapsed_ns": 1283374,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 22021528,
+          "heap_after_bytes": 25167256,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 5,
+          "elapsed_ns": 1190214,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 25167256,
+          "heap_after_bytes": 27264408,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 6,
+          "elapsed_ns": 1208236,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 27264408,
+          "heap_after_bytes": 30410136,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 7,
+          "elapsed_ns": 1178450,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 30410136,
+          "heap_after_bytes": 33555864,
+          "checksum": 150045000
+        },
+        {
+          "workload": "java-to-lua",
+          "sample": 8,
+          "elapsed_ns": 1192295,
+          "allocated_bytes": 2880000,
+          "gc_collections": 0,
+          "heap_before_bytes": 33555864,
+          "heap_after_bytes": 36701592,
+          "checksum": 150045000
+        }
+      ],
+      "stderr": ""
+    }
+  ],
+  "summary": {
+    "cold_process_wall_ms": {
+      "count": 7,
+      "min": 89.802331,
+      "p25": 94.1969915,
+      "median": 99.209528,
+      "p75": 100.272091,
+      "max": 106.557265
+    },
+    "allocations": {
+      "sample_ms": {
+        "count": 27,
+        "min": 2.697792,
+        "p25": 3.0099584999999998,
+        "median": 3.344801,
+        "p75": 3.4298055,
+        "max": 12.692841
+      },
+      "ns_per_logical_iteration": {
+        "count": 27,
+        "min": 89.9264,
+        "p25": 100.33195,
+        "median": 111.49336666666666,
+        "p75": 114.32685000000001,
+        "max": 423.0947
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 27,
+        "min": 328.0168,
+        "p25": 328.0168,
+        "median": 328.0208,
+        "p75": 329.0368,
+        "max": 336.2048
+      },
+      "fork_median_ms": [
+        3.012416,
+        7.402869,
+        3.403042
+      ],
+      "gc_collections": 1
+    },
+    "arithmetic": {
+      "sample_ms": {
+        "count": 27,
+        "min": 0.427214,
+        "p25": 1.1409665,
+        "median": 2.203838,
+        "p75": 9.0546555,
+        "max": 13.995766
+      },
+      "ns_per_logical_iteration": {
+        "count": 27,
+        "min": 14.240466666666666,
+        "p25": 38.03221666666667,
+        "median": 73.46126666666666,
+        "p75": 301.82185000000004,
+        "max": 466.5255333333333
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 27,
+        "min": 0.0208,
+        "p25": 21.8448,
+        "median": 80.0208,
+        "p75": 80.0208,
+        "max": 80.0208
+      },
+      "fork_median_ms": [
+        1.136642,
+        2.203838,
+        12.249398
+      ],
+      "gc_collections": 1
+    },
+    "java-to-lua": {
+      "sample_ms": {
+        "count": 27,
+        "min": 1.079932,
+        "p25": 1.1109195,
+        "median": 1.136339,
+        "p75": 1.1912545,
+        "max": 2.549595
+      },
+      "ns_per_logical_iteration": {
+        "count": 27,
+        "min": 35.997733333333336,
+        "p25": 37.030649999999994,
+        "median": 37.877966666666666,
+        "p75": 39.708483333333334,
+        "max": 84.9865
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 27,
+        "min": 96.0,
+        "p25": 96.0,
+        "median": 96.0,
+        "p75": 96.0,
+        "max": 96.0
+      },
+      "fork_median_ms": [
+        1.102444,
+        1.115494,
+        1.190214
+      ],
+      "gc_collections": 1
+    },
+    "lua-to-java": {
+      "sample_ms": {
+        "count": 27,
+        "min": 1.127361,
+        "p25": 1.311038,
+        "median": 1.334895,
+        "p75": 1.462817,
+        "max": 2.81884
+      },
+      "ns_per_logical_iteration": {
+        "count": 27,
+        "min": 37.5787,
+        "p25": 43.70126666666667,
+        "median": 44.4965,
+        "p75": 48.76056666666666,
+        "max": 93.96133333333333
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 27,
+        "min": 96.0168,
+        "p25": 96.0168,
+        "median": 96.0168,
+        "p75": 96.8328,
+        "max": 96.8328
+      },
+      "fork_median_ms": [
+        1.329864,
+        1.332308,
+        2.147891
+      ],
+      "gc_collections": 1
+    },
+    "strings": {
+      "sample_ms": {
+        "count": 27,
+        "min": 13.403408,
+        "p25": 13.5937765,
+        "median": 13.671986,
+        "p75": 13.997499999999999,
+        "max": 15.91982
+      },
+      "ns_per_logical_iteration": {
+        "count": 27,
+        "min": 446.78026666666665,
+        "p25": 453.1258833333334,
+        "median": 455.73286666666667,
+        "p75": 466.58333333333337,
+        "max": 530.6606666666667
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 27,
+        "min": 832.0208,
+        "p25": 832.0208,
+        "median": 832.0208,
+        "p75": 832.0208,
+        "max": 849.1786666666667
+      },
+      "fork_median_ms": [
+        13.734637,
+        13.587581,
+        13.858109
+      ],
+      "gc_collections": 3
+    },
+    "tables": {
+      "sample_ms": {
+        "count": 27,
+        "min": 8.067361,
+        "p25": 8.856273000000002,
+        "median": 9.351322,
+        "p75": 9.8622145,
+        "max": 12.128763
+      },
+      "ns_per_logical_iteration": {
+        "count": 27,
+        "min": 268.91203333333334,
+        "p25": 295.20910000000003,
+        "median": 311.71073333333334,
+        "p75": 328.7404833333334,
+        "max": 404.2921
+      },
+      "allocated_bytes_per_iteration": {
+        "count": 27,
+        "min": 1194.9472,
+        "p25": 1194.9472,
+        "median": 1194.9472,
+        "p75": 1195.0192,
+        "max": 1197.1298666666667
+      },
+      "fork_median_ms": [
+        8.513573,
+        9.338829,
+        9.587802
+      ],
+      "gc_collections": 6
+    }
+  }
+}

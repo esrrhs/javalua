@@ -1,0 +1,79 @@
+{
+  "timestamp": "2026-11-24T18:40:12.164939+08:00",
+  "command": "PATH=/home/box/jdk/jdk-21.0.13+9/bin:$PATH LUA53_BIN=target/lua53/src/lua LUAC53_BIN=target/lua53/src/luac ./mvnw -q -Dtest=GeneratedDiffTest,FuzzTest,ArithGridTest,TableLibTest,StringLibTest,RuntimeTest,ClosureTest -Djavalua.nonative=true -Djacoco.skip=true test",
+  "exit_code": 0,
+  "totals": {
+    "tests": 467,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 466
+  },
+  "suites": [
+    {
+      "name": "com.github.esrrhs.javalua.ArithGridTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skipped_cases": []
+    },
+    {
+      "name": "com.github.esrrhs.javalua.ClosureTest",
+      "tests": 121,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skipped_cases": []
+    },
+    {
+      "name": "com.github.esrrhs.javalua.FuzzTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skipped_cases": []
+    },
+    {
+      "name": "com.github.esrrhs.javalua.GeneratedDiffTest",
+      "tests": 64,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skipped_cases": []
+    },
+    {
+      "name": "com.github.esrrhs.javalua.RuntimeTest",
+      "tests": 224,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "skipped_cases": [
+        {
+          "name": "weakTableAndFinalizerMatrixMatchesReference",
+          "reason": "GC / weak tables / __gc out of scope for strict 5.3.4 non-GC alignment"
+        }
+      ]
+    },
+    {
+      "name": "com.github.esrrhs.javalua.StringLibTest",
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skipped_cases": []
+    },
+    {
+      "name": "com.github.esrrhs.javalua.TableLibTest",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skipped_cases": []
+    }
+  ],
+  "reference_build_command": "make -C target/lua53/src all -j2 SYSCFLAGS='-DLUA_USE_POSIX -DLUA_USE_DLOPEN' SYSLIBS='-Wl,-E -ldl'",
+  "reference_sha256": "cfa2c3247a653a88e8d55a8c589f074cd5e828adf2f20bce6dcde67ab5d9cbdb",
+  "engine_unchanged": true,
+  "mode": "pure Java"
+}

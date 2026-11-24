@@ -1,0 +1,55 @@
+{
+  "command": "LUA53_BIN=target/lua53/src/lua LUAC53_BIN=target/lua53/src/luac ./mvnw -q -Dtest=GeneratedDiffTest,FuzzTest,ArithGridTest,TableLibTest,StringLibTest,RuntimeTest,ClosureTest -Djavalua.nonative=true -Djacoco.skip=true test",
+  "suites": [
+    {
+      "name": "com.github.esrrhs.javalua.ArithGridTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.github.esrrhs.javalua.ClosureTest",
+      "tests": "121",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.github.esrrhs.javalua.FuzzTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.github.esrrhs.javalua.GeneratedDiffTest",
+      "tests": "64",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.github.esrrhs.javalua.RuntimeTest",
+      "tests": "224",
+      "failures": "2",
+      "errors": "0",
+      "skipped": "1"
+    },
+    {
+      "name": "com.github.esrrhs.javalua.StringLibTest",
+      "tests": "31",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.github.esrrhs.javalua.TableLibTest",
+      "tests": "22",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "setup_issue": "POSIX-only reference lacked LUA_USE_DLOPEN; package.loadlib returned absent rather than open. Two RuntimeTest package matrices failed; source code unchanged. Rebuild reference with POSIX+DLOPEN and rerun."
+}
