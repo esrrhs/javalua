@@ -20,7 +20,8 @@ python3 tools/run_bounded.py --seconds "${C_EXTENSION_SECONDS:-300}" -- \
   ./mvnw -B -Dtest=RealExtensionCompatibilityIT -Djacoco.skip=true test \
   > "$REPORT/tests.log" 2>&1 || status=$?
 if [ -f "target/surefire-reports/$XML" ]; then
-  cp "target/surefire-reports/$XML" "$REPORT/$XML"
+  # Keep one XML, outside ordinary suite totals and duplicate artifact globs.
+  mv "target/surefire-reports/$XML" "$REPORT/$XML"
 fi
 if [ "$status" -ne 0 ]; then
   printf 'Real extension tests failed (exit=%s); see %s\n' "$status" "$REPORT" >&2

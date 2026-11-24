@@ -40,7 +40,11 @@ release/tag, resolved Git revisions where available, archive checksums, source
 file lists and license locations. Archives are untouched and contain their full
 original notices; readable MIT notices are also in `licenses/`. The cjson archive
 additionally retains David Gay/Lucent notices in `dtoa.c`/`g_fmt.c`; this build uses
-upstream `fpconv.c`, not those optional files. These versions are compatibility
+upstream `fpconv.c`, not those optional files. The bundled RFC 4627 text retains
+its Internet Society/IETF copyright notice; it is not compiled. The original
+archives total exactly 180,363 bytes (580,373 bytes of expanded files), contain
+only regular files/directories, and live under test resources, not the production
+artifact. These versions are compatibility
 fixtures, **not application runtime dependencies**.
 
 | Module | Pin | Coverage exercised (5 cases each) |
@@ -68,13 +72,14 @@ thread safety or all functions of even these three modules. Those are untested o
 outside this gate's scope, not silently classified as compatible. Resources in
 LFS cases are explicitly closed; GC conformance is intentionally not tested.
 
-## CI wiring for the integrating parent
+## CI wiring
 
-No POM or workflow was edited. `RealExtensionCompatibilityIT` deliberately does
+The workflow runs this gate only in the native conformance lane, after the
+existing full-suite execution/skip checks. The POM is unchanged. `RealExtensionCompatibilityIT` deliberately does
 not match Surefire's normal `*Test` discovery, so normal native/nonative full-suite
 counts and the five-GC-skip allowlist are not changed.
 
-In `.github/workflows/maven.yml`, add this **after** the existing executed-test
+The step in `.github/workflows/maven.yml` is **after** the existing executed-test
 check in the **native** `conformance` matrix lane, before diagnostics upload:
 
 ```yaml
@@ -84,9 +89,11 @@ check in the **native** `conformance` matrix lane, before diagnostics upload:
   run: sh tools/test_c_extensions.sh
 ```
 
-Keep the existing full-suite invocation, native/java matrix, gate counts and
-coverage merge unchanged. Append `reports/c-extension/latest/` to native lane
-artifact paths (or upload it separately with `if: always()`). The script disables
+The existing full-suite invocation, native/java matrix, gate counts and coverage
+merge are unchanged. The lane artifact upload uses `if: always()` and includes
+`reports/c-extension/latest/`, preserving build/test diagnostics even on failure.
+The script moves its XML from Surefire to that directory, so the suite is present
+only once in artifacts and is not added to ordinary full-suite XML totals. The script disables
 JaCoCo for its dedicated invocation, leaving the existing native/java execution
 data untouched. It runs 11 Python tooling/negative-control checks as well as the
 60-case integration suite and enforces exactly 60 executed, zero skips/errors.
@@ -109,7 +116,7 @@ ran. This gate never consults `LPEG_SRC`/`CJSON_SRC`/`LFS_SRC`.
 ## Outputs and maintenance
 
 Generated `.so`/source trees are disposable in `target/c-extensions`; fixtures,
-lock file and tests are durable source. Logs plus copied Surefire XML live in
+lock file and tests are durable source. Logs plus relocated Surefire XML live in
 `reports/c-extension/latest` (outside `target`, so `mvn clean` does not remove the
 last diagnostic report). Only a fresh report is accepted; the prior gate XML is
 removed before startup. Overall Maven execution is process-tree bounded to 300

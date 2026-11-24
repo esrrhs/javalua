@@ -27,7 +27,7 @@
       "sha256": "8449f696d56edf27a318daa315d324757bf68120306fecbeb28a66b86077d8cd",
       "url": "https://codeload.github.com/mpx/lua-cjson/tar.gz/refs/tags/2.1.0",
       "directory": "lua-cjson-2.1.0",
-      "license": "MIT, LICENSE; dtoa.c/g_fmt.c retain Lucent notices",
+      "license": "MIT, LICENSE; dtoa.c/g_fmt.c retain Lucent notices; rfc4627.txt retains Internet Society/IETF notice",
       "sources": [
         "lua_cjson.c",
         "strbuf.c",

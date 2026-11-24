@@ -74,6 +74,10 @@ jobs:
         else
           python3 tools/check_ci_gates.py 1345
         fi
+    - name: Real upstream C extension compatibility
+      if: matrix.mode == 'native'
+      timeout-minutes: 8
+      run: sh tools/test_c_extensions.sh
     - name: Upload lane diagnostics and coverage data
       if: always()
       uses: actions/upload-artifact@v7
@@ -85,6 +89,7 @@ jobs:
           target/fuzz/
           target/rt/
           target/jacoco.exec
+          reports/c-extension/latest/
         if-no-files-found: error
         retention-days: 14
 
