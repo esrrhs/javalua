@@ -30,6 +30,10 @@ public final class LuaNativeFunction implements LuaFunction {
             return n;
         }
         Throwable t = NativeBridge.takePending();
+        if (t instanceof ExecutionAbortedError) {
+            // Host resource aborts must not become catchable Lua error values.
+            throw (ExecutionAbortedError) t;
+        }
         if (n == -2) {
             /*
              * yield。两种来源：①C 函数自己调了 {@code lua_yieldk}（C 侧置

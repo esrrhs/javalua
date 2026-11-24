@@ -61,6 +61,30 @@ public final class BaseLib {
         openStringMetatable(L);
     }
 
+    /** Explicit minimal allowlist for fresh restricted states; never registers loaders or I/O. */
+    static void openRestricted(LuaState L) {
+        LuaTable g = L.globals;
+        setFn(g, "type", BaseLib::type);
+        setFn(g, "tostring", BaseLib::tostring);
+        setFn(g, "tonumber", BaseLib::tonumber);
+        setFn(g, "rawget", BaseLib::rawget);
+        setFn(g, "rawset", BaseLib::rawset);
+        setFn(g, "rawequal", BaseLib::rawequal);
+        setFn(g, "rawlen", BaseLib::rawlen);
+        setFn(g, "next", BaseLib::next);
+        setFn(g, "pairs", BaseLib::pairs);
+        setFn(g, "ipairs", BaseLib::ipairs);
+        setFn(g, "select", BaseLib::select);
+        setFn(g, "error", BaseLib::error);
+        setFn(g, "assert", BaseLib::assertFn);
+        setFn(g, "pcall", BaseLib::pcall);
+        setFn(g, "xpcall", BaseLib::xpcall);
+        setFn(g, "setmetatable", BaseLib::setmetatable);
+        setFn(g, "getmetatable", BaseLib::getmetatable);
+        g.set("_VERSION", LuaValue.ofString(LuaString.latin1(Lua.LUA_VERSION)));
+        openStringMetatable(L);
+    }
+
     /* ==================== 字符串元表 ==================== */
 
     /**

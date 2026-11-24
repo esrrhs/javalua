@@ -68,6 +68,7 @@ public final class Vm {
                 }
             }
             for (;;) {
+                L.executionControl.instruction();
                 if (ci.trap) {
                     trap = true;
                 }

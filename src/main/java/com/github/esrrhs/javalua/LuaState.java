@@ -317,6 +317,14 @@ public final class LuaState {
      */
     final LuaState mainThread;
 
+    // Shared by identity with every coroutine, even those created before reset.
+    final ExecutionControl executionControl;
+
+    /** Host-only controls; disabled until reset/cancel. Never exposed as a Lua value. */
+    public ExecutionControl executionControl() {
+        return executionControl;
+    }
+
     /* ==================== 全局 ==================== */
 
     public final StringPool strings;
@@ -600,6 +608,7 @@ public final class LuaState {
      */
     private LuaState(LuaState main) {
         mainThread = (main == null) ? this : main;
+        executionControl = main == null ? new ExecutionControl() : main.executionControl;
         /*
          * Lua 5.3.4 {@code preinit_thread}: {@code L->nny = 1} for every thread
          * (main and {@code lua_newthread}). Resume sets nny to 0 and restores
@@ -1104,6 +1113,16 @@ public final class LuaState {
      * 顺序无所谓（Lua 没规定），可达的与已入队的两批都过一遍。
      */
     public void close() {
+        // A terminal abort does not unwind Lua frames. Never re-enter script finalizers.
+        if (executionControl.isAborted()) {
+            synchronized (finalizables) {
+                finalizables.clear();
+            }
+            synchronized (pendingFinalizers) {
+                pendingFinalizers.clear();
+            }
+            return;
+        }
         synchronized (finalizables) {
             /*
              * 必须用<b>下标</b>而不是迭代器：{@code __gc} 里再
@@ -1724,7 +1743,9 @@ public final class LuaState {
         if ((hookmask & Lua.LUA_MASKCALL) != 0) {
             DebugLib.dHook(this, Lua.LUA_HOOKCALL, -1, 1, top - funcIdx - 1);
         }
+        executionControl.checkpoint();
         int n = f.call(this);
+        executionControl.checkpoint();
         poscall(c, n);
         return n;
     }
@@ -1914,6 +1935,16 @@ public final class LuaState {
 
     /** {@code luaD_call}：从宿主调进 Lua */
     public void call(int funcIdx, int nresults) {
+        executionControl.enter();
+        try {
+            callControlled(funcIdx, nresults);
+            executionControl.checkpoint();
+        } finally {
+            executionControl.exit();
+        }
+    }
+
+    private void callControlled(int funcIdx, int nresults) {
         nCcalls++;
         if (nCcalls >= MAXCCALLS) {
             checkStack(0); // 先把 EXTRA_STACK 的临时占用清掉，再判
@@ -2495,6 +2526,17 @@ public final class LuaState {
      * @return {@link #LUA_OK} / {@link #LUA_YIELD} / 错误码
      */
     public int resume(LuaState from, int nargs, int[] nresultsOut) {
+        executionControl.enter();
+        try {
+            int result = resumeControlled(from, nargs, nresultsOut);
+            executionControl.checkpoint();
+            return result;
+        } finally {
+            executionControl.exit();
+        }
+    }
+
+    private int resumeControlled(LuaState from, int nargs, int[] nresultsOut) {
         if (status == LUA_OK) {
             if (ci != baseCi) {
                 return resumeError("cannot resume non-suspended coroutine", nargs);

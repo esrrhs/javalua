@@ -43,6 +43,42 @@ public final class LuaLibs {
         {"bit32", (java.util.function.Consumer<LuaState>) BitLib::open},
     };
 
+    /** Libraries that can be added to a fresh restricted state (no module loader). */
+    public enum RestrictedLibrary {
+        COROUTINE, TABLE, STRING, MATH, UTF8, BIT32
+    }
+
+    /**
+     * Construct a fresh state with a minimal base and explicitly selected libraries.
+     * Never sanitizes an existing state: dangerous libraries are never opened, so
+     * neither globals nor the loaded-libraries registry retain them. No package,
+     * debug, io, os, require, load/loadfile/dofile, print, or collectgarbage.
+     * This is capability reduction, NOT a secure hostile-code sandbox.
+     *
+     * @param libraries explicit allowlist; empty means minimal base only
+     * @return a new state, with execution controls still disabled
+     */
+    public static LuaState newRestricted(java.util.Set<RestrictedLibrary> libraries) {
+        java.util.Objects.requireNonNull(libraries, "libraries");
+        java.util.EnumSet<RestrictedLibrary> selected =
+                java.util.EnumSet.noneOf(RestrictedLibrary.class);
+        selected.addAll(libraries);
+        LuaState state = new LuaState();
+        BaseLib.openRestricted(state);
+        for (RestrictedLibrary library : selected) {
+            switch (library) {
+            case COROUTINE: CoroutineLib.open(state); break;
+            case TABLE: TableLib.open(state); break;
+            case STRING: StringLib.open(state); break;
+            case MATH: MathLib.open(state); break;
+            case UTF8: Utf8Lib.open(state); break;
+            case BIT32: BitLib.open(state); break;
+            default: throw new AssertionError(library);
+            }
+        }
+        return state;
+    }
+
     /** {@code luaL_openlibs} */
     public static void openAll(LuaState L) {
         for (Object[] e : LOADED_LIBS) {

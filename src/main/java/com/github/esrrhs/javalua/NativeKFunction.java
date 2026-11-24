@@ -26,6 +26,10 @@ final class NativeKFunction implements LuaKFunction {
             return n;
         }
         Throwable t = NativeBridge.takePending();
+        if (t instanceof ExecutionAbortedError) {
+            // Host resource aborts must not become catchable Lua error values.
+            throw (ExecutionAbortedError) t;
+        }
         if (n == -2) {
             // 续体里又 yield 了：交回 resume，下一趟再接着跑这个续体
             throw (t instanceof LuaYield) ? (LuaYield) t : LuaYield.INSTANCE;
