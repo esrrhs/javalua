@@ -1,0 +1,11 @@
+local n = require('lfs')
+local missing = '$DATA/definitely-absent'
+os.remove(missing); n.rmdir(missing)
+local a, msg, errno = n.attributes(missing)
+assert(a == nil and type(msg) == 'string' and type(errno) == 'number')
+print(a, msg:match('No such file or directory'), errno)
+local ok, err = pcall(n.attributes, {})
+assert(not ok and type(err) == 'string')
+print(ok, err)
+assert(not pcall(n.dir, missing))
+assert(type(n.currentdir()) == 'string')

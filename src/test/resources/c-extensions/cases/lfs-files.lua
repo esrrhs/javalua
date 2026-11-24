@@ -1,0 +1,13 @@
+local n = require('lfs')
+local dir = '$DATA/files'
+os.remove(dir .. '/sample'); n.rmdir(dir)
+assert(n.mkdir(dir))
+local f = assert(io.open(dir .. '/sample', 'wb')); f:write('abc'); f:close()
+local a = assert(n.attributes(dir .. '/sample'))
+assert(a.mode == 'file' and a.size == 3)
+assert(n.attributes(dir, 'mode') == 'directory')
+assert(n.attributes(dir .. '/sample', 'size') == 3)
+assert(n.touch(dir .. '/sample', 1234567890, 1234567890))
+assert(n.attributes(dir .. '/sample', 'modification') == 1234567890)
+print(a.mode, a.size, n.attributes(dir, 'mode'))
+assert(os.remove(dir .. '/sample')); assert(n.rmdir(dir))

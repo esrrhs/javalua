@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "modules": [
+    {
+      "module": "lpeg",
+      "version": "1.1.0",
+      "archive": "lpeg-1.1.0.tar.gz",
+      "sha256": "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a",
+      "url": "https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-1.1.0.tar.gz",
+      "directory": "lpeg-1.1.0",
+      "license": "MIT (Lua), lpeg.html#license",
+      "sources": [
+        "lpcap.c",
+        "lpcode.c",
+        "lpcset.c",
+        "lpprint.c",
+        "lptree.c",
+        "lpvm.c"
+      ],
+      "defines": [],
+      "revision": "official LPeg 1.1.0 release archive"
+    },
+    {
+      "module": "cjson",
+      "version": "2.1.0",
+      "archive": "lua-cjson-2.1.0.tar.gz",
+      "sha256": "8449f696d56edf27a318daa315d324757bf68120306fecbeb28a66b86077d8cd",
+      "url": "https://codeload.github.com/mpx/lua-cjson/tar.gz/refs/tags/2.1.0",
+      "directory": "lua-cjson-2.1.0",
+      "license": "MIT, LICENSE; dtoa.c/g_fmt.c retain Lucent notices",
+      "sources": [
+        "lua_cjson.c",
+        "strbuf.c",
+        "fpconv.c"
+      ],
+      "defines": [],
+      "revision": "4bc5e917c8cd5fc2f6b217512ef530007529322f",
+      "tag_object": "1900f6687bf3e31f844025672851322998da9951"
+    },
+    {
+      "module": "lfs",
+      "version": "1.8.0 (v1_8_0)",
+      "archive": "luafilesystem-1.8.0.tar.gz",
+      "sha256": "16d17c788b8093f2047325343f5e9b74cccb1ea96001e45914a58bbae8932495",
+      "url": "https://codeload.github.com/lunarmodules/luafilesystem/tar.gz/refs/tags/v1_8_0",
+      "directory": "luafilesystem-1_8_0",
+      "license": "MIT, LICENSE and doc/us/license.html",
+      "sources": [
+        "src/lfs.c"
+      ],
+      "defines": [
+        "_FILE_OFFSET_BITS=64"
+      ],
+      "revision": "7c6e1b013caec0602ca4796df3b1d7253a2dd258"
+    }
+  ]
+}

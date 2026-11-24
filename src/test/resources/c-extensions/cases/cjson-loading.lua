@@ -1,0 +1,5 @@
+local n = require('cjson')
+assert(type(n.encode) == 'function' and type(n.decode) == 'function')
+assert(n == require('cjson'))
+assert(coroutine.wrap(function() return require('cjson') end)() == n)
+print(n._NAME, n._VERSION, type(n.null))

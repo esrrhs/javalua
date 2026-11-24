@@ -1,0 +1,5 @@
+local n = require('lfs')
+assert(type(n.attributes) == 'function' and type(n.dir) == 'function')
+assert(n == require('lfs'))
+assert(coroutine.wrap(function() return require('lfs') end)() == n)
+print(n._VERSION, type(n.currentdir()))

@@ -1,0 +1,8 @@
+local n = require('cjson')
+local t = n.decode('{"a":[1,2.5,true,false,null],"s":"hello"}')
+assert(t.a[1] == 1 and t.a[2] == 2.5 and t.a[3] and not t.a[4])
+assert(rawequal(t.a[5], n.null) and t.s == 'hello')
+assert(n.encode({1,2,3}) == '[1,2,3]')
+assert(n.encode(n.null) == 'null')
+print(n.encode({t.a[1],t.a[2],t.a[3],t.a[4],t.a[5]}))
+print(tostring(n.null), rawequal(n.null, n.decode('null')))
