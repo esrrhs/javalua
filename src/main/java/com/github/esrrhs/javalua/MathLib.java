@@ -49,104 +49,6 @@ public final class MathLib {
     /** {@code PI}：与 {@code lmathlib.c} 的 {@code #define PI} 同一个字面量 */
     private static final double PI = 3.141592653589793238462643383279502884;
 
-    /* ==================== xoshiro256** ==================== */
-
-    /**
-     * {@code RanState}：四个 64 位字的状态。
-     * <p>
-     * C 里是 {@code lua_newuserdatauv} 出来的一块裸内存，四个 {@code Rand64}
-     * （<b>无符号</b> 64 位）。Java 没有无符号 long，但 {@code + - * ^ <<}
-     * 在补码下逐位等价，只有<b>右移</b>和<b>比较</b>要换成
-     * {@code >>>} / {@code Long.compareUnsigned}，这两处已经单独标出。
-     */
-    private static final class RanState {
-        final long[] s = new long[4];
-    }
-
-    /** {@code rotl}：循环左移。右移必须是<b>逻辑</b>右移 */
-    private static long rotl(long x, int n) {
-        return (x << n) | (x >>> (64 - n));
-    }
-
-    /** {@code nextrand}：xoshiro256** 的一步，就地更新状态并返回新值 */
-    private static long nextrand(long[] s) {
-        long state0 = s[0];
-        long state1 = s[1];
-        long state2 = s[2] ^ state0;
-        long state3 = s[3] ^ state1;
-        long res = rotl(state1 * 5, 7) * 9;
-        s[0] = state0 ^ state3;
-        s[1] = state1 ^ state2;
-        s[2] = state2 ^ (state1 << 17);
-        s[3] = rotl(state3, 45);
-        return res;
-    }
-
-    /**
-     * {@code I2d}：把随机整数的高 {@code FIGS} 位变成 {@code [0,1)} 的浮点。
-     * <p>
-     * {@code FIGS} 是 double 的尾数位数（53），所以丢弃低 11 位。
-     * 先按<b>逻辑</b>右移再转 signed，再乘 {@code 2^-53}；若转出来是负数
-     * （说明被截的高位是 1），补一个 1.0 —— 这正是 C 里
-     * {@code if (sx < 0) res += 1.0} 那句，照抄即可，别自作聪明用
-     * {@code Math.abs}。
-     */
-    private static double i2d(long x) {
-        long sx = x >>> 11;
-        double res = (double) sx * (0.5 / (1L << 52));
-        if (sx < 0) {
-            res += 1.0;
-        }
-        return res;
-    }
-
-    /**
-     * {@code project}：把随机整数投到 {@code [0, n]}。
-     * <p>
-     * {@code n+1} 是 2 的幂时可以直接掩码（无偏）；否则先扩成不小于
-     * {@code n} 的最小梅森数 {@code lim}，投进 {@code [0,lim]} 后落在
-     * {@code [0,n]} 外就换一个数重投。写成简单的 {@code ran % (n+1)}
-     * 会有取模偏差——虽然结果仍是「看着随机」，但与参考实现逐位对不上。
-     */
-    private static long project(long ran, long n, long[] s) {
-        if ((n & (n + 1)) == 0) { // n + 1 是 2 的幂
-            return ran & n;
-        }
-        long lim = n;
-        lim |= (lim >>> 1);
-        lim |= (lim >>> 2);
-        lim |= (lim >>> 4);
-        lim |= (lim >>> 8);
-        lim |= (lim >>> 16);
-        lim |= (lim >>> 32);
-        ran &= lim;
-        while (Long.compareUnsigned(ran, n) > 0) {
-            ran = nextrand(s);
-            ran &= lim;
-        }
-        return ran;
-    }
-
-    /** {@code setseed}：装种子后先空转 16 次把位「摊开」 */
-    private static void setseed(LuaState L, long[] s, long n1, long n2) {
-        s[0] = n1;
-        s[1] = 0xff; // avoid a zero state
-        s[2] = n2;
-        s[3] = 0;
-        for (int i = 0; i < 16; i++) {
-            nextrand(s);
-        }
-        L.push(LuaValue.ofInteger(n1));
-        L.push(LuaValue.ofInteger(n2));
-    }
-
-    /** {@code randseed}：无参 {@code randomseed} 用的「随机」种子 */
-    private static void randseed(LuaState L, long[] s) {
-        long seed1 = System.currentTimeMillis() / 1000;
-        long seed2 = System.identityHashCode(L);
-        setseed(L, s, seed1, seed2);
-    }
-
     /* ==================== 注册 ==================== */
 
     public static void open(LuaState L) {
@@ -200,21 +102,16 @@ public final class MathLib {
         m.set("maxinteger", LuaValue.ofInteger(Long.MAX_VALUE));
         m.set("mininteger", LuaValue.ofInteger(Long.MIN_VALUE));
 
-        // Lua 5.3.4: plain C functions over process-wide rand/srand (here: static Random)
-        setFn(m, "random", MathLib::random);
-        setFn(m, "randomseed", MathLib::randomseed);
+        // Lua 5.3.4: per-state Random shared across coroutines of this LuaState, isolated across states
+        java.util.Random rng = new java.util.Random(1);
+        CClosure rndFn = new CClosure(MathLib::random, 1);
+        rndFn.upvalue[0] = LuaValue.ofUserdata(rng);
+        m.set("random", LuaValue.ofCClosure(rndFn));
+        CClosure seedFn = new CClosure(MathLib::randomseed, 1);
+        seedFn.upvalue[0] = LuaValue.ofUserdata(rng);
+        m.set("randomseed", LuaValue.ofCClosure(seedFn));
 
         LuaAux.registerLib(L, "math", m);
-    }
-
-    private static CClosure closure(LuaFunction f, LuaValue uv) {
-        CClosure c = new CClosure(f, 1);
-        c.upvalue[0] = uv;
-        return c;
-    }
-
-    private static RanState ranState(LuaState L) {
-        return (RanState) LuaUserdata.dataOf(L.upvalue(0));
     }
 
     /* ==================== 一元 / 二元数学函数 ==================== */
@@ -598,12 +495,14 @@ public final class MathLib {
      * 这里用 {@link java.util.Random} 复刻 API 形状（参数个数、空区间、过大区间）；
      * 与参考实现的数值序列不可比（平台 libc 与 JVM 发生器不同），见 MathLibTest。
      */
-    private static final java.util.Random RNG = new java.util.Random(1);
+    private static java.util.Random rngOf(LuaState L) {
+        return (java.util.Random) LuaUserdata.dataOf(L.upvalue(0));
+    }
 
     /** {@code math.random([m [, n]])}（5.3.4） */
     private static int random(LuaState L) {
         int n = L.argCount();
-        double r = RNG.nextDouble(); // [0,1)
+        double r = rngOf(L).nextDouble(); // [0,1)
         long low;
         long up;
         switch (n) {
@@ -636,8 +535,9 @@ public final class MathLib {
     /** {@code math.randomseed(x)}（5.3.4：一参、无返回） */
     private static int randomseed(LuaState L) {
         double x = LuaAux.checkNumber(L, 1);
-        RNG.setSeed((long) ((long) x)); // match (unsigned)(lua_Integer) cast shape loosely
-        RNG.nextInt(); // discard first value like l_rand after srand
+        java.util.Random rng = rngOf(L);
+        rng.setSeed((long) x); // match (unsigned)(lua_Integer) cast shape loosely
+        rng.nextInt(); // discard first value like l_rand after srand
         return 0;
     }
 

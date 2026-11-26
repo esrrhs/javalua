@@ -126,7 +126,10 @@ class IoLibTest {
             -- 打不开：三元组 nil, "<路径>: No such file or directory", 2
             print(io.open("/nonexistent_dir_xyz/zzz.txt"))
             print(io.open("/nonexistent_dir_xyz/zzz.txt", "w"))
-            local ok, e = io.open("/etc/hostname", "wb")
+            os.execute("mkdir -p $RT/ro_hn && touch $RT/ro_hn/hostname && chmod 444 $RT/ro_hn/hostname && chmod 555 $RT/ro_hn")
+            local ok, e = io.open("$RT/ro_hn/hostname", "wb")
+            if ok then ok:close() end
+            os.execute("chmod -R 755 $RT/ro_hn && rm -rf $RT/ro_hn")
             print(ok ~= nil)
             """,
 

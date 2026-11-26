@@ -34,14 +34,27 @@ public final class LuaAux {
         private int len;
 
         private void ensure(int extra) {
-            if (len + extra <= data.length) {
+            if (extra <= 0) {
                 return;
             }
-            int cap = data.length;
-            while (cap < len + extra) {
+            if (len > Integer.MAX_VALUE - 8 - extra) {
+                LuaError e = new LuaError(
+                        LuaValue.ofString(LuaString.latin1("not enough memory")));
+                e.errMem = true;
+                throw e;
+            }
+            int need = len + extra;
+            if (need <= data.length) {
+                return;
+            }
+            long cap = data.length;
+            while (cap < need) {
                 cap *= 2;
             }
-            data = Arrays.copyOf(data, cap);
+            if (cap > Integer.MAX_VALUE - 8) {
+                cap = Math.max(need, Integer.MAX_VALUE - 8);
+            }
+            data = Arrays.copyOf(data, (int) cap);
         }
 
         public void addChar(int c) {
@@ -444,6 +457,65 @@ public final class LuaAux {
      * {@code remove} / {@code rename} 拿到的是同一个被 {@code \0} 砍过的路径、
      * 报的是 {@code ENOENT}。
      */
+    /**
+     * 按路径结构做<b>与宿主 {@code LANG} 无关</b>的 POSIX 错误码预判。
+     * <p>
+     * 在中文（{@code LANG=zh_CN.UTF-8}）等非英语系统上，JVM 异常里的 {@code strerror}
+     * 文本是本地化翻译（如「不是目录」「无效的参数」），无法靠英文反查；而这些形状
+     * 在 POSIX 里本来就由路径结构唯一确定。
+     */
+    static int pathStructureErrno(String path, boolean forRemove) {
+        if (path == null || path.isEmpty()) {
+            return 2; // ENOENT
+        }
+        java.io.File cur = new java.io.File(path).getParentFile();
+        while (cur != null) {
+            if (cur.isFile()) {
+                return 20; // ENOTDIR：祖先是普通文件（如 f.txt/y）
+            }
+            cur = cur.getParentFile();
+        }
+        if (forRemove) {
+            String trimmed = path;
+            while (trimmed.length() > 1 && trimmed.endsWith("/")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+            int slash = trimmed.lastIndexOf('/');
+            String base = (slash < 0) ? trimmed : trimmed.substring(slash + 1);
+            if (".".equals(base) || "..".equals(base)) {
+                return 22; // EINVAL
+            }
+            try {
+                java.nio.file.Path norm = java.nio.file.Paths.get(path).toAbsolutePath().normalize();
+                if (norm.getNameCount() == 0) {
+                    String os = System.getProperty("os.name", "");
+                    return (os.contains("Mac") || os.contains("Darwin") || os.contains("BSD"))
+                            ? 21 : 16; // macOS EISDIR(21) / Linux EBUSY(16)
+                }
+            } catch (RuntimeException ignored) {
+                // fall through
+            }
+        }
+        return -1;
+    }
+
+    public static int errnoOf(String path, boolean forRemove, Exception e) {
+        if (e instanceof java.nio.file.AccessDeniedException) {
+            return 13; // EACCES
+        }
+        if (e instanceof java.nio.file.DirectoryNotEmptyException) {
+            return ENOTEMPTY;
+        }
+        if (e instanceof java.nio.file.FileAlreadyExistsException) {
+            return 17; // EEXIST
+        }
+        int pe = pathStructureErrno(path, forRemove);
+        if (pe > 0) {
+            return pe;
+        }
+        return errnoOf(e);
+    }
+
     public static int errnoOf(Exception e) {
         return (e instanceof IOException) ? errnoOf((IOException) e) : 2; // ENOENT
     }

@@ -40,7 +40,16 @@ final class NativeHook implements LuaHook {
             BUF.set(b);
         }
         Api.fillDebug(b, ar);
-        NativeBridge.callPtr(fn, NativeBridge.statePtr(NativeBridge.handle(L)), b, 0, 0);
+        Api.arPut(b, ar);
+        int rc;
+        try {
+            rc = NativeBridge.invokeHook(fn, NativeBridge.handle(L), b);
+        } finally {
+            Api.arRemove(b);
+        }
+        if (rc < 0) {
+            throw LuaNativeFunction.rethrowPending(L, rc == -2);
+        }
     }
 
     @Override

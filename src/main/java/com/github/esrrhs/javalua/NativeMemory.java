@@ -20,11 +20,19 @@ public final class NativeMemory {
     /** 字节数，{@code lua_rawlen} 用的是它 */
     public final long size;
 
+    /** 可选的关联宿主对象（如 {@code IoLib.LuaFile}），随 userdata 存活但不进入 Cleaner 闭包 */
+    final Object attachment;
+
     NativeMemory(long ptr, long size) {
+        this(ptr, size, null, null);
+    }
+
+    NativeMemory(long ptr, long size, Object attachment, Runnable beforeFree) {
         this.ptr = ptr;
         this.size = size;
+        this.attachment = attachment;
         if (ptr != 0) {
-            NativeBridge.freeWith(this, ptr);
+            NativeBridge.freeWith(this, ptr, beforeFree);
         }
     }
 

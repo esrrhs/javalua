@@ -106,6 +106,12 @@ final class Api {
             return 0; // LUA_OK，闭包已在栈顶
         }
         pushVal(S, (err.value == null) ? LuaValue.ofNil() : err.value);
+        if (err.errMem) {
+            return LuaState.LUA_ERRMEM;
+        }
+        if (err.errErr) {
+            return LuaState.LUA_ERRERR;
+        }
         /*
          * {@code lua.h: LUA_ERRSYNTAX} 是 <b>3</b>，不是 2。{@code lua_load}
          * 的返回值 C 扩展是拿去和 {@code LUA_OK / LUA_ERRSYNTAX} 比的，
@@ -606,7 +612,7 @@ final class Api {
     static long luaL_newstate() {
         LuaState s = new LuaState();
         LuaLibs.openAll(s);
-        return NativeBridge.handle(s);
+        return NativeBridge.pinState(s);
     }
 
     static long luaL_optinteger(long L, long arg, long def) {
@@ -747,34 +753,17 @@ final class Api {
 
     static long luaL_tolstring(long L, long idx, long len) {
         LuaState S = st(L);
-        int i = (int) (int) lua_absindex(L, idx);
-        if (luaL_callmeta(L, i, strToNative("__tostring")) != 0) {
-            if (!S.stack[S.top - 1].isString()) {
-                throw S.libError("'__tostring' must return a string");
-            }
+        LuaValue v = val(S, (int) idx);
+        LuaString s;
+        if (v == null) {
+            s = S.newString(LuaString.latin1("no value: (nil)").bytes);
         } else {
-            LuaValue v = val(S, i);
-            int tt = typeOf(S, i);
-            if (tt == Lua.TNUMBER || tt == Lua.TSTRING) {
-                pushVal(S, v);
-            } else if (tt == Lua.TBOOLEAN) {
-                pushVal(S, LuaValue.ofString(
-                        LuaString.latin1(v.toBoolean() ? "true" : "false")));
-            } else if (tt == Lua.TNIL) {
-                pushVal(S, LuaValue.ofString(LuaString.latin1("nil")));
-            } else {
-                int nt = (int) luaL_getmetafield(L, i, strToNative("__name"));
-                String kind = nt == Lua.TSTRING
-                        ? S.stack[S.top - 1].asString().toLatin1String()
-                        : Lua.typeName(tt);
-                pushVal(S, LuaValue.ofString(LuaString.latin1(
-                        kind + ": " + ptrText(lua_topointer(L, i)))));
-                if (nt != Lua.TNONE) {
-                    S.stack[S.top - 2].set(S.stack[S.top - 1]);
-                    S.top--;
-                }
+            s = BaseLib.toLString(S, v);
+            if (s.isShort()) {
+                s = S.strings.intern(s);
             }
         }
+        pushVal(S, LuaValue.ofString(s));
         return lua_tolstring(L, -1, len);
     }
 
@@ -914,7 +903,7 @@ final class Api {
          * {@code nyci} 计数的，回调里 yield 会报跨 C 调用边界而不是真的挂起。
          */
         if (k != 0 && S.yieldable()) {
-            S.callK(funcIdx, (int) nresults, (int) ctx, new NativeKFunction(k));
+            S.callK(funcIdx, (int) nresults, ctx, new NativeKFunction(k));
         } else {
             S.callNoYield(funcIdx, (int) nresults);
         }
@@ -933,13 +922,15 @@ final class Api {
     /*
      * {@code lua_close}。
      * <p>
-     * <b>有意偏离，别当 bug 修</b>：C 版会把整个 {@code lua_State} 连同所有对象
-     * 一起释放，本实现的内存归 JVM 管，没有「释放」这个动作可做。这里做的是
-     * <b>把线程复位到空</b>，于是之后再用它就是 C 里的 use-after-free（未定义）——
-     * 至少不会「关完了还能正常跑」，那才是真正的假象。
+     * 先跑完所有尚未执行的 {@code __gc} 终结器，再复位线程并释放 C 侧创建的保活引用。
      */
     static void lua_close(long L) {
-        st(L).reset();
+        LuaState S = st(L);
+        if (S != null) {
+            S.close();
+            S.reset();
+        }
+        NativeBridge.unpinState(L);
     }
 
     @Generated
@@ -962,16 +953,6 @@ final class Api {
             throw new IllegalArgumentException("bad stack index " + idx);
         }
         return p;
-    }
-
-    /*
-     * lstate.c: {@code lua_closethread} 就是 {@code luaE_resetthread(L, L->status)}。
-     * {@code coroutine.close} 用的是同一条路，这里直接复用。
-     */
-    static long lua_closethread(long L, long from) {
-        LuaState S = st(L);
-        LuaState f = (from == 0) ? null : st(from);
-        return S.closeThread(f);
     }
 
     static long lua_compare(long L, long idx1, long idx2, long op) {
@@ -1027,14 +1008,10 @@ final class Api {
         }
         byte[] b = Dump.dumpBytes(((LClosure) v.o).p, strip != 0);
         long p = NativeBridge.strToNative(b);
-        long r = NativeBridge.callPtr(writer,
-                NativeBridge.statePtr(L), p, b.length, data);
-        /*
-         * writer 声明的是 {@code int}，而 {@code callPtr} 取的是
-         * {@code jlong}。arm64 上返回 {@code int} 只保证低 32 位有意义，
-         * 高 32 位是未定义的——这里必须截断，否则 {@code return 0} 的 writer
-         * 可能被读成一个巨大的正数。
-         */
+        long r = NativeBridge.invokeWriter(writer, L, p, b.length, data);
+        if (r == Long.MIN_VALUE || r == Long.MIN_VALUE + 1) {
+            throw LuaNativeFunction.rethrowPending(S, r == Long.MIN_VALUE + 1);
+        }
         return (int) r;
     }
 
@@ -1287,8 +1264,12 @@ final class Api {
         return AR_CACHE.get(ptr);
     }
 
-    private static synchronized void arPut(long ptr, DebugLib.LuaDebug ar) {
+    static synchronized void arPut(long ptr, DebugLib.LuaDebug ar) {
         AR_CACHE.put(ptr, ar);
+    }
+
+    static synchronized void arRemove(long ptr) {
+        AR_CACHE.remove(ptr);
     }
 
     /**
@@ -1438,7 +1419,7 @@ final class Api {
      * 份 {@code g_allocf} 也换掉，于是 {@code lua_getallocf} 能原样交回去）。
      */
     static long lua_newstate(long f, long ud) {
-        return NativeBridge.handle(new LuaState());
+        return NativeBridge.pinState(new LuaState());
     }
 
     static long lua_newthread(long L) {
@@ -1505,7 +1486,7 @@ final class Api {
              * 收尾，收完之后才调续体 —— 续体拿到的 {@code status} 就是那个错误码。
              * 所以这里不接 {@code LuaError}，让它照 C 那样穿出去。
              */
-            S.pcallK(funcIdx, (int) nresults, handler, (int) ctx,
+            S.pcallK(funcIdx, (int) nresults, handler, ctx,
                     new NativeKFunction(k));
             return 0;
         }
@@ -1565,8 +1546,9 @@ final class Api {
     static long lua_pushlstring(long L, long s, long len) {
         LuaState S = st(L);
         byte[] b = (s == 0 || len <= 0) ? new byte[0] : NativeBridge.bytesAtN(s, (int) len);
-        pushVal(S, LuaValue.ofString(LuaString.of(b)));
-        return NativeBridge.strToNative(b);
+        LuaString str = S.newString(b);
+        pushVal(S, LuaValue.ofString(str));
+        return str.nativePtr();
     }
 
     static void lua_pushnil(long L) {
@@ -1588,8 +1570,9 @@ final class Api {
             return 0;
         }
         byte[] b = NativeBridge.bytesAt(s);
-        pushVal(S, LuaValue.ofString(LuaString.of(b)));
-        return NativeBridge.strToNative(b);
+        LuaString str = S.newString(b);
+        pushVal(S, LuaValue.ofString(str));
+        return str.nativePtr();
     }
 
     static long lua_pushthread(long L) {
@@ -2031,7 +2014,7 @@ final class Api {
              * luaO_tostring：<b>原地</b>把栈上那个数字换成字符串。这一步是可观测的——
              * 之后 lua_type(L, idx) 就是 string 了。
              */
-            str = LuaString.latin1(Vm.numberToString(v));
+            str = S.newString(LuaString.latin1(Vm.numberToString(v)).bytes);
             setVal(S, (int) idx, LuaValue.ofString(str));
         }
         if (len != 0) {
@@ -2256,7 +2239,7 @@ final class Api {
         S.status = LuaState.LUA_YIELD;
         S.ci.nyield = (int) nresults;
         S.ci.k = (k == 0) ? null : new NativeKFunction(k);
-        S.ci.ctx = (int) ctx;
+        S.ci.ctx = ctx;
         return 0;
     }
 

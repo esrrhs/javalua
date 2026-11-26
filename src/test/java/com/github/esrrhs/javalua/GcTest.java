@@ -24,11 +24,11 @@ import org.junit.jupiter.api.Disabled;
  * 三个被实测钉住的事实，是这批用例的全部依据：
  * <ul>
  *   <li>{@code __gc} 只跑一次；</li>
- *   <li>{@code __gc} 里的错误<b>静默吞掉</b>，既不打印也不传播；</li>
+ *   <li>Lua 5.3.4 下 {@code collectgarbage} 期间 {@code __gc} 报错会包成
+ *       {@code error in __gc metamethod (...)} 抛出（状态退出时则静默）；</li>
  *   <li>设元表<b>之后</b>才往元表里塞 {@code __gc} 不生效。</li>
  * </ul>
  */
-@Disabled("Lua 5.3.4 retarget: GC suite vs 5.3.4; retarget follow-up")
 class GcTest {
 
     @TestFactory
@@ -134,11 +134,14 @@ class GcTest {
             """,
 
             """
-            -- __gc 里报错：静默吞掉，后面的代码照常跑
+            -- Lua 5.3.4：collectgarbage 中 __gc 报错以 LUA_ERRGCMM 抛出，状态退出时静默
             do
               local t = setmetatable({}, {__gc = function(o) error("boom in gc") end})
             end
-            collectgarbage()
+            print(pcall(collectgarbage))
+            do
+              local t2 = setmetatable({}, {__gc = function(o) error("boom at exit") end})
+            end
             print("after")
             """,
 

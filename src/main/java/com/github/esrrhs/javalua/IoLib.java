@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -65,7 +66,7 @@ public final class IoLib {
      * 表里留下一个过期键；libc 把那块地址重新分配出去时，新的
      * {@code newPreFileValue} 会用同一个键 {@code put} 覆盖掉旧条目。
      */
-    private static final ConcurrentHashMap<Long, LuaFile> FILE_MAP =
+    private static final ConcurrentHashMap<Long, WeakReference<LuaFile>> FILE_MAP =
             new ConcurrentHashMap<>();
 
     /** {@code LUA_FILEHANDLE} */
@@ -182,20 +183,13 @@ public final class IoLib {
         /**
          * C 侧的 {@code luaL_Stream*}（16 字节：FILE* + closef）。
          * <p>
-         * 文件句柄 userdata 的载荷就是这块 native 内存——C 扩展
+         * 文件句柄 userdata 的载荷就是对应的 {@link NativeMemory}——C 扩展
          * {@code luaL_checkudata(L, idx, "FILE*")} 拿到的就是它，cast 成
          * {@code luaL_Stream*} 后直接访问 {@code ->f} 和 {@code ->closef}。
+         * 注意 {@code LuaFile} 绝不能反向强引用 {@link NativeMemory}，否则会与
+         * {@link #FILE_MAP} 形成静态强引用环，导致 {@code LuaState} 与 native 内存永不释放。
          */
         long streamPtr;
-
-        /**
-         * 持有 {@code streamPtr} 对应的 native 内存块，防止 GC 提前释放。
-         * <p>
-         * {@code NativeMemory} 的 Cleaner 会在自身被回收时 {@code free(streamPtr)}。
-         * 只要 {@code LuaFile} 活着（被 Lua 状态引用），{@code mem} 就不可达，
-         * native 内存就不会被回收。
-         */
-        NativeMemory mem;
 
         RandomAccessFile raf;
         InputStream in;
@@ -319,15 +313,15 @@ public final class IoLib {
         }
 
         InputStream inStream() {
-            return stdIn ? L.in : in;
+            return stdIn ? L.stdIn() : in;
         }
 
         OutputStream outStream() {
             if (stdOut) {
-                return L.out;
+                return L.stdOut();
             }
             if (stdErr) {
-                return L.err;
+                return L.stdErr();
             }
             return out;
         }
@@ -650,11 +644,12 @@ public final class IoLib {
      */
     private static LuaValue newPreFileValue(LuaState L, LuaFile f) {
         long sp = NativeBridge.AVAILABLE ? NativeBridge.cNewLuaLStream(0, 0) : 0;
-        NativeMemory m = sp != 0 ? new NativeMemory(sp, FILE_UDATA_LEN) : null;
+        NativeMemory m = null;
         f.streamPtr = sp;
-        f.mem = m;
         if (sp != 0) {
-            FILE_MAP.put(sp, f);
+            WeakReference<LuaFile> ref = new WeakReference<>(f);
+            FILE_MAP.put(sp, ref);
+            m = new NativeMemory(sp, FILE_UDATA_LEN, f, () -> FILE_MAP.remove(sp, ref));
         }
         L.push(LuaValue.ofUserdata(new LuaUserdata(m != null ? m : f, 1, FILE_UDATA_LEN))); /* 5.3: always 1 uservalue */
         LuaAux.setMetatableByName(L, FILE_HANDLE);
@@ -697,8 +692,13 @@ public final class IoLib {
             return (LuaFile) d;
         }
         if (d instanceof NativeMemory) {
-            long sp = ((NativeMemory) d).ptr;
-            LuaFile f = FILE_MAP.get(sp);
+            NativeMemory nm = (NativeMemory) d;
+            if (nm.attachment instanceof LuaFile) {
+                return (LuaFile) nm.attachment;
+            }
+            long sp = nm.ptr;
+            WeakReference<LuaFile> ref = FILE_MAP.get(sp);
+            LuaFile f = (ref == null) ? null : ref.get();
             if (f != null) {
                 return f;
             }
@@ -971,7 +971,7 @@ public final class IoLib {
             return true;
         } catch (IOException e) {
             f.err = true;
-            f.errno = LuaAux.errnoOf(e);
+            f.errno = LuaAux.errnoOf(fname, false, e);
             f.raf = null;
             return false;
         }
@@ -1078,12 +1078,12 @@ public final class IoLib {
                 if (forRead) {
                     f.in = new PopenReader(p.getInputStream());
                     f.readable = true;
-                    ps.add(pump(p.getErrorStream(), L.err));
+                    ps.add(pump(p.getErrorStream(), L.stdErr()));
                 } else {
                     f.out = new PopenWriter(p.getOutputStream());
                     f.writable = true;
-                    ps.add(pump(p.getInputStream(), L.out));
-                    ps.add(pump(p.getErrorStream(), L.err));
+                    ps.add(pump(p.getInputStream(), L.stdOut()));
+                    ps.add(pump(p.getErrorStream(), L.stdErr()));
                 }
                 f.pumps = ps.toArray(new Thread[0]);
             }
@@ -1145,13 +1145,13 @@ public final class IoLib {
             f.fdChildIn = -1;
             f.in = new PopenReader(new FdInput(fds[0]));
             f.readable = true;
-            ps.add(fdPump(fds[1], L.err));
+            ps.add(fdPump(fds[1], L.stdErr()));
         } else {
             f.fdChildIn = fds[2];
             f.out = new PopenWriter(new FdOutput(fds[2]));
             f.writable = true;
-            ps.add(fdPump(fds[0], L.out));
-            ps.add(fdPump(fds[1], L.err));
+            ps.add(fdPump(fds[0], L.stdOut()));
+            ps.add(fdPump(fds[1], L.stdErr()));
         }
         f.pumps = ps.toArray(new Thread[0]);
     }

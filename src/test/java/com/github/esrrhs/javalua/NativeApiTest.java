@@ -1893,7 +1893,8 @@ class NativeApiTest {
             skipReason = "native 层没装起来: " + NativeBridge.LOAD_ERROR;
             return null;
         }
-        String cc = firstOf("cc", "gcc", "clang");
+        String envCc = System.getenv("CC");
+        String cc = (envCc != null && !envCc.isBlank()) ? envCc : firstOf("gcc", "cc", "clang");
         if (cc == null) {
             skipReason = "PATH 里没有 C 编译器";
             return null;
@@ -1907,10 +1908,10 @@ class NativeApiTest {
             File lib = new File(dir, "api.so");
             Files.write(c.toPath(), C.getBytes(StandardCharsets.UTF_8));
             List<List<String>> cmds = new ArrayList<>();
-            cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-undefined",
+            cmds.add(Arrays.asList(cc, "-std=gnu99", "-shared", "-fPIC", "-undefined",
                     "dynamic_lookup", "-I", "target/lua53/src", "-o", lib.getPath(),
                     c.getPath()));
-            cmds.add(Arrays.asList(cc, "-shared", "-fPIC", "-I", "target/lua53/src",
+            cmds.add(Arrays.asList(cc, "-std=gnu99", "-shared", "-fPIC", "-I", "target/lua53/src",
                     "-o", lib.getPath(), c.getPath()));
             boolean ok = false;
             for (List<String> cmd : cmds) {

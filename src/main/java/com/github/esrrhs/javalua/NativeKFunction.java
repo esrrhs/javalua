@@ -20,30 +20,11 @@ final class NativeKFunction implements LuaKFunction {
     }
 
     @Override
-    public int call(LuaState L, int status, int ctx) {
+    public int call(LuaState L, int status, long ctx) {
         int n = NativeBridge.invokeK(fn, NativeBridge.handle(L), status, ctx);
         if (n >= 0) {
             return n;
         }
-        Throwable t = NativeBridge.takePending();
-        if (t instanceof ExecutionAbortedError) {
-            // Host resource aborts must not become catchable Lua error values.
-            throw (ExecutionAbortedError) t;
-        }
-        if (n == -2) {
-            // 续体里又 yield 了：交回 resume，下一趟再接着跑这个续体
-            throw (t instanceof LuaYield) ? (LuaYield) t : LuaYield.INSTANCE;
-        }
-        if (t instanceof LuaError) {
-            throw (LuaError) t;
-        }
-        if (t instanceof RuntimeException) {
-            throw (RuntimeException) t;
-        }
-        if (t != null) {
-            throw new LuaError(LuaValue.ofString(
-                    LuaString.latin1(String.valueOf(t.getMessage()))), "");
-        }
-        throw new LuaError(new LuaValue(L.stack[L.top - 1]), "");
+        throw LuaNativeFunction.rethrowPending(L, n == -2);
     }
 }

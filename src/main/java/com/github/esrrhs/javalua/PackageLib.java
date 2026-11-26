@@ -308,12 +308,17 @@ public final class PackageLib {
             L.push(LuaValue.ofString(LuaString.latin1(DLMSG)));
             return ERRLIB;
         }
-        long h = NativeBridge.dlopen(path, false);
+        boolean global = !sym.isEmpty() && sym.charAt(0) == '*';
+        long h = NativeBridge.dlopen(path, global);
         if (h == 0) {
             String e = NativeBridge.dlerror();
             L.push(LuaValue.ofString(LuaString.latin1(
                     e == null ? DLMSG : e)));
             return ERRLIB;
+        }
+        if (global) {
+            L.push(LuaValue.ofBoolean(true));
+            return 0;
         }
         long fn = NativeBridge.dlsym(h, sym);
         if (fn == 0) {
@@ -342,8 +347,8 @@ public final class PackageLib {
 
     /** {@code ll_loadlib} */
     private static int loadlib(LuaState L) {
-        String path = LuaAux.checkString(L, 1).toJavaString();
-        String init = LuaAux.checkString(L, 2).toJavaString();
+        String path = LuaAux.checkString(L, 1).toCString().toJavaString();
+        String init = LuaAux.checkString(L, 2).toCString().toJavaString();
         int stat = lookForFunc(L, path, init);
         if (stat == 0) {
             return 1;

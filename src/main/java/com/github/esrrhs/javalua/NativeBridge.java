@@ -1,11 +1,14 @@
 package com.github.esrrhs.javalua;
 
 import java.io.InputStream;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
+import java.util.Arrays;
+import java.util.HashMap;
 
 /**
  * 与 {@code luashim} 动态库之间的那层 —— {@code dlopen}、句柄表、进出 native 的
@@ -37,8 +40,26 @@ public final class NativeBridge {
     /** 装不上的原因，调试用 */
     public static final String LOAD_ERROR;
 
-    private static final ArrayList<Object> HANDLES = new ArrayList<>();
-    private static final IdentityHashMap<Object, Integer> HANDLE_OF = new IdentityHashMap<>();
+    private static final ReferenceQueue<Object> HANDLE_QUEUE = new ReferenceQueue<>();
+    private static final ArrayList<HandleRef> HANDLES = new ArrayList<>();
+    private static HandleRef[] handleBuckets = new HandleRef[64];
+    private static int liveHandles = 0;
+    private static int[] freeIds = new int[64];
+    private static int freeCount = 0;
+    private static final HashMap<Long, LuaState> PINNED_STATES = new HashMap<>();
+
+    private static final class HandleRef extends WeakReference<Object> {
+        final int id;
+        final int hash;
+        HandleRef next;
+
+        HandleRef(Object referent, int id, int hash, HandleRef next) {
+            super(referent, HANDLE_QUEUE);
+            this.id = id;
+            this.hash = hash;
+            this.next = next;
+        }
+    }
 
     static {
         boolean ok = false;
@@ -151,7 +172,25 @@ public final class NativeBridge {
      *
      * @return 同 {@link #invokeC}
      */
-    static native int invokeK(long fn, long L, int status, int ctx);
+    static native int invokeK(long fn, long L, int status, long ctx);
+
+    /**
+     * 带 {@code setjmp} 边界地调一个 {@code lua_Hook}：
+     * {@code void (*)(lua_State *L, lua_Debug *ar)}。
+     *
+     * @return {@code 0} 正常返回；{@code -1} 是 {@code lua_error}；{@code -2} 是 yield
+     */
+    static native int invokeHook(long fn, long L, long ar);
+
+    /**
+     * 带 {@code setjmp} 边界地调一个 {@code lua_Writer}：
+     * {@code int (*)(lua_State *L, const void *p, size_t sz, void *ud)}。
+     *
+     * @return 正常返回时为 32 位 {@code int} 返回值的符号扩展；
+     *         {@code Long.MIN_VALUE} 表示 {@code lua_error}；
+     *         {@code Long.MIN_VALUE + 1} 表示 yield
+     */
+    static native long invokeWriter(long fn, long L, long p, long sz, long ud);
 
     /**
      * {@code luaL_newstate} 装的那个默认 panic 函数的地址。
@@ -249,7 +288,52 @@ public final class NativeBridge {
      *     （glibc：{@code LC_CTYPE=0 … LC_ALL=6}；macOS：{@code LC_ALL=0 …}），
      *     所以这个换算必须留在 C 侧。
      */
-    static native byte[] cSetlocale(int category, byte[] locale);
+    static byte[] cSetlocale(int category, byte[] locale) {
+        byte[] res = cSetlocale0(category, locale);
+        if (locale != null && res != null) {
+            boolean isC = (res.length == 1 && res[0] == 'C')
+                    || (res.length == 5 && res[0] == 'P' && res[1] == 'O'
+                        && res[2] == 'S' && res[3] == 'I' && res[4] == 'X');
+            if (category == 0 || category == 1) { // all or collate
+                customCollate = !isC;
+            }
+            if (category == 0 || category == 2) { // all or ctype
+                if (isC) {
+                    customCtype = false;
+                } else {
+                    short[] m = new short[256];
+                    byte[] lo = new byte[256];
+                    byte[] up = new byte[256];
+                    cFillCtypeTable(m, lo, up);
+                    ctypeMask = m;
+                    ctypeLower = lo;
+                    ctypeUpper = up;
+                    customCtype = true;
+                }
+            }
+        }
+        return res;
+    }
+
+    private static volatile boolean customCollate = false;
+    private static volatile boolean customCtype = false;
+    static volatile short[] ctypeMask = new short[256];
+    static volatile byte[] ctypeLower = new byte[256];
+    static volatile byte[] ctypeUpper = new byte[256];
+
+    static boolean hasCustomCollate() {
+        return AVAILABLE && customCollate;
+    }
+
+    static boolean hasCustomCtype() {
+        return AVAILABLE && customCtype;
+    }
+
+    private static native byte[] cSetlocale0(int category, byte[] locale);
+
+    static native int cStrcoll(byte[] a, byte[] b);
+
+    private static native void cFillCtypeTable(short[] masks, byte[] lower, byte[] upper);
 
     /**
      * 取 C 的 {@code localeconv()->decimal_point[0]}，也就是
@@ -353,41 +437,135 @@ public final class NativeBridge {
 
     private static final class FreeAction implements Runnable {
         private final long p;
+        private final Runnable beforeFree;
 
-        FreeAction(long p) {
+        FreeAction(long p, Runnable beforeFree) {
             this.p = p;
+            this.beforeFree = beforeFree;
         }
 
         @Override
         public void run() {
+            if (beforeFree != null) {
+                beforeFree.run();
+            }
             free(p);
         }
     }
 
     /** 让 {@code p} 随 {@code owner} 一起被回收；{@code p} 必须是 {@code alloc} 来的 */
     static void freeWith(Object owner, long p) {
-        CLEANER.register(owner, new FreeAction(p));
+        freeWith(owner, p, null);
+    }
+
+    static void freeWith(Object owner, long p, Runnable beforeFree) {
+        CLEANER.register(owner, new FreeAction(p, beforeFree));
     }
 
     /* ==================== 句柄 ==================== */
 
-    /** {@code lua_State*} 在 C 侧只是个下标；这里把下标换回 {@link LuaState} */
-    public static synchronized long handle(Object o) {
-        Integer h = HANDLE_OF.get(o);
-        if (h != null) {
-            return h;
+    private static void expungeStaleHandles() {
+        HandleRef ref;
+        while ((ref = (HandleRef) HANDLE_QUEUE.poll()) != null) {
+            int idx = ref.id - 1;
+            if (idx >= 0 && idx < HANDLES.size() && HANDLES.get(idx) == ref) {
+                HANDLES.set(idx, null);
+                if (freeCount == freeIds.length) {
+                    freeIds = Arrays.copyOf(freeIds, freeIds.length * 2);
+                }
+                freeIds[freeCount++] = ref.id;
+            }
+            int b = ref.hash & (handleBuckets.length - 1);
+            HandleRef prev = null;
+            for (HandleRef cur = handleBuckets[b]; cur != null; cur = cur.next) {
+                if (cur == ref) {
+                    if (prev == null) {
+                        handleBuckets[b] = cur.next;
+                    } else {
+                        prev.next = cur.next;
+                    }
+                    liveHandles--;
+                    break;
+                }
+                prev = cur;
+            }
         }
-        HANDLES.add(o);
-        int idx = HANDLES.size(); // 1 起，0 留给「没有」
-        HANDLE_OF.put(o, idx);
-        return idx;
+    }
+
+    private static void rehashHandles() {
+        int newCap = handleBuckets.length * 2;
+        HandleRef[] nb = new HandleRef[newCap];
+        int mask = newCap - 1;
+        for (HandleRef head : handleBuckets) {
+            for (HandleRef cur = head; cur != null; ) {
+                HandleRef next = cur.next;
+                if (cur.get() != null) {
+                    int b = cur.hash & mask;
+                    cur.next = nb[b];
+                    nb[b] = cur;
+                } else {
+                    liveHandles--;
+                }
+                cur = next;
+            }
+        }
+        handleBuckets = nb;
+    }
+
+    /** {@code lua_State*} 在 C 侧只是个下标；这里用弱引用映射，避免钉死宿主对象与弱表项 */
+    public static synchronized long handle(Object o) {
+        if (o == null) {
+            return 0;
+        }
+        expungeStaleHandles();
+        int hash = System.identityHashCode(o) & 0x7FFFFFFF;
+        int b = hash & (handleBuckets.length - 1);
+        for (HandleRef cur = handleBuckets[b]; cur != null; cur = cur.next) {
+            if (cur.hash == hash && cur.get() == o) {
+                return cur.id;
+            }
+        }
+        int id;
+        if (freeCount > 0) {
+            id = freeIds[--freeCount];
+            if (AVAILABLE && o instanceof LuaState) {
+                long sp = statePtr(id);
+                if (sp != 0) {
+                    put64(sp - 8, 0); // 清零复用的 LUA_EXTRASPACE
+                }
+            }
+        } else {
+            HANDLES.add(null);
+            id = HANDLES.size(); // 1 起，0 留给「没有」
+        }
+        if (liveHandles + 1 > (handleBuckets.length * 3) / 4) {
+            rehashHandles();
+            b = hash & (handleBuckets.length - 1);
+        }
+        HandleRef created = new HandleRef(o, id, hash, handleBuckets[b]);
+        handleBuckets[b] = created;
+        HANDLES.set(id - 1, created);
+        liveHandles++;
+        return id;
+    }
+
+    /** 专供 C 侧 {@code lua_newstate}/{@code luaL_newstate} 创建的孤立状态保活，直到 {@code lua_close} */
+    static synchronized long pinState(LuaState s) {
+        long h = handle(s);
+        PINNED_STATES.put(h, s);
+        return h;
+    }
+
+    static synchronized void unpinState(long h) {
+        PINNED_STATES.remove(h);
     }
 
     public static synchronized LuaState state(long h) {
         if (h <= 0 || h > HANDLES.size()) {
             return null;
         }
-        Object o = HANDLES.get((int) (h - 1));
+        HandleRef ref = HANDLES.get((int) (h - 1));
+        Object o = (ref == null) ? null : ref.get();
         return o instanceof LuaState ? (LuaState) o : null;
     }
 

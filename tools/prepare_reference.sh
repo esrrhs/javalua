@@ -6,7 +6,12 @@ mkdir -p target/reference-downloads target/lua53 target/lua53-tests
 fetch() {
   file="target/reference-downloads/$1"
   if ! printf '%s  %s\n' "$2" "$file" | sha256sum -c - >/dev/null 2>&1; then
-    curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 -o "$file" "$3"
+    retry_extra=""
+    if curl --help all 2>&1 | grep -q -- '--retry-all-errors'; then
+      retry_extra="--retry-all-errors"
+    fi
+    # shellcheck disable=SC2086
+    curl -fsSL --retry 5 $retry_extra --retry-delay 5 --connect-timeout 20 --max-time 120 -o "$file" "$3"
   fi
   printf '%s  %s\n' "$2" "$file" | sha256sum -c -
 }
@@ -16,8 +21,11 @@ fetch lua-5.3.4-tests.tar.gz b80771238271c72565e5a1183292ef31bd7166414cd0d43a8eb
 tar xzf target/reference-downloads/lua-5.3.4.tar.gz -C target/lua53 --strip-components=1
 make -C target/lua53 clean
 make -C target/lua53 -j2 posix MYCFLAGS=-DLUA_USE_DLOPEN MYLIBS="-Wl,-E -ldl"
+dl=""
+case "$(uname -s)" in Linux) dl="-ldl" ;; esac
 for helper in fkdump tblstruct; do
-  "${CC:-cc}" -O2 -I target/lua53/src -o "target/lua53/src/$helper" "src/test/resources/$helper.c" target/lua53/src/liblua.a -lm
+  # shellcheck disable=SC2086
+  "${CC:-cc}" -O2 -I target/lua53/src -o "target/lua53/src/$helper" "src/test/resources/$helper.c" target/lua53/src/liblua.a -lm $dl
 done
 tar xzf target/reference-downloads/lua-5.3.4-tests.tar.gz -C target/lua53-tests --strip-components=1
 # Fail closed; shell and JVM checks both require the exact patch version.

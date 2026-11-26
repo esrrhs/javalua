@@ -644,7 +644,7 @@ public final class DebugLib {
         if (!L.isNoneArg(arg + 1) && L.arg1(arg + 1).baseType() == Lua.TFUNCTION) {
             L.push(new LuaValue(L.arg1(arg + 1)));
             String name = getLocal(L, null, nvar);
-            L.push((name == null) ? LuaValue.ofNil() : LuaValue.ofString(LuaString.utf8(name)));
+            L.push((name == null) ? LuaValue.ofNil() : LuaValue.ofString(LuaString.latin1(name)));
             return 1;
         }
         int level = (int) LuaAux.checkInteger(L, arg + 1);
@@ -661,7 +661,7 @@ public final class DebugLib {
                 v = new LuaValue(L1.stack[--L1.top]);
             }
             // name 在上面的 if 里已判过非空
-            L.push(LuaValue.ofString(LuaString.utf8(name)));
+            L.push(LuaValue.ofString(LuaString.latin1(name)));
             L.push(v);
             return 2;
         }
@@ -691,7 +691,7 @@ public final class DebugLib {
         if (name == null) {
             L1.top--; // 没写进去，把值弹掉
         }
-        L.push((name == null) ? LuaValue.ofNil() : LuaValue.ofString(LuaString.utf8(name)));
+        L.push((name == null) ? LuaValue.ofNil() : LuaValue.ofString(LuaString.latin1(name)));
         return 1;
     }
 
@@ -1352,18 +1352,12 @@ public final class DebugLib {
         byte[] buf = new byte[DB_BUFSIZ];
         for (;;) {
             writeErr(L, DB_PROMPT);
-            int n = fgets(L.in, buf);
+            int n = fgets(L.stdIn(), buf);
             if (n < 0 || isCont(buf, n)) {
                 return 0;
             }
             byte[] src = java.util.Arrays.copyOf(buf, n);
-            LuaValue err;
-            try {
-                err = L.runProtected(src, "=(debug command)");
-            } catch (LuaError e) {
-                // luaL_loadbuffer 那一步就失败：消息同样要打出来
-                err = e.value;
-            }
+            LuaValue err = L.runProtected(src, "=(debug command)");
             if (err != null) {
                 writeErr(L, LuaAux.toLString(L, err).bytes);
                 writeErr(L, new byte[] { '\n' });
@@ -1405,7 +1399,7 @@ public final class DebugLib {
 
     /** {@code lua_writestringerror}：写字节 + 立刻 flush（C 的 stderr 无缓冲） */
     private static void writeErr(LuaState L, byte[] b) {
-        L.err.write(b, 0, b.length);
-        L.err.flush();
+        L.stdErr().write(b, 0, b.length);
+        L.stdErr().flush();
     }
 }

@@ -82,6 +82,9 @@ public class LuaError extends RuntimeException {
      */
     public boolean errMem;
 
+    /** Lua 5.3.4 {@code LUA_ERRGCMM}：运行 {@code __gc} 元方法时抛出的错误 */
+    public boolean errGcmm;
+
     public LuaError(LuaValue value) {
         super(value == null ? "nil" : value.toString(), null, false, false);
         this.value = value;

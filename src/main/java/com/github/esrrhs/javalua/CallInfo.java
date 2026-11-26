@@ -105,8 +105,8 @@ public final class CallInfo {
      */
     LuaKFunction k;
 
-    /** {@code u.c.ctx}：续体的上下文 */
-    int ctx;
+    /** {@code u.c.ctx}：续体的上下文（{@code lua_KContext} = {@code intptr_t}，64 位） */
+    long ctx;
 
     /**
      * {@code CIST_YPCALL}：本帧是一个被打断的 {@code pcall} / {@code xpcall}，

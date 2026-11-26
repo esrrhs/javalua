@@ -26,9 +26,6 @@ public final class UpVal {
     /** 开放时对应的栈下标；{@code -1} 表示已关闭 */
     int stackIdx;
 
-    /** 是否是 {@code <close>} 声明的 to-be-closed 变量 */
-    boolean toBeClosed;
-
     private UpVal() {
     }
 

@@ -1,5 +1,6 @@
 package com.github.esrrhs.javalua;
 
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
 
 /**
@@ -89,9 +90,9 @@ public final class Proto {
 
     /**
      * {@code Proto.cache}：最近一次用本原型建出的闭包，供 {@code getcached} 复用。
-     * GC 涂黑清缓存不在本仓库对齐范围内，故始终可写。
+     * 用弱引用对齐 {@code lgc.c: traverseproto} 的弱缓存语义，避免钉死闭包及其捕获的 upvalue。
      */
-    public LClosure cache;
+    WeakReference<LClosure> cache;
 
     public LocVar[] locvars = new LocVar[0];
     public int sizelocvars;

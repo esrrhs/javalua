@@ -349,13 +349,17 @@ final class Numeral {
                 return;
             }
             while (p < s.length() && LCType.isDigit(s.charAt(p))) {
-                exp1 = exp1 * 10 + (s.charAt(p) - '0');
+                int d = s.charAt(p) - '0';
+                if (exp1 <= (Integer.MAX_VALUE - 100) / 10) {
+                    exp1 = exp1 * 10 + d;
+                }
                 p++;
             }
             if (neg1) {
                 exp1 = -exp1;
             }
-            e += exp1;
+            long sumExp = (long) e + exp1;
+            e = (int) Math.max(Math.min(sumExp, Integer.MAX_VALUE / 2), Integer.MIN_VALUE / 2);
             end[0] = p;
         }
         if (neg) {

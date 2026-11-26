@@ -138,6 +138,18 @@ public final class Undump {
                 | ((b[3] & 0xFF) << 24);
     }
 
+    /** Vector count in precompiled chunk: negative 32-bit int wraps to huge size_t in C → LUA_ERRMEM. */
+    private static int loadCount(LoadState S) {
+        int n = loadInt(S);
+        if (n < 0) {
+            LuaError e = new LuaError(
+                    LuaValue.ofString(LuaString.latin1("not enough memory")));
+            e.errMem = true;
+            throw e;
+        }
+        return n;
+    }
+
     /** Lua 5.3.4: {@code LoadVar(size_t)}. */
     private static long loadSizeT(LoadState S) {
         byte[] b = new byte[SIZE_SIZET];
@@ -267,7 +279,7 @@ public final class Undump {
      * {@code loadBlock} 报 {@code truncated chunk}，与参考实现一致。
      */
     private static void loadCode(LoadState S, Proto f) {
-        int n = loadInt(S);
+        int n = loadCount(S);
         f.code = new int[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizecode = n;
         byte[] b = new byte[SIZE_INSTRUCTION];
@@ -288,7 +300,7 @@ public final class Undump {
     }
 
     private static void loadConstants(LoadState S, Proto f) {
-        int n = loadInt(S);
+        int n = loadCount(S);
         f.k = new LuaValue[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizek = n;
         // 建一个、立刻解析一个。分成「先铺 nil」「再解析」两趟的话，
@@ -340,7 +352,7 @@ public final class Undump {
     }
 
     private static void loadProtos(LoadState S, Proto f) {
-        int n = loadInt(S);
+        int n = loadCount(S);
         f.p = new Proto[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizep = n;
         /*
@@ -362,7 +374,7 @@ public final class Undump {
     }
 
     private static void loadUpvalues(LoadState S, Proto f) {
-        int n = loadInt(S);
+        int n = loadCount(S);
         f.upvalues = new Proto.Upvaldesc[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizeupvalues = n;
         // 同上：建一个、读一个，别先照声明的个数全铺开
@@ -381,7 +393,7 @@ public final class Undump {
     }
 
     private static void loadDebug(LoadState S, Proto f) {
-        int n = loadInt(S);
+        int n = loadCount(S);
         f.lineinfo = new int[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizelineinfo = n;
         // 5.3.4: lineinfo is int[]; no abslineinfo
@@ -396,7 +408,7 @@ public final class Undump {
         if (f.lineinfo.length != n) {
             f.lineinfo = Arrays.copyOf(f.lineinfo, Math.max(n, 0));
         }
-        n = loadInt(S);
+        n = loadCount(S);
         f.locvars = new Proto.LocVar[Math.min(Math.max(n, 0), MIN_CAP)];
         f.sizelocvars = n;
         for (int i = 0; i < n; i++) {

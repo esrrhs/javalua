@@ -103,62 +103,6 @@ public final class BaseLib {
         L.setTypeMetatable(Lua.TSTRING, new LuaTable());
     }
 
-    /**
-     * {@code lstrlib.c: arith}。
-     * <p>
-     * 关键在那句 {@code else trymt(L, mtname)}：<b>转换不成数字不是立刻报错</b>，
-     * 而是<b>再去第二个操作数身上找同名元方法</b>。少了这一步，
-     * {@code '5' + b}（{@code b} 是带 {@code __add} 的表）会报
-     * 「attempt to add a 'string' with a 'table'」，而参考实现是正常调用
-     * {@code b} 的 {@code __add}——上游 {@code events.lua} 那一整串
-     * {@code checkcap{"add", '5', b}} 全靠它。
-     */
-    private static int strArith(LuaState L, int op, int event, String name) {
-        LuaValue p1 = L.arg(0);
-        LuaValue p2 = L.arg(1);
-        LuaValue n1 = numOf(p1);
-        LuaValue n2 = numOf(p2);
-        if (n1 != null && n2 != null) {
-            LuaValue res = Arith.rawArith(L, op, n1, n2);
-            if (res != null) {
-                L.push(res);
-                return 1;
-            }
-        }
-        /* lstrlib.c: trymt —— 回到原来的两个参数，去 p2 身上找元方法 */
-        L.setTop(2);
-        /*
-         * 「第二个操作数是字符串」时<b>不找</b>：否则 {@code '5' + 'x'} 会找到
-         * 字符串元表的 {@code __add}——也就是现在正在跑的这个函数——无限递归。
-         * C 版用 {@code lua_type(L, 2) == LUA_TSTRING} 挡住，正是这个原因。
-         */
-        if (!p2.isString()) {
-            LuaValue tm = LuaTm.getTmByObj(L, p2, event);
-            if (tm != null && !tm.isNil()) {
-                int f1 = L.ci.func + 1; // 第一个参数的位置
-                L.push(tm);
-                // lua_insert(L, -3)：元方法挪到两个参数下面
-                LuaValue moved = new LuaValue(L.stack[L.top - 1]);
-                for (int i = L.top - 1; i > f1; i--) {
-                    L.stack[i].set(L.stack[i - 1]);
-                }
-                L.stack[f1].set(moved);
-                L.callNoYield(f1, 1); // C 版 lua_call = luaD_callnoyield
-                return 1;
-            }
-        }
-        throw L.libError("attempt to " + name + " a '" + p1.typeName() + "' with a '"
-                + p2.typeName() + "'");
-    }
-
-    /** {@code lstrlib.c: tonum}：已是数字就原样返回，否则试着把整个字符串解释成数字 */
-    private static LuaValue numOf(LuaValue v) {
-        if (v.isNumber()) {
-            return v;
-        }
-        return Vm.strToNum(v);
-    }
-
     /* ==================== 各函数 ==================== */
 
     /**
@@ -199,8 +143,8 @@ public final class BaseLib {
         }
         tmp.write('\n');
         byte[] all = tmp.toByteArray();
-        L.out.write(all, 0, all.length);
-        L.out.flush();
+        L.stdOut().write(all, 0, all.length);
+        L.stdOut().flush();
         return 0;
     }
 
@@ -751,21 +695,7 @@ public final class BaseLib {
             myCi.ctx = start;
             myCi.funcIdx = f;
             myCi.errHandler = handler;
-            /*
-             * 两种「被打断」必须分开记，因为 resume 之后 {@code finishPcallK}
-             * 只看 {@code recst}：
-             * <ul>
-             *   <li>被保护的函数正常跑着就 yield 了 → {@code LUA_OK}，续体原样
-             *       把结果交给调用方。</li>
-             *   <li>是<b>出错后关 tbc 变量</b>时 yield 的 → 错误还没交出去，
-             *       续体要接着把剩下的变量关完，再返回 {@code false, err}。
-             *       这就是 {@code finishpcallk} 里 {@code recst} 记着
-             *       {@code LUA_ERRRUN} 的含义。</li>
-             * </ul>
-             * {@link LuaState#closeErrPending} 非空就说明是后者（错误对象和
-             * 「还有变量没关完」是同一个条件，见那里的注释）。
-             */
-            myCi.recst = (L.closeErrPending != null) ? LuaState.LUA_ERRRUN : LuaState.LUA_OK;
+            myCi.recst = LuaState.LUA_OK;
             throw y;
         }
     }
@@ -777,14 +707,15 @@ public final class BaseLib {
      * {@code finishPcallK} 放在 {@code ctx + 1}。
      */
     private static final LuaKFunction PCALL_CONT = (L, status, ctx) -> {
+        int start = (int) ctx;
         if (status != LuaState.LUA_OK && status != LuaState.LUA_YIELD) {
-            LuaValue err = new LuaValue(L.stack[ctx + 1]);
-            L.top = ctx;
+            LuaValue err = new LuaValue(L.stack[start + 1]);
+            L.top = start;
             L.push(LuaValue.ofBoolean(false));
             L.push(err);
             return 2;
         }
-        return L.top - ctx;
+        return L.top - start;
     };
 
     /** {@code luaB_setmetatable} */
@@ -973,12 +904,12 @@ public final class BaseLib {
      */
     static void doCollect(LuaState L) {
         L.clearDeadStackSlices();
+        LuaTable.GC_GENERATION.incrementAndGet();
         /*
          * 请求 GC、催终结、跑 __gc 三件事的循环都在里面：System.gc() 与 JVM
          * 的终结线程之间是异步的（见 LuaState#collectAndRunFinalizers）。
          */
         L.mainThread.collectAndRunFinalizers(L);
-        LuaTable.gcGeneration++;
     }
 
     /* ==================== 加载 ==================== */
@@ -1154,7 +1085,7 @@ public final class BaseLib {
             // 无参：从 stdin 读。chunk 名是 "=stdin"
             byte[] src;
             try {
-                src = L.in.readAllBytes();
+                src = L.stdIn().readAllBytes();
             } catch (java.io.IOException e) {
                 LuaAux.pushFail(L);
                 L.push(LuaValue.ofString(LuaString.latin1("cannot read stdin")));
@@ -1190,8 +1121,7 @@ public final class BaseLib {
             boolean isDir = !path.isEmpty() && new java.io.File(path).isDirectory();
             int en = path.isEmpty() ? 2
                     : isDir ? 21
-                    : LuaAux.errnoOf((e instanceof java.io.IOException)
-                            ? (java.io.IOException) e : null);
+                    : LuaAux.errnoOf(path, false, e);
             LuaAux.pushFail(L);
             L.push(LuaValue.ofString(LuaString.latin1(
                     (isDir ? "cannot read " : "cannot open ") + path + ": "
@@ -1212,7 +1142,7 @@ public final class BaseLib {
      * 本身那一格）。这里直接把 chunk 的下标当 {@code ctx} 传进来，省得再推一遍
      * ——{@code ctx} 在 {@code lua_callk} 里本来就是给续体用的。
      */
-    private static final LuaKFunction DOFILE_CONT = (L, status, ctx) -> L.top - ctx;
+    private static final LuaKFunction DOFILE_CONT = (L, status, ctx) -> L.top - (int) ctx;
 
     /**
      * {@code luaB_dofile}。

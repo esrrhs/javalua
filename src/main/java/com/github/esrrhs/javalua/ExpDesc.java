@@ -34,6 +34,7 @@ public final class ExpDesc {
     /** VINDEXED：表是 VLOCAL 还是 VUPVAL */
     public int indVt;
     /** @deprecated 5.4 local register alias — same as info for VLOCAL in 5.3 */
+    @Deprecated
     public int varRidx;
     public int varVidx;
     public LuaString strval;

@@ -325,6 +325,7 @@ public final class OpCode {
     }
 
     /** @deprecated 5.4 k-bit; 5.3 uses RK in B/C */
+    @Deprecated
     public static int getArgK(int i) { return 0; }
     public static int setArgK(int i, int v) { return i; }
     public static int getArgSJ(int i) { return getArgSBx(i); }

@@ -47,8 +47,7 @@ public final class TableLib {
         if (v.isTable()) {
             return;
         }
-        LuaTable mt = (v.baseType() == Lua.TTABLE) ? v.asTable().getMetatable()
-                : L.typeMetatable(v.baseType());
+        LuaTable mt = LuaTm.metatableOf(L, v);
         if (mt != null) {
             boolean ok = true;
             if ((what & TAB_R) != 0) {

@@ -61,7 +61,6 @@ public final class LuaUserdata {
     }
 
     public LuaUserdata(Object data, int nuvalue, int len) {
-        LuaState.chargeGc();
         this.data = data;
         this.len = len;
         if (nuvalue > 0) {
@@ -106,41 +105,15 @@ public final class LuaUserdata {
     }
 
     /**
-     * 跑一次 {@code __gc(ud)}。
-     * <p>
-     * 与 {@link LuaTable#runGcMetamethod} 一致：{@code __gc} 里的错误一律吞掉，
-     * 且只允许跑一次。
+     * 跑一次 {@code __gc(ud)}（Lua 5.3.4 {@code GCTM}）。
      */
-    void runGcMetamethod(LuaState L) {
+    void runGcMetamethod(LuaState L, boolean propagateErrors) {
         if (gcDone) {
             return;
         }
         gcDone = true;
-        if (metatable == null) {
-            return;
-        }
-        LuaValue tm = metatable.get(LuaString.latin1("__gc"));
-        if (tm == null || tm.isNil()) {
-            return;
-        }
-        int func = L.top;
-        try {
-            L.ensureSlots(func + 2);
-            L.stack[func].set(tm);
-            L.stack[func + 1].setObject(Lua.VUSERDATA, this);
-            L.top = func + 2;
-            // 与 LuaTable 同：CIST_FIN 打在发起终结的那一帧上
-            boolean wasFin = L.ci.fin;
-            L.ci.fin = true;
-            try {
-                L.callNoYield(func, 0);
-            } finally {
-                L.ci.fin = wasFin;
-            }
-        } catch (LuaError e) {
-            // __gc 里的错误一律静默（实测参考实现如此）
-        } finally {
-            L.top = func;
-        }
+        LuaValue self = new LuaValue();
+        self.setObject(Lua.VUSERDATA, this);
+        L.runFinalizerBody(metatable, self, propagateErrors);
     }
 }

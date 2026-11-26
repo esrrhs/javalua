@@ -6,8 +6,7 @@ on:
 
 jobs:
   build:
-    # 只跑 JDK 21：协程依赖虚拟线程(JEP 444),这是本实现的下限。
-    # 旧的多版本矩阵(8/11/17)在引入 release=21 之后已经无意义。
+    # 基线为 JDK 21（release=21 + JUnit 6；协程采用独立 Lua 栈 + LuaYield 异常展开，不依赖虚拟线程）。
     runs-on: ubuntu-latest
     name: Build (JDK 21)
     steps:

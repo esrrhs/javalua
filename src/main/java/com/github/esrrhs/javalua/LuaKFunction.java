@@ -19,5 +19,5 @@ package com.github.esrrhs.javalua;
  */
 public interface LuaKFunction {
 
-    int call(LuaState L, int status, int ctx);
+    int call(LuaState L, int status, long ctx);
 }

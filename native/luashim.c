@@ -11,6 +11,7 @@
  * 这里只写那些打包不了的：变参、要遍历 C 结构体的、数据符号、以及 yield。
  */
 #include <jni.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <setjmp.h>
@@ -18,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <ctype.h>
 #include <pthread.h>
 #include <dlfcn.h>
 #include <locale.h>   /* setlocale / localeconv */
@@ -162,9 +164,18 @@ static char *slot_ptr(jlong idx) {
     if (c >= SLOT_MAXCHUNK) {
         return NULL;
     }
+    if (c < __atomic_load_n(&g_nchunks, __ATOMIC_ACQUIRE)) {
+        return g_chunks[c] + o * SLOT_STRIDE + SLOT_STRIDE;
+    }
     pthread_mutex_lock(&g_slotlock);
     while (c >= g_nchunks) {
-        g_chunks[g_nchunks++] = (char *)calloc(SLOT_BYTES, 1);
+        char *chunk = (char *)calloc(SLOT_BYTES, 1);
+        if (chunk == NULL) {
+            pthread_mutex_unlock(&g_slotlock);
+            return NULL;
+        }
+        g_chunks[g_nchunks] = chunk;
+        __atomic_store_n(&g_nchunks, g_nchunks + 1, __ATOMIC_RELEASE);
     }
     base = g_chunks[c];
     pthread_mutex_unlock(&g_slotlock);
@@ -175,7 +186,8 @@ static jlong slot_idx(void *L) {
     if (L == NULL) {
         return 0;
     }
-    for (int c = 0; c < g_nchunks; c++) {
+    int n = __atomic_load_n(&g_nchunks, __ATOMIC_ACQUIRE);
+    for (int c = 0; c < n; c++) {
         char *b = g_chunks[c];
         if ((char *)L < b || (char *)L >= b + SLOT_BYTES) {
             continue;
@@ -395,14 +407,66 @@ Java_com_github_esrrhs_javalua_NativeBridge_invokeK(JNIEnv *env,
     g_yielding = 0;
     g_jmp = &buf;
     if (setjmp(buf) == 0) {
-        int (*f)(void *, int, long) = (int (*)(void *, int, long))(intptr_t)fn;
-        r = f(LUASHIM_STATE(L), (int)status, (long)ctx);
+        int (*f)(void *, int, lua_KContext) =
+                (int (*)(void *, int, lua_KContext))(intptr_t)fn;
+        r = f(LUASHIM_STATE(L), (int)status, (lua_KContext)ctx);
     } else {
         r = (g_yielding || pending_is_yield()) ? -2 : -1;
     }
     g_jmp = prev;
     g_yielding = 0;
     return (jint)r;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_invokeHook(JNIEnv *env,
+        jclass cls, jlong fn, jlong L, jlong ar) {
+    (void)env;
+    (void)cls;
+    if (fn == 0) {
+        return 0;
+    }
+    jmp_buf buf;
+    jmp_buf *prev = g_jmp;
+    volatile int r = 0;
+    g_yielding = 0;
+    g_jmp = &buf;
+    if (setjmp(buf) == 0) {
+        void (*f)(void *, void *) = (void (*)(void *, void *))(intptr_t)fn;
+        f(LUASHIM_STATE(L), (void *)(intptr_t)ar);
+    } else {
+        r = (g_yielding || pending_is_yield()) ? -2 : -1;
+    }
+    g_jmp = prev;
+    g_yielding = 0;
+    return (jint)r;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_invokeWriter(JNIEnv *env,
+        jclass cls, jlong fn, jlong L, jlong p, jlong sz, jlong ud) {
+    (void)env;
+    (void)cls;
+    if (fn == 0) {
+        return 1;
+    }
+    jmp_buf buf;
+    jmp_buf *prev = g_jmp;
+    volatile jlong r;
+    g_yielding = 0;
+    g_jmp = &buf;
+    if (setjmp(buf) == 0) {
+        int (*f)(void *, const void *, size_t, void *) =
+                (int (*)(void *, const void *, size_t, void *))(intptr_t)fn;
+        int w = f(LUASHIM_STATE(L), (const void *)(intptr_t)p,
+                (size_t)sz, (void *)(intptr_t)ud);
+        r = (jlong)(jint)w;
+    } else {
+        r = (g_yielding || pending_is_yield()) ? (LLONG_MIN + 1) : LLONG_MIN;
+    }
+    g_jmp = prev;
+    g_yielding = 0;
+    return r;
 }
 
 JNIEXPORT jlong JNICALL
@@ -1627,7 +1691,7 @@ static void luashim_remember_radix(int category, const char *name) {
  * {@code GetByteArrayRegion}），不能直接存指针。
  */
 JNIEXPORT jbyteArray JNICALL
-Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale(JNIEnv *env,
+Java_com_github_esrrhs_javalua_NativeBridge_cSetlocale0(JNIEnv *env,
         jclass cls, jint category, jbyteArray locale) {
     (void)cls;
     const char *loc = NULL;
@@ -1691,6 +1755,86 @@ Java_com_github_esrrhs_javalua_NativeBridge_cLocaleDecpoint(JNIEnv *env,
     if (lc == NULL || lc->decimal_point == NULL || lc->decimal_point[0] == '\0')
         return (jint)'.';
     return (jint)(unsigned char)lc->decimal_point[0];
+}
+
+/*
+ * 按当前 LC_COLLATE 逐段（跨内嵌 '\0'）做 strcoll，与 lvm.c: l_strcmp 完全同构。
+ */
+JNIEXPORT jint JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cStrcoll(JNIEnv *env,
+        jclass cls, jbyteArray a, jbyteArray b) {
+    (void)cls;
+    jsize la = (*env)->GetArrayLength(env, a);
+    jsize lb = (*env)->GetArrayLength(env, b);
+    char *sa = (char *)malloc((size_t)la + 1);
+    char *sb = (char *)malloc((size_t)lb + 1);
+    if (sa == NULL || sb == NULL) {
+        free(sa);
+        free(sb);
+        return 0;
+    }
+    (*env)->GetByteArrayRegion(env, a, 0, la, (jbyte *)sa);
+    sa[la] = '\0';
+    (*env)->GetByteArrayRegion(env, b, 0, lb, (jbyte *)sb);
+    sb[lb] = '\0';
+    const char *pa = sa;
+    const char *pb = sb;
+    size_t rla = (size_t)la;
+    size_t rlb = (size_t)lb;
+    int res = 0;
+    for (;;) {
+        int temp = strcoll(pa, pb);
+        if (temp != 0) {
+            res = temp;
+            break;
+        }
+        size_t lena = strlen(pa);
+        if (lena == rlb) {
+            res = (lena == rla) ? 0 : 1;
+            break;
+        } else if (lena == rla) {
+            res = -1;
+            break;
+        }
+        lena++;
+        pa += lena; rla -= lena;
+        pb += lena; rlb -= lena;
+    }
+    free(sa);
+    free(sb);
+    return (jint)res;
+}
+
+/*
+ * 把当前 LC_CTYPE 下 0..255 的分类位掩码与 tolower/toupper 一次性拷回 Java 查表。
+ */
+JNIEXPORT void JNICALL
+Java_com_github_esrrhs_javalua_NativeBridge_cFillCtypeTable(JNIEnv *env,
+        jclass cls, jshortArray masksOut, jbyteArray lowerOut, jbyteArray upperOut) {
+    (void)cls;
+    jshort masks[256];
+    jbyte lo[256];
+    jbyte up[256];
+    int c;
+    for (c = 0; c < 256; c++) {
+        jshort m = 0;
+        if (isalpha(c))  m |= (1 << 0);
+        if (iscntrl(c))  m |= (1 << 1);
+        if (isdigit(c))  m |= (1 << 2);
+        if (isgraph(c))  m |= (1 << 3);
+        if (islower(c))  m |= (1 << 4);
+        if (ispunct(c))  m |= (1 << 5);
+        if (isspace(c))  m |= (1 << 6);
+        if (isupper(c))  m |= (1 << 7);
+        if (isalnum(c))  m |= (1 << 8);
+        if (isxdigit(c)) m |= (1 << 9);
+        masks[c] = m;
+        lo[c] = (jbyte)(unsigned char)tolower(c);
+        up[c] = (jbyte)(unsigned char)toupper(c);
+    }
+    (*env)->SetShortArrayRegion(env, masksOut, 0, 256, masks);
+    (*env)->SetByteArrayRegion(env, lowerOut, 0, 256, lo);
+    (*env)->SetByteArrayRegion(env, upperOut, 0, 256, up);
 }
 
 
@@ -1895,7 +2039,19 @@ Java_com_github_esrrhs_javalua_NativeBridge_cSpawn(JNIEnv *env, jclass cls,
      */
     if (posix_spawnattr_init(&sa) == 0) {
         sigset_t all;
-        sigfillset(&all);
+        int sig;
+        sigemptyset(&all);
+        for (sig = 1; sig < NSIG; sig++) {
+            if (sig == SIGKILL || sig == SIGSTOP) {
+                continue;
+            }
+#ifdef SIGRTMIN
+            if (sig >= 32 && sig < SIGRTMIN) {
+                continue;
+            }
+#endif
+            sigaddset(&all, sig);
+        }
         if (posix_spawnattr_setsigdefault(&sa, &all) == 0) {
 #ifdef POSIX_SPAWN_SETSIGDEF
             posix_spawnattr_setflags(&sa, POSIX_SPAWN_SETSIGDEF);

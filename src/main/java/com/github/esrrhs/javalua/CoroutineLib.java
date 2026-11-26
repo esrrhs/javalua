@@ -136,38 +136,11 @@ public final class CoroutineLib {
         L.stack[p].set(v);
     }
 
-    /** {@code luaB_auxwrap} */
+    /** {@code luaB_auxwrap}（Lua 5.3.4：出错不调 5.4 的 {@code lua_closethread}，保留死亡状态与回溯栈帧） */
     private static int auxwrap(LuaState L) {
         LuaState co = L.upvalue(0).asThread();
         int r = auxresume(L, co, L.argCount());
         if (r < 0) {
-            int stat = co.getStatus();
-            if (stat != LuaState.LUA_OK && stat != LuaState.LUA_YIELD) {
-                /*
-                 * {@code lua_closethread(co, L)} + {@code lua_xmove(co, L, 1)}。
-                 * <p>
-                 * 注意 {@code xmove} 是往 {@code L} <b>压</b>一个值，不是覆盖：
-                 * {@code auxresume} 搬过来的那个还在下面，真正被当作错误对象的
-                 * 是这次新压上来的栈顶。
-                 * <p>
-                 * 而 {@code luaE_resetthread} 要交出的是
-                 * {@code luaD_seterrorobj(L, status, L->stack + 1)} 的结果，
-                 * 源头是「搬走一格之后的栈顶」——所以 {@code luaB_error} 必须照
-                 * C 版写（先 {@code settop(1)} 再 {@code where}+{@code concat}），
-                 * 那一格才正好是带位置的错误对象。
-                 */
-                LuaValue prev = new LuaValue(L.stack[L.top - 1]); // auxresume 刚搬上来的错误对象
-                if (co.closeThreadValue(L, prev) != null) {
-                    LuaState.xmove(co, L, 1);
-                }
-                /*
-                 * C 版这里把 stat 重新赋值：{@code stat = lua_closethread(co, L)}。
-                 * 也就是说判「是不是内存错误」用的<b>不是</b>协程原来的状态，而是
-                 * 关完 {@code <close>} 之后的状态 —— {@code __close} 自己抛了错
-                 * 就变成 {@code LUA_ERRRUN}，那是要补位置的。
-                 */
-                stat = co.closeStatus;
-            }
             LuaValue err = L.stack[L.top - 1];
             /*
              * Lua 5.3.4 luaB_auxwrap: if string error, always luaL_where+concat
@@ -277,26 +250,5 @@ public final class CoroutineLib {
         int ismain = L.pushThread();
         L.push(LuaValue.ofBoolean(ismain != 0));
         return 2;
-    }
-
-    /** {@code luaB_close} */
-    private static int coclose(LuaState L) {
-        LuaState co = getco(L);
-        int status = auxStatus(L, co);
-        switch (status) {
-        case COS_DEAD:
-        case COS_YIELD: {
-            LuaValue err = co.closeThreadValue(L);
-            if (err == null) {
-                L.push(LuaValue.ofBoolean(true));
-                return 1;
-            }
-            L.push(LuaValue.ofBoolean(false));
-            LuaState.xmove(co, L, 1);
-            return 2;
-        }
-        default:
-            throw L.libError("cannot close a " + STAT_NAME[status] + " coroutine");
-        }
     }
 }

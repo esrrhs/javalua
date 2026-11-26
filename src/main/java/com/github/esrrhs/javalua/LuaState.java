@@ -113,16 +113,6 @@ public final class LuaState {
      */
     private int nNy;
 
-    /**
-     * 关 tbc 变量时被 yield 打断，记下「当时正要往上抛的那个错误对象」。
-     * <p>
-     * C 版不需要这个字段：错误对象一直躺在栈上（{@code luaD_seterrorobj} 每次
-     * 关一个变量都会把它重新写到 {@code tbc + 1}），{@code finishpcallk} 从头
-     * {@code L->top - 1} 取即可。本实现的错误对象住在异常里，yield 一抛就跟着
-     * Java 栈一起没了，只能在这里暂存，等 {@link #finishPcallK} 来取。
-     */
-    LuaValue closeErrPending;
-
     /* ==================== 调试钩子 ==================== */
 
     /**
@@ -205,30 +195,8 @@ public final class LuaState {
     /** {@code lauxlib.h: LUA_ERRFILE} = LUA_ERRERR + 1 */
     public static final int LUA_ERRFILE = 7;
 
-    /**
-     * {@code lua_closethread} 的返回值：关完 {@code <close>} 变量之后的状态。
-     *
-     * @see #closeThreadValue(LuaState, LuaValue)
-     */
-    int closeStatus = LUA_OK;
-
     /** {@code lua_State.status} */
     int status = LUA_OK;
-
-    /**
-     * 协程<b>死掉时</b>的错误对象，给 {@code coroutine.close} 用。
-     * <p>
-     * C 不需要这个字段：它的错误对象在栈上占两格（理由见
-     * {@link #closeThreadValue(LuaState)}），{@code lua_xmove} 搬走一格还剩
-     * 一格。本实现只有一格，搬走就没了，只能在死的时候另存一份。
-     */
-    private LuaValue deadErr;
-
-    /** {@code lua.h: LUA_GCGEN} —— 分代模式 */
-    public static final int LUA_GCGEN = 10;
-
-    /** {@code lua.h: LUA_GCINC} —— 增量模式（5.4 的默认） */
-    public static final int LUA_GCINC = 11;
 
     /**
      * {@code global_State.gcstp}：收集器是否在运行。
@@ -237,32 +205,6 @@ public final class LuaState {
      * 本实现不真的收集。
      */
     boolean gcRunning = true;
-
-    /**
-     * {@code global_State.gckind}：{@link #LUA_GCGEN} 或 {@link #LUA_GCINC}。
-     * <p>
-     * {@code collectgarbage("generational"/"incremental")} 返回的是<b>切换前</b>
-     * 的模式，所以要记住当前是哪一个。
-     */
-    int gcKind = LUA_GCINC;
-
-    /**
-     * {@code global_State.lastatomic != 0}。
-     * <p>
-     * 判据 {@code isdecGCmodegen(g)} 是 <b>{@code gckind == KGC_GEN ||
-     * lastatomic != 0}</b>，不是单看 {@code gckind}。而 {@code lastatomic}
-     * 在 <b>头一次真正收集之后</b> 就非 0 —— 脚本加载本身就要分配，所以
-     * 用户代码刚跑起来时它已经是 0 以外的值。实测参考实现：
-     * <pre>
-     * 1 generational   -- 第一次 "incremental"：看着像分代
-     * 2 incremental    -- 切过一次之后 lastatomic 被清 0
-     * 3 incremental    -- "generational"（旧模式是增量）
-     * 4 generational    -- "incremental"（旧模式是分代）
-     * 5 incremental
-     * </pre>
-     * 只记 {@code gckind} 的话第一行就假。
-     */
-    boolean gcLastAtomic = true;
 
     /**
      * C 语言环境是否已经落到「新进程基线」上（见 {@code OsLib.setlocale}）。
@@ -397,6 +339,18 @@ public final class LuaState {
      * stdout 与 stderr 是<b>合并</b>捕获的，这边也得能把两条流指到同一个缓冲上。
      */
     public java.io.PrintStream err = System.err;
+
+    java.io.InputStream stdIn() {
+        return mainThread.in;
+    }
+
+    java.io.PrintStream stdOut() {
+        return mainThread.out;
+    }
+
+    java.io.PrintStream stdErr() {
+        return mainThread.err;
+    }
 
     /* ==================== 警告系统 ==================== */
 
@@ -630,6 +584,8 @@ public final class LuaState {
             loaded = main.loaded;
             typeMt = main.typeMt;
             out = main.out;
+            in = main.in;
+            err = main.err;
         }
         tmName = new LuaString[Tm.TM_N];
         for (int i = 0; i < stack.length; i++) {
@@ -833,7 +789,7 @@ public final class LuaState {
      * 也就是<b>创建顺序的逆序</b>。Lua 没规定顺序，但差分测的是逐字节一致，
      * 照它来最省事。
      */
-    void drainFinalizers(LuaState L) {
+    void drainFinalizers(LuaState L, boolean propagateErrors) {
         while (true) {
             GcRef r;
             synchronized (pendingFinalizers) {
@@ -845,7 +801,7 @@ public final class LuaState {
             Object t = r.owner;
             r.owner = null;
             r.done = true;
-            runGc(L, t);
+            runGc(L, t, propagateErrors);
         }
     }
 
@@ -871,79 +827,11 @@ public final class LuaState {
         return dead;
     }
 
-    /* ==================== 自动收集：luaC_checkGC 的等价物 ==================== */
-
-    /*
-     * 没有收集器，就得回答「什么时候去戳一下 JVM」。两个判据：
-     *
-     * 1. <b>分配债</b>。C 版每 new 一个可回收对象就 {@code luaC_checkGC}，
-     *    债满了推进一轮收集；这里照抄，债满就 {@code System.gc()}。
-     * 2. <b>待终结队列非空</b>。JVM 自己也会回收，哨兵的 {@code finalize}
-     *    可能在没人请求的时候就把对象排进队——那时不用等债满，直接排空。
-     *
-     * 计数做成静态的：{@link LuaTable#LuaTable()} 这类构造器拿不到 {@code L}，
-     * 而它只决定「什么时候戳一下」，多个 {@code LuaState} 共享也不影响正确性。
-     */
-    private static volatile long gcDebt;
-
-    /** 下一次强制收集要攒到多少债。每次收集后翻倍，避免分配密集的程序被拖死 */
-    private static volatile long gcThreshold = 1024;
-
-    /** 翻倍的上限：{@code 1 << 24}。再大就基本等于「只靠 JVM 自己回收」了 */
-    private static final long GC_THRESHOLD_MAX = 1L << 24;
-
     /** JVM 已经把对象排进队、等着在 Lua 线程上跑 {@code __gc} */
     private volatile boolean gcPending;
 
     /** 排空中。{@code __gc} 里也会建表，不挡住就会重进 */
     private boolean inGc;
-
-    /** 每 new 一个可回收对象收一次债 */
-    static void chargeGc() {
-        gcDebt++;
-    }
-
-    /** 该不该看一眼收集器。放在主循环里每条指令都问一次，所以要够便宜 */
-    boolean gcDue() {
-        return gcDebt >= gcThreshold || mainThread.gcPending;
-    }
-
-    /**
-     * 只在<b>指令边界</b>上调：先要一次 GC + 终结（债满时），再把排上队的
-     * {@code __gc} 跑完（{@code lgc.c: GCTM}）。
-     * <p>
-     * 为什么必须挑指令边界：{@link #drainFinalizers} 会在当前栈上<b>跑 Lua
-     * 代码</b>，而 {@link Vm#execute} 的 {@code ci / base / pc / k} 都是局部量。
-     * 好在这些量在指令边界上都是自洽的——栈槽对象不会被替换（只有
-     * {@link #ensureSlots} 会换数组，而它保持下标），{@code ci} 也不会被
-     * 嵌套调用换掉。
-     */
-    void maybeCollect(LuaState L) {
-        LuaState m = mainThread;
-        if (m.inGc) {
-            return;
-        }
-        if (!m.gcPending) {
-            if (gcDebt < gcThreshold) {
-                return;
-            }
-            gcDebt = 0;
-            if (gcThreshold < GC_THRESHOLD_MAX) {
-                gcThreshold <<= 1;
-            }
-            /*
-             * 与 collectgarbage 同一件事：清掉各栈 {@code top} 之上的死区。
-             * 少了这一步，凡是被调函数参数槽「顺便留住」的对象都收不掉——
-             * 实测 {@code setmetatable({}, {__gc=f})} 里那个 {@code {}} 就
-             * 卡在 {@code setmetatable} 帧的参数槽里，一直活到那个槽被别的
-             * 调用覆盖为止，于是 {@code repeat until name} 永远出不来。
-             */
-            L.clearDeadStackSlices();
-            m.collectAndRunFinalizers(L);
-            return;
-        }
-        m.runPendingFinalizers(L);
-    }
 
     /**
      * 一轮「请求收集 + 催终结」之后最多再试几轮。
@@ -1016,7 +904,7 @@ public final class LuaState {
         for (int round = 0; round < GC_FINALIZE_ROUNDS; round++) {
             System.gc();
             System.runFinalization();
-            runPendingFinalizers(L);
+            runPendingFinalizers(L, true);
             /*
              * 这里问的是两件事：清单上还有「已经不可达却还没跑 __gc」的吗
              * （{@link #pruneAndHasDeadFinalizables} 顺手把跑完的摘掉），
@@ -1072,35 +960,84 @@ public final class LuaState {
     }
 
     /** 排空待终结队列；重入保护与 {@code gcPending} 的复位都收在这里 */
-    private void runPendingFinalizers(LuaState L) {
+    private void runPendingFinalizers(LuaState L, boolean propagateErrors) {
         if (inGc) {
             return;
         }
         inGc = true;
         try {
-            drainFinalizers(L);
+            drainFinalizers(L, propagateErrors);
         } finally {
             inGc = false;
-        }
-        synchronized (pendingFinalizers) {
-            if (pendingFinalizers.isEmpty()) {
-                gcPending = false;
+            synchronized (pendingFinalizers) {
+                if (pendingFinalizers.isEmpty()) {
+                    gcPending = false;
+                }
             }
         }
     }
 
     /**
-     * 对一个「可终结对象」跑 {@code __gc}。
-     * <p>
-     * 表与 userdata 都可能挂 {@code __gc}（{@code io} 库的文件句柄就是后者：
-     * 不跑它的 {@code __gc}，脚本里忘了 {@code f:close()} 的文件就永远不关，
-     * 描述符一路泄漏到进程退出）。两套对象的收尾动作不同，所以在这里分派。
+     * Lua 5.3.4 {@code lgc.c: GCTM}：只调真正的函数 {@code __gc}，期间关闭钩子与 GC，
+     * {@code propagateErrors} 为真时把运行期错误包成 {@code LUA_ERRGCMM} 往上抛。
      */
-    private static void runGc(LuaState L, Object o) {
+    void runFinalizerBody(LuaTable mt, LuaValue self, boolean propagateErrors) {
+        if (mt == null) {
+            return;
+        }
+        LuaValue tm = mt.get(LuaString.latin1("__gc"));
+        if (tm == null || !tm.isFunction()) {
+            return;
+        }
+        int func = top;
+        ensureSlots(func + 2);
+        stack[func].set(tm);
+        stack[func + 1].set(self);
+        top = func + 2;
+        boolean oldAllowHook = allowHook;
+        boolean oldGcRunning = mainThread.gcRunning;
+        boolean wasFin = ci.fin;
+        allowHook = false;
+        mainThread.gcRunning = false;
+        ci.fin = true;
+        LuaValue err;
+        try {
+            err = pcallNoYield(func, 0, null);
+        } finally {
+            ci.fin = wasFin;
+            allowHook = oldAllowHook;
+            mainThread.gcRunning = oldGcRunning;
+            top = func;
+        }
+        if (err != null && propagateErrors) {
+            if (protectedCallStatus == LUA_ERRRUN) {
+                LuaString detail = err.isString()
+                        ? err.asString().toCString()
+                        : LuaString.latin1("no message");
+                LuaValue msg = LuaValue.ofString(LuaString.latin1("error in __gc metamethod (")
+                        .concat(detail).concat(LuaString.latin1(")")));
+                LuaError gcErr = new LuaError(msg);
+                gcErr.errGcmm = true;
+                gcErr.directThrow = true;
+                throw gcErr;
+            }
+            LuaError rethrow = new LuaError(err);
+            rethrow.errMem = (protectedCallStatus == LUA_ERRMEM);
+            rethrow.errErr = (protectedCallStatus == LUA_ERRERR);
+            rethrow.errGcmm = (protectedCallStatus == LUA_ERRGCMM);
+            rethrow.directThrow = true;
+            throw rethrow;
+        }
+    }
+
+    /**
+     * 对一个「可终结对象」跑 {@code __gc}。
+     */
+    private static void runGc(LuaState L, Object o, boolean propagateErrors) {
         if (o instanceof LuaTable) {
-            ((LuaTable) o).runGcMetamethod(L);
+            ((LuaTable) o).runGcMetamethod(L, propagateErrors);
         } else if (o instanceof LuaUserdata) {
-            ((LuaUserdata) o).runGcMetamethod(L);
+            ((LuaUserdata) o).runGcMetamethod(L, propagateErrors);
         }
     }
 
@@ -1147,12 +1084,12 @@ public final class LuaState {
                 Object t = r.ref.get();
                 if (t != null && !r.done) {
                     r.done = true;
-                    runGc(this, t);
+                    runGc(this, t, false);
                 }
             }
             finalizables.clear();
         }
-        drainFinalizers(this);
+        drainFinalizers(this, false);
     }
 
     /* ==================== 线程查询 ==================== */
@@ -1623,84 +1560,16 @@ public final class LuaState {
     }
 
     /**
-     * {@code luaF_newtbcupval}：为 {@code <close>} 变量新建一个 to-be-closed 的
-     * 开放 upvalue，并<b>当场</b>检查它真的有 {@code __close}。
-     * <p>
-     * 两个容易漏掉的细节，都是实测出来的：
-     * <ul>
-     *   <li>{@code nil} 与 {@code false} 直接跳过，不需要 {@code __close}
-     *       （C 版是 {@code if (l_isfalse(s2v(level))) return;}）。所以
-     *       {@code local x <close> = nil} 完全合法。</li>
-     *   <li>检查在<b>赋值的当下</b>做，不在作用域结束时。所以
-     *       {@code local x <close> = 5 print(x)} 在 {@code OP_TBC} 上就抛错，
-     *       {@code print} 根本不会执行——把它挪到关闭时检查，输出会先多出一行。</li>
-     * </ul>
-     * <p>
-     * 与 {@link #findUpval} 不同，这里<b>不去重</b>：C 版也是每次新建一个，
-     * 因为 tbc 变量是「槽」而不是「变量绑定」，同一个槽可以被标记多次。
-     */
-    UpVal newTbcUpval(int stackIdx) {
-        LuaValue v = stack[stackIdx];
-        if (v.isNil() || (v.tt == Lua.TBOOLEAN && !v.toBoolean())) {
-            // false / nil 不需要关闭，也不建 upvalue（C 版直接 return）
-            return null;
-        }
-        LuaValue tm = LuaTm.getTmByObj(this, v, Tm.TM_GC /* no TM_CLOSE in 5.3 */);
-        if (tm == null || tm.isNil()) {
-            LuaString vn = localNameAt(stackIdx - ci.func);
-            // "%s" 是 C 字符串：局部名（只有二进制 chunk 能带 NUL）在这里被砍断
-            throw runError("variable '"
-                    + ((vn == null) ? "?" : LuaString.cutAtNul(vn.toLatin1String()))
-                    + "' got a non-closable value");
-        }
-        UpVal uv = UpVal.open(stack[stackIdx], stackIdx);
-        uv.toBeClosed = true;
-        int pos = 0;
-        while (pos < openUpvals.size() && openUpvals.get(pos).stackIdx < stackIdx) {
-            pos++;
-        }
-        openUpvals.add(pos, uv);
-        return uv;
-    }
-
-    /**
-     * {@code luaF_close}：关闭 {@code stackIdx >= level} 的全部开放 upvalue。
-     * <p>
-     * 从栈顶往下关（与 C 版一致），因为 {@code __close} 元方法可能改动栈、
-     * 也可能再建 upvalue。tbc 变量在关闭前先跑 {@code __close}。
-     *
-     * @param errObj 传给 {@code __close} 的错误对象；{@code null} 表示正常关闭
+     * {@code luaF_close}：关闭 {@code stackIdx >= level} 的全部开放词法 upvalue（Lua 5.3.4）。
      */
     void closeUpvals(int level, LuaValue errObj) {
-        closeUpvals(level, errObj, false);
-    }
-
-    /**
-     * @param forceYy {@code lfunc.c: luaF_close} 的 {@code yy} 参数取 1：
-     *                <b>不看当前帧是不是 Lua 帧</b>，一律允许 {@code __close}
-     *                里 yield
-     */
-    void closeUpvals(int level, LuaValue errObj, boolean forceYy) {
-        /*
-         * 下面会动栈（{@code __close} 的调用帧就摆在变量之上），而传进来的
-         * {@code errObj} 常常是某个栈槽的别名——先拷一份，否则写完调用帧它就
-         * 变成了 {@code __close} 自己。
-         */
-        LuaValue err = (errObj == null) ? null : new LuaValue(errObj);
         while (!openUpvals.isEmpty()) {
             UpVal uv = openUpvals.get(openUpvals.size() - 1);
             if (uv.stackIdx < level) {
                 break;
             }
             openUpvals.remove(openUpvals.size() - 1);
-            LuaValue obj = uv.value();
-            boolean isTbc = uv.toBeClosed;
-            int absIdx = uv.stackIdx;              // 绝对下标，close() 之后就取不到了
-            int localIdx = absIdx - ci.func;        // luaG_findlocal 的序号
             uv.close();
-            if (isTbc && !(obj.isNil())) {
-                LuaTm.callCloseMethod(this, obj, err, absIdx, localIdx, forceYy);
-            }
         }
     }
 
@@ -1891,7 +1760,7 @@ public final class LuaState {
             CallInfo c = ci;
             c.clsret = true;
             c.nres = nres;
-            closeUpvals(res, null, true);
+            closeUpvals(res, null);
             c.clsret = false;
             if (hookmask != 0) {
                 DebugLib.rethook(this, c, nres);
@@ -2040,7 +1909,7 @@ public final class LuaState {
         }
     }
 
-    void callK(int funcIdx, int nresults, int ctx, LuaKFunction k) {
+    void callK(int funcIdx, int nresults, long ctx, LuaKFunction k) {
         if (k != null && yieldable()) {
             ci.k = k;
             ci.ctx = ctx;
@@ -2132,7 +2001,12 @@ public final class LuaState {
                 protectedCallStatus = LUA_OK;
                 return null;
             } catch (LuaError e) {
-            int[] errorStatus = {e.errErr ? LUA_ERRERR : e.errMem ? LUA_ERRMEM : LUA_ERRRUN};
+            int[] errorStatus = {
+                e.errErr ? LUA_ERRERR
+                        : e.errMem ? LUA_ERRMEM
+                        : e.errGcmm ? LUA_ERRGCMM
+                        : LUA_ERRRUN
+            };
             /*
              * 位置信息在这里补，而不是在抛出的地方补：像「除以零」这类错误
              * 来自 Arith 这种没有 LuaState 的纯算术层，它抛的是裸错误值，
@@ -2148,11 +2022,10 @@ public final class LuaState {
                  * 处理函数把栈跑穿才产生的。
                  */
                 v = LuaValue.ofString(LuaString.latin1(ERRERR_MSG));
-            } else if (e.errMem) {
+            } else if (e.errMem || e.errGcmm) {
                 /*
-                 * {@code LUA_ERRMEM} 直跳，不进 {@code luaG_errormsg}：
-                 * 消息处理函数接不到，位置前缀也不补（内存错误的值恒是那个
-                 * 驻留短串，C 版 {@code luaD_seterrorobj} 写的就是它）。
+                 * {@code LUA_ERRMEM} / {@code LUA_ERRGCMM} 走 {@code luaD_throw} 直跳，
+                 * 不进 {@code luaG_errormsg}：消息处理函数接不到，位置前缀也不再补。
                  */
                 v = e.value;
             } else {
@@ -2245,7 +2118,7 @@ public final class LuaState {
      * 记下的那几项和 {@code BaseLib} 里 {@code pcall} 的 {@code catch (LuaYield)}
      * 分支一模一样——{@link #finishPcallK} 只读那几个字段，不认是谁写的。
      */
-    LuaValue pcallK(int funcIdx, int nresults, LuaValue handler, int ctx,
+    LuaValue pcallK(int funcIdx, int nresults, LuaValue handler, long ctx,
             LuaKFunction k) {
         CallInfo c = ci;
         c.k = k;
@@ -2422,68 +2295,8 @@ public final class LuaState {
         if (target == null || openUpvals.isEmpty()) {
             return errObj;
         }
-        int level = target.func + 1;
-        CallInfo saved = ci;
-        /* 同上：{@code errObj} 可能是栈槽别名，而这一趟下来栈要被反复改写 */
-        if (errObj != null) {
-            errObj = new LuaValue(errObj);
-        }
-        while (true) {
-            int before = openUpvals.size();
-            try {
-                closeUpvals(level, errObj, forceYy);
-                return errObj;
-            } catch (LuaYield y) {
-                /*
-                 * {@code __close} 里 yield 出去了，本帧的收尾只能等 resume 之后
-                 * 由 {@link #finishPcallK} 接着做。错误对象要留给它——见
-                 * {@link #closeErrPending} 的说明。
-                 */
-                closeErrPending = errObj;
-                throw y;
-            } catch (LuaError e2) {
-                LuaValue v = e2.value;
-                if (e2.errMem) {
-                    // 同上：内存错误不过消息处理函数，位置也不补
-                } else if (e2.where == null && v != null && v.isString()) {
-                    LuaString prefix = where(); // 出错那刻的帧，先于恢复
-                    v = LuaValue.ofString(prefix.concat(v.asString()));
-                }
-                /*
-                 * {@code __close} 自己抛的错<b>也要过消息处理函数</b>。
-                 * <p>
-                 * C 版 {@code luaD_pcall} 是到<b>最后一句</b>才
-                 * {@code L->errfunc = old_errfunc} 恢复的，而
-                 * {@code luaD_closeprotected} 就在那句<b>之前</b>——所以跑
-                 * {@code __close} 的整个过程中 {@code L->errfunc} 仍然设着，
-                 * {@code __close} 里 {@code error(...)} 走到
-                 * {@code luaG_errormsg} 时处理函数照样被调。
-                 * <p>
-                 * 漏掉这一步的实测分歧（{@code xpcall} + 带 {@code <close>} 的函数
-                 * 体里 {@code error}，且 {@code __close} 也 {@code error}）：
-                 * <pre>
-                 * 参考：msgh orig | close a err=H | msgh E:a | false  H
-                 * 本实现：msgh orig | close a err=H |            false  E:a
-                 * </pre>
-                 * 也就是<b>最终结果是处理函数的返回值</b>，不是 {@code __close}
-                 * 那个原始错。{@code error in error handling} 那一条也靠这里：
-                 * 处理函数自己抛错时，{@code __close} 的错再过一次它被兜成那句话。
-                 * <p>
-                 * <b>内存错误例外</b>：{@code __close} 里
-                 * {@code error("not enough memory", 0)} 走的是
-                 * {@code luaM_error}，压根不进 {@code luaG_errormsg}，
-                 * 处理函数接不到。
-                 */
-                if (handler != null && !e2.errMem) {
-                    v = applyErrMsg(v, handler);
-                }
-                ci = saved;
-                errObj = new LuaValue(v);
-                if (openUpvals.size() >= before) {
-                    return errObj; // 一个也没关掉，再试也不会有进展
-                }
-            }
-        }
+        closeUpvals(target.func + 1, null);
+        return errObj;
     }
 
     /** 恢复调用链到初始状态。宿主在捕获错误后必须调用，否则下一次调用从脏帧开始 */
@@ -2491,7 +2304,6 @@ public final class LuaState {
         ci = baseCi;
         top = 0;
         openUpvals.clear();
-        closeErrPending = null;
     }
 
     /* ==================== 协程：yield / resume / unroll ==================== */
@@ -2607,13 +2419,6 @@ public final class LuaState {
         st = precover(st);
         if (st != LUA_OK && st != LUA_YIELD) {
             status = st; // 标记线程死亡，之后 resume 一律「cannot resume dead coroutine」
-            /*
-             * 记下错误对象本身，而不只是状态。
-             * {@code coroutine.close} 一个已死的协程要把它原样带回去
-             * （理由见 {@link #closeThreadValue(LuaState)}）：此时错误对象
-             * 已经被 {@code xmove} 搬走，栈上只剩陈值。
-             */
-            deadErr = (top > 0) ? new LuaValue(stack[top - 1]) : LuaValue.ofNil();
         }
         nNy = oldnny; /* restore after resume (5.3.4) */
         nresultsOut[0] = (st == LUA_YIELD) ? ci.nyield
@@ -2745,10 +2550,15 @@ public final class LuaState {
     /** luaG_errormsg processing must precede recover's L->ci restoration. */
     private int prepareResumeError(LuaError error) {
         LuaValue value = errObjAt(error);
-        int[] errorStatus = {error.errErr ? LUA_ERRERR : error.errMem ? LUA_ERRMEM : LUA_ERRRUN};
+        int[] errorStatus = {
+            error.errErr ? LUA_ERRERR
+                    : error.errMem ? LUA_ERRMEM
+                    : error.errGcmm ? LUA_ERRGCMM
+                    : LUA_ERRRUN
+        };
         CallInfo target = findPcall();
         if (target != null && target.errHandler != null && !error.errErr && !error.errMem
-                && !error.directThrow) {
+                && !error.errGcmm && !error.directThrow) {
             LuaValue handler = target.errHandler;
             target.errHandler = null; // Do not process the same error again in recover.
             LuaValue old = errFunc;
@@ -2760,7 +2570,6 @@ public final class LuaState {
             }
         }
         push(value);
-        closeErrPending = null;
         return errorStatus[0];
     }
 
@@ -2772,141 +2581,6 @@ public final class LuaState {
             }
         }
         return null;
-    }
-
-    /**
-     * {@code lua_closethread}：关掉协程里所有待关闭（{@code <close>}）的变量。
-     * <p>
-     * {@code coroutine.close} 用它。已死亡的协程没有可关的东西，直接报原状态。
-     */
-    public int closeThread(LuaState from) {
-        return (closeThreadValue(from) == null) ? LUA_OK : LUA_ERRRUN;
-    }
-
-    /**
-     * {@code lua_closethread}：关掉协程里所有待关闭（{@code <close>}）的变量，
-     * 并把协程置为死亡。
-     * <p>
-     * 已经因为出错而死的协程没有可关的东西，直接返回 {@code null}——这一点很
-     * 要紧：{@code coroutine.wrap} 在错误分支里调它，如果这里还「搬一次错误
-     * 对象」，搬走的会是栈上的陈值，把真正的错误消息顶掉。
-     *
-     * @return {@code __close} 抛出的错误对象（已压在本线程栈顶，供
-     *         {@link #xmove} 搬走）；没有错误返回 {@code null}
-     */
-    public LuaValue closeThreadValue(LuaState from) {
-        /*
-         * 已死的协程要拿<b>当初那个错误对象</b>，而它不在栈上了。
-         * <p>
-         * C 版 {@code luaE_resetthread} 收尾那句是
-         * {@code luaD_seterrorobj(L, status, L->stack + 1)}，{@code default}
-         * 分支取 {@code L->top - 1}。它取得到，是因为 C 的错误对象在栈上是
-         * <b>连着两格</b>的：{@code lua_resume} 出错时 {@code luaD_seterrorobj}
-         * 把它拷到 {@code top}、{@code top++}，随后
-         * {@code lua_xmove(co, L, 1)} 只搬走上面那格、{@code co->top--}，
-         * 下面那格还是它。
-         * <p>
-         * 本实现的错误对象住在异常里，只压了一格，搬走就没了 ——
-         * {@code stack[top - 1]} 成了陈值。实测
-         * {@code coroutine.close} 一个因 {@code f()} 死掉的协程：
-         * 参考给 {@code false, "case.lua:8: table index is nil"}，
-         * 本实现给 {@code false, nil}（更糟的一次给的是排序比较用的
-         * {@code -1}）。所以死的时候把错误对象记下来。
-         */
-        LuaValue prev = (deadErr != null) ? deadErr
-                : ((top > 0) ? new LuaValue(stack[top - 1]) : LuaValue.ofNil());
-        return closeThreadValue(from, prev);
-    }
-
-    /**
-     * 带「原错误对象」的重载。
-     * <p>
-     * {@code coroutine.wrap} 必须走这一个：它在调 {@code lua_closethread}
-     * <b>之前</b>已经用 {@code lua_xmove(co, L, 1)} 把错误对象搬走了，协程栈上
-     * 的 {@code top} 已经降了一格，{@code stack[top - 1]} 不再是错误对象——
-     * 拿到的是排序比较用的 {@code 1} 之类的陈值。
-     * <p>
-     * C 版不会踩到这个坑，因为 {@code luaD_seterrorobj} 的 {@code default}
-     * 分支是 {@code setobjs2s(L, oldtop, L->top - 1)}：错误对象在栈上是
-     * <b>连着两格</b>的，搬走上面那格之后下面那格还是它。本实现的错误对象
-     * 住在异常里、不在栈上，所以只有一格，只能由调用方把它带进来。
-     */
-    public LuaValue closeThreadValue(LuaState from, LuaValue prevErr) {
-        /*
-         * {@code lua_closethread} 的第一句就是
-         * {@code L->nCcalls = (from) ? getCcalls(from) : 0}。
-         * <p>
-         * 这行是<b>链式 close 唯一的深度记账</b>：{@code __close} 里再
-         * {@code coroutine.close} 上一个协程时，深度靠它往上传一层。漏了，
-         * 一千个互相 close 的协程就会真的递归一千层——上游
-         * {@code cstack.lua}「chain of 'coroutine.close'」断言的正是
-         * {@code C stack overflow}，不是 Unlimited Recursion。
-         */
-        nCcalls = (from == null) ? 0 : from.nCcalls;
-        /*
-         * {@code lstate.c: luaE_resetthread}。
-         * <p>
-         * 两个反直觉的地方，都实测于参考实现（上游 {@code coroutine.lua}
-         * 「closing a coroutine after an error」那一段）：
-         * <ul>
-         *   <li><b>已经因错而死的协程也要走这一步</b>，而且要把<b>原来的错误对象</b>
-         *       原样带回来。{@code coroutine.close(co)} 在协程因
-         *       {@code error(100)} 死亡之后返回 {@code false, 100}——
-         *       之前这里直接返回 null（「已死亡，没有可关的」），于是返回
-         *       {@code true}，断言就炸了。原来的错误对象在栈顶，是
-         *       {@code lua_resume} 出错时用 {@code luaD_seterrorobj} 放上去的。</li>
-         *   <li>{@code status} 要<b>先</b>置成 {@code LUA_OK} 再关，因为
-         *       {@code __close} 本身要在「线程还活着」的前提下跑；而且关完之后
-         *       <b>不</b>恢复成原来的错误码。所以紧接着第二次
-         *       {@code coroutine.close(co)} 返回的是 {@code true}。</li>
-         * </ul>
-         */
-        int st = status;
-        if (st == LUA_YIELD) {
-            st = LUA_OK;
-        }
-        LuaValue errObj = (st == LUA_OK) ? LuaValue.ofNil() : new LuaValue(prevErr);
-        status = LUA_OK; // 让 __close 能跑
-        LuaValue err = null;
-        /*
-         * {@code luaD_closeprotected}：一个 {@code __close} 抛了错，那个错误对象
-         * 要<b>接着传给下一个</b> {@code __close}，而不是就地放弃。实测参考实现：
-         * 两个 tbc 变量，内层用 {@code error(111)}、外层看到
-         * {@code err == 111} 后再 {@code error(200)}，最终
-         * {@code coroutine.close} 返回 {@code false, 200}——只关一个就返回的话
-         * 拿到的是 {@code false, 111}，而且外层那个 {@code __close} 要等第二次
-         * {@code close} 才跑（上游 {@code coroutine.lua} 就测这一条）。
-         */
-        while (true) {
-            try {
-                closeUpvals(1, errObj); // 从第 1 格起全部关掉
-                break;
-            } catch (LuaError e) {
-                // 与 resume / precover 同：裸错误值的位置在这一层补
-                LuaValue v = errObjAt(e);
-                errObj = v; // 下一个 __close 看到的 err
-                err = v;    // 也是最终要交出去的那个
-                st = LUA_ERRRUN;
-                ci = baseCi;      // 与 C 版「恢复 old_ci 再重来」一致
-            }
-        }
-        ci = baseCi;
-        ensureSlots(2);
-        top = 1;
-        if (st != LUA_OK) {
-            stack[1].set((err != null) ? err : errObj); // luaD_seterrorobj
-            top = 2;
-        }
-        baseCi.top = top + MINSTACK;
-        status = LUA_OK; // 关完之后一律「正常」——第二次 close 才会返回 true
-        /*
-         * {@code lua_closethread} 的<b>返回值</b>是关完之后的状态，而协程自己的
-         * {@code status} 已经归 LUA_OK 了 —— 两者不是一回事。
-         * {@code coroutine.wrap} 要用它判「这个错是不是内存错误」（见
-         * {@link #LUA_ERRMEM}），所以单独存一份。
-         */
-        closeStatus = st;
-        return (st == LUA_OK) ? null : new LuaValue(stack[1]);
     }
 
     /* ==================== 加载与执行 ==================== */
@@ -3055,7 +2729,14 @@ public final class LuaState {
     /** 带保护地执行；返回错误对象或 {@code null} */
     public LuaValue runProtected(byte[] source, String chunkName) {
         int base = top;
-        pushClosure(load(source, chunkName));
+        LClosure cl;
+        try {
+            cl = load(source, chunkName);
+        } catch (LuaError e) {
+            top = base;
+            return errObjAt(e);
+        }
+        pushClosure(cl);
         return pcall(base, 0);
     }
 

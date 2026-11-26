@@ -11001,8 +11001,9 @@ p("A01", io.open, D .. "nodir/x.txt", "r")              -- 父目录不存在
 p("A02", io.open, D .. "nodir/x.txt", "w")
 p("A03", io.open, D .. "f.txt/y", "r")                  -- 父是文件 -> ENOTDIR
 p("A04", io.open, D .. "f.txt/y", "w")
-p("A05", io.open, "/etc/hosts", "w")                    -- 没写权限 -> EACCES
-p("A06", io.open, "/etc/hosts", "r")
+os.execute("mkdir -p " .. D .. "ro_f && touch " .. D .. "ro_f/hosts && chmod 444 " .. D .. "ro_f/hosts && chmod 555 " .. D .. "ro_f")
+p("A05", io.open, D .. "ro_f/hosts", "w")               -- 没写权限 -> EACCES（不用真 /etc/hosts，防 root 截断系统文件）
+p("A06", io.open, D .. "ro_f/hosts", "r")
 p("A07", io.open, "", "r")                              -- 空路径
 p("A08", io.open, D .. "f.txt", "rw")                   -- 非法模式
 p("A09", io.open, D .. "f.txt", "x")
@@ -11010,8 +11011,8 @@ p("A10", io.open, "/etc", "w")                          -- 目录 + 写 -> EISDI
 -- A11 原来是 io.open("/dev/null", "w")：那是<b>设备文件</b>，行为由内核 + libc
 -- 定，Linux 与 macOS 不一样（而且 JVM 在这上面给出的 errno 也不跟着 C 走），
 -- 不进差分表。
-p("A12", io.open, "/etc/hosts", "a")                    -- 追加也要写权限
-p("A13", io.open, "/etc/hosts", "r+")
+p("A12", io.open, D .. "ro_f/hosts", "a")               -- 追加也要写权限
+p("A13", io.open, D .. "ro_f/hosts", "r+")
 
 -- B. os.rename：C 的 rename 有一张形状表，Java 的 Files.move 只对上一半
 p("B01", os.rename, D .. "f.txt", D .. "g.txt")         -- 文件 -> 已存在的文件：替换

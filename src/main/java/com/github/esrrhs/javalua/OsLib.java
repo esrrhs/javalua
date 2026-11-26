@@ -79,6 +79,68 @@ public final class OsLib {
 
     /** {@code time_t} 是 64 位，但秒 → 毫秒会溢出，先挡一道 */
     private static final long MAX_SEC = Long.MAX_VALUE / 1000;
+    private static final boolean LEGACY_GLIBC_MKTIME = detectLegacyGlibcMktime();
+    private static final long GLIBC_DST_SEARCH_SEC = 1L << 28;
+
+    private static boolean detectLegacyGlibcMktime() {
+        String os = System.getProperty("os.name", "");
+        if (!os.toLowerCase(java.util.Locale.ROOT).contains("linux")) {
+            return false;
+        }
+        try {
+            Process p = new ProcessBuilder("getconf", "GNU_LIBC_VERSION")
+                    .redirectErrorStream(true).start();
+            byte[] out = p.getInputStream().readAllBytes();
+            if (p.waitFor() == 0) {
+                String s = new String(out, StandardCharsets.UTF_8).trim().toLowerCase(java.util.Locale.ROOT);
+                if (s.startsWith("glibc ")) {
+                    String[] parts = s.substring(6).trim().split("\\.");
+                    if (parts.length >= 2) {
+                        int maj = Integer.parseInt(parts[0]);
+                        int min = Integer.parseInt(parts[1].replaceAll("[^0-9].*", ""));
+                        return maj < 2 || (maj == 2 && min < 36);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // 探测不到就按现代 glibc / POSIX 默认处理
+        }
+        return false;
+    }
+
+    private static long explicitDstShiftSeconds(TimeZone tz, long approxEpochSec) {
+        if (LEGACY_GLIBC_MKTIME) {
+            try {
+                java.time.zone.ZoneRules rules = tz.toZoneId().getRules();
+                java.time.Instant inst = java.time.Instant.ofEpochSecond(approxEpochSec);
+                long cur = rules.getDaylightSavings(inst).getSeconds();
+                if (cur != 0) {
+                    return cur;
+                }
+                java.time.zone.ZoneOffsetTransition prev = rules.previousTransition(inst);
+                if (prev != null && Math.abs(approxEpochSec - prev.getInstant().getEpochSecond()) <= GLIBC_DST_SEARCH_SEC) {
+                    long d1 = rules.getDaylightSavings(prev.getInstant().minusSeconds(1)).getSeconds();
+                    long d2 = rules.getDaylightSavings(prev.getInstant()).getSeconds();
+                    if (d1 != 0 || d2 != 0) {
+                        return d1 != 0 ? d1 : d2;
+                    }
+                }
+                java.time.zone.ZoneOffsetTransition next = rules.nextTransition(inst);
+                if (next != null && Math.abs(next.getInstant().getEpochSecond() - approxEpochSec) <= GLIBC_DST_SEARCH_SEC) {
+                    long d1 = rules.getDaylightSavings(next.getInstant().minusSeconds(1)).getSeconds();
+                    long d2 = rules.getDaylightSavings(next.getInstant()).getSeconds();
+                    if (d1 != 0 || d2 != 0) {
+                        return d1 != 0 ? d1 : d2;
+                    }
+                }
+                return 0;
+            } catch (Exception ignored) {
+                // 自定义 GMT+08:00 等无规则 ID 走下方默认逻辑
+            }
+        }
+        long dstMs = tz.getDSTSavings();
+        return (dstMs == 0) ? 3600L : (dstMs / 1000L);
+    }
 
     private static GregorianCalendar newCal(TimeZone tz) {
         GregorianCalendar c = new GregorianCalendar(tz);
@@ -615,13 +677,9 @@ public final class OsLib {
                 sec = c.getTimeInMillis() / 1000;
             }
         } else {
-            long dst = tz.getDSTSavings();
-            if (dst == 0) {
-                // 这个时区根本没有夏令时规则，但 C 的 mktime 收到 tm_isdst=1
-                // 仍然照惯例挪一小时（实测如此）
-                dst = 3600000L;
-            }
-            sec = asUtcSec - tz.getRawOffset() / 1000 - (isdst == 1 ? dst / 1000 : 0);
+            long rawOffSec = tz.getRawOffset() / 1000L;
+            long dstSec = (isdst == 1) ? explicitDstShiftSeconds(tz, asUtcSec - rawOffSec) : 0L;
+            sec = asUtcSec - rawOffSec - dstSec;
         }
 
         Calendar out = tm(sec, false);
@@ -854,8 +912,8 @@ public final class OsLib {
                 if (n <= 0) {
                     break;   // 0 = EOF；负数是出错（含别的线程已关这个 fd）
                 }
-                L.out.write(buf, 0, n);
-                L.out.flush();
+                L.stdOut().write(buf, 0, n);
+                L.stdOut().flush();
             }
             NativeBridge.cCloseFd(fd);
         });
@@ -874,12 +932,12 @@ public final class OsLib {
                     if (n < 0) {
                         break;
                     }
-                    L.out.write(buf, 0, n);
+                    L.stdOut().write(buf, 0, n);
                 }
             } catch (IOException ignored) {
                 // 子进程把管道关了就是 EOF，不当错误
             }
-            L.out.flush();
+            L.stdOut().flush();
         });
         t.setDaemon(true);
         return t;
@@ -906,7 +964,7 @@ public final class OsLib {
             L.push(LuaValue.ofBoolean(true));
             return 1;
         } catch (IOException | RuntimeException e) {
-            LuaAux.fileResult(L, false, pname, LuaAux.errnoOf(e));
+            LuaAux.fileResult(L, false, pname, LuaAux.errnoOf(path, true, e));
             return 3;
         }
     }
@@ -954,11 +1012,17 @@ public final class OsLib {
          * {@code "au_tmp/e"} 与 {@code "au_tmp/./e"} 是同一个东西。
          */
         try {
+            Path sp = sf.toPath().toAbsolutePath().normalize();
+            Path dp = df.toPath().toAbsolutePath().normalize();
             if (df.exists() && Files.isSameFile(sf.toPath(), df.toPath())) {
                 L.push(LuaValue.ofBoolean(true));
                 return 1;
             }
-        } catch (IOException ignored) {
+            if (sf.isDirectory() && dp.startsWith(sp) && !dp.equals(sp)) {
+                LuaAux.fileResult(L, false, null, 22); // EINVAL：不能把目录移进自己的子目录
+                return 3;
+            }
+        } catch (IOException | RuntimeException ignored) {
             // 判不出来就照下面的路走
         }
         /*
@@ -985,7 +1049,8 @@ public final class OsLib {
                 L.push(LuaValue.ofBoolean(true));
                 return 1;
             } catch (IOException | RuntimeException e) {
-                LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
+                int pe = LuaAux.pathStructureErrno(to, false);
+                LuaAux.fileResult(L, false, null, pe > 0 ? pe : LuaAux.errnoOf(e));
                 return 3;
             }
         }
@@ -995,7 +1060,8 @@ public final class OsLib {
             L.push(LuaValue.ofBoolean(true));
             return 1;
         } catch (IOException | RuntimeException e) {
-            LuaAux.fileResult(L, false, null, LuaAux.errnoOf(e));
+            int pe = LuaAux.pathStructureErrno(to, false);
+            LuaAux.fileResult(L, false, null, pe > 0 ? pe : LuaAux.errnoOf(e));
             return 3;
         }
     }

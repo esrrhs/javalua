@@ -3,6 +3,7 @@ package com.github.esrrhs.javalua;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Lua 表 —— 对应 {@code ltable.c} 的 {@code Table}。
@@ -108,7 +109,7 @@ public final class LuaTable {
      * 末尾清弱表，不是键一变成不可达就立刻消失。所以自发发生的 JVM 收集不会
      * 让条目提前消失——这与参考实现的行为更接近。
      */
-    static int gcGeneration = 0;
+    static final AtomicInteger GC_GENERATION = new AtomicInteger();
 
     /** 取槽里真正的对象：弱引用解一层，引用已失效返回 {@code null} */
     static Object payload(LuaValue v) {
@@ -175,10 +176,11 @@ public final class LuaTable {
      * {@code for k in pairs(t)} 是 O(n) 而不是 O(n²)：一轮收集里只清一次。
      */
     private void purgeIfNeeded() {
-        if (!isWeak() || purgeGen == gcGeneration) {
+        int gen = GC_GENERATION.get();
+        if (!isWeak() || purgeGen == gen) {
             return;
         }
-        purgeGen = gcGeneration;
+        purgeGen = gen;
         purge();
     }
 
@@ -262,12 +264,10 @@ public final class LuaTable {
     }
 
     public LuaTable() {
-        LuaState.chargeGc();
     }
 
     /** 预分配两段。仅供需要预置大小的场合（如构造 registry） */
     public LuaTable(int arraySize, int hashSize) {
-        LuaState.chargeGc();
         if (arraySize > 0) {
             setArrayVector(arraySize);
         }
@@ -1217,53 +1217,16 @@ public final class LuaTable {
     }
 
     /**
-     * 跑一次 {@code __gc}。
-     * <p>
-     * <b>{@code __gc} 里的错误一律吞掉</b>——实测参考实现：{@code __gc} 里
-     * {@code error} 既不打印也不传播，脚本照常往下跑。
+     * 跑一次 {@code __gc}（Lua 5.3.4 {@code GCTM}）。
      * <p>
      * 先置 {@code gcDone} 再调，避免元方法里把对象重新挂回全局时再来一遍。
      */
-    void runGcMetamethod(LuaState L) {
+    void runGcMetamethod(LuaState L, boolean propagateErrors) {
         if (gcDone) {
             return;
         }
         gcDone = true;
-        if (metatable == null) {
-            return;
-        }
-        LuaValue tm = metatable.get(LuaString.latin1("__gc"));
-        if (tm == null || tm.isNil()) {
-            return;
-        }
-        try {
-            int func = L.top;
-            L.ensureSlots(func + 2);
-            L.stack[func].set(tm);
-            L.stack[func + 1].set(LuaValue.ofTable(this));
-            L.top = func + 2;
-            /*
-             * luaD_callnoyield：__gc 里不许 yield。实测参考实现会在那时报
-             * 「attempt to yield across a C-call boundary」，用 L.call 就会让它
-             * 「成功」，反而与参考实现不一致。
-             */
-            /*
-             * CIST_FIN 打在<b>当前</b>帧上（{@code lgc.c: GCTM} 的做法），
-             * 不是终结器那帧。终结器里 {@code debug.getinfo(1)} 问的是
-             * {@code ci->previous}——正是这里被标记的这一帧。
-             */
-            boolean wasFin = L.ci.fin;
-            L.ci.fin = true;
-            try {
-                L.callNoYield(func, 0);
-            } finally {
-                L.ci.fin = wasFin;
-            }
-        } catch (LuaError e) {
-            // 静默
-        } catch (LuaYield y) {
-            // __gc 里 yield：参考实现报跨 C 调用边界，这里同样吞掉
-        }
+        L.runFinalizerBody(metatable, LuaValue.ofTable(this), propagateErrors);
     }
 
     /* ==================== 诊断 ==================== */

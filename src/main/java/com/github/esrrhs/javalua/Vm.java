@@ -1,5 +1,6 @@
 package com.github.esrrhs.javalua;
 
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
@@ -508,10 +509,6 @@ public final class Vm {
         ci.savedpc = pc;
     }
 
-    private static LuaValue rkc(LuaState L, LuaValue[] k, int base, int i) {
-        return rk(L, k, base, OpCode.getArgC(i));
-    }
-
     /**
      * {@code luaV_fastget} 的等价物。
      *
@@ -649,97 +646,8 @@ public final class Vm {
     }
 
     /* ================================================================
-     * 算术（成功返回 true，调用方据此跳过后面的 MMBIN）
-     * ================================================================ */
-
-    /** {@code op_arithI}：第二个操作数是立即整数 */
-    private static boolean arithImm(LuaState L, int i, int base, int op) {
-        LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue v2 = LuaValue.ofInteger(OpCode.getArgSC(i));
-        if (!v1.isInteger()) {
-            Double n1 = toNumber(v1);
-            if (n1 == null) {
-                return false;
-            }
-            v1 = LuaValue.ofFloat(n1);
-            v2 = LuaValue.ofFloat(v2.i);
-        }
-        LuaValue res = Arith.rawArith(L, op, v1, v2);
-        if (res == null) {
-            return false;
-        }
-        L.stack[base + OpCode.getArgA(i)].set(res);
-        return true;
-    }
-
-    /** {@code op_arithK} / {@code op_arithfK} / {@code op_bitwiseK}：第二个操作数在常量表 */
-    private static boolean arithK(LuaState L, int i, int base, LuaValue[] k, int op) {
-        LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue v2 = k[OpCode.getArgC(i)];
-        if (!(v1.isInteger() && v2.isInteger())) {
-            Double n1 = toNumber(v1);
-            Double n2 = toNumber(v2);
-            if (n1 == null || n2 == null) {
-                return false;
-            }
-            v1 = LuaValue.ofFloat(n1);
-            v2 = LuaValue.ofFloat(n2);
-        }
-        LuaValue res = Arith.rawArith(L, op, v1, v2);
-        if (res == null) {
-            return false;
-        }
-        L.stack[base + OpCode.getArgA(i)].set(res);
-        return true;
-    }
-
-    /** {@code op_arith} / {@code op_arithf} / {@code op_bitwise}：两个操作数都在寄存器 */
-    private static boolean arith(LuaState L, int i, int base, int op) {
-        LuaValue v1 = L.stack[base + OpCode.getArgB(i)];
-        LuaValue v2 = L.stack[base + OpCode.getArgC(i)];
-        // Lua 5.3: non-integer operands go through luaV_tonumber_ (strings → float).
-        if (!(v1.isInteger() && v2.isInteger())) {
-            Double n1 = toNumber(v1);
-            Double n2 = toNumber(v2);
-            if (n1 != null && n2 != null) {
-                LuaValue res = Arith.rawArith(L, op, LuaValue.ofFloat(n1), LuaValue.ofFloat(n2));
-                if (res != null) {
-                    L.stack[base + OpCode.getArgA(i)].set(res);
-                    return true;
-                }
-            }
-            return false;
-        }
-        LuaValue res = Arith.rawArith(L, op, v1, v2);
-        if (res == null) {
-            return false;
-        }
-        L.stack[base + OpCode.getArgA(i)].set(res);
-        return true;
-    }
-
-    /* ================================================================
      * 比较
      * ================================================================ */
-
-    /** {@code op_order}：{@code event} 决定是 {@code <}（TM_LT）还是 {@code <=}（TM_LE） */
-    private static boolean order(LuaState L, CallInfo ci, int pc, int i, int base, int event) {
-        LuaValue ra = L.stack[base + OpCode.getArgA(i)];
-        LuaValue rb = L.stack[base + OpCode.getArgB(i)];
-        boolean lt = (event == Tm.TM_LT);
-        if (ra.isInteger() && rb.isInteger()) {
-            return lt ? (ra.i < rb.i) : (ra.i <= rb.i);
-        }
-        if (ra.isNumber() && rb.isNumber()) {
-            return lt ? ltNum(ra, rb) : leNum(ra, rb);
-        }
-        if (ra.isString() && rb.isString()) {
-            int c = lStrcmp(ra.asString(), rb.asString());
-            return lt ? (c < 0) : (c <= 0);
-        }
-        saveState(L, ci, pc);
-        return LuaTm.callOrderTm(L, ra, rb, event);
-    }
 
     /**
      * {@code luaV_lessthan}：给库函数用的「与 VM 完全一致」的小于。
@@ -865,6 +773,9 @@ public final class Vm {
      * 本机实测 {@code strcoll("\xff","abc") == 158 > 0}。
      */
     static int lStrcmp(LuaString a, LuaString b) {
+        if (NativeBridge.hasCustomCollate()) {
+            return NativeBridge.cStrcoll(a.bytes, b.bytes);
+        }
         byte[] s1 = a.bytes;
         byte[] s2 = b.bytes;
         int p1 = 0;
@@ -1133,7 +1044,11 @@ public final class Vm {
             } else {
                 long tl = v2.asString().length();
                 for (n = 1; n < total && toStr(L.stack[t - n - 1]); n++) {
-                    tl += L.stack[t - n - 1].asString().length();
+                    int l = L.stack[t - n - 1].asString().length();
+                    if (l > Integer.MAX_VALUE - 8 - tl) {
+                        throw L.runError("string length overflow");
+                    }
+                    tl += l;
                 }
                 byte[] buff = new byte[(int) tl];
                 copyToBuff(L, t, n, buff);
@@ -1228,52 +1143,6 @@ public final class Vm {
         }
     }
 
-    /** {@code floatforloop} */
-    private static boolean floatForLoop(LuaState L, int ra) {
-        if (!L.stack[ra + 2].isFloat()) {
-            return false;
-        }
-        double step = L.stack[ra + 2].n;
-        double limit = L.stack[ra + 1].n;
-        double idx = L.stack[ra].n + step;
-        if (step > 0 ? (idx <= limit) : (limit <= idx)) {
-            L.stack[ra].setFloat(idx);
-            L.stack[ra + 3].setFloat(idx);
-            return true;
-        }
-        return false;
-    }
-
-    /* ================================================================
-     * 泛型 for
-     * ================================================================ */
-
-    /**
-     * {@code OP_TFORCALL} 的实体：把「迭代器函数 / 状态 / 控制变量」复制到
-     * {@code ra+4} 起，然后调用。
-     */
-    private static void doTforCall(LuaState L, CallInfo ci, int ra, int i, int pc) {
-        for (int j = 0; j < 3; j++) {
-            L.stack[ra + 4 + j].set(L.stack[ra + j]);
-        }
-        L.top = ra + 7;
-        ci.savedpc = pc;
-        L.call(ra + 4, OpCode.getArgC(i));
-    }
-
-    /**
-     * {@code OP_TFORLOOP} 的实体。
-     *
-     * @return 是否继续循环（调用方据此 {@code pc -= Bx}）
-     */
-    private static boolean doTforLoop(LuaState L, int ra, int i) {
-        if (!L.stack[ra + 4].isNil()) {
-            L.stack[ra + 2].set(L.stack[ra + 4]);
-            return true;
-        }
-        return false;
-    }
-
     /* ================================================================
      * 闭包
      * ================================================================ */
@@ -1283,7 +1152,7 @@ public final class Vm {
      * （决定 {@code f()==f()} / 循环内无捕获循环变量闭包的指针相等）。
      */
     private static LClosure getCached(Proto p, UpVal[] encup, LuaState L, int base) {
-        LClosure c = p.cache;
+        LClosure c = (p.cache == null) ? null : p.cache.get();
         if (c == null) {
             return null;
         }
@@ -1309,7 +1178,7 @@ public final class Vm {
                 ncl.upvals[i] = encup[uv.idx];
             }
         }
-        p.cache = ncl;
+        p.cache = new WeakReference<>(ncl);
     }
 
     /* ================================================================

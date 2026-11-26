@@ -143,11 +143,14 @@ final class UpstreamSuiteTest {
      */
     @org.junit.jupiter.api.Timeout(value = 10, unit = java.util.concurrent.TimeUnit.MINUTES)
     void suite(String name) {
-        if ("literals.lua".equals(name) && !NativeBridge.AVAILABLE) {
+        if (("literals.lua".equals(name) || "strings.lua".equals(name)) && !NativeBridge.AVAILABLE) {
             Diff.assertFileMatchesWithInit(dir, name, """
                     local original_setlocale = os.setlocale
                     os.setlocale = function(locale, category)
-                      if locale == 'pt_BR' or locale == 'ptb' then return nil end
+                      if locale == 'pt_BR' or locale == 'ptb'
+                         or locale == 'pt_BR.iso88591' or locale == 'ISO-8859-1' then
+                        return nil
+                      end
                       return original_setlocale(locale, category)
                     end
                     """);

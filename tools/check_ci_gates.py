@@ -30,6 +30,7 @@ ALWAYS_REQUIRED = [
     "ExecutionControlTest",
     "FunctionAuditEvidenceTest",
     "ContinuationAuditTest",
+    "AuditRegressionTest",
     "GeneratedDiffTest",
     "FuzzTest",
     "CodegenTest",
@@ -55,6 +56,7 @@ ALWAYS_REQUIRED = [
 NATIVE_REQUIRED = [
     "NativeApiTest",
     "NativeContinuationAuditTest",
+    "NativeAuditRegressionTest",
     "NativeExtTest",
     # locale 小数点那批：既要有 shim（os.setlocale 得真能改 libc 的 locale），
     # 也要机器上装了 pt_BR。CI 的 locale-gen 步骤一漏，这个类就变成零用例。

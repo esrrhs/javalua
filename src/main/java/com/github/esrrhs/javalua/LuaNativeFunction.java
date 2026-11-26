@@ -29,12 +29,16 @@ public final class LuaNativeFunction implements LuaFunction {
         if (n >= 0) {
             return n;
         }
+        throw rethrowPending(L, n == -2);
+    }
+
+    static RuntimeException rethrowPending(LuaState L, boolean isYield) {
         Throwable t = NativeBridge.takePending();
         if (t instanceof ExecutionAbortedError) {
             // Host resource aborts must not become catchable Lua error values.
             throw (ExecutionAbortedError) t;
         }
-        if (n == -2) {
+        if (isYield) {
             /*
              * yield。两种来源：①C 函数自己调了 {@code lua_yieldk}（C 侧置
              * {@code g_yielding} 后 longjmp，Java 这头没抛过，{@code t} 为 null）；
@@ -52,12 +56,15 @@ public final class LuaNativeFunction implements LuaFunction {
         if (t instanceof RuntimeException) {
             throw (RuntimeException) t;
         }
+        if (t instanceof Error) {
+            throw (Error) t;
+        }
         if (t != null) {
-            throw new LuaError(LuaValue.ofString(
+            return new LuaError(LuaValue.ofString(
                     LuaString.latin1(String.valueOf(t.getMessage()))), "");
         }
         // -1 但 Java 侧没抛：C 代码自己 lua_error 的，错误对象就是栈顶那个
-        throw new LuaError(new LuaValue(L.stack[L.top - 1]), "");
+        return new LuaError(new LuaValue(L.stack[L.top - 1]), "");
     }
 
     @Override

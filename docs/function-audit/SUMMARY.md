@@ -6,12 +6,12 @@ Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5` (source hashes are aut
 
 - Production source files: **58**
 - Explicit types (including nested/anonymous): **92**
-- Explicit executables (methods + constructors): **1586**
-- Executables with any C symbol candidate/target: **777/1586**
-- Executables with scoped audit evidence: **27/1586**
+- Explicit executables (methods + constructors): **1579**
+- Executables with any C symbol candidate/target: **775/1579**
+- Executables with scoped audit evidence: **27/1579**
 - Executables carrying @Generated (orthogonal marker, not a coverage exemption): **20**
 - Active reference C function definitions (configured POSIX + DLOPEN + COMPAT_5_2): **921**
-- Active C functions with any Java candidate/target: **649/921**
+- Active C functions with any Java candidate/target: **648/921**
 - Raw function-like macro definitions (all conditional branches, separate denominator): **494**
 
 **Candidates and file contexts are NOT proof of port coverage or semantic alignment.**
@@ -20,20 +20,20 @@ Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5` (source hashes are aut
 
 | Category | Count |
 |---|---:|
-| gc | 32 |
+| gc | 31 |
 | generated | 20 |
-| java-helper | 185 |
-| java-interface | 6 |
-| jni | 74 |
-| platform | 43 |
-| port | 1226 |
+| java-helper | 186 |
+| java-interface | 7 |
+| jni | 86 |
+| platform | 40 |
+| port | 1209 |
 
 | State | Count |
 |---|---:|
 | behavior-tested | 10 |
 | manually-reviewed | 13 |
 | structure-mapped | 4 |
-| unreviewed | 1559 |
+| unreviewed | 1552 |
 
 ## Per-source coverage denominators
 
@@ -41,13 +41,13 @@ Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5` (source hashes are aut
 |---|---:|---:|---:|---:|---|
 | Api.java | 2 | 189 | 137 | 1 | lapi.c, lapi.h, lua.h, lauxlib.c, ldebug.c, ldo.c |
 | Arith.java | 1 | 13 | 4 | 0 | lobject.c, lvm.c, lobject.h |
-| BaseLib.java | 1 | 45 | 28 | 7 | lbaselib.c |
+| BaseLib.java | 1 | 43 | 28 | 7 | lbaselib.c |
 | BitLib.java | 1 | 22 | 21 | 0 | lbitlib.c |
 | CApi.java | 1 | 4 | 0 | 0 | lapi.c, lauxlib.c, lua.h, lauxlib.h |
 | CClosure.java | 1 | 1 | 0 | 0 | lfunc.c, lobject.h |
 | CallInfo.java | 1 | 0 | 0 | 0 | lstate.h |
 | Codegen.java | 1 | 84 | 64 | 1 | lcode.c, lcode.h, lopcodes.h |
-| CoroutineLib.java | 1 | 17 | 12 | 0 | lcorolib.c |
+| CoroutineLib.java | 1 | 16 | 12 | 0 | lcorolib.c |
 | DebugLib.java | 2 | 57 | 27 | 0 | ldblib.c, ldebug.c, lauxlib.c, ldebug.h |
 | Dump.java | 3 | 19 | 14 | 2 | ldump.c |
 | DynData.java | 3 | 1 | 0 | 0 | lparser.h |
@@ -62,28 +62,28 @@ Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5` (source hashes are aut
 | LClosure.java | 1 | 4 | 1 | 0 | lfunc.c, lobject.h |
 | Lexer.java | 3 | 43 | 22 | 0 | llex.c, llex.h |
 | Lua.java | 1 | 4 | 1 | 0 | lua.h, llimits.h, lobject.h |
-| LuaAux.java | 2 | 38 | 19 | 0 | lauxlib.c, lauxlib.h |
+| LuaAux.java | 2 | 40 | 19 | 0 | lauxlib.c, lauxlib.h |
 | LuaError.java | 1 | 2 | 0 | 0 | ldo.c |
 | LuaFunction.java | 1 | 1 | 1 | 0 | lua.h |
 | LuaHook.java | 1 | 1 | 0 | 0 | lua.h |
 | LuaKFunction.java | 1 | 1 | 1 | 0 | lua.h |
 | LuaLibs.java | 2 | 4 | 0 | 0 | linit.c |
-| LuaNativeFunction.java | 1 | 3 | 2 | 0 | lua.h |
-| LuaState.java | 2 | 169 | 41 | 5 | ldo.c, lstate.c, ldebug.c, lfunc.c, lvm.c, lstate.h |
+| LuaNativeFunction.java | 1 | 4 | 2 | 0 | lua.h |
+| LuaState.java | 2 | 165 | 41 | 5 | ldo.c, lstate.c, ldebug.c, lfunc.c, lvm.c, lstate.h |
 | LuaString.java | 1 | 20 | 2 | 0 | lstring.c, lobject.h |
 | LuaTable.java | 3 | 62 | 26 | 4 | ltable.c, ltable.h, lobject.h |
-| LuaTm.java | 1 | 19 | 7 | 0 | ltm.c, ltm.h |
+| LuaTm.java | 1 | 14 | 7 | 0 | ltm.c, ltm.h |
 | LuaUserdata.java | 1 | 6 | 0 | 0 | lstring.c, lobject.h |
 | LuaValue.java | 1 | 48 | 1 | 0 | lobject.c, lobject.h |
 | LuaYield.java | 1 | 1 | 0 | 0 | ldo.c |
-| MathLib.java | 2 | 43 | 30 | 0 | lmathlib.c |
-| NativeBridge.java | 2 | 68 | 1 | 0 | lapi.c, lauxlib.c |
+| MathLib.java | 1 | 36 | 30 | 0 | lmathlib.c |
+| NativeBridge.java | 3 | 81 | 1 | 0 | lapi.c, lauxlib.c |
 | NativeHook.java | 1 | 3 | 1 | 0 | lua.h |
 | NativeKFunction.java | 1 | 2 | 1 | 0 | lua.h |
-| NativeMemory.java | 1 | 3 | 0 | 0 | lmem.c, lmem.h |
+| NativeMemory.java | 1 | 4 | 0 | 0 | lmem.c, lmem.h |
 | Numeral.java | 1 | 11 | 3 | 0 | lobject.c |
 | OpCode.java | 1 | 41 | 29 | 0 | lopcodes.c, lopcodes.h |
-| OsLib.java | 1 | 41 | 18 | 0 | loslib.c |
+| OsLib.java | 1 | 43 | 18 | 0 | loslib.c |
 | PackageLib.java | 1 | 20 | 16 | 1 | loadlib.c |
 | Parser.java | 4 | 107 | 80 | 2 | lparser.c, lparser.h |
 | Proto.java | 4 | 13 | 1 | 0 | lobject.h, lfunc.c |
@@ -92,10 +92,10 @@ Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5` (source hashes are aut
 | StringPool.java | 2 | 6 | 0 | 0 | lstring.c |
 | TableLib.java | 1 | 23 | 15 | 0 | ltablib.c |
 | Tm.java | 1 | 1 | 0 | 0 | ltm.c, ltm.h |
-| Undump.java | 2 | 24 | 17 | 4 | lundump.c |
+| Undump.java | 2 | 25 | 17 | 4 | lundump.c |
 | UpVal.java | 1 | 6 | 1 | 0 | lfunc.c, lobject.h |
 | Utf8Lib.java | 1 | 14 | 10 | 0 | lutf8lib.c |
-| Vm.java | 1 | 52 | 28 | 0 | lvm.c, lvm.h, lobject.c, lobject.h |
+| Vm.java | 1 | 44 | 26 | 0 | lvm.c, lvm.h, lobject.c, lobject.h |
 | Zio.java | 2 | 4 | 1 | 0 | lzio.c, lzio.h |
 
 ## Scoped audit entries
@@ -150,7 +150,7 @@ Java baseline: `89b482dbec88a1d84c63f0c8ea8cf96b5dfb7cc5` (source hashes are aut
 | lmathlib.c | 32 | 2 | library |
 | lmem.c | 3 | 3 | library |
 | loadlib.c | 26 | 11 | library |
-| lobject.c | 18 | 10 | library |
+| lobject.c | 18 | 11 | library |
 | loslib.c | 19 | 2 | library |
 | lparser.c | 86 | 9 | library |
 | lstate.c | 15 | 13 | library |

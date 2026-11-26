@@ -152,13 +152,20 @@ public final class StringLib {
         return 1;
     }
 
-    /** {@code str_lower}：按 ASCII 转，不用 Java 的 {@code toLowerCase} */
+    /** {@code str_lower}：默认按 ASCII 转；设了非 C ctype locale 时查 libc 表 */
     private static int lower(LuaState L) {
         LuaString s = LuaAux.checkString(L, 1);
         byte[] out = new byte[s.length()];
-        for (int i = 0; i < out.length; i++) {
-            int c = s.byteAt(i);
-            out[i] = (byte) ((c >= 'A' && c <= 'Z') ? c + 32 : c);
+        if (NativeBridge.hasCustomCtype()) {
+            byte[] map = NativeBridge.ctypeLower;
+            for (int i = 0; i < out.length; i++) {
+                out[i] = map[s.byteAt(i)];
+            }
+        } else {
+            for (int i = 0; i < out.length; i++) {
+                int c = s.byteAt(i);
+                out[i] = (byte) ((c >= 'A' && c <= 'Z') ? c + 32 : c);
+            }
         }
         L.push(LuaValue.ofString(L.newString(out)));
         return 1;
@@ -167,9 +174,16 @@ public final class StringLib {
     private static int upper(LuaState L) {
         LuaString s = LuaAux.checkString(L, 1);
         byte[] out = new byte[s.length()];
-        for (int i = 0; i < out.length; i++) {
-            int c = s.byteAt(i);
-            out[i] = (byte) ((c >= 'a' && c <= 'z') ? c - 32 : c);
+        if (NativeBridge.hasCustomCtype()) {
+            byte[] map = NativeBridge.ctypeUpper;
+            for (int i = 0; i < out.length; i++) {
+                out[i] = map[s.byteAt(i)];
+            }
+        } else {
+            for (int i = 0; i < out.length; i++) {
+                int c = s.byteAt(i);
+                out[i] = (byte) ((c >= 'a' && c <= 'z') ? c - 32 : c);
+            }
         }
         L.push(LuaValue.ofString(L.newString(out)));
         return 1;
@@ -360,10 +374,29 @@ public final class StringLib {
         }
     }
 
-    /** C locale 下的 {@code isalpha} 等，一律按 ASCII 判 */
+    /** 默认按 C locale ASCII 判；设了非 C ctype locale 时查 libc 同步过来的分类表 */
     private static boolean isClass(int c, int cl) {
         boolean res;
-        switch (Character.toLowerCase(cl)) {
+        int lcl = Character.toLowerCase(cl);
+        if (NativeBridge.hasCustomCtype()) {
+            int m = NativeBridge.ctypeMask[c & 0xFF] & 0xFFFF;
+            switch (lcl) {
+            case 'a': res = (m & (1 << 0)) != 0; break;
+            case 'c': res = (m & (1 << 1)) != 0; break;
+            case 'd': res = (m & (1 << 2)) != 0; break;
+            case 'g': res = (m & (1 << 3)) != 0; break;
+            case 'l': res = (m & (1 << 4)) != 0; break;
+            case 'p': res = (m & (1 << 5)) != 0; break;
+            case 's': res = (m & (1 << 6)) != 0; break;
+            case 'u': res = (m & (1 << 7)) != 0; break;
+            case 'w': res = (m & (1 << 8)) != 0; break;
+            case 'x': res = (m & (1 << 9)) != 0; break;
+            case 'z': res = (c == 0); break;
+            default: return cl == c;
+            }
+            return (cl >= 'a' && cl <= 'z') ? res : !res;
+        }
+        switch (lcl) {
         case 'a':
             res = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
             break;

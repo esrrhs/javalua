@@ -16,9 +16,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!--
-          Java 21 是下限:协程跑在虚拟线程上(见 README「关键设计决策」第 4 条)。
-          虚拟线程让 yield 可以发生在任意深度的调用栈上,而不必把 lvm.c 的主循环
-          改写成显式状态机。代价就是放弃了 Java 8 兼容。
+          Java 21 基线：协程使用独立 LuaState 栈 + LuaYield 异常展开模拟 longjmp（不使用虚拟线程），
+          native 字符串与内存生命周期管理依赖 Cleaner，测试栈对齐到 JUnit 6。
         -->
         <maven.compiler.release>21</maven.compiler.release>
         <!--
@@ -56,8 +55,8 @@
 
     <licenses>
         <license>
-            <name>The Apache Software License, Version 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <name>The MIT License (MIT)</name>
+            <url>https://opensource.org/licenses/MIT</url>
             <distribution>repo</distribution>
         </license>
     </licenses>

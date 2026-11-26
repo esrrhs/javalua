@@ -363,7 +363,13 @@ class OsLibTest {
         probe("rm_file", function() put(D .. "/f1"); return os.remove(D .. "/f1") end)
         probe("rm_emptydir", os.remove, D .. "/empty")
         probe("rm_fulldir", os.remove, D .. "/full")          -- ENOTEMPTY(39)
-        probe("rm_root", os.remove, "/etc/hosts")             -- EACCES(13)
+        -- 绝不触碰 /etc/hosts 等真实系统文件（root 下会真删掉）：改用只读临时目录
+        probe("rm_root", function()
+          os.execute("mkdir -p " .. D .. "/ro_etc && touch " .. D .. "/ro_etc/hosts && chmod 444 " .. D .. "/ro_etc/hosts && chmod 555 " .. D .. "/ro_etc")
+          local r = table.pack(os.remove(D .. "/ro_etc/hosts"))
+          os.execute("chmod -R 755 " .. D .. "/ro_etc")
+          return table.unpack(r, 1, r.n)
+        end)
         -- 目录权限不足（chmod 000）时删它里面的文件：EACCES(13)。
         -- 不用 os.remove("/etc")：那条在本机是 EPERM(1)，取决于 SIP 与这台机器的权限，
         -- 不是 Lua 的事实，无法建模也不该进比对。
@@ -401,7 +407,13 @@ class OsLibTest {
         probe("rn_dir_over_fulldir", os.rename, D .. "/f", D .. "/d")  -- ENOTEMPTY(39)
         probe("rn_missing", os.rename, D .. "/nope_xyz", D .. "/z")
         probe("rn_same", function() put(D .. "/s"); return os.rename(D .. "/s", D .. "/s") end)
-        probe("rn_to_root", function() put(D .. "/t"); return os.rename(D .. "/t", "/etc/nope_xyz") end)
+        probe("rn_to_root", function()
+          put(D .. "/t")
+          os.execute("mkdir -p " .. D .. "/ro_dst && chmod 555 " .. D .. "/ro_dst")
+          local r = table.pack(os.rename(D .. "/t", D .. "/ro_dst/nope_xyz"))
+          os.execute("chmod 755 " .. D .. "/ro_dst")
+          return table.unpack(r, 1, r.n)
+        end)
         probe("rn_noargs", os.rename)
         probe("rn_nil", os.rename, nil, nil)
         probe("rn_num", os.rename, 42, 43)
