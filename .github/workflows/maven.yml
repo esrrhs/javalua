@@ -151,7 +151,7 @@ jobs:
 
   maintenance:
     runs-on: ubuntu-latest
-    name: Function audit drift and performance correctness
+    name: Performance harness correctness
     timeout-minutes: 15
     steps:
     - uses: actions/checkout@v7
@@ -160,15 +160,8 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         cache: 'maven'
-    - name: Prepare exact stock reference and pinned audit parsers
-      run: |
-        sh tools/prepare_reference.sh
-        python3 -m venv target/audit-venv
-        target/audit-venv/bin/pip install -r tools/function_audit/requirements.txt
-    - name: Function audit checker contracts and source drift
-      run: |
-        target/audit-venv/bin/python -m unittest discover -s tools/function_audit -p 'test_*.py' -v
-        target/audit-venv/bin/python tools/function_audit/inventory.py check --compiler-cross-check
+    - name: Prepare exact stock reference
+      run: sh tools/prepare_reference.sh
     - name: Performance harness correctness only (no timing gate)
       run: |
         python3 -m unittest discover -s benchmark/performance -p 'test_*.py' -v

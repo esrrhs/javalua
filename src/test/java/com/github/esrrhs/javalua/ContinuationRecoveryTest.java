@@ -3,13 +3,13 @@ package com.github.esrrhs.javalua;
 import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
-/** Bounded-by-the-runner witnesses for defined Lua 5.3.4 continuation recovery. */
-class ContinuationAuditTest {
+/** Differential witnesses for Lua 5.3.4 protected continuation recovery. */
+class ContinuationRecoveryTest {
     static void witness(String source) {
-        String script = source + "\nprint('continuation-audit-complete')\n";
+        String script = source + "\nprint('continuation-witness-complete')\n";
         ReferenceLua.Result stock = ReferenceLua.run(script);
         assertEquals(0, stock.exitCode, stock.output);
-        assertTrue(stock.output.endsWith("continuation-audit-complete\n"), stock.output);
+        assertTrue(stock.output.endsWith("continuation-witness-complete\n"), stock.output);
         Diff.assertMatchesLiteral(script);
     }
 

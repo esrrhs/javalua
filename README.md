@@ -229,6 +229,5 @@ See [the differential testing guide](tools/DIFFERENTIAL_TESTING.md) for the exac
 ## Embedding and verification tools
 
 - [Real C extension compatibility gate](tools/C_EXTENSION_TESTING.md): pinned LPeg, lua-cjson and LuaFileSystem fixtures; not arbitrary-module certification.
-- [Performance baselines](benchmark/performance/README.md) and [results](benchmark/performance/RESULTS.md): correctness-gated measurements, no claimed engine speedup.
+- [Performance diagnostics](benchmark/performance/README.md): correctness-gated benchmark harness and profiling guide.
 - [Opt-in embedding controls](tools/EMBEDDING_CONTROLS.md): shared coroutine budgets, deadline/cancellation and fresh restricted libraries; not a secure sandbox.
-- [Function-level audit ledger](docs/function-audit/README.md): reproducible source drift gate and explicit unreviewed queue, including [continuation recovery fixes](docs/function-audit/CONTINUATIONS.md).

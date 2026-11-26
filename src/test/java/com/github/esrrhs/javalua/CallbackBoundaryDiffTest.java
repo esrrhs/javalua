@@ -1,7 +1,7 @@
 package com.github.esrrhs.javalua;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import org.junit.jupiter.api.Test;
-class AdvOpusReviewTest {
+class CallbackBoundaryDiffTest {
   @Test void tracebackBottomCFrame() {
     assumeTrue(ReferenceLua.find()!=null);
     Diff.assertFullMatches("""

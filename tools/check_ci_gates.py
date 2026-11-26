@@ -28,9 +28,9 @@ import xml.etree.ElementTree as ET
 ALWAYS_REQUIRED = [
     "ExecutionModeTest",
     "ExecutionControlTest",
-    "FunctionAuditEvidenceTest",
-    "ContinuationAuditTest",
-    "AuditRegressionTest",
+    "SemanticWitnessTest",
+    "ContinuationRecoveryTest",
+    "LifecycleAndEdgeTest",
     "GeneratedDiffTest",
     "FuzzTest",
     "CodegenTest",
@@ -55,8 +55,8 @@ ALWAYS_REQUIRED = [
 # 只有 native 层装得起来才有意义的类。
 NATIVE_REQUIRED = [
     "NativeApiTest",
-    "NativeContinuationAuditTest",
-    "NativeAuditRegressionTest",
+    "NativeContinuationTest",
+    "NativeCallbackSafetyTest",
     "NativeExtTest",
     # locale 小数点那批：既要有 shim（os.setlocale 得真能改 libc 的 locale），
     # 也要机器上装了 pt_BR。CI 的 locale-gen 步骤一漏，这个类就变成零用例。

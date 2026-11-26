@@ -9,13 +9,13 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
 /** Real stock-header C API witnesses; no cases in explicitly native-disabled mode. */
-class NativeContinuationAuditTest {
+class NativeContinuationTest {
     @TestFactory List<DynamicTest> continuationContract() throws Exception {
         if (!NativeBridge.AVAILABLE) {
             assertNotEquals("native", System.getProperty("javalua.test.mode"), NativeBridge.LOAD_ERROR);
             return List.of();
         }
-        Path dir=Files.createDirectories(Path.of("target/continuation-audit"));
+        Path dir=Files.createDirectories(Path.of("target/native-continuation"));
         Path source=dir.resolve("probe.c");
         Path library=dir.resolve("probe.so").toAbsolutePath();
         Files.writeString(source, """
@@ -41,7 +41,7 @@ class NativeContinuationAuditTest {
                   lua_settop(L,1); int s=lua_pcall(L,0,LUA_MULTRET,0);
                   return after(L,s,93);
                 }
-                int luaopen_contaudit(lua_State *L) {
+                int luaopen_contprobe(lua_State *L) {
                   luaL_Reg f[]={{"call",call},{"protected",protected},{"nok",nok},{NULL,NULL}};
                   luaL_newlib(L,f);return 1;
                 }
@@ -56,7 +56,7 @@ class NativeContinuationAuditTest {
             assertTrue(compiler.waitFor(30,TimeUnit.SECONDS),"compile timeout");
             assertEquals(0,compiler.exitValue(),Files.readString(log));
         } finally { compiler.destroyForcibly(); }
-        String pre="local n=assert(package.loadlib([==["+library+"]==], 'luaopen_contaudit'))()\n";
+        String pre="local n=assert(package.loadlib([==["+library+"]==], 'luaopen_contprobe'))()\n";
         String drive="""
                 local function drive(f)
                   local c=coroutine.create(f)
@@ -68,13 +68,13 @@ class NativeContinuationAuditTest {
                 end
                 """;
         return List.of(
-            DynamicTest.dynamicTest("null continuation cannot cross pcall boundary",()->ContinuationAuditTest.witness(pre+drive+"""
+            DynamicTest.dynamicTest("null continuation cannot cross pcall boundary",()->ContinuationRecoveryTest.witness(pre+drive+"""
                 drive(function()
                   local s,ctx,e=n.nok(function() coroutine.yield('forbidden') end)
                   print(s,ctx,type(e),not not e:find('attempt to yield across a C-call boundary',1,true))
                 end)
                 """)),
-            DynamicTest.dynamicTest("native callk nested repeated yields and hooks",()->ContinuationAuditTest.witness(pre+drive+"""
+            DynamicTest.dynamicTest("native callk nested repeated yields and hooks",()->ContinuationRecoveryTest.witness(pre+drive+"""
                 drive(function()
                   local hits=0; debug.sethook(function() hits=hits+1 end,'',9)
                   print(n.call(function() coroutine.yield('a'); coroutine.yield('b'); return 10,nil,12 end))
@@ -82,7 +82,7 @@ class NativeContinuationAuditTest {
                   debug.sethook();print(ok,e,hits>0)
                 end)
                 """)),
-            DynamicTest.dynamicTest("native pcallk statuses and upvalue recovery",()->ContinuationAuditTest.witness(pre+drive+"""
+            DynamicTest.dynamicTest("native pcallk statuses and upvalue recovery",()->ContinuationRecoveryTest.witness(pre+drive+"""
                 local saved
                 drive(function()
                   print(n.protected(function() coroutine.yield('a'); coroutine.yield('b'); return 4,nil,6 end))
@@ -92,7 +92,7 @@ class NativeContinuationAuditTest {
                   print(saved())
                 end)
                 """)),
-            DynamicTest.dynamicTest("native pcallk message handler cannot yield",()->ContinuationAuditTest.witness(pre+drive+"""
+            DynamicTest.dynamicTest("native pcallk message handler cannot yield",()->ContinuationRecoveryTest.witness(pre+drive+"""
                 drive(function()
                   local s,ctx,h,e=n.protected(function() coroutine.yield('first');error('not enough memory',0) end,
                     function(e) return 'H:'..e end)

@@ -17,16 +17,16 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Regression suite for findings from the project-wide architecture and code audit.
+ * Lifecycle, memory retention, stream delegation, and Lua 5.3.4 edge-case tests.
  */
-class AuditRegressionTest {
+class LifecycleAndEdgeTest {
 
     private static void witnessLiteral(String script) {
         Assumptions.assumeTrue(ReferenceLua.available(), "Lua 5.3.4 oracle required");
-        String full = script + "\nprint('audit-reg-ok')\n";
+        String full = script + "\nprint('edge-witness-ok')\n";
         ReferenceLua.Result oracle = ReferenceLua.run(full);
         assertEquals(0, oracle.exitCode, "oracle failed: " + oracle.output);
-        assertTrue(oracle.output.endsWith("audit-reg-ok\n"), oracle.output);
+        assertTrue(oracle.output.endsWith("edge-witness-ok\n"), oracle.output);
         Diff.assertMatchesLiteral(full);
     }
 

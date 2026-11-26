@@ -90,7 +90,7 @@ def main():
     # Include new harness files even before commit; exclude evidence to avoid recursive hashes.
     sources = set(tracked) | {str(x.relative_to(ROOT)) for x in HERE.rglob("*") if x.is_file()}
     hashes = {s: hashlib.sha256((ROOT / s).read_bytes()).hexdigest() for s in sorted(sources)
-              if "/evidence/" not in s and "__pycache__" not in s}
+              if (ROOT / s).is_file() and "__pycache__" not in s}
     cpuinfo = Path("/proc/cpuinfo")
     cpu = next((line.split(":", 1)[1].strip() for line in cpuinfo.read_text().splitlines()
                 if line.startswith("model name")), platform.processor()) if cpuinfo.exists() else platform.processor()

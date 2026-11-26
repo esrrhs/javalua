@@ -1,7 +1,7 @@
 package com.github.esrrhs.javalua;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import org.junit.jupiter.api.Test;
-class AdvOpusReview2Test {
+class StdlibBytecodeDiffTest {
   @Test void bitUtf8StringOsTable() {
     assumeTrue(ReferenceLua.find()!=null);
     Diff.assertMatches("""

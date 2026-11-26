@@ -115,21 +115,20 @@ python3 benchmark/performance/summarize_jfr.py target/performance-profile-events
 
 This profiles a longer **mixed** run, including setup and warmup. Execution sample
 counts and allocation weights are approximate, not exact per-case cost attribution.
-Profiled wall times are NOT comparable with unprofiled baselines. Keep raw JFRs in
-`target` locally (rebuildable, potentially large); commit only small aggregates and
-selected raw benchmark JSON under durable `benchmark/performance/evidence/`.
+Profiled wall times are NOT comparable with unprofiled baselines. Keep raw JFRs and
+benchmark JSON outputs in `target/` or `/tmp/` locally rather than committing
+machine-specific timing dumps.
 
 For a proposed optimization: first identify cost in profiles, prove its semantic
 safety, then use alternating baseline/candidate builds with identical harness,
 flags, workload and enough independent forks on an otherwise idle machine.
 Compare distributions and allocation evidence, not one best sample. Run strict
 5.3.4 Diff regression and both engine backends where relevant. If evidence is
-unstable or semantic risk is unclear, make **no engine change**; record that result.
+unstable or semantic risk is unclear, make **no engine change**.
 
 ## Integration
 
-This directory is additive: no production sources, root POM or workflows changed.
-A parent CI job may run the two smoke commands above; do not add noisy performance
+This directory is additive: no production sources or root POM changes are needed.
+A CI job may run the two smoke commands above; do not add noisy performance
 thresholds. Existing correctness/differential CI remains authoritative. Baseline
 numbers are diagnostic artifacts, not a promise of speed or a pass/fail gate.
-See `RESULTS.md` for the recorded shared-machine investigation and decision.

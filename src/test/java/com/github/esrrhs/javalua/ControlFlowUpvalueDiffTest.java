@@ -4,8 +4,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import org.junit.jupiter.api.Test;
 
-/** Independent alignment probes vs Lua 5.3.4 (non-GC). */
-class AlignProbeTest {
+/** Control-flow, upvalue, and standard-library differential checks against Lua 5.3.4. */
+class ControlFlowUpvalueDiffTest {
 
     @Test
     void typeMtPairsIpairs() {

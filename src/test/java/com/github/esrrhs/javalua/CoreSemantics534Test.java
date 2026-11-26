@@ -1,8 +1,8 @@
 package com.github.esrrhs.javalua;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import org.junit.jupiter.api.Test;
-/** Final independent re-review vs Lua 5.3.4 (non-GC strict alignment). */
-class FinalAlignReviewTest {
+/** Core Lua 5.3.4 semantics and bytecode/undump alignment checks. */
+class CoreSemantics534Test {
   @Test void stdlibMetamethods() {
     assumeTrue(ReferenceLua.find()!=null);
     Diff.assertMatches("""
@@ -166,7 +166,7 @@ end
 """);
   }
 
-  /** Independent re-review follow-ups: bitwise float int-check, load reader noyield. */
+  /** Bitwise integer-representation checks and non-yieldable load reader callbacks. */
   @Test void bitwiseAndLoadReaderNoyield() {
     assumeTrue(ReferenceLua.find()!=null);
     Diff.assertMatches("""

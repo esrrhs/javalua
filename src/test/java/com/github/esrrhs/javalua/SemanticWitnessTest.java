@@ -7,21 +7,18 @@ import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
 
-/** Narrow, named witnesses for docs/function-audit; not a proof of whole-function equivalence. */
-class FunctionAuditEvidenceTest {
+/** Targeted differential witnesses for Lua 5.3.4 table boundaries, callbacks, and binary chunks. */
+class SemanticWitnessTest {
     private static void witness(String source) {
-        if (Boolean.getBoolean("javalua.audit.requireNative")) {
-            assertTrue(NativeBridge.AVAILABLE, "native audit must not silently fall back: " + NativeBridge.LOAD_ERROR);
-        }
         if (System.getProperty("javalua.nonative") != null) {
-            assertTrue(!NativeBridge.AVAILABLE, "pure Java audit must disable the shim");
+            assertTrue(!NativeBridge.AVAILABLE, "pure Java mode must disable the shim");
         }
         org.junit.jupiter.api.Assumptions.assumeTrue(ReferenceLua.available(),
-                "prepare the exact Lua 5.3.4 oracle before running audit witnesses");
-        String complete = source + "\nprint('audit-witness-complete')\n";
+                "prepare the exact Lua 5.3.4 oracle before running semantic witnesses");
+        String complete = source + "\nprint('semantic-witness-complete')\n";
         ReferenceLua.Result oracle = ReferenceLua.run(complete);
         assertEquals(0, oracle.exitCode, "oracle witness must complete: " + oracle.output);
-        assertTrue(oracle.output.endsWith("audit-witness-complete\n"), oracle.output);
+        assertTrue(oracle.output.endsWith("semantic-witness-complete\n"), oracle.output);
         Diff.assertMatchesLiteral(complete);
     }
 

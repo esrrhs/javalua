@@ -19,17 +19,17 @@ import org.junit.jupiter.api.TestFactory;
  * Native C API regression witnesses compiled against stock Lua 5.3.4 headers and
  * executed identically on PUC-Rio Lua 5.3.4 and JavaLua.
  */
-class NativeAuditRegressionTest {
+class NativeCallbackSafetyTest {
 
     @TestFactory
-    List<DynamicTest> nativeAuditRegressions() throws Exception {
+    List<DynamicTest> nativeCallbackSafety() throws Exception {
         if (!NativeBridge.AVAILABLE) {
             assertNotEquals("native", System.getProperty("javalua.test.mode"), NativeBridge.LOAD_ERROR);
             return List.of();
         }
-        Path dir = Files.createDirectories(Path.of("target/native-audit-regression"));
-        Path source = dir.resolve("auditprobe.c");
-        Path library = dir.resolve("auditprobe.so").toAbsolutePath();
+        Path dir = Files.createDirectories(Path.of("target/native-callback-safety"));
+        Path source = dir.resolve("cbprobe.c");
+        Path library = dir.resolve("cbprobe.so").toAbsolutePath();
         Files.writeString(source, """
                 #include <stdint.h>
                 #include <string.h>
@@ -164,7 +164,7 @@ class NativeAuditRegressionTest {
                   return 1;
                 }
 
-                int luaopen_auditprobe(lua_State *L) {
+                int luaopen_cbprobe(lua_State *L) {
                   luaL_Reg f[] = {
                     {"wide_callk", wide_callk},
                     {"wide_yieldk", wide_yieldk},
@@ -196,10 +196,10 @@ class NativeAuditRegressionTest {
             proc.destroyForcibly();
         }
 
-        String pre = "local p = assert(package.loadlib([==[" + library + "]==], 'luaopen_auditprobe'))()\n";
+        String pre = "local p = assert(package.loadlib([==[" + library + "]==], 'luaopen_cbprobe'))()\n";
         return List.of(
                 DynamicTest.dynamicTest("64-bit lua_KContext survives yield and resume", () ->
-                        ContinuationAuditTest.witness(pre + """
+                        ContinuationRecoveryTest.witness(pre + """
                                 local co = coroutine.create(function()
                                   local s1, c1 = p.wide_callk(function() coroutine.yield("y1") end)
                                   local s2, c2 = p.wide_yieldk()
@@ -210,7 +210,7 @@ class NativeAuditRegressionTest {
                                 print(coroutine.resume(co))
                                 """)),
                 DynamicTest.dynamicTest("native hook getinfo/getlocal and luaL_error unwind safely", () ->
-                        ContinuationAuditTest.witness(pre + """
+                        ContinuationRecoveryTest.witness(pre + """
                                 local st1, res1, lines1 = p.run_with_hook(function()
                                   local a = 10
                                   a = a + 20
@@ -226,19 +226,19 @@ class NativeAuditRegressionTest {
                                 print(st2, not not tostring(err2):find("hook-boom:1", 1, true), lines2 >= 2)
                                 """)),
                 DynamicTest.dynamicTest("lua_dump writer distinguishes -1 return from luaL_error", () ->
-                        ContinuationAuditTest.witness(pre + """
+                        ContinuationRecoveryTest.witness(pre + """
                                 local fn = function() return 42 end
                                 print(p.test_dump_writer(fn, 0))
                                 local ok, err = pcall(p.test_dump_writer, fn, 1)
                                 print(ok, not not tostring(err):find("writer-exploded", 1, true))
                                 """)),
                 DynamicTest.dynamicTest("luaL_tolstring stack safety and lua_pushlstring stability", () ->
-                        ContinuationAuditTest.witness(pre + """
+                        ContinuationRecoveryTest.witness(pre + """
                                 print(p.test_tolstring_stack())
                                 print(p.test_pushstring_lifetime())
                                 """)),
                 DynamicTest.dynamicTest("C userdata __gc via lua_setmetatable and loadlib '*'", () ->
-                        ContinuationAuditTest.witness(pre + """
+                        ContinuationRecoveryTest.witness(pre + """
                                 local before = p.get_ud_gc_count()
                                 do
                                   local u = p.make_ud()
